@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r346 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r346%20-%20branches/map65&In-Reply-To=%3C200701121956.l0CJuowj018242%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000030.html">
+   <LINK REL="Next"  HREF="000032.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r346 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r346%20-%20branches/map65&In-Reply-To=%3C200701121956.l0CJuowj018242%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r346 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 12 20:56:50 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000030.html">[WSJT-SVN] r345 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000032.html">[WSJT-SVN] r347 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#31">[ date ]</a>
+              <a href="thread.html#31">[ thread ]</a>
+              <a href="subject.html#31">[ subject ]</a>
+              <a href="author.html#31">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-12 20:56:45 +0100 (Fri, 12 Jan 2007)
+New Revision: 346
+
+Modified:
+   branches/map65/ftn_init.F90
+   branches/map65/map65a.f90
+   branches/map65/rfile3a.f90
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+Log:
+Basic waterfall now works.
+
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-01-12 17:57:41 UTC (rev 345)
++++ branches/map65/ftn_init.F90	2007-01-12 19:56:45 UTC (rev 346)
+@@ -97,6 +97,9 @@
+        status='unknown')
+ #endif
+ 
++  open(24,file=appdir(:iz)//'/tmp24.txt',status='unknown')
++  open(26,file=appdir(:iz)//'/tmp26.txt',status='unknown')
++
+   return
+ 
+ 910 print*,'Error opening DECODED.TXT'
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-01-12 17:57:41 UTC (rev 345)
++++ branches/map65/map65a.f90	2007-01-12 19:56:45 UTC (rev 346)
+@@ -32,17 +32,8 @@
+   nmin=1
+   infile='061111.0745'
+ 
+-!  Initialize some constants
+-
+-!      open(22,file='kvasd.dat',access='direct',recl=1024,
+-!     +     status='unknown')
+   open(23,file='CALL3.TXT',status='unknown')
+ 
+-!      nbytes=8*(4*96000+9000)           !Empirical, for 061111_0744.dat.48
+-!      nskip=8*nint(96000*(tskip+4.09375))
+-!      n=rfile3(infile,id,nskip)          !Skip to start of minute
+-!      if(n.ne.nskip) go to 9999
+-
+   df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
+   fa=0.0
+   fb=60000.0
+@@ -53,7 +44,6 @@
+   nkk=1
+ 
+   do nfile=1,nmin
+-!         n=rfile3(infile,id,8*NSMAX)       !Read 60 s of data (approx 46 MB)
+      n=8*NSMAX
+      call rfile3a(infile,id,n,ierr)
+      newdat=1
+@@ -181,7 +171,6 @@
+ 
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+-
+                  call decode1a(id,newdat,nfilt,freq,nflip,ipol,         &amp;
+                       sync2,a,dt,pol,nkv,nhist,qual,decoded)
+                  kk=kk+1
+
+Modified: branches/map65/rfile3a.f90
+===================================================================
+--- branches/map65/rfile3a.f90	2007-01-12 17:57:41 UTC (rev 345)
++++ branches/map65/rfile3a.f90	2007-01-12 19:56:45 UTC (rev 346)
+@@ -9,5 +9,6 @@
+   ierr=0
+   go to 999
+ 998 ierr=1002
+-999 return
++999 close(10)
++  return
+ end subroutine rfile3a
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-01-12 17:57:41 UTC (rev 345)
++++ branches/map65/spec.f90	2007-01-12 19:56:45 UTC (rev 346)
+@@ -10,68 +10,59 @@
+ ! Output:
+   integer*2 a(NTOT)             !Pixel values for NX x NY array
+ 
+-!  real a0(NTOT)                 !Save the last NY spectra
+-  integer nstep(5)
++  logical first
++  integer nstep(4)
+   integer b0,c0
+-  real s(NFFT)
++  real s(NX,NY)
+   common/spcom/ss(4,322,NFFT)                !169 MB: half-symbol spectra
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+   include 'gcom4.f90'
+-  data jz/0/                    !Number of spectral lines available
+-  data nstep/15,10,5,2,1/       !Integration limits
++  data first/.true./
++  data nstep/16,10,5,3/       !Integration limits
+   save
+ 
+-  df=96000.0/nfft
+-  b0=-999
+-  c0=-999
+-  logmap0=-999
+-  nspeed0=-999
+-  nmode=2                                  !JT65 mode
++  if(first) then
++     df=96000.0/nfft
++     call zero(a,NX*NY/2)
++     first=.false.
++  endif
+ 
+   nadd=nstep(nspeed)
+   nlines=322/nadd
+-  j=0
+-  print*,'A',nspeed,nadd,nlines
+-  do k=1,nlines
+-     do i=1,nfft
+-        s(i)=0.
+-        do n=1,nadd
+-           j=j+1
+-           s(i)=s(i) + ss(1,j,i) + ss(3,j,i)
+-        enddo
+-        s(i)=s(i)/nadd
++  call zero(s,NX*NY)
++  k=0
++  ia=9001
++  ib=9750
++  do j=1,nlines
++     k=k+1
++     do i=ia,ib
++        s(i,j)=s(i,j) + ss(1,k,i) + ss(3,k,i)
+      enddo
+-     print*,'B',k
++  enddo
+ 
+-!  Compute pixel values 
+-!     iz=NX
+-!     logmap=0
+-!     if(brightness.ne.b0 .or. contrast.ne.c0 .or. logmap.ne.logmap0 .or.    &amp;
+-!          nspeed.ne.nspeed0 .or. nlines.gt.1) then
+-     iz=NTOT
+-     gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
+-     gamma=1.3 + 0.01*contrast
+-     offset=(brightness+64.0)/2
+-     b0=brightness
+-     c0=contrast
+-     logmap0=logmap
+-     nspeed0=nspeed
+-     ia=10001
+-     ib=10750
++  newpts=NX*nlines
++  do i=newpts+1,NX*NY
++     a(i)=a(i-newpts)
++  enddo
+ 
++  gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
++  gamma=1.3 + 0.01*contrast
++  offset=(brightness+64.0)/2
++  k=0
++  do j=1,nlines
+      do i=ia,ib
++        k=k+1
+         n=0
+-        if(s(i).gt.0.0 .and. logmap.eq.1) n=gain*log10(0.001*s(i)) &amp;
+-             + offset + 20
+-        if(s(i).gt.0.0 .and. logmap.eq.0) n=(0.01*s(i))**gamma + offset
++        x=s(i,j)
++!        if(s(i).gt.0.0 .and. logmap.eq.1) n=gain*log10(0.001*s(i)) &amp;
++!             + offset + 20
++        if(x.gt.0.0 .and. logmap.eq.0) n=(20.0*x)**gamma + offset
+         n=min(252,max(0,n))
+-        a(i)=n
++        a(k)=n
+      enddo
+-     print*,'C'
+   enddo
+-  print*,'D'
+ 
+   return
+ end subroutine spec
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-01-12 17:57:41 UTC (rev 345)
++++ branches/map65/specjt.py	2007-01-12 19:56:45 UTC (rev 346)
+@@ -251,6 +251,7 @@
+     newspec=Audio.gcom2.newspec                   #True if new data available
+     if newspec:
+         Audio.spec(brightness,contrast,logm,g0,nspeed,a) #Call Fortran routine spec
++        pass
+ 
+     if newspec or brightness!=b0 or contrast!=c0 or logm!=logm0:
+         if brightness==b0 and contrast==c0 and logm==logm0:
+@@ -428,10 +429,10 @@
+ bfmid2.pack(side=LEFT)
+ 
+ #------------------------------------------------- Speed selection buttons
+-for i in (5, 4, 3, 2, 1):
++for i in (4, 3, 2, 1):
+     t=str(i)
+     Radiobutton(mbar,text=t,value=i,variable=nspeed0).pack(side=RIGHT)
+-nspeed0.set(3)
++nspeed0.set(1)
+ lab2=Label(mbar,text='Speed: ',bd=0)
+ lab2.pack(side=RIGHT)
+ #------------------------------------------------- Graphics frame
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000030.html">[WSJT-SVN] r345 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000032.html">[WSJT-SVN] r347 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#31">[ date ]</a>
+              <a href="thread.html#31">[ thread ]</a>
+              <a href="subject.html#31">[ subject ]</a>
+              <a href="author.html#31">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,384 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2540 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2540%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830142231.5F78155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002231.html">
+   <LINK REL="Next"  HREF="002233.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2540 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2540%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830142231.5F78155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2540 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Aug 30 16:22:31 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002231.html">[WSJT-SVN] r2539 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002233.html">[WSJT-SVN] r2541 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2232">[ date ]</a>
+              <a href="thread.html#2232">[ thread ]</a>
+              <a href="subject.html#2232">[ subject ]</a>
+              <a href="author.html#2232">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-30 16:22:30 +0200 (Thu, 30 Aug 2012)
+New Revision: 2540
+
+Modified:
+   branches/map65/commons.h
+   branches/map65/libm65/decode0.f90
+   branches/map65/libm65/decode1a.f
+   branches/map65/libm65/m65.f90
+   branches/map65/libm65/m65a.F90
+   branches/map65/libm65/map65a.f90
+   branches/map65/libm65/recvpkt.f90
+   branches/map65/libm65/s3avg.f90
+   branches/map65/libm65/symspec.f90
+   branches/map65/mainwindow.cpp
+   branches/map65/mainwindow.h
+   branches/map65/soundin.cpp
+Log:
+Working on smooth functioning of decoding average messages.  Not finished, yet!
+
+
+Modified: branches/map65/commons.h
+===================================================================
+--- branches/map65/commons.h	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/commons.h	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -31,6 +31,8 @@
+   int nfsample;                     //Input sample rate
+   int nxpol;                        //1 if using xpol antennas, 0 otherwise
+   int mode65;                       //JT65 sub-mode: A=1, B=2, C=4
++  int nfast;                        //1 for sub-modes ABC; 2 for B2, C2
++  int nsave;                        //Number of s3(64,63) spectra saved
+   char mycall[12];
+   char mygrid[6];
+   char hiscall[12];
+
+Modified: branches/map65/libm65/decode0.f90
+===================================================================
+--- branches/map65/libm65/decode0.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/decode0.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -11,7 +11,7 @@
+   common/npar/fcenter,nutc,idphi,mousedf,mousefqso,nagain,                &amp;
+        ndepth,ndiskdat,neme,newdat,nfa,nfb,nfcal,nfshift,                 &amp;
+        mcall3,nkeep,ntol,nxant,nrxlog,nfsample,nxpol,mode65,              &amp;
+-       mycall,mygrid,hiscall,hisgrid,datetime
++       nfast,nsave,mycall,mygrid,hiscall,hisgrid,datetime
+   common/tracer/ limtrace,lu
+   data neme0/-99/,mcall3b/1/
+   save
+@@ -53,12 +53,16 @@
+   call timer('map65a  ',0)
+   call map65a(dd,ss,savg,newdat,nutc,fcenter,ntol,idphi,nfa,nfb,           &amp;
+        mousedf,mousefqso,nagain,ndecdone,ndiskdat,nfshift,ndphi,           &amp;
+-       nfcal,nkeep,mcall3b,nsave,nxant,rmsdd,mycall,mygrid,                &amp;
++       nfcal,nkeep,mcall3b,nsum,nsave0,nxant,rmsdd,mycall,mygrid,          &amp;
+        neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65)
+ 
+   call timer('map65a  ',1)
+   call timer('decode0 ',1)
+   if(nstandalone.eq.0) call timer('decode0 ',101)
+ 
++  write(*,1010) nsum,nsave0
++1010 format('&lt;m65aFinished&gt;',2i4)
++  flush(6)
++
+   return
+ end subroutine decode0
+
+Modified: branches/map65/libm65/decode1a.f
+===================================================================
+--- branches/map65/libm65/decode1a.f	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/decode1a.f	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -1,6 +1,7 @@
+       subroutine decode1a(dd,newdat,f0,nflip,mode65,nfsample,xpol,
+      +  mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,iloop,
+-     +  nutc,nkhz,ndf,ipol,sync2,a,dt,pol,nkv,nhist,nsave,qual,decoded)
++     +  nutc,nkhz,ndf,ipol,sync2,a,dt,pol,nkv,nhist,nsum,nsave,
++     +  qual,decoded)
+ 
+ !  Apply AFC corrections to a candidate JT65 signal, then decode it.
+ 
+@@ -139,7 +140,8 @@
+             nkhz0=nkhz
+             nsave=min(32,nsave+1)
+             npol=nint(57.296*pol)
+-            call s3avg(nsave,mode65,nutc,ndf,dt+0.8,npol,s3,nkv,decoded)
++            call s3avg(nsave,mode65,nutc,ndf,dt+0.8,npol,s3,nsum,
++     +                 nkv,decoded)
+             syncbest=sync2
+          endif
+          nutc0=nutc
+
+Modified: branches/map65/libm65/m65.f90
+===================================================================
+--- branches/map65/libm65/m65.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/m65.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -13,11 +13,11 @@
+   real*8 fc0,fcenter
+   character*80 arg,infile
+   character mycall*12,hiscall*12,mygrid*6,hisgrid*6,datetime*20
+-  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fc0,nutc0,junk(34)
++  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fc0,nutc0,junk(36)
+   common/npar/fcenter,nutc,idphi,mousedf,mousefqso,nagain,                &amp;
+        ndepth,ndiskdat,neme,newdat,nfa,nfb,nfcal,nfshift,                 &amp;
+        mcall3,nkeep,ntol,nxant,nrxlog,nfsample,nxpol,mode65,              &amp;
+-       mycall,mygrid,hiscall,hisgrid,datetime
++       nfast,nsave,mycall,mygrid,hiscall,hisgrid,datetime
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+
+Modified: branches/map65/libm65/m65a.F90
+===================================================================
+--- branches/map65/libm65/m65a.F90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/m65a.F90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -45,10 +45,6 @@
+   p_m65=&gt;address_m65()
+   call m65b(p_m65,nbytes)
+ 
+-  write(*,1010) 
+-1010 format('&lt;m65aFinished&gt;')
+-  flush(6)
+-
+ 100 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
+   if(fileExists) go to 10
+   call sleep_msec(100)
+@@ -70,14 +66,14 @@
+   integer*1 detach_m65
+   real*4 dd(4,5760000),ss(4,322,32768),savg(4,32768)
+   real*8 fcenter
+-  integer nparams0(37),nparams(37)
++  integer nparams0(40),nparams(40)
+   character*12 mycall,hiscall
+   character*6 mygrid,hisgrid
+   character*20 datetime
+   common/npar/fcenter,nutc,idphi,mousedf,mousefqso,nagain,              &amp;
+        ndepth,ndiskdat,neme,newdat,nfa,nfb,nfcal,nfshift,               &amp;
+        mcall3,nkeep,ntol,nxant,nrxlog,nfsample,nxpol,mode65,            &amp;
+-       mycall,mygrid,hiscall,hisgrid,datetime
++       nfast,nsave,mycall,mygrid,hiscall,hisgrid,datetime
+   equivalence (nparams,fcenter)
+   
+   nparams=nparams0                     !Copy parameters into common/npar/
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/map65a.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -1,6 +1,6 @@
+ subroutine map65a(dd,ss,savg,newdat,nutc,fcenter,ntol,idphi,nfa,nfb,        &amp;
+      mousedf,mousefqso,nagain,ndecdone,ndiskdat,nfshift,ndphi,              &amp;
+-     nfcal,nkeep,mcall3b,nsave,nxant,rmsdd,mycall,mygrid,                    &amp;
++     nfcal,nkeep,mcall3b,nsum,nsave,nxant,rmsdd,mycall,mygrid,              &amp;
+      neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65)
+ 
+ !  Processes timf2 data from Linrad to find and decode JT65 signals.
+@@ -206,7 +206,7 @@
+                  call decode1a(dd,newdat,f00,nflip,mode65,nfsample,xpol,  &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,  &amp;
+                       iloop,nutc,ikHz,idf,ipol,sync2,a,dt,pol,nkv,nhist,  &amp;
+-                      nsave,qual,decoded)
++                      nsum,nsave,qual,decoded)
+                  dt=dt+0.8                           !### empirical tweak
+                  call timer('decode1a',1)
+ 
+
+Modified: branches/map65/libm65/recvpkt.f90
+===================================================================
+--- branches/map65/libm65/recvpkt.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/recvpkt.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -11,7 +11,7 @@
+   integer*2 jd(4),kd(2),nblock2
+   real*4 xd(4),yd(2)
+   real*8 fcenter
+-  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fcenter,nutc,junk(34)
++  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fcenter,nutc,junk(36)
+   equivalence (kd,d4)
+   equivalence (jd,d8,yd)
+   equivalence (xd,c16)
+
+Modified: branches/map65/libm65/s3avg.f90
+===================================================================
+--- branches/map65/libm65/s3avg.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/s3avg.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -1,34 +1,37 @@
+-subroutine s3avg(nsave,mode65,nutc,ndf,xdt,npol,s3,nkv,decoded)
++subroutine s3avg(nsave,mode65,nutc,ndf,xdt,npol,s3,nsum,nkv,decoded)
+ 
+-  real s3(64,63),s3b(64,63)
+-  real s3a(64,63,32)
++! Save the current synchronized spectra, s3(64,63), for possible
++! decoding of average.
++
++  real s3(64,63)                        !Synchronized spectra for 63 symbols
++  real s3a(64,63,32)                    !Saved spectra
++  real s3b(64,63)                       !Average
+   integer iutc(32),idf(32),ipol(32)
+   real dt(32)
+   character*22 decoded
+   logical ltext
+   save
+   
+-  n=nsave
+-  iutc(n)=nutc
+-  idf(n)=ndf
+-  ipol(n)=npol
+-  dt(n)=xdt
+-  s3a(1:64,1:63,n)=s3
++  iutc(nsave)=nutc                          !Save UTC
++  idf(nsave)=ndf                            !Save DF
++  ipol(nsave)=npol                          !Save pol
++  dt(nsave)=xdt                             !Save DT
++  s3a(1:64,1:63,nsave)=s3                   !Save the spectra
+ 
+   s3b=0.
+   nsum=0
+   idfdiff=100
+   dtdiff=0.2
+-  do i=1,n
+-     if(mod(iutc(i),2).ne.mod(nutc,2)) cycle
+-     if(abs(ndf-idf(i)).gt.idfdiff) cycle
+-     if(abs(xdt-dt(i)).gt.dtdiff) cycle
++  do i=1,nsave                              !Accumulate avg spectra
++     if(mod(iutc(i),2).ne.mod(nutc,2)) cycle !Use only 1st or 2nd sequence
++     if(abs(ndf-idf(i)).gt.idfdiff) cycle   !DF must match
++     if(abs(xdt-dt(i)).gt.dtdiff) cycle     !DT must match
+      s3b=s3b + s3a(1:64,1:63,i)
+      nsum=nsum+1
+   enddo
+ 
+   decoded='                      '
+-  if(nsum.ge.2) then
++  if(nsum.ge.2) then                        !Try decoding the sverage
+      nadd=mode65*nsum
+      call extract(s3b,nadd,ncount,nhist,decoded,ltext)     !Extract the message
+      nkv=nsum
+
+Modified: branches/map65/libm65/symspec.f90
+===================================================================
+--- branches/map65/libm65/symspec.f90	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/libm65/symspec.f90	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -22,7 +22,7 @@
+   parameter (NFFT=32768)              !Length of FFTs
+   real*8 ts,hsym
+   real*8 fcenter
+-  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fcenter,nutc,junk(34)
++  common/datcom/dd(4,5760000),ss(4,322,NFFT),savg(4,NFFT),fcenter,nutc,junk(36)
+   real*4 ssz5a(NFFT),w(NFFT)
+   complex z,zfac
+   complex zsumx,zsumy
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/mainwindow.cpp	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -137,6 +137,8 @@
+   m_adjustIQ=0;
+   m_applyIQcal=0;
+   m_colors=&quot;000066ff0000ffff00969696646464&quot;;
++  m_nfast=1;
++  m_nsave=0;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+   ui-&gt;yThermo-&gt;setFillBrush(Qt::magenta);
+@@ -1196,6 +1198,8 @@
+   datcom_.nxpol=0;
+   if(m_xpol) datcom_.nxpol=1;
+   datcom_.mode65=m_mode65;
++  datcom_.nfast=m_nfast;
++  datcom_.nsave=m_nsave;
+ 
+   QString mcall=(m_myCall+&quot;            &quot;).mid(0,12);
+   QString mgrid=(m_myGrid+&quot;            &quot;).mid(0,6);
+@@ -1227,7 +1231,6 @@
+ 
+   QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow m65 to start
+   lockFile.remove();
+-
+   decodeBusy(true);
+ }
+ 
+@@ -1252,6 +1255,12 @@
+   {
+     QByteArray t=proc_m65.readLine();
+     if(t.indexOf(&quot;&lt;m65aFinished&gt;&quot;) &gt;= 0) {
++//      int nsum,nsave;
++//      scanf(&quot;&lt;m65aFinished&gt; %d %d&quot;,&amp;nsum,&amp;nsave);
++//      m_nsum=nsum;
++//      m_nsave=nsave;
++//      qDebug() &lt;&lt; m_nsum &lt;&lt; m_nsave;
++      qDebug() &lt;&lt; t;
+       if(m_widebandDecode) {
+         g_pMessages-&gt;setText(m_messagesText);
+         g_pBandMap-&gt;setText(m_bandmapText);
+
+Modified: branches/map65/mainwindow.h
+===================================================================
+--- branches/map65/mainwindow.h	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/mainwindow.h	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -154,6 +154,9 @@
+     qint32  m_adjustIQ;
+     qint32  m_applyIQcal;
+     qint32  m_mult570;
++    qint32  m_nfast;
++    qint32  m_nsum;
++    qint32  m_nsave;
+ 
+     double  m_fAdd;
+     double  m_IQamp;
+
+Modified: branches/map65/soundin.cpp
+===================================================================
+--- branches/map65/soundin.cpp	2012-08-30 12:39:31 UTC (rev 2539)
++++ branches/map65/soundin.cpp	2012-08-30 14:22:30 UTC (rev 2540)
+@@ -32,6 +32,8 @@
+   int nfsample;                     //Input sample rate
+   int nxpol;                        //1 if using xpol antennas, 0 otherwise
+   int mode65;                       //JT65 sub-mode: A=1, B=2, C=4
++  int nfast;                        //1 for sub-modes ABC; 2 for B2, C2
++  int nsave;                        //Number of s3(64,63) spectra saved
+   char mycall[12];
+   char mygrid[6];
+   char hiscall[12];
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002231.html">[WSJT-SVN] r2539 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002233.html">[WSJT-SVN] r2541 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2232">[ date ]</a>
+              <a href="thread.html#2232">[ thread ]</a>
+              <a href="subject.html#2232">[ subject ]</a>
+              <a href="author.html#2232">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

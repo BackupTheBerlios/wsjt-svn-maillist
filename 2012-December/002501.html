@@ -1,0 +1,293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2809 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2809%20-%20branches/wsprx&In-Reply-To=%3C20121213222949.E85D155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002500.html">
+   <LINK REL="Next"  HREF="002502.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2809 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2809%20-%20branches/wsprx&In-Reply-To=%3C20121213222949.E85D155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2809 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Dec 13 23:29:49 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002500.html">[WSJT-SVN] r2808 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002502.html">[WSJT-SVN] r2810 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2501">[ date ]</a>
+              <a href="thread.html#2501">[ thread ]</a>
+              <a href="subject.html#2501">[ subject ]</a>
+              <a href="author.html#2501">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-13 23:29:49 +0100 (Thu, 13 Dec 2012)
+New Revision: 2809
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/plotter.cpp
+   branches/wsprx/plotter.h
+   branches/wsprx/widegraph.cpp
+   branches/wsprx/widegraph.h
+   branches/wsprx/widegraph.ui
+Log:
+Working on plotter and widegraph details.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/mainwindow.cpp	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsprx/plotter.cpp
+===================================================================
+--- branches/wsprx/plotter.cpp	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/plotter.cpp	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -17,6 +17,7 @@
+ 
+   m_StartFreq = 1000;
+   m_nSpan=1000;                    //Units: Hz
++  m_fftBinWidth=1500.0/2048.0;
+   m_fSpan=(float)m_nSpan;
+   m_hdivs = HORZ_DIVS;
+   m_FreqUnits = 1;
+@@ -69,9 +70,8 @@
+     m_ScalePixmap = QPixmap(m_w,30);
+     m_ScalePixmap.fill(Qt::white);
+ 
+-//    m_fSpan=m_w*m_fftBinWidth;
+-//    m_StartFreq=100 * int((1500-0.5*m_fSpan)/100.0 + 0.5);
+-//    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_StartFreq;
++    m_fSpan=m_w*m_fftBinWidth;
++    m_StartFreq=100 * int((1500-0.5*m_fSpan)/100.0 + 0.5);
+   }
+   DrawOverlay();
+ }
+@@ -87,12 +87,11 @@
+   m_paintEventBusy=false;
+ }
+ 
+-void CPlotter::draw(float swide[], float red[], int i0)             //draw()
++void CPlotter::draw(float swide[])                                //draw()
+ {
+   int j,y2;
+   float y;
+ 
+-  m_i0=i0;
+   double gain = pow(10.0,0.05*(m_plotGain+7));
+ 
+ //move current data down one line (must do this before attaching a QPainter object)
+@@ -108,26 +107,25 @@
+   j=0;
+   bool strong0=false;
+   bool strong=false;
++  int i0=(m_StartFreq-1000)/m_fftBinWidth;
+ 
+-  int iz=XfromFreq(2000.0);
+   for(int i=0; i&lt;m_w; i++) {
+-    if(i&gt;iz) swide[i]=0;
+     strong=false;
+-    if(swide[i]&lt;0) {
++    if(swide[i0+i]&lt;0) {
+       strong=true;
+-      swide[i]=-swide[i];
++      swide[i0+i]=-swide[i0+i];
+     }
+-    y = 10.0*log10(swide[i]);
++    y = 10.0*log10(swide[i0+i]);
+     int y1 = 5.0*gain*y + 10*m_plotZero;
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+-    if (swide[i]&gt;1.e29) y1=255;
++    if (swide[i0+i]&gt;1.e29) y1=255;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+     y2=0;
+     if(m_bCurrent) y2 = 0.4*gain*y - 15;
+-    if(m_bCumulative) y2=1.5*gain*10.0*log10(jt9com_.savg[i]) - 20;
+-    if(m_bJT9Sync) y2=3.0*gain*red[i] - 15;
++    if(m_bCumulative) y2=1.5*gain*10.0*log10(jt9com_.savg[i0+i]) - 20;
++    y2=y2*float(m_h)/540.0;
+     if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+       j=0;
+@@ -281,6 +279,14 @@
+     }
+   }
+ 
++  QPen pen0(Qt::green, 3);                 //Mark QSO Freq with green tick
++  painter0.setPen(pen0);
++  x=XfromFreq(1500);
++  int x1=x - 100/df;
++  int x2=x + 100/df;
++  pen0.setWidth(6);
++  painter0.drawLine(x1,28,x2,28);
++
+   QPen pen1(Qt::red, 3);                         //Mark Tx Freq with red tick
+   painter0.setPen(pen1);
+   x = XfromFreq(m_txFreq);
+
+Modified: branches/wsprx/plotter.h
+===================================================================
+--- branches/wsprx/plotter.h	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/plotter.h	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -38,7 +38,7 @@
+   qint32  m_fCal;
+   qint32  m_w;
+ 
+-  void draw(float sw[], float red[], int i0);		//Update the waterfall
++  void draw(float sw[]);		               //Update the waterfall
+   void SetRunningState(bool running);
+   void setPlotZero(int plotZero);
+   int  getPlotZero();
+@@ -102,7 +102,6 @@
+   char    m_sutc[5];
+   qint32  m_line;
+   qint32  m_fSample;
+-  qint32  m_i0;
+   qint32  m_xClick;
+   qint32  m_freqPerDiv;
+   qint32  m_nsps;
+
+Modified: branches/wsprx/widegraph.cpp
+===================================================================
+--- branches/wsprx/widegraph.cpp	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/widegraph.cpp	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -32,8 +32,6 @@
+   ui-&gt;gainSpinBox-&gt;setValue(ui-&gt;widePlot-&gt;getPlotGain());
+   int w = settings.value(&quot;PlotWidth&quot;,1000).toInt();
+   ui-&gt;widePlot-&gt;m_w=w;
+-//  ui-&gt;widePlot-&gt;setNSpan(n);
+-//  int nbpp = n * 32768.0/(w*96.0) + 0.5;
+   ui-&gt;widePlot-&gt;setBinsPerPixel(1);
+   m_waterfallAvg = settings.value(&quot;WaterfallAvg&quot;,5).toInt();
+   ui-&gt;waterfallAvgSpinBox-&gt;setValue(m_waterfallAvg);
+@@ -60,7 +58,7 @@
+ {
+   //Save user's settings
+   QString inifile(QApplication::applicationDirPath());
+-  inifile += &quot;/wsjtx.ini&quot;;
++  inifile += &quot;/wsprx.ini&quot;;
+   QSettings settings(inifile, QSettings::IniFormat);
+ 
+   settings.beginGroup(&quot;WideGraph&quot;);
+@@ -99,10 +97,7 @@
+     for (int i=0; i&lt;NSMAX; i++)
+         splot[i] /= n;                       //Normalize the average
+     n=0;
+-
+-//    int w=ui-&gt;widePlot-&gt;plotWidth();
+-    int i0=0;                            //###
+-    int i=i0;
++    int i=0;
+     int jz=1000.0/df3;
+     for (int j=0; j&lt;jz; j++) {
+       float sum=0;
+@@ -123,7 +118,7 @@
+       }
+     }
+     m_ntr0=ntr;
+-    ui-&gt;widePlot-&gt;draw(swide,red,i0);
++    ui-&gt;widePlot-&gt;draw(swide);
+   }
+ }
+ 
+@@ -173,11 +168,6 @@
+   return ui-&gt;widePlot-&gt;fQSO();
+ }
+ 
+-int WideGraph::nSpan()
+-{
+-  return ui-&gt;widePlot-&gt;m_nSpan;
+-}
+-
+ float WideGraph::fSpan()
+ {
+   return ui-&gt;widePlot-&gt;m_fSpan;
+
+Modified: branches/wsprx/widegraph.h
+===================================================================
+--- branches/wsprx/widegraph.h	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/widegraph.h	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -18,7 +18,6 @@
+                    int ndiskdata, uchar lstrong[]);
+   void   setQSOfreq(int n);
+   int    QSOfreq();
+-  int    nSpan();
+   int    nStartFreq();
+   float  fSpan();
+   void   saveSettings();
+
+Modified: branches/wsprx/widegraph.ui
+===================================================================
+--- branches/wsprx/widegraph.ui	2012-12-13 21:06:44 UTC (rev 2808)
++++ branches/wsprx/widegraph.ui	2012-12-13 22:29:49 UTC (rev 2809)
+@@ -16,6 +16,12 @@
+     &lt;verstretch&gt;0&lt;/verstretch&gt;
+    &lt;/sizepolicy&gt;
+   &lt;/property&gt;
++  &lt;property name=&quot;minimumSize&quot;&gt;
++   &lt;size&gt;
++    &lt;width&gt;570&lt;/width&gt;
++    &lt;height&gt;0&lt;/height&gt;
++   &lt;/size&gt;
++  &lt;/property&gt;
+   &lt;property name=&quot;windowTitle&quot;&gt;
+    &lt;string&gt;Dialog&lt;/string&gt;
+   &lt;/property&gt;
+@@ -35,7 +41,7 @@
+        &lt;/property&gt;
+        &lt;property name=&quot;minimumSize&quot;&gt;
+         &lt;size&gt;
+-         &lt;width&gt;400&lt;/width&gt;
++         &lt;width&gt;273&lt;/width&gt;
+          &lt;height&gt;200&lt;/height&gt;
+         &lt;/size&gt;
+        &lt;/property&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002500.html">[WSJT-SVN] r2808 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002502.html">[WSJT-SVN] r2810 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2501">[ date ]</a>
+              <a href="thread.html#2501">[ thread ]</a>
+              <a href="subject.html#2501">[ subject ]</a>
+              <a href="author.html#2501">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

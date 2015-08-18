@@ -1,0 +1,235 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3124 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3124%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403153512.531B655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002815.html">
+   <LINK REL="Next"  HREF="002817.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3124 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3124%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403153512.531B655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3124 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Apr  3 17:35:12 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002815.html">[WSJT-SVN] r3123 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002817.html">[WSJT-SVN] r3125 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2816">[ date ]</a>
+              <a href="thread.html#2816">[ thread ]</a>
+              <a href="subject.html#2816">[ subject ]</a>
+              <a href="author.html#2816">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-03 17:35:11 +0200 (Wed, 03 Apr 2013)
+New Revision: 3124
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+1. Blank lines between decoding periods now optional.
+2. &quot;CQ DX&quot; is now treated properly when the decoded line is double.clicked.
+3. Displayed sync values reduced by 1/2.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-02 23:12:19 UTC (rev 3123)
++++ branches/wsjtx/lib/decoder.f90	2013-04-03 15:35:11 UTC (rev 3124)
+@@ -111,7 +111,8 @@
+         call decode9(i1SoftSymbols,limit,nlim,msg)
+         call timer('decode9 ',1)
+  
+-        sync=(syncpk-1.0)/2.0
++!        sync=(syncpk-1.0)/2.0
++        sync=(syncpk+1)/4.0
+         if(sync.lt.0.0 .or. snrdb.lt.dblim-2.0) sync=0.0
+         nsync=sync
+         if(nsync.gt.10) nsync=10
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-02 23:12:19 UTC (rev 3123)
++++ branches/wsjtx/mainwindow.cpp	2013-04-03 15:35:11 UTC (rev 3124)
+@@ -160,6 +160,7 @@
+   m_secID=0;
+   m_promptToLog=false;
+   m_blankLine=false;
++  m_insertBlank=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -369,6 +370,7 @@
+   settings.setValue(&quot;HandshakeIndex&quot;,m_handshakeIndex);
+   settings.setValue(&quot;BandIndex&quot;,m_band);
+   settings.setValue(&quot;PromptToLog&quot;,m_promptToLog);
++  settings.setValue(&quot;InsertBlank&quot;,m_insertBlank);
+   settings.endGroup();
+ }
+ 
+@@ -462,6 +464,8 @@
+   ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   m_promptToLog=settings.value(&quot;PromptToLog&quot;,false).toBool();
+   ui-&gt;actionPrompt_to_log_QSO-&gt;setChecked(m_promptToLog);
++  m_insertBlank=settings.value(&quot;InsertBlank&quot;,false).toBool();
++  ui-&gt;actionBlank_line_between_decoding_periods-&gt;setChecked(m_insertBlank);
+ 
+   settings.endGroup();
+ 
+@@ -1180,7 +1184,7 @@
+ 
+       QTextCursor cursor;
+       QTextBlockFormat bf;
+-      if(m_blankLine) {
++      if(m_insertBlank and m_blankLine) {
+         QString bg=&quot;#9fb6cd&quot;;
+         bf.setBackground(QBrush(QColor(bg)));
+         QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+@@ -1651,6 +1655,8 @@
+   int i4=t.mid(i1).length();
+   if(i4&gt;60) i4=60;
+   QString t3=t.mid(i1,i4);
++  int i5=t3.indexOf(&quot; CQ DX &quot;);
++  if(i5&gt;0) t3=t3.mid(0,i5+3) + &quot;_&quot; + t3.mid(i5+4);  //Make it &quot;CQ_DX&quot; (one word)
+   QStringList t4=t3.split(&quot; &quot;,QString::SkipEmptyParts);
+   if(t4.length() &lt;7) return;           //Skip the rest if no decoded text
+   QString firstcall=t4.at(6);
+@@ -2244,3 +2250,8 @@
+ {
+   m_promptToLog=checked;
+ }
++
++void MainWindow::on_actionBlank_line_between_decoding_periods_triggered(bool checked)
++{
++  m_insertBlank=checked;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-02 23:12:19 UTC (rev 3123)
++++ branches/wsjtx/mainwindow.h	2013-04-03 15:35:11 UTC (rev 3124)
+@@ -129,10 +129,9 @@
+   void startTx2();
+   void stopTx();
+   void stopTx2();
+-
+   void on_bandComboBox_currentIndexChanged(int index);
+-
+   void on_actionPrompt_to_log_QSO_triggered(bool checked);
++  void on_actionBlank_line_between_decoding_periods_triggered(bool checked);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -212,6 +211,7 @@
+     bool    m_After73;
+     bool    m_promptToLog;
+     bool    m_blankLine;
++    bool    m_insertBlank;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-02 23:12:19 UTC (rev 3123)
++++ branches/wsjtx/mainwindow.ui	2013-04-03 15:35:11 UTC (rev 3124)
+@@ -1633,6 +1633,23 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
++        &lt;item row=&quot;0&quot; column=&quot;11&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Now&lt;/string&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;alignment&quot;&gt;
++           &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;0&quot; column=&quot;10&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Next&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
+        &lt;/layout&gt;
+       &lt;/item&gt;
+      &lt;/layout&gt;
+@@ -1675,6 +1692,7 @@
+     &lt;addaction name=&quot;actionConvert_JT9_x_to_RTTY&quot;/&gt;
+     &lt;addaction name=&quot;actionLog_dB_reports_to_Comments&quot;/&gt;
+     &lt;addaction name=&quot;actionPrompt_to_log_QSO&quot;/&gt;
++    &lt;addaction name=&quot;actionBlank_line_between_decoding_periods&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuView&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -1744,6 +1762,9 @@
+    &lt;/property&gt;
+   &lt;/action&gt;
+   &lt;action name=&quot;actionDeviceSetup&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;Options&lt;/string&gt;
+    &lt;/property&gt;
+@@ -2160,6 +2181,14 @@
+     &lt;string&gt;Prompt me to log QSO&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionBlank_line_between_decoding_periods&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Blank line between decoding periods&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002815.html">[WSJT-SVN] r3123 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002817.html">[WSJT-SVN] r3125 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2816">[ date ]</a>
+              <a href="thread.html#2816">[ thread ]</a>
+              <a href="subject.html#2816">[ subject ]</a>
+              <a href="author.html#2816">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

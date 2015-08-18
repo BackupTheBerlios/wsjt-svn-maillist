@@ -1,0 +1,351 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r356 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r356%20-%20branches/map65&In-Reply-To=%3C200701171437.l0HEb0jn008279%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000040.html">
+   <LINK REL="Next"  HREF="000042.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r356 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r356%20-%20branches/map65&In-Reply-To=%3C200701171437.l0HEb0jn008279%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r356 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jan 17 15:37:00 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000040.html">[WSJT-SVN] r355 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000042.html">[WSJT-SVN] r357 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#41">[ date ]</a>
+              <a href="thread.html#41">[ thread ]</a>
+              <a href="subject.html#41">[ subject ]</a>
+              <a href="author.html#41">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-17 15:36:54 +0100 (Wed, 17 Jan 2007)
+New Revision: 356
+
+Removed:
+   branches/map65/display.f
+Modified:
+   branches/map65/display.F90
+   branches/map65/ftn_init.F90
+   branches/map65/map65.py
+Log:
+Added band map 2.
+
+
+Modified: branches/map65/display.F90
+===================================================================
+--- branches/map65/display.F90	2007-01-15 13:31:50 UTC (rev 355)
++++ branches/map65/display.F90	2007-01-17 14:36:54 UTC (rev 356)
+@@ -6,6 +6,8 @@
+   integer indx(MAXLINES),indx2(MX)
+   character*80 line(MAXLINES),line2(MX),line3(MAXLINES)
+   character out*41,cfreq0*3
++  character callsign*6,callsign0*6,freqcall*10(100)
++  character*36 bm2
+   real freqkHz(MAXLINES)
+   integer utc(MAXLINES),utc2(MX),utcz
+   real*8 f0
+@@ -97,7 +99,10 @@
+   enddo
+ 
+   rewind 19
++  rewind 20
+   cfreq0='   '
++  nc=0
++  callsign0='          '
+   do k=1,k3
+      out=line3(k)(5:12)//line3(k)(28:31)//line3(k)(39:67)
+      if(out(1:3).ne.'   ') then
+@@ -108,8 +113,28 @@
+         endif
+         write(19,1030) out
+ 1030    format(a41)
++        i1=index(out(20:),' ')
++        callsign=out(i1+20:)
++        i2=index(callsign,' ')
++        if(i2.gt.1) callsign(i2:)='      '
++        if(callsign.ne.'      ' .and. callsign.ne.callsign0) then
++           nc=nc+1
++           freqcall(nc)=cfreq0//' '//callsign
++           callsign0=callsign
++        endif
+      endif
+   enddo
++  nc=nc+1
++  freqcall(nc)='          '
++  nc=nc+1
++  freqcall(nc)='          '
++  iz=(nc+2)/3
++  do i=1,iz
++     bm2=freqcall(i)//'  '//freqcall(i+iz)//'  '//freqcall(i+2*iz)
++     write(20,1040) bm2
++1040 format(a36)
++  enddo
++  write(*,1040)
+ 
+   return
+ end subroutine display
+
+Deleted: branches/map65/display.f
+===================================================================
+--- branches/map65/display.f	2007-01-15 13:31:50 UTC (rev 355)
++++ branches/map65/display.f	2007-01-17 14:36:54 UTC (rev 356)
+@@ -1,48 +0,0 @@
+-      subroutine display
+-
+-      parameter (MAXLINES=500)
+-      integer indx(MAXLINES)
+-      character*80 line(MAXLINES)
+-      real freqkHz(MAXLINES)
+-      integer utc(MAXLINES)
+-      real*8 f0
+-
+-      ftol=0.02
+-      rewind 26
+-
+-      do i=1,MAXLINES
+-         read(26,1010,end=10) line(i)
+- 1010    format(a80)
+-         read(line(i),1020) f0,ndf,utc(i)
+- 1020    format(f7.3,i5,26x,i5)
+-         freqkHz(i)=1000.d0*(f0-144.d0) + 0.001d0*ndf
+-      enddo
+-
+- 10   nz=i-1
+-      if(nz.lt.1) go to 999
+-      call indexx(nz,freqkHz,indx)
+-
+-      nstart=1
+-      rewind 24
+-      write(24,3101) line(indx(1))
+- 3101 format(a80)
+-      do i=2,nz
+-         j0=indx(i-1)
+-         j=indx(i)
+-         if(freqkHz(j)-freqkHz(j0).gt.ftol) then
+-            if(nstart.eq.0) write(24,3101)
+-            endfile 24
+-            if(nstart.eq.1) then
+-               nstart=0
+-            else
+-            endif
+-            rewind 24
+-         endif
+-         if(i.eq.nz) write(24,3101)
+-         write(24,3101) line(j)
+-         j0=j
+-      enddo
+-      endfile 24
+-
+- 999  return
+-      end
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-01-15 13:31:50 UTC (rev 355)
++++ branches/map65/ftn_init.F90	2007-01-17 14:36:54 UTC (rev 356)
+@@ -10,7 +10,7 @@
+ !   17  wave files written to disk
+ !   18  test file to be transmitted (wsjtgen.f90)
+ !   19  bandmap.txt
+-!   20
++!   20  bandmap2.txt
+ !   21  ALL.TXT
+ !   22  kvasd.dat
+ !   23  CALL3.TXT
+@@ -71,14 +71,23 @@
+ 
+ #ifdef Win32
+   open(19,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
+-       share='denynone',err=910)
++       share='denynone',err=911)
+ #else
+   open(19,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
+-       err=910)
++       err=911)
+ #endif
+   endfile 19
+ 
+ #ifdef Win32
++  open(20,file=appdir(:iz)//'/bandmap2.txt',status='unknown',               &amp;
++       share='denynone',err=912)
++#else
++  open(20,file=appdir(:iz)//'/bandmap2.txt',status='unknown',               &amp;
++       err=912)
++#endif
++  endfile 20
++
++#ifdef Win32
+   open(21,file=appdir(:iz)//'/ALL.TXT',status='unknown',                   &amp;
+        access='append',share='denynone',err=950)
+ #else
+@@ -106,6 +115,10 @@
+ 
+ 910 print*,'Error opening DECODED.TXT'
+   stop
++911 print*,'Error opening bandmap.txt'
++  stop
++912 print*,'Error opening bandmap2.txt'
++  stop
+ 920 print*,'Error opening DECODED.AVE'
+   stop
+ 930 print*,'Error opening AZEL.DAT'
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-01-15 13:31:50 UTC (rev 355)
++++ branches/map65/map65.py	2007-01-17 14:36:54 UTC (rev 356)
+@@ -51,6 +51,7 @@
+ lauto=0
+ altmsg=0
+ bm_geom=&quot;&quot;
++bm2_geom=&quot;&quot;
+ cmap0=&quot;Linrad&quot;
+ fileopened=&quot;&quot;
+ font1='Helvetica'
+@@ -177,10 +178,19 @@
+     bmsb = Scrollbar(iframe_bm1, orient=VERTICAL, command=bmtext.yview)
+     bmsb.pack(side=RIGHT, fill=Y)
+     bmtext.configure(yscrollcommand=bmsb.set)
+-#    bmtext.insert(END,'144.103  CQ EA3DXU JN11\n')
+-#    bmtext.insert(END,'144.118  OH6KTL RA3AQ KO85 OOO')
+     iframe_bm1.pack(expand=1, fill=X, padx=4)
+ 
++#------------------------------------------------------ bandmap2
++def bandmap2(event=NONE):
++    global Version,bm2,bm2_geom,bm2text
++    bm2=Toplevel(root)
++    bm2.geometry(bm2_geom)
++    if g.Win32: bm2.iconbitmap(&quot;wsjt.ico&quot;)
++    iframe_bm2 = Frame(bm2, bd=1, relief=SUNKEN)
++    bm2text=Text(iframe_bm2, height=24, width=36, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
++    bm2text.pack(side=LEFT, fill=X, padx=1, pady=3)
++    iframe_bm2.pack(expand=1, fill=X, padx=4)
++
+ #------------------------------------------------------ logqso
+ def logqso(event=NONE):
+     t=time.strftime(&quot;%Y-%b-%d,%H:%M&quot;,time.gmtime())
+@@ -1083,7 +1093,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom
++           bm_geom,bm2_geom
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -1096,6 +1106,7 @@
+         root_geom=root.geometry()
+         try:
+             bm_geom=bm.geometry()
++            bm2_geom=bm2.geometry()
+         except:
+             pass
+         utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
+@@ -1268,6 +1279,19 @@
+             for i in range(len(lines)):
+                 bmtext.insert(END,lines[i])
+             bmtext.see(END)
++
++            try:
++                f=open(appdir+'/bandmap2.txt',mode='r')
++                lines=f.readlines()
++                f.close()
++            except:
++                lines=&quot;&quot;
++            bm2text.configure(state=NORMAL)
++            bm2text.delete('1.0',END)
++            for i in range(len(lines)):
++                bm2text.insert(END,lines[i])
++            bm2text.see(END)
++
+             Audio.gcom2.ndecdone=0
+             if loopall: opennext()
+             nopen=0
+@@ -1383,8 +1407,8 @@
+ viewbutton['menu']=viewmenu
+ viewmenu.add('command', label = 'SpecJT', command = showspecjt, \
+              accelerator='F10')
+-viewmenu.add('command', label = 'Band Map', command = bandmap, \
+-             accelerator='Ctrl+F10')
++viewmenu.add('command', label = 'Band Map 1', command = bandmap)
++viewmenu.add('command', label = 'Band Map 2', command = bandmap2)
+ viewmenu.add('command', label = 'Astronomical data', command = astro1, \
+              accelerator='Shift+F10')
+ 
+@@ -1519,8 +1543,6 @@
+ root.bind_all('&lt;Control-F8&gt;', ModeJT65C)
+ root.bind_all('&lt;F10&gt;', showspecjt)
+ root.bind_all('&lt;Shift-F10&gt;', astro1)
+-root.bind_all('&lt;Control-F10&gt;', bandmap)
+-
+ root.bind_all('&lt;Alt-Key-1&gt;',btx1)
+ root.bind_all('&lt;Alt-Key-2&gt;',btx2)
+ root.bind_all('&lt;Alt-Key-3&gt;',btx3)
+@@ -1781,6 +1803,7 @@
+         key,value=params[i].split()
+         if   key == 'MAP65Geometry': root.geometry(value)
+         elif key == 'BMGeometry': bm_geom=value
++        elif key == 'BM2Geometry': bm2_geom=value
+         elif key == 'Mode':
+             mode.set(value)
+             if value=='JT65A':
+@@ -1882,6 +1905,7 @@
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title('  MAP65     by K1JT')
+ bandmap()
++bandmap2()
+ import astro
+ import specjt
+ 
+@@ -1894,6 +1918,8 @@
+ f.write(&quot;MAP65Geometry &quot; + root_geom + &quot;\n&quot;)
+ bm_geom=bm_geom[bm_geom.index(&quot;+&quot;):]
+ f.write(&quot;BMGeometry &quot; + bm_geom + &quot;\n&quot;)
++bm2_geom=bm2_geom[bm2_geom.index(&quot;+&quot;):]
++f.write(&quot;BM2Geometry &quot; + bm2_geom + &quot;\n&quot;)
+ f.write(&quot;Mode &quot; + g.mode + &quot;\n&quot;)
+ f.write(&quot;MyCall &quot; + options.MyCall.get() + &quot;\n&quot;)
+ f.write(&quot;MyGrid &quot; + options.MyGrid.get() + &quot;\n&quot;)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000040.html">[WSJT-SVN] r355 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000042.html">[WSJT-SVN] r357 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#41">[ date ]</a>
+              <a href="thread.html#41">[ thread ]</a>
+              <a href="subject.html#41">[ subject ]</a>
+              <a href="author.html#41">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

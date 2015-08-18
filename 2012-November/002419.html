@@ -1,0 +1,399 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2727 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2727%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121114153022.74F3B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002418.html">
+   <LINK REL="Next"  HREF="002420.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2727 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2727%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121114153022.74F3B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2727 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Nov 14 16:30:22 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002418.html">[WSJT-SVN] r2726 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002420.html">[WSJT-SVN] r2728 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2419">[ date ]</a>
+              <a href="thread.html#2419">[ thread ]</a>
+              <a href="subject.html#2419">[ subject ]</a>
+              <a href="author.html#2419">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-14 16:30:21 +0100 (Wed, 14 Nov 2012)
+New Revision: 2727
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/peakdt9.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/soundin.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.ui
+   branches/wsjtx/wsjtx.pro
+Log:
+Correct UTC on waterfall for slow modes.
+Tweak some GUI widget placements.
+Send stderr to file wsjtx.log.
+Fix formatting of std message with &quot;R -7&quot;, etc., to &quot;R-7&quot;.
+Introduce calls to &quot;timer&quot;.
+Remove console.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/lib/decoder.f90	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -15,10 +15,21 @@
+   common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
+        ntr,nfqso,newdat,npts80,nfb,ntol,kin,nsynced,ndecoded
+   common/jt9comB/ss(184,NSMAX),c0
++  common/tracer/limtrace,lu
+   logical first
+   data first/.true./
+   save
+ 
++  if(first) then
++     limtrace=0
++     lu=12
++     open(12,file='timer.out',status='unknown')
++     open(14,file='wsjtx_rx.log',status='unknown',position='append')
++     first=.false.
++  endif
++
++  call timer('decoder ',0)
++
+   if(newdat.ne.0) then
+      ss=ss0
+      c0=c00
+@@ -38,7 +49,7 @@
+   if(ntrMinutes.eq.1) then
+      nsps=6912
+      df3=1500.0/2048.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.0,f6.2,3x,a22)'
++     fmt='(i4.4,i4,i5,f6.1,f8.0,f6.1,3x,a22)'
+   else if(ntrMinutes.eq.2) then
+      nsps=15360
+      df3=1500.0/2048.0
+@@ -61,14 +72,12 @@
+   kstep=nsps/2
+   tstep=kstep/12000.0
+ 
++  call timer('sync9   ',0)
+   call sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  ! Get sync, approx freq
++  call timer('sync9   ',1)
+ 
+   open(13,file='decoded.txt',status='unknown')
+   rewind 13
+-  if(first) then
+-     open(14,file='wsjtx_rx.log',status='unknown',position='append')
+-     first=.false.
+-  endif
+   if(iand(nRxLog,2).ne.0) rewind 14
+   if(iand(nRxLog,1).ne.0) then
+ ! Write date and time to lu 14     
+@@ -80,8 +89,13 @@
+   do i=ia,ib
+      f=(i-1)*df3
+      if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
++        call timer('spec9   ',0)
+         call spec9(c0,npts8,nsps,f,fpk,xdt,snr,i1SoftSymbols)
++        call timer('spec9   ',1)
++
++        call timer('decode9 ',0)
+         call decode9(i1SoftSymbols,limit,nlim,msg)
++        call timer('decode9 ',1)
+         sync=ccfred(i) - 2.0
+         if(sync.lt.0.0) sync=0.0
+         nsync=sync
+@@ -115,5 +129,8 @@
+   call flush(14)
+   close(13)
+ 
++  call timer('decoder ',1)
++  call timer('decoder ',101)
++
+   return
+ end subroutine decoder
+
+Modified: branches/wsjtx/lib/peakdt9.f90
+===================================================================
+--- branches/wsjtx/lib/peakdt9.f90	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/lib/peakdt9.f90	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -15,15 +15,14 @@
+      i0=istart + 0.0625*nsps8*idt
+     sum=0.
+      do j=1,16
+-        i1=(ii(j)-1)*nsps8 + i0
++        i1=max(0,(ii(j)-1)*nsps8 + i0)
++        i2=min(npts8-1,i1+nsps8-1)
+         phi=0.
+         zsum=0.
+-        do i=i1,i1+nsps8-1
++        do i=i1,i2
+            if(i.lt.0 .or. i.gt.npts8-1) cycle
+            phi=phi + dphi
+-           if(i.ge.0 .and. i.le.npts8-1) then
+-              zsum=zsum + c0(i)*cmplx(cos(phi),-sin(phi))
+-           endif
++           zsum=zsum + c0(i)*cmplx(cos(phi),-sin(phi))
+         enddo
+         sum=sum + real(zsum)**2 + aimag(zsum)**2
+      enddo
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/lib/spec9.f90	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -35,13 +35,19 @@
+   foffset=fpk0
+   istart=1520
+ 
++  call timer('peakdt9 ',0)
+   call peakdt9(c1,npts8,nsps8,istart,foffset,idt)
++  call timer('peakdt9 ',1)
+   istart=istart + 0.0625*nsps8*idt
+   xdt=istart/1500.0 - 1.0
+ 
++  call timer('peakdf9 ',0)
+   call peakdf9(c1,npts8,nsps8,istart,foffset,idf)
++  call timer('peakdf9 ',1)
++
+   fpk=fpk0 + idf*0.1*1500.0/nsps8
+   foffset=foffset + idf*0.1*1500.0/nsps8
++
+   twopi=8.0*atan(1.0)
+   dphi=twopi*foffset/1500.0
+   nfft=nsps8
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/mainwindow.cpp	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -27,6 +27,7 @@
+ {
+   ui-&gt;setupUi(this);
+ 
++  freopen(&quot;wsjtx.log&quot;,&quot;w&quot;,stderr);
+   on_EraseButton_clicked();
+   ui-&gt;labUTC-&gt;setStyleSheet( \
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+@@ -1151,6 +1152,7 @@
+   m_txFirst=(nmod!=0);
+   ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
+   QString rpt=t2.mid(10,3);
++  if(rpt.indexOf(&quot; &quot;)==0) rpt=rpt.mid(1,2);
+   if(ctrl) {
+     int i4=t.mid(i2,20).indexOf(&quot; &quot;);
+     QString hisgrid=t.mid(i2,20).mid(i4+1,4);
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/mainwindow.ui	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -66,7 +66,7 @@
+         &lt;/size&gt;
+        &lt;/property&gt;
+        &lt;property name=&quot;title&quot;&gt;
+-        &lt;string&gt;     UTC      Sync       dB            DT          Freq          Drift&lt;/string&gt;
++        &lt;string&gt;     UTC      Sync       dB            DT          Freq            Drift&lt;/string&gt;
+        &lt;/property&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+         &lt;item&gt;
+@@ -292,7 +292,7 @@
+          &lt;property name=&quot;maximumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;190&lt;/height&gt;
++           &lt;height&gt;170&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+@@ -510,6 +510,22 @@
+            &lt;/property&gt;
+           &lt;/widget&gt;
+          &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;verticalSpacer_4&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeType&quot;&gt;
++            &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;20&lt;/width&gt;
++             &lt;height&gt;5&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
+         &lt;/layout&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/plotter.cpp	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -162,6 +162,7 @@
+     imin=ms/60000;
+     ihr=imin/60;
+     imin=imin % 60;
++    imin=imin - (imin % (m_TRperiod/60));
+   }
+   if(isec&lt;30) isec=0;
+   if(isec&gt;=30) isec=30;
+@@ -551,9 +552,10 @@
+   return m_fGreen;
+ }
+ 
+-void CPlotter::setNsps(int n)                                  //setNSpan()
++void CPlotter::setNsps(int ntrperiod, int nsps)                                  //setNSpan()
+ {
+-  m_nsps=n;
++  m_TRperiod=ntrperiod;
++  m_nsps=nsps;
+   m_fftBinWidth=1500.0/2048.0;
+   if(m_nsps==15360)  m_fftBinWidth=1500.0/2048.0;
+   if(m_nsps==40960)  m_fftBinWidth=1500.0/6144.0;
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/plotter.h	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -61,11 +61,10 @@
+   int  autoZero();
+   void setPalette(QString palette);
+   void setFsample(int n);
+-  void setNsps(int n);
++  void setNsps(int ntrperiod, int nsps);
+   double fGreen();
+   void SetPercent2DScreen(int percent){m_Percent2DScreen=percent;}
+ 
+-
+ signals:
+   void freezeDecode0(int n);
+   void freezeDecode1(int n);
+@@ -115,6 +114,7 @@
+   qint32  m_h1;
+   qint32  m_h2;
+   qint32  m_tol;
++  qint32  m_TRperiod;
+ 
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/soundin.h	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -47,10 +47,4 @@
+   qint32 m_nsps;
+   bool   m_monitoring;
+ };
+-
+-extern &quot;C&quot; {
+-  void recvpkt_(int* nsam, quint16* iblk, qint8* nrx, int* k, double s1[],
+-                double s2[], double s3[]);
+-}
+-
+ #endif // SOUNDIN_H
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/widegraph.cpp	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -259,7 +259,7 @@
+ {
+   m_TRperiod=ntrperiod;
+   m_nsps=nsps;
+-  ui-&gt;widePlot-&gt;setNsps(nsps);
++  ui-&gt;widePlot-&gt;setNsps(ntrperiod, nsps);
+ }
+ 
+ void WideGraph::on_rbCurrent_clicked()
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/widegraph.ui	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -322,6 +322,9 @@
+        &lt;/item&gt;
+        &lt;item&gt;
+         &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
++         &lt;property name=&quot;enabled&quot;&gt;
++          &lt;bool&gt;false&lt;/bool&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;text&quot;&gt;
+           &lt;string&gt;USB Dial Freq (kHz)&lt;/string&gt;
+          &lt;/property&gt;
+@@ -330,7 +333,7 @@
+        &lt;item&gt;
+         &lt;widget class=&quot;QLineEdit&quot; name=&quot;fDialLineEdit&quot;&gt;
+          &lt;property name=&quot;enabled&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
++          &lt;bool&gt;false&lt;/bool&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-11-14 02:57:57 UTC (rev 2726)
++++ branches/wsjtx/wsjtx.pro	2012-11-14 15:30:21 UTC (rev 2727)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-CONFIG   += console
++#CONFIG   += console
+ 
+ TARGET = wsjtx
+ VERSION = 0.2
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002418.html">[WSJT-SVN] r2726 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002420.html">[WSJT-SVN] r2728 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2419">[ date ]</a>
+              <a href="thread.html#2419">[ thread ]</a>
+              <a href="subject.html#2419">[ subject ]</a>
+              <a href="author.html#2419">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

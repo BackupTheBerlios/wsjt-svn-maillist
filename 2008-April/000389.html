@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r701 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r701%20-%20branches/wspr&In-Reply-To=%3C200804110218.m3B2Iv2j003981%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000388.html">
+   <LINK REL="Next"  HREF="000390.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r701 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r701%20-%20branches/wspr&In-Reply-To=%3C200804110218.m3B2Iv2j003981%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r701 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 11 04:18:57 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000388.html">[WSJT-SVN] r700 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000390.html">[WSJT-SVN] r702 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#389">[ date ]</a>
+              <a href="thread.html#389">[ thread ]</a>
+              <a href="subject.html#389">[ subject ]</a>
+              <a href="author.html#389">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-11 04:18:52 +0200 (Fri, 11 Apr 2008)
+New Revision: 701
+
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/decode.f90
+   branches/wspr/mept162.f
+   branches/wspr/wspr.py
+Log:
+Fixed location of setting ndecdone=1.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2008-04-11 01:50:04 UTC (rev 700)
++++ branches/wspr/acom1.f90	2008-04-11 02:18:52 UTC (rev 701)
+@@ -7,5 +7,5 @@
+   character callsign*6,grid*4
+   integer*2 iwave
+   common/acom1/ f0,ftx,rms,pctx,nsec,ndevin,ndevout,nsave,nrxdone,      &amp;
+-       ndbm,nport,ndecdone,ntxdone,nreceiving,ntransmitting,            &amp;
++       ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,       &amp;
+        iwave(NMAX),infile,outfile,cdate,utctime,callsign,grid
+
+Modified: branches/wspr/decode.f90
+===================================================================
+--- branches/wspr/decode.f90	2008-04-11 01:50:04 UTC (rev 700)
++++ branches/wspr/decode.f90	2008-04-11 02:18:52 UTC (rev 701)
+@@ -12,11 +12,18 @@
+ 
+   minsync=1
+   nsec=time()
+-  call mept162(outfile,f0,minsync,iwave,NMAX,rms,nsec,.false.)
++  ndec=0
++  call mept162(outfile,f0,minsync,iwave,NMAX,rms,nsec,.false.,ndec)
+   if(nsave.gt.0 .and. ndevin.ge.0) then
+      outfile='save/'//outfile
+      call wfile5(iwave,npts,12000,outfile)
+   endif
+ 
++  if(ndec.ne.0) then
++     call flush(14)
++     rewind 14
++     ndecdone=1
++  endif
++
+   return
+ end subroutine decode
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-04-11 01:50:04 UTC (rev 700)
++++ branches/wspr/mept162.f	2008-04-11 02:18:52 UTC (rev 701)
+@@ -1,4 +1,4 @@
+-      subroutine mept162(outfile,f0,minsync,id,npts,rms,nsec,ltest)
++      subroutine mept162(outfile,f0,minsync,id,npts,rms,nsec,ltest,ndec)
+ 
+ C  Orchestrates the process of decoding MEPT_JT messages.
+ 
+@@ -8,7 +8,7 @@
+       character*22 message
+       character*70 outfile
+       character*11 datetime
+-      logical first,skip,ltest,ldec
++      logical first,skip,ltest
+       real*8 f0
+       real ps(-128:128)
+       real sstf(275)
+@@ -22,7 +22,6 @@
+       data first/.true./
+       save
+ 
+-      ldec=.false.
+       fac=1.e-8
+       do i=1,npts
+          x(i)=fac*id(i)
+@@ -126,7 +125,7 @@
+             call decode162(c3,jz,dtbest,df2,message,ncycles,metric,nerr)
+             if(message.eq.'                      ') go to 100
+ 
+-            ldec=.true.
++            ndec=1
+             i2=index(outfile,'.')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+@@ -153,11 +152,5 @@
+  100     continue
+       enddo
+ 
+-      if(ldec) then
+-         call flush(14)
+-         rewind 14
+-         ndecdone=1
+-      endif
+-
+       return
+       end
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-11 01:50:04 UTC (rev 700)
++++ branches/wspr/wspr.py	2008-04-11 02:18:52 UTC (rev 701)
+@@ -1,4 +1,4 @@
+-#------------------------------------------------------------------------ WSPR
++#----------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000388.html">[WSJT-SVN] r700 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000390.html">[WSJT-SVN] r702 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#389">[ date ]</a>
+              <a href="thread.html#389">[ thread ]</a>
+              <a href="subject.html#389">[ subject ]</a>
+              <a href="author.html#389">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

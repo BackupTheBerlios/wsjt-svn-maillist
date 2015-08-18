@@ -1,0 +1,289 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3017 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3017%20-%20trunk&In-Reply-To=%3C20130226192751.E22E055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002708.html">
+   <LINK REL="Next"  HREF="002710.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3017 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3017%20-%20trunk&In-Reply-To=%3C20130226192751.E22E055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3017 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Feb 26 20:27:51 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002708.html">[WSJT-SVN] r3016 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002710.html">[WSJT-SVN] r3018 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2709">[ date ]</a>
+              <a href="thread.html#2709">[ thread ]</a>
+              <a href="subject.html#2709">[ subject ]</a>
+              <a href="author.html#2709">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-26 20:27:51 +0100 (Tue, 26 Feb 2013)
+New Revision: 3017
+
+Modified:
+   trunk/flat1.f
+   trunk/gcom2.f90
+   trunk/short65.f
+   trunk/sync4.f90
+   trunk/sync65.f
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt4.f90
+Log:
+Plot average spectrum ps0() in yellow.
+
+
+Modified: trunk/flat1.f
+===================================================================
+--- trunk/flat1.f	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/flat1.f	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -1,10 +1,9 @@
+-      subroutine flat1(psavg,s2,nh,nsteps,nhmax,nsmax)
++      subroutine flat1(psavg,nsmo,s2,nh,nsteps,nhmax,nsmax)
+ 
+       real psavg(nh)
+       real s2(nhmax,nsmax)
+-      real x(8192),tmp(33)
++      real x(8192),tmp(150)
+ 
+-      nsmo=33
+       ia=nsmo/2 + 1
+       ib=nh - nsmo/2 - 1
+       do i=ia,ib
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/gcom2.f90	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -105,7 +105,7 @@
+ character*22 t0msg
+ 
+ parameter (ND2MAX=120*11025)
+-common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
++common/gcom2/ps0(450),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,dlatency,fecho,iter,iyr,imo,ida,         &amp;
+      ndecoding,ndecoding0,mousebutton,ntc,necho,nfrit,ndither,        &amp;
+      nsumecho,ndecdone,npingtime,npingtime2,ierr,lauto,mantx,         &amp;
+
+Modified: trunk/short65.f
+===================================================================
+--- trunk/short65.f	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/short65.f	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -42,7 +42,7 @@
+          call add(psavg,s2(1,j),psavg,NH)
+       enddo
+ 
+-      call flat1(psavg,s2,NH,nsteps,NH,MAXSTEPS)
++      call flat1(psavg,33,s2,NH,nsteps,NH,MAXSTEPS)
+ 
+       nfac=40*mode65
+       dtstep=0.5/df
+
+Modified: trunk/sync4.f90
+===================================================================
+--- trunk/sync4.f90	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/sync4.f90	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -1,5 +1,5 @@
+ subroutine sync4(dat,jz,ntol,NFreeze,MouseDF,mode,mode4,    &amp;
+-     dtx,dfx,snrx,snrsync,ccfblue,ccfred1,flip,width)
++     dtx,dfx,snrx,snrsync,ccfblue,ccfred1,flip,width,ps0)
+ 
+ ! Synchronizes JT4 data, finding the best-fit DT and DF.  
+ 
+@@ -9,6 +9,7 @@
+   integer ntol                     !Range of DF search
+   real dat(jz)
+   real psavg(NHMAX)                !Average spectrum of whole record
++  real ps0(450)                    !Avg spectrum for plotting
+   real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
+   real ccfblue(-5:540)             !CCF with pseudorandom sequence
+   real ccfred(-450:450)            !Peak of ccfblue, as function of freq
+@@ -35,8 +36,15 @@
+      psavg(1:nh)=psavg(1:nh) + s2(1:nh,j)
+   enddo
+ 
+-  call flat1(psavg,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten spectra
++  nsmo=min(10*mode4,150)
++  call flat1(psavg,nsmo,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten spectra
+ 
++  if(mode4.ge.9) call smo(psavg,nh,tmp,mode4/4)
++  i0=60
++  do i=1,450
++     ps0(i)=5.0*(psavg(i0+2*i) + psavg(i0+2*i+1) - 2.0)
++  enddo
++
+ ! Set freq and lag ranges
+   famin=200.
+   fbmax=2700.
+@@ -136,10 +144,7 @@
+   snrx=-99.0
+   ppmax=psavg(ipk)-1.0
+ 
+-  if(ppmax.gt.0.0001) then
+-     snrx=db(ppmax*df/2500.0) + 7.5        !Empirical
+-     if(mode.eq.7) snrx=snrx + 3.0         !Empirical
+-  endif
++  if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 10.5        !Empirical
+   if(snrx.lt.-33.0) snrx=-33.0
+ 
+   ccfred1=0.
+
+Modified: trunk/sync65.f
+===================================================================
+--- trunk/sync65.f	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/sync65.f	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -39,7 +39,7 @@
+          call add(psavg,s2(1,j),psavg,nh)
+       enddo
+ 
+-      call flat1(psavg,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten the spectra
++      call flat1(psavg,33,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten the spectra
+ 
+ C  Find the best frequency channel for CCF
+ !      famin= 670.46
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/wsjt.py	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -1259,10 +1259,15 @@
+             lab6.configure(text=t,bg=&quot;#33FFFF&quot;)
+         elif (event.y&gt;=40 and event.y&lt;95) or \
+                  (event.y&lt;95 and Audio.gcom2.nspecial&gt;0):
+-            lab1.configure(text='DF (Hz)',bg='red')
++         
+             idf=Audio.gcom2.idf
+             t=&quot;%d&quot; % int(idf+1200.0*event.x/500.0-600.0,)
+-            lab6.configure(text=t,bg=&quot;red&quot;)
++            if mode.get()[:3]=='JT4' and event.y&lt;67:
++                lab1.configure(text='DF (Hz)',bg='yellow')
++                lab6.configure(text=t,bg=&quot;yellow&quot;)
++            else:
++                lab1.configure(text='DF (Hz)',bg='red')
++                lab6.configure(text=t,bg=&quot;red&quot;)
+         else:
+             lab1.configure(text='Time (s)',bg='green')
+             if mode.get()=='Diana':
+@@ -1587,6 +1592,25 @@
+             if Audio.gcom2.nspecial==4: t=&quot;73&quot;
+             graph1.create_text(x2+3,93,anchor=W,text=t,fill=&quot;yellow&quot;)
+ 
++
++        if mode.get()[:3]=='JT4':
++            y=[]
++            for i in range(446):                #Find ymax for yellow curve
++                ps0=Audio.gcom2.ps0[i+1]
++                y.append(ps0)
++            ymax=max(y)
++            yfac=30.0
++            if ymax&gt;85.0/yfac: yfac=85.0/ymax
++            xy=[]
++            fac=500.0/446.0
++            for i in range(446):                #Make xy list for yellow curve
++                x=i*500.0/548.571 + 47                      #empirical
++                ps0=Audio.gcom2.ps0[i+1]
++                n=int(90.0-yfac*ps0)
++                xy.append(x)
++                xy.append(n)
++            graph1.create_line(xy,fill=&quot;yellow&quot;)
++
+         if Audio.gcom2.ccf[0] != -9999.0:
+             y=[]
+             iz=65
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/wsjt1.f90	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -16,7 +16,7 @@
+   character*12 mycall
+   character*12 hiscall
+   character*6 hisgrid
+-  real ps0(431)           !Spectrum of best ping
++  real ps0(450)           !Spectrum of best ping
+   integer npkept          !Number of pings kept and decoded
+   integer lumsg           !Logical unit for decoded.txt
+   integer nslim2          !Minimum strength for single-tone pings, dB
+@@ -234,7 +234,7 @@
+      if(jz.ge.jztest) call wsjt4(dat,jz,cfile6,NClearAve,MinSigdB,       &amp;
+           DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,         &amp;
+           Nseg,MouseDF2,NAgain,ndepth,neme,idf,lumsg,lcum,nspecial,ndf,  &amp;
+-          NSyncOK,ccf,psavg,ndiag)
++          NSyncOK,ccf,psavg,ndiag,ps0)
+      goto 900
+   endif
+ 
+
+Modified: trunk/wsjt4.f90
+===================================================================
+--- trunk/wsjt4.f90	2013-02-26 17:02:06 UTC (rev 3016)
++++ trunk/wsjt4.f90	2013-02-26 19:27:51 UTC (rev 3017)
+@@ -1,6 +1,6 @@
+ subroutine wsjt4(dat,npts,cfile6,NClearAve,MinSigdB,DFTolerance,NFreeze,   &amp;
+      mode,mode4,mycall,hiscall,hisgrid,Nseg,MouseDF,NAgain,ndepth,neme,    &amp;
+-     idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag)
++     idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag,ps0)
+ 
+ ! Orchestrates the process of decoding JT4 messages, using data that 
+ ! have been 2x downsampled.  
+@@ -9,6 +9,7 @@
+   real dat(npts)                                     !Raw data
+   real*4 ccfblue(-5:540)                             !CCF in time
+   real*4 ccfred(-224:224)                            !CCF in frequency
++  real*4 ps0(450)
+   integer DFTolerance
+   logical first
+   logical lcum
+@@ -57,7 +58,7 @@
+ 
+ ! Attempt to synchronize: look for sync pattern, get DF and DT.
+   call sync4(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
+-       mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
++       mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width,ps0)
+ 
+   call snr4(ccfblue,snrsync,snrx)          !### New calc of sync, snr ###
+   
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002708.html">[WSJT-SVN] r3016 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002710.html">[WSJT-SVN] r3018 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2709">[ date ]</a>
+              <a href="thread.html#2709">[ thread ]</a>
+              <a href="subject.html#2709">[ subject ]</a>
+              <a href="author.html#2709">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,286 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2046 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2046%20-%20wsjt7a&In-Reply-To=%3C20100728140210.3381A48089E%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001737.html">
+   <LINK REL="Next"  HREF="001739.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2046 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2046%20-%20wsjt7a&In-Reply-To=%3C20100728140210.3381A48089E%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2046 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 28 16:02:09 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001737.html">[WSJT-SVN] r2045 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001739.html">[WSJT-SVN] r2047 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1738">[ date ]</a>
+              <a href="thread.html#1738">[ thread ]</a>
+              <a href="subject.html#1738">[ subject ]</a>
+              <a href="author.html#1738">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-28 16:02:09 +0200 (Wed, 28 Jul 2010)
+New Revision: 2046
+
+Added:
+   wsjt7a/hipass.f90
+Modified:
+   wsjt7a/Makefile.MinGW
+   wsjt7a/Makefile.in
+   wsjt7a/decodems.f90
+   wsjt7a/genms.f90
+   wsjt7a/searchms.f90
+   wsjt7a/wsjt.py
+   wsjt7a/wsjtgen.f90
+Log:
+Add hipass and better determination of message length in JTMS mode.
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/Makefile.MinGW	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -54,7 +54,7 @@
+ 	packpfx.f90 unpackpfx.f90 genms.f90 decodems.f90 setupms.f90 gran.f90 \
+ 	thnix.f90 enc441.f90 pp441.f90 tweak1.f90 smo.f90 analytic.f90 \
+ 	gen441.f90 dec441.f90 token.f90 msgtrim.f90 geniscat.f90 \
+-	iscat.f90 four2a.f90
++	iscat.f90 four2a.f90 hipass.f90
+ 
+ 
+ SRCS2F77 = avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+
+Modified: wsjt7a/Makefile.in
+===================================================================
+--- wsjt7a/Makefile.in	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/Makefile.in	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -52,7 +52,7 @@
+ 
+ OBJS4	= t75.o analytic.o four2a.o decodems.o db.o pctile.o \
+ 	sort.o ssort.o setupms.o match.o thnix_stub.o searchms.o \
+-	genms.o
++	genms.o tweak1.o hipass.o
+ 
+ t75:	$(OBJS4)
+ 	$(FC) -o t75 $(OBJS4) -lfftw3f
+@@ -78,7 +78,7 @@
+ 	packpfx.f90 unpackpfx.f90 genms.f90 decodems.f90 setupms.f90 \
+ 	thnix.f90 enc441.f90 pp441.f90 tweak1.f90 smo.f90 analytic.f90 \
+ 	gen441.f90 dec441.f90 token.f90 msgtrim.f90 geniscat.f90 \
+-	searchms.f90 iscat.f90 four2a.f90
++	searchms.f90 iscat.f90 four2a.f90 hipass.f90
+ 
+ OBJS2F90 = ${SRCS2F90:.f90=.o}
+ 
+
+Modified: wsjt7a/decodems.f90
+===================================================================
+--- wsjt7a/decodems.f90	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/decodems.f90	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -100,6 +100,8 @@
+   fpk1=(jpk1-1)*df1
+   fpk2=(jpk2-1)*df1
+   ferr=(fpk2-fpk1)/1378.125 - 1.0
++!  write(*,2001) t2,fpk1,fpk2,ferr
++!2001 format(f6.1,2f10.1,f10.3)
+   if(abs(ferr).gt.0.002) go to 900           !Reject non-JTMS signals
+   dfx=0.5*fpk-f0
+   call tweak1(cdat,npts,-dfx,cdat)           !Mix to standard frequency
+@@ -155,16 +157,31 @@
+      do k=8,kz
+         fac=float(npts)/(npts-k)
+            acf(k)=fac*dot_product(r(1:npts),r(1+k:npts+k))/acf0
++     enddo
++     call hipass(acf(8),kz-7,50)
++
++     do k=8,kz
+         if(acf(k).gt.acfmax) then
+            acfmax=acf(k)
+            kpk=k
+         endif
+      enddo
+ 
++     sumsq=0.
++     n=0
++     do k=8,kz
++        if(abs(k-kpk).gt.10) then
++           sumsq=sumsq+acf(k)**2
++           n=n+1
++        endif
++     enddo
++     rms=sqrt(sumsq/n)
++     acf=acf/rms
++
+      amax2=0
+      do i=1,8
+         k=56*np(i)
+-        if(acf(k).gt.0.45 .and. acf(k).gt.amax2) then
++        if(acf(k).gt.3.5 .and. acf(k).gt.amax2) then
+            amax2=acf(k)
+            msglen=np(i)
+         endif
+@@ -178,14 +195,14 @@
+   if(nchar.gt.400) nchar=400
+ 
+   frag=' '//mycall
+-  call searchms(cdat(i1),npts-i1,frag,nchar,dfx,ndi1,rmax1)
++  call searchms(cdat(i1),npts-i1,frag,nchar,ndi1,rmax1)
+   frag=' '//hiscall
+-  call searchms(cdat(i1),npts-i1,frag,nchar,dfx,ndi2,rmax2)
++  call searchms(cdat(i1),npts-i1,frag,nchar,ndi2,rmax2)
+   frag=' CQ'
+-  call searchms(cdat(i1),npts-i1,frag,nchar,dfx,ndi3,rmax3)
++  call searchms(cdat(i1),npts-i1,frag,nchar,ndi3,rmax3)
+ 
+-!  write(*,2001) t2,ndi,ndi2,ndi3,rmax,rmax2,rmax3
+-!2001 format(f7.1,3i5,3f10.2)
++!  write(*,2002) t2,ndi1,ndi2,ndi3,rmax1,rmax2,rmax3
++!2002 format(f7.1,3i8,3f10.2)
+   ndi=99
+   if(max(rmax1,rmax2,rmax3).ge.0.6) then
+      if(max(rmax1,rmax2,rmax3).eq.rmax1 .and. abs(ndi1).le.5) ndi=ndi1
+
+Modified: wsjt7a/genms.f90
+===================================================================
+--- wsjt7a/genms.f90	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/genms.f90	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -1,4 +1,4 @@
+-subroutine genms(msg28,samfac,iwave,cwave,isrch,dfx,nwave)
++subroutine genms(msg28,samfac,iwave,cwave,isrch,nwave)
+ 
+ ! Generate a JTMS wavefile.
+ 
+@@ -58,7 +58,7 @@
+   dt=1.d0/(samfac*11025.d0)
+   f0=11025.d0/nsps                               ! 1575.0 Hz
+   dfgen=0.5d0*f0                                 !  787.5 Hz
+-  foffset=1500.d0 - f0 + dfx
++  foffset=1500.d0 - f0
+   t=0.d0
+   k=0
+   phi=0.d0
+
+Added: wsjt7a/hipass.f90
+===================================================================
+--- wsjt7a/hipass.f90	                        (rev 0)
++++ wsjt7a/hipass.f90	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -0,0 +1,23 @@
++subroutine hipass(y,npts,nwidth)
++
++!  Hipass filter for time-domain data.  Removes an RC-type running 
++!  mean (time constant nwidth) from array y(1:npts).  
++
++  real y(npts)
++
++  c1=1.0/nwidth
++  c2=1.0-c1
++  s=0.
++  do i=1,nwidth			!Get initial average
++     s=s+y(i)
++  enddo
++  ave=c1*s
++
++  do i=1,npts		        !Do the filtering
++     y0=y(i)
++     y(i)=y0-ave		!Remove the mean
++     ave=c1*y0 + c2*ave		!Update the mean
++  enddo
++
++return
++end subroutine hipass
+
+Modified: wsjt7a/searchms.f90
+===================================================================
+--- wsjt7a/searchms.f90	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/searchms.f90	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -1,11 +1,11 @@
+-subroutine searchms(cdat,npts,msg,nchar,dfx,ndi,rmax)
++subroutine searchms(cdat,npts,msg,nchar,ndi,rmax)
+ 
+   parameter (NMAX=30*11025)     !Max length of wave file
+   complex cdat(npts)
+   complex cwave(NMAX)
+   character*28 msg            !User message
+ 
+-  call genms(msg,1.d0,iwave,cwave,1,dfx,kz)
++  call genms(msg,1.d0,iwave,cwave,1,kz)
+ 
+   r=0.
+   rmax=0.
+@@ -28,7 +28,7 @@
+   nch=i1pk/56.0
+   ndi=i1pk - 56*nch
+   if(ndi.gt.8) ndi=ndi-56
+-!  print*,'Z',dfx,i1pk,ndi,msg
++!  print*,'Z',i1pk,ndi,msg
+ !  call flush(53)
+ 
+   return
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/wsjt.py	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: wsjt7a/wsjtgen.f90
+===================================================================
+--- wsjt7a/wsjtgen.f90	2010-07-27 21:07:48 UTC (rev 2045)
++++ wsjt7a/wsjtgen.f90	2010-07-28 14:02:09 UTC (rev 2046)
+@@ -123,7 +123,7 @@
+         if(shok.eq.1 .and. nmsg.le.4 .and.                                &amp;
+            (msg(1:4).eq.'R26 ' .or. msg(1:4).eq.'R27 ' .or.               &amp;
+                 msg(1:4).eq.'RRR ' .or. msg(1:3).eq.'73 ')) go to 100
+-        call genms(msg,samfacout,iwave,cwave,0,0.0,nwave)
++        call genms(msg,samfacout,iwave,cwave,0,nwave)
+         if(txsnrdb.lt.40.d0) call makepings(iwave,nwave)
+         sendingsh=0
+         msgsent=msg
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001737.html">[WSJT-SVN] r2045 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001739.html">[WSJT-SVN] r2047 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1738">[ date ]</a>
+              <a href="thread.html#1738">[ thread ]</a>
+              <a href="subject.html#1738">[ subject ]</a>
+              <a href="author.html#1738">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

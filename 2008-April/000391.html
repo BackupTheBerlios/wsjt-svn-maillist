@@ -1,0 +1,876 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r703 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r703%20-%20branches/wspr&In-Reply-To=%3C200804111501.m3BF1g02024535%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000390.html">
+   <LINK REL="Next"  HREF="000392.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r703 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r703%20-%20branches/wspr&In-Reply-To=%3C200804111501.m3BF1g02024535%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r703 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 11 17:01:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000390.html">[WSJT-SVN] r702 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000392.html">[WSJT-SVN] r704 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#391">[ date ]</a>
+              <a href="thread.html#391">[ thread ]</a>
+              <a href="subject.html#391">[ subject ]</a>
+              <a href="author.html#391">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-11 17:01:36 +0200 (Fri, 11 Apr 2008)
+New Revision: 703
+
+Added:
+   branches/wspr/getfile.f90
+Removed:
+   branches/wspr/getparams.f90
+   branches/wspr/getsound.c
+   branches/wspr/playsound.c
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/mix162.f
+   branches/wspr/ps162.f
+   branches/wspr/rx.f90
+   branches/wspr/sound.c
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Working on fit-and finish.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/acom1.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -8,4 +8,5 @@
+   integer*2 iwave
+   common/acom1/ f0,ftx,rms,pctx,nsec,ndevin,ndevout,nsave,nrxdone,      &amp;
+        ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,       &amp;
+-       iwave(NMAX),infile,outfile,cdate,utctime,callsign,grid
++       idevin,idevout,idsec,iwave(NMAX),infile,outfile,cdate,utctime,   &amp;
++       callsign,grid
+
+Added: branches/wspr/getfile.f90
+===================================================================
+--- branches/wspr/getfile.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/getfile.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -0,0 +1,52 @@
++subroutine getfile(fname,len)
++
++#ifdef CVF
++  use dflib
++#endif
++
++  character*(*) fname
++  character*80 filename
++  include 'acom1.f90'
++  integer*1 hdr(44),n1
++  integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
++  character*4 ariff,awave,afmt,adata
++  common/hdr/ariff,lenfile,awave,afmt,lenfmt,nfmt2,nchan2, &amp;
++     nsamrate,nbytesec,nbytesam2,nbitsam2,adata,ndata,d2
++  equivalence (ariff,hdr),(n1,n4),(d1,d2)
++
++1 if(ndecoding.eq.0) go to 2
++!#ifdef CVF
++!  call sleepqq(100)
++!#else
++!  call usleep(100*1000)
++!#endif
++!  go to 1
++
++2 do i=len,1,-1
++     if(fname(i:i).eq.'/' .or. fname(i:i).eq.'\\') go to 10
++  enddo
++  i=0
++10 filename=fname(i+1:)
++  ierr=0
++
++#ifdef CVF
++!  open(10,file=fname,form='binary',status='old',err=998)
++!  read(10,end=998) hdr
++!  read(10,end=998) iwave
++  open(10,file=fname,form='binary',status='old')
++  read(10) hdr
++  npts=114*12000
++  read(10) (iwave(i),i=1,npts)
++#else
++!  call rfile2(fname,hdr,44+2*NDMAX,nr)
++#endif
++
++  ndecdone=0                              !??? ### ???
++  decoding=.true.
++  outfile=fname
++  call startdec
++
++998 ierr=1001
++999 close(10)
++  return
++end subroutine getfile
+
+Deleted: branches/wspr/getparams.f90
+===================================================================
+--- branches/wspr/getparams.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/getparams.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -1,32 +0,0 @@
+-subroutine getparams(f0,ftx,nport,callsign,grid,ndbm,                 &amp;
+-  pctx,idsec,ndevin,ndevout,nsave,infile)
+-
+-  real*8 f0,ftx
+-  character callsign*6,grid*4
+-  character*70 infile
+-  character arg*20
+-
+-  call getarg(1,arg)
+-  read(arg,*) f0
+-  call getarg(2,arg)
+-  read(arg,*) ftx
+-  call getarg(3,arg)
+-  read(arg,*) nport
+-  call getarg(4,callsign)
+-  call getarg(5,grid)
+-  call getarg(6,arg)
+-  read(arg,*) ndbm
+-  call getarg(7,arg)
+-  read(arg,*) pctx
+-  call getarg(8,arg)
+-  read(arg,*) idsec
+-  call getarg(9,arg)
+-  read(arg,*) ndevin
+-  call getarg(10,arg)
+-  read(arg,*) ndevout
+-  call getarg(11,arg)
+-  read(arg,*) nsave
+-  call getarg(12,infile)
+-
+-  return
+-end subroutine getparams
+
+Deleted: branches/wspr/getsound.c
+===================================================================
+--- branches/wspr/getsound.c	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/getsound.c	2008-04-11 15:01:36 UTC (rev 703)
+@@ -1,185 +0,0 @@
+-/** @file patest_record.c
+-	@brief Record input into an array; Save array to a file; Playback recorded data.
+-	@author Phil Burk  <A HREF="http://www.softsynth.com">http://www.softsynth.com</A>
+-*/
+-/*
+- * $Id: patest_record.c 249 2006-08-09 20:08:01Z va3db $
+- *
+- * This program uses the PortAudio Portable Audio Library.
+- * For more information see: <A HREF="http://www.portaudio.com">http://www.portaudio.com</A>
+- * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining
+- * a copy of this software and associated documentation files
+- * (the &quot;Software&quot;), to deal in the Software without restriction,
+- * including without limitation the rights to use, copy, modify, merge,
+- * publish, distribute, sublicense, and/or sell copies of the Software,
+- * and to permit persons to whom the Software is furnished to do so,
+- * subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be
+- * included in all copies or substantial portions of the Software.
+- *
+- * Any person wishing to distribute modifications to the Software is
+- * requested to send the modifications to the original developer so that
+- * they can be incorporated into the canonical version.
+- *
+- * THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND,
+- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+- * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+- * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+- * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+- *
+- */
+-
+-#include &lt;stdio.h&gt;
+-#include &lt;stdlib.h&gt;
+-#include &lt;sys/stat.h&gt;
+-#include &quot;portaudio.h&quot;
+-
+-#define SAMPLE_RATE  (12000)
+-#define FRAMES_PER_BUFFER (1024)
+-#define NUM_SECONDS     (114)
+-#define NUM_CHANNELS    (1)
+-/* #define DITHER_FLAG     (paDitherOff) */
+-#define DITHER_FLAG     (0) /**/
+-
+-#define PA_SAMPLE_TYPE  paInt16
+-typedef short SAMPLE;
+-#define SAMPLE_SILENCE  (0)
+-
+-typedef struct
+-{
+-  int          frameIndex;  /* Index into sample array. */
+-  int          maxFrameIndex;
+-  SAMPLE      *recordedSamples;
+-} paTestData;
+-
+-/* This routine will be called by the PortAudio engine when audio is needed.
+-** It may be called at interrupt level on some machines so don't do anything
+-** that could mess up the system like calling malloc() or free().
+-*/
+-static int recordCallback( const void *inputBuffer, void *outputBuffer,
+-                           unsigned long framesPerBuffer,
+-                           const PaStreamCallbackTimeInfo* timeInfo,
+-                           PaStreamCallbackFlags statusFlags,
+-                           void *userData )
+-{
+-  paTestData *data = (paTestData*)userData;
+-  const SAMPLE *rptr = (const SAMPLE*)inputBuffer;
+-  SAMPLE *wptr = &amp;data-&gt;recordedSamples[data-&gt;frameIndex * NUM_CHANNELS];
+-  long framesToCalc;
+-  long i;
+-  int finished;
+-  unsigned long framesLeft = data-&gt;maxFrameIndex - data-&gt;frameIndex;
+-
+-  (void) outputBuffer; /* Prevent unused variable warnings. */
+-  (void) timeInfo;
+-  (void) statusFlags;
+-  (void) userData;
+-
+-  if( framesLeft &lt; framesPerBuffer ) {
+-    framesToCalc = framesLeft;
+-    finished = paComplete;
+-  }
+-   else {
+-     framesToCalc = framesPerBuffer;
+-     finished = paContinue;
+-   }
+-
+-  if( inputBuffer == NULL ) {
+-    for( i=0; i&lt;framesToCalc; i++ ) {
+-      *wptr++ = SAMPLE_SILENCE;                          /* left */
+-      if( NUM_CHANNELS == 2 ) *wptr++ = SAMPLE_SILENCE;  /* right */
+-    }
+-  }
+-  else {
+-    for( i=0; i&lt;framesToCalc; i++ ) {
+-      *wptr++ = *rptr++;  /* left */
+-      if( NUM_CHANNELS == 2 ) *wptr++ = *rptr++;  /* right */
+-    }
+-  }
+-  data-&gt;frameIndex += framesToCalc;
+-  return finished;
+-}
+-
+-/*******************************************************************/
+-#ifdef CVF
+-extern int __stdcall GETSOUND(int *ndevin, short int iwave[])
+-#else
+-extern int getsound_(int *ndevin, short int iwave[])
+-#endif
+-{
+-  PaStreamParameters  inputParameters,
+-                      outputParameters;
+-  PaStream*           stream;
+-  PaError             err = paNoError;
+-  paTestData          data;
+-  int                 i;
+-  int                 totalFrames;
+-  int                 numSamples;
+-  int                 numBytes;
+-  SAMPLE              max, val;
+-  double              average;
+-  struct stat         stbuf;
+-
+-  data.maxFrameIndex = totalFrames = NUM_SECONDS * SAMPLE_RATE;
+-  data.frameIndex = 0;
+-  numSamples = totalFrames * NUM_CHANNELS;
+-  numBytes = numSamples * sizeof(SAMPLE);
+-  data.recordedSamples = iwave;
+-  for( i=0; i&lt;numSamples; i++ ) 
+-    data.recordedSamples[i] = 0;
+-
+-  err = Pa_Initialize();
+-  if( err != paNoError ) goto done;
+-
+-  if(*ndevin == 0)
+-    inputParameters.device = Pa_GetDefaultInputDevice();
+-  else
+-    inputParameters.device = *ndevin;
+-
+-  inputParameters.channelCount = 1;
+-  inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+-  inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )-&gt;defaultLowInputLatency;
+-  inputParameters.hostApiSpecificStreamInfo = NULL;
+-
+-  err = Pa_OpenStream(
+-              &amp;stream,
+-              &amp;inputParameters,
+-              NULL,                  /* &amp;outputParameters, */
+-              SAMPLE_RATE,
+-              FRAMES_PER_BUFFER,
+-              paClipOff,
+-              recordCallback,
+-              &amp;data );
+-  if( err != paNoError ) goto done;
+-
+-  err = Pa_StartStream( stream );
+-  if( err != paNoError ) goto done;
+-
+-  while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) {
+-    err=stat(&quot;abort&quot;, &amp;stbuf);
+-    if(err == 0) {
+-      Pa_Sleep(1000);
+-      exit(0);
+-    }
+-    Pa_Sleep(200);
+-  }
+-  if( err &lt; 0 ) goto done;
+-
+-  err = Pa_CloseStream( stream );    
+-
+-done:
+-  Pa_Terminate();
+-  if( err != paNoError ) {
+-    fprintf( stderr, &quot;An error occured while using the portaudio stream\n&quot; );
+-    fprintf( stderr, &quot;Error number: %d\n&quot;, err );
+-    fprintf( stderr, &quot;Error message: %s\n&quot;, Pa_GetErrorText( err ) );
+-    err = 1;          /* Always return 0 or 1, but no other return codes. */
+-  }
+-  return err;
+-}
+-
+
+Modified: branches/wspr/mix162.f
+===================================================================
+--- branches/wspr/mix162.f	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/mix162.f	2008-04-11 15:01:36 UTC (rev 703)
+@@ -46,8 +46,7 @@
+          c2(i)=c(j)
+       enddo
+ 
+-      call four1(c2,NFFT2,1)
+-!      call four2a(c,nh,1,1,-1)        !Return to time domain
++      call four2a(c2,NFFT2,1,1,1)        !Return to time domain
+ 
+       fac=1.e-5
+       jz=npts/32
+
+Deleted: branches/wspr/playsound.c
+===================================================================
+--- branches/wspr/playsound.c	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/playsound.c	2008-04-11 15:01:36 UTC (rev 703)
+@@ -1,199 +0,0 @@
+-/** @file patest_record.c
+-	@brief Record input into an array; Save array to a file; Playback recorded data.
+-	@author Phil Burk  <A HREF="http://www.softsynth.com">http://www.softsynth.com</A>
+-*/
+-/*
+- * $Id: patest_record.c 249 2006-08-09 20:08:01Z va3db $
+- *
+- * This program uses the PortAudio Portable Audio Library.
+- * For more information see: <A HREF="http://www.portaudio.com">http://www.portaudio.com</A>
+- * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining
+- * a copy of this software and associated documentation files
+- * (the &quot;Software&quot;), to deal in the Software without restriction,
+- * including without limitation the rights to use, copy, modify, merge,
+- * publish, distribute, sublicense, and/or sell copies of the Software,
+- * and to permit persons to whom the Software is furnished to do so,
+- * subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be
+- * included in all copies or substantial portions of the Software.
+- *
+- * Any person wishing to distribute modifications to the Software is
+- * requested to send the modifications to the original developer so that
+- * they can be incorporated into the canonical version.
+- *
+- * THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND,
+- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+- * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+- * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+- * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+- *
+- */
+-
+-#include &lt;stdio.h&gt;
+-#include &lt;stdlib.h&gt;
+-#include &lt;sys/stat.h&gt;
+-#include &quot;portaudio.h&quot;
+-
+-/* #define SAMPLE_RATE  (17932) // Test failure to open with this value. */
+-#define SAMPLE_RATE  (12000)
+-#define FRAMES_PER_BUFFER (1024)
+-#define NUM_SECONDS     (114)
+-#define NUM_CHANNELS    (1)
+-/* #define DITHER_FLAG     (paDitherOff) */
+-#define DITHER_FLAG     (0) /**/
+-
+-/* Select sample format. */
+-#define PA_SAMPLE_TYPE  paInt16
+-typedef short SAMPLE;
+-
+-typedef struct
+-{
+-    int          frameIndex;  /* Index into sample array. */
+-    int          maxFrameIndex;
+-    SAMPLE      *recordedSamples;
+-} paTestData;
+-
+-/* This routine will be called by the PortAudio engine when audio is needed.
+-** It may be called at interrupt level on some machines so don't do anything
+-** that could mess up the system like calling malloc() or free().
+-*/
+-static int playCallback( const void *inputBuffer, void *outputBuffer,
+-                         unsigned long framesPerBuffer,
+-                         const PaStreamCallbackTimeInfo* timeInfo,
+-                         PaStreamCallbackFlags statusFlags,
+-                         void *userData )
+-{
+-  paTestData *data = (paTestData*)userData;
+-  SAMPLE *rptr = &amp;data-&gt;recordedSamples[data-&gt;frameIndex * NUM_CHANNELS];
+-  SAMPLE *wptr = (SAMPLE*)outputBuffer;
+-  unsigned int i;
+-  int finished;
+-  unsigned int framesLeft = data-&gt;maxFrameIndex - data-&gt;frameIndex;
+-
+-  (void) inputBuffer; /* Prevent unused variable warnings. */
+-  (void) timeInfo;
+-  (void) statusFlags;
+-  (void) userData;
+-
+-  if( framesLeft &lt; framesPerBuffer )  {
+-    /* final buffer... */
+-    for( i=0; i&lt;framesLeft; i++ )  {
+-      *wptr++ = *rptr++;  /* left */
+-      if( NUM_CHANNELS == 2 ) *wptr++ = *rptr++;  /* right */
+-    }
+-    for( ; i&lt;framesPerBuffer; i++ )  {
+-      *wptr++ = 0;  /* left */
+-      if( NUM_CHANNELS == 2 ) *wptr++ = 0;  /* right */
+-    }
+-    data-&gt;frameIndex += framesLeft;
+-    finished = paComplete;
+-  }
+-  else  {
+-    for( i=0; i&lt;framesPerBuffer; i++ )  {
+-      *wptr++ = *rptr++;  /* left */
+-      if( NUM_CHANNELS == 2 ) *wptr++ = *rptr++;  /* right */
+-    }
+-    data-&gt;frameIndex += framesPerBuffer;
+-    finished = paContinue;
+-  }
+-  return finished;
+-}
+-
+-/*******************************************************************/
+-#ifdef CVF
+-extern int __stdcall PLAYSOUND(int *ndevout, short int iwave[])
+-#else
+-extern int playsound_(int *ndevout, short int iwave[])
+-#endif
+-{
+-  PaStreamParameters  inputParameters,
+-                      outputParameters;
+-  PaStream*           stream;
+-  PaError             err = paNoError;
+-  paTestData          data;
+-  int                 i;
+-  int                 totalFrames;
+-  int                 numSamples;
+-  int                 numBytes;
+-  SAMPLE              max, val;
+-  double              average;
+-  struct stat         stbuf;
+-
+-  data.maxFrameIndex = totalFrames = NUM_SECONDS * SAMPLE_RATE;
+-  data.frameIndex = 0;
+-  numSamples = totalFrames * NUM_CHANNELS;
+-  numBytes = numSamples * sizeof(SAMPLE);
+-  data.recordedSamples = iwave;
+-
+-  /* Play the wave file */
+-  data.frameIndex = 0;
+-  err = Pa_Initialize();
+-  if( err != paNoError ) goto done;
+-
+-  if( *ndevout == 0) 
+-    outputParameters.device = Pa_GetDefaultOutputDevice();
+-  else
+-    outputParameters.device = *ndevout;
+-
+-  outputParameters.channelCount = NUM_CHANNELS;
+-  outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
+-  outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )-&gt;defaultLowOutputLatency;
+-  outputParameters.hostApiSpecificStreamInfo = NULL;
+-
+-  err = Pa_OpenStream(
+-              &amp;stream,
+-              NULL,                                /* no input */
+-              &amp;outputParameters,
+-              SAMPLE_RATE,
+-              FRAMES_PER_BUFFER,
+-              paClipOff,
+-              playCallback,
+-              &amp;data );
+-  if( err != paNoError ) goto done;
+-
+-  if( stream ) {
+-    err = Pa_StartStream( stream );
+-    if( err != paNoError ) goto done;
+-
+-    while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) {
+-      err=stat(&quot;abort&quot;, &amp;stbuf);
+-      if(err == 0) {
+-	Pa_Sleep(1000);
+-	exit(0);
+-      }
+-      Pa_Sleep(200);
+-    }
+-    if( err &lt; 0 ) goto done;
+-        
+-    err = Pa_CloseStream( stream );
+-    if( err != paNoError ) goto done;    
+-  }
+-
+-done:
+-  Pa_Terminate();
+-  //    if( data.recordedSamples )       /* Sure it is NULL or valid. */
+-  //        free( data.recordedSamples );
+-  if( err != paNoError ) {
+-    fprintf( stderr, &quot;An error occured while using the portaudio stream\n&quot; );
+-    fprintf( stderr, &quot;Error number: %d\n&quot;, err );
+-    fprintf( stderr, &quot;Error message: %s\n&quot;, Pa_GetErrorText( err ) );
+-    err = 1;          /* Always return 0 or 1, but no other return codes. */
+-  }
+-  return err;
+-}
+-
+-#ifdef CVF
+-extern void __stdcall PA_SLEEP(int *nsleep)
+-#else
+-extern void pa_sleep__(int *nsleep)
+-#endif
+-{
+-  int n;
+-  n=*nsleep;
+-  Pa_Sleep(n);
+-}
+
+Modified: branches/wspr/ps162.f
+===================================================================
+--- branches/wspr/ps162.f	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/ps162.f	2008-04-11 15:01:36 UTC (rev 703)
+@@ -13,8 +13,7 @@
+          c(i)=0.
+       enddo
+ 
+-      call four1(c,nfft,-1)
+-!      call fourt(c,nfft,1,-1,0,work)
++      call four2a(c,nfft,1,-1,1)
+ 
+       fac=1.0/nfft
+       do i=0,NFFT-1
+
+Modified: branches/wspr/rx.f90
+===================================================================
+--- branches/wspr/rx.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/rx.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -6,7 +6,7 @@
+   include 'acom1.f90'
+ 
+   npts=114*12000
+-  ierr=soundin(iwave,npts)
++  ierr=soundin(idevin,iwave,npts)
+   call getrms(iwave,npts,ave,rms)
+   nrxdone=1
+ 
+
+Modified: branches/wspr/sound.c
+===================================================================
+--- branches/wspr/sound.c	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/sound.c	2008-04-11 15:01:36 UTC (rev 703)
+@@ -41,9 +41,9 @@
+ }
+ 
+ #ifdef CVF
+-int __stdcall SOUNDIN(short recordedSamples[],int *nframes0)
++int __stdcall SOUNDIN(int *idevin, short recordedSamples[],int *nframes0)
+ #else
+-int soundin_(short recordedSamples[],int *nframes0)
++int soundin_(int *idevin, short recordedSamples[],int *nframes0)
+ #endif
+ {
+     PaStreamParameters inputParameters;
+@@ -61,7 +61,7 @@
+     for( i=0; i&lt;numSamples; i++ ) 
+       recordedSamples[i] = 0;
+ 
+-    inputParameters.device = Pa_GetDefaultInputDevice();
++    inputParameters.device = *idevin;
+     inputParameters.channelCount = NUM_CHANNELS;
+     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+     inputParameters.suggestedLatency = 0.4;
+@@ -101,9 +101,9 @@
+ }
+ 
+ #ifdef CVF
+-int __stdcall SOUNDOUT(short recordedSamples[], int *nframes0)
++int __stdcall SOUNDOUT(int *idevout,short recordedSamples[], int *nframes0)
+ #else
+-int soundout_(short recordedSamples[], int *nframes0)
++int soundout_(int *idevout, short recordedSamples[], int *nframes0)
+ #endif
+ {
+     PaStreamParameters outputParameters;
+@@ -117,7 +117,7 @@
+     totalFrames=*nframes0;
+     numSamples = totalFrames * NUM_CHANNELS;
+     numBytes = numSamples * sizeof(SAMPLE);
+-    outputParameters.device = Pa_GetDefaultOutputDevice();
++    outputParameters.device = *idevout;
+     outputParameters.channelCount = NUM_CHANNELS;
+     outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
+     outputParameters.suggestedLatency = 0.4;
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/tx.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -36,7 +36,7 @@
+   call genmept(call1,grid,ndbm,ntxdf,99.0,jwave)
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+   npts=114*12000
+-  ierr=soundout(jwave,npts)
++  ierr=soundout(idevout,jwave,npts)
+   if(nport.gt.0) ierr=ptt(nport,junk,0,iptt)
+   ntxdone=1
+ 
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/wspr.py	2008-04-11 15:01:36 UTC (rev 703)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- WSPR
++#------------------------------------------------------------------------ WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+@@ -8,12 +8,8 @@
+ import os,time,sys
+ ##import pyaudio
+ from math import log10
+-try:
+-    from numpy.oldnumeric import zeros
+-#    print &quot;importing from numpy&quot;
+-except: 
+-    from Numeric import zeros
+-#    print &quot;importing from Numeric&quot;
++#from numpy.oldnumeric import zeros
++from Numeric import zeros
+ import array
+ import dircache
+ import Image, ImageTk, ImageDraw
+@@ -28,7 +24,7 @@
+ 
+ root = Tk()
+ Version=&quot;0.6 r&quot; + &quot;$Rev$&quot;[6:-1]
+-##print &quot;Ignore any error message above, it is harmless.&quot;
++print &quot;Ignore any error message above, it is harmless.&quot;
+ print &quot;******************************************************************&quot;
+ print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -179,6 +175,7 @@
+             msg.focus_set()
+             ncall=0
+             loopall=0
++            
+ 
+ #------------------------------------------------------ decodeall
+ def decodeall(event=NONE):
+@@ -372,7 +369,7 @@
+             if callsign[:1] != ' ':
+                 i1=callsign.find(' ')
+                 callsign=callsign[:i1]
+-                nseq=int(lines[i][7:11])
++                nseq=int(lines[i][7:11]) + 1440*int(lines[i][4:6])
+                 ndf=int(lines[i][33:36])
+                 bandmap.append((ndf,callsign,nseq))
+         text.configure(state=DISABLED)
+@@ -381,9 +378,8 @@
+ #  Remove any &quot;too old&quot; information from bandmap.
+     iz=len(bandmap)
+     for i in range(iz-1,0,-1):
+-        if (nseq - bandmap[i][2]) &gt; 15:           # 15 sequences = 30 minutes
+-            bandmap=bandmap[i+1:]
+-            break
++        if (nseq - bandmap[i][2]) &gt; 60:           # 60 minutes
++            bandmap=bandmap[:i] + bandmap[i+1:]
+     
+ #  Sort bandmap in reverse frequency order
+     bandmap2=bandmap
+@@ -394,14 +390,23 @@
+     text1.configure(state=NORMAL)
+     text1.delete('1.0',END)
+     for i in range(iz):
+-#        print i,bandmap2[i][0],bandmap2[i][1],call0
+         if i==0:
+             t=&quot;%4d&quot; % (bandmap2[i][0],) + &quot; &quot; + bandmap2[i][1]
+-            text1.insert(END,t+&quot;\n&quot;)
++            nage=int((nseq - bandmap[i][2])/15)
++            if nage==0: attr='age0'
++            if nage==1: attr='age1'
++            if nage==2: attr='age2'
++            if nage&gt;=3: attr='age3'
++            text1.insert(END,t+&quot;\n&quot;,attr)
+         else:
+             if bandmap2[i][1]!=call0:
+                 t=&quot;%4d&quot; % (bandmap2[i][0],) + &quot; &quot; + bandmap2[i][1]
+-                text1.insert(END,t+&quot;\n&quot;)
++                nage=int((nseq - bandmap[i][2])/15)
++                if nage==0: attr='age0'
++                if nage==1: attr='age1'
++                if nage==2: attr='age2'
++                if nage&gt;=3: attr='age3'
++                text1.insert(END,t+&quot;\n&quot;,attr)
+         call0=bandmap2[i][1]
+     text1.configure(state=DISABLED)
+     text1.see(END)
+@@ -606,8 +611,12 @@
+ c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+ c.pack(side=LEFT)
+ 
+-text1=Text(iframe1, height=10, width=12)
++text1=Text(iframe1, height=10, width=12, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+ text1.pack(side=LEFT, padx=1)
++text1.tag_configure('age0',foreground='red')
++text1.tag_configure('age1',foreground='yellow')
++text1.tag_configure('age2',foreground='gray75')
++text1.tag_configure('age3',foreground='gray50')
+ text1.insert(END,'132 ZL1BPU')
+ sb = Scrollbar(iframe1, orient=VERTICAL, command=text1.yview)
+ sb.pack(side=RIGHT, fill=Y)
+@@ -844,4 +853,6 @@
+ f.write(&quot;ftx &quot; + str(ftx.get()) + &quot;\n&quot;)
+ f.close()
+ 
+-#  Close sound system
++#Terminate PortAudio
++w.paterminate()
++
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2008-04-11 10:36:58 UTC (rev 702)
++++ branches/wspr/wspr2.f90	2008-04-11 15:01:36 UTC (rev 703)
+@@ -13,7 +13,7 @@
+   character*17 message
+   real*8 tsec
+   logical idle,receiving,transmitting,decoding,gui,cmnd
+-  integer soundinit,soundexit
++  integer nchin(0:20),nchout(0:20)
+   include 'acom1.f90'
+   data idle/.true./,receiving/.false./,transmitting/.false./
+   data decoding/.false./,ns1200/-999/
+@@ -33,11 +33,27 @@
+   call flush(14)
+   rewind 14
+ 
+-  ierr=soundinit()
++  idevin=ndevin
++  idevout=ndevout
++  call padevsub(numdevs,ndefin,ndefout,nchin,nchout)
++  write(*,1003) idevin,idevout
++1003 format(/'User requested devices:  Input =',i2,'   Output =',i2)
++  write(*,1004) ndefin,ndefout
++1004 format( 'Default devices:         Input =',i2,'   Output =',i2)
++  if(idevin.lt.0 .or. idevin.ge.numdevs) idevin=ndefin
++  if(idevout.lt.0 .or. idevout.ge.numdevs) idevout=ndefout
++  if(idevin.eq.0 .and. idevout.eq.0) then
++     idevin=ndefin
++     idevout=ndefout
++  endif
++  write(*,1005) idevin,idevout
++1005 format( 'Will open devices:       Input =',i2,'   Output =',i2)
++
+   call random_seed
+   nrx=1
+ 
+ 20 call getutc(cdate,utctime,tsec)
++  tsec=tsec+0.1*idsec
+   nsec=tsec
+   ns120=mod(nsec,120)
+   if(pctx.gt.50.0) nrx=0
+@@ -66,7 +82,7 @@
+      ntxdone=0
+   endif
+ 
+-  call msleep(1000)
++  call msleep(100)
+   go to 20
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+@@ -82,9 +98,16 @@
+         i1=index(message,'  ')
+         message=message(:i1)//message(i1+2:)
+      enddo
+-!     if(.not.gui) write(*,1030) cdate(3:8),utctime(1:4),ftx,message
++
++#ifdef CVF
++     open(13,file='ALL_MEPT.TXT',status='unknown',                   &amp;
++          position='append',share='denynone')
++#else
++     open(13,file='ALL_MEPT.TXT',status='unknown',position='append')
++#endif
+      write(13,1030) cdate(3:8),utctime(1:4),ftx,message
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a17)
++     close(13)
+      rewind 11
+      write(11,1040) 'Transmitting',utctime(1:2)//':'//utctime(3:4)
+ 1040 format(a12,1x,a5)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000390.html">[WSJT-SVN] r702 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000392.html">[WSJT-SVN] r704 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#391">[ date ]</a>
+              <a href="thread.html#391">[ thread ]</a>
+              <a href="subject.html#391">[ subject ]</a>
+              <a href="author.html#391">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

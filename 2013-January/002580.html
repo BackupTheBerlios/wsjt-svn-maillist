@@ -1,0 +1,496 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2888 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2888%20-%20branches/wsprx&In-Reply-To=%3C20130104192331.EEB0655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002579.html">
+   <LINK REL="Next"  HREF="002581.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2888 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2888%20-%20branches/wsprx&In-Reply-To=%3C20130104192331.EEB0655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2888 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 20:23:31 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002579.html">[WSJT-SVN] r2887 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002581.html">[WSJT-SVN] r2889 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2580">[ date ]</a>
+              <a href="thread.html#2580">[ thread ]</a>
+              <a href="subject.html#2580">[ subject ]</a>
+              <a href="author.html#2580">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-04 20:23:31 +0100 (Fri, 04 Jan 2013)
+New Revision: 2888
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/plotter.cpp
+   branches/wsprx/plotter.h
+   branches/wsprx/soundout.cpp
+   branches/wsprx/widegraph.cpp
+   branches/wsprx/widegraph.h
+Log:
+Now working for both Rx and Tx.  (Let it run for a bit, watching WSPRnet.)
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/mainwindow.cpp	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -170,13 +170,15 @@
+   soundOutThread.setOutputDevice(m_paOutDevice);
+   soundOutThread.setTxFreq(m_txFreq);
+   m_receiving=true;
+-  soundInThread.setReceiving(m_receiving);
++  soundInThread.setReceiving(true);
++  m_switching=false;
+   m_diskData=false;
+ 
+   if(ui-&gt;actionLinrad-&gt;isChecked()) on_actionLinrad_triggered();
+   if(ui-&gt;actionCuteSDR-&gt;isChecked()) on_actionCuteSDR_triggered();
+   if(ui-&gt;actionAFMHot-&gt;isChecked()) on_actionAFMHot_triggered();
+   if(ui-&gt;actionBlue-&gt;isChecked()) on_actionBlue_triggered();
++  freezeDecode(2);
+ }                                          // End of MainWindow constructor
+ 
+ //--------------------------------------------------- MainWindow destructor
+@@ -317,6 +319,7 @@
+   if(ihsym &lt;=0) return;
+   QString t;
+   t.sprintf(&quot; Receiving: %5.1f dB &quot;,px);
++  lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #00ff00}&quot;);
+   lab1-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);                    //Update thermometer
+   if(m_receiving || m_diskData) {
+@@ -506,6 +509,8 @@
+     Qt::WindowFlags flags = Qt::WindowCloseButtonHint |
+         Qt::WindowMinimizeButtonHint;
+     g_pWideGraph-&gt;setWindowFlags(flags);
++    connect(g_pWideGraph, SIGNAL(freezeDecode2(int)),this,
++            SLOT(freezeDecode(int)));
+   }
+   g_pWideGraph-&gt;show();
+ }
+@@ -532,6 +537,15 @@
+   }
+ }
+ 
++void MainWindow::freezeDecode(int n)                          //freezeDecode()
++{
++  m_txFreq=g_pWideGraph-&gt;txFreq();
++  double x=ui-&gt;dialFreqLineEdit-&gt;text().toDouble()+0.000001*m_txFreq;
++  QString t;
++  t.sprintf(&quot;%.6f&quot;,x);
++  ui-&gt;txFreqLineEdit-&gt;setText(t);
++}
++
+ void MainWindow::on_actionOpen_next_in_directory_triggered()   //Open Next
+ {
+   int i,len;
+@@ -795,7 +809,7 @@
+           t.time().toString();
+   ui-&gt;labUTC-&gt;setText(utc);
+   if(!m_receiving and !m_diskData) {
+-//    ui-&gt;xThermo-&gt;setValue(0.0);
++    ui-&gt;xThermo-&gt;setValue(0.0);
+   }
+ }
+ 
+@@ -808,6 +822,14 @@
+     oneSec();
+     m_sec0=nsec;
+   }
++
++  if(m_txFreq != m_txFreq0) {
++    QString t;
++    t.sprintf(&quot; %4d&quot;,m_txFreq);
++    ui-&gt;lab11-&gt;setText(t);
++    m_txFreq0=m_txFreq;
++  }
++
+   m_rxavg=1.0;
+   if(m_pctx&gt;0) m_rxavg=100.0/m_pctx - 1.0;
+ 
+@@ -845,12 +867,13 @@
+     loggit(&quot;Tune&quot;);
+     //Make a test transmission of duration pctx.
+     //m_nsectx=nsec
+-    m_transmitting=true;
+     startTx();
+   }
+ 
+-  if(m_nseq==0 and !m_transmitting and !m_receiving and !m_idle) {
++  if(m_nseq==0 and !m_transmitting and !m_receiving and !m_idle
++     and !m_switching) {
+ 
++    m_switching=true;
+     if(m_hopping) {
+       loggit(&quot;Hopping&quot;);
+       //...
+@@ -859,7 +882,7 @@
+     }
+ 
+     if(m_TxOK and m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
+-      m_transmitting=true;              //Start a normal Tx sequence
++//Start a normal Tx sequence
+       float x=(float)rand()/RAND_MAX;
+       if(m_pctx&lt;50) {
+         m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
+@@ -874,7 +897,8 @@
+       m_txnext=false;
+       startTx();
+     } else {
+-      m_receiving=true;                 //Start a normal Rx sequence
++//Start a normal Rx sequence
++      m_receiving=true;
+       soundInThread.setReceiving(true);
+       //m_rxtime=hhmm
+       m_ntr=1;
+@@ -882,6 +906,7 @@
+       loggit(&quot;Start Rx&quot;);
+       //    startRx();
+       m_nrx=m_nrx-1;
++      m_switching=false;
+     }
+   }
+ }
+@@ -897,17 +922,10 @@
+   m_pctx=ui-&gt;sbPctTx-&gt;value();
+ }
+ 
+-/*
+-void MainWindow::startRx()
+-{
+-  qDebug() &lt;&lt; &quot;startRx&quot;;
+-}
+-*/
+-
+ void MainWindow::startTx()
+ {
+   static char msg[23];
+-  QString message=m_myCall + &quot; &quot; + m_myGrid.mid(0,4) + &quot; 37&quot;;      //### dBm ###
++  QString message=m_myCall + &quot; &quot; + m_myGrid.mid(0,4) + &quot; 37&quot;;    //### dBm ###
+   QByteArray ba=message.toAscii();
+   ba2msg(ba,msg);
+   int len1=22;
+@@ -918,6 +936,9 @@
+   connect(pttTimer, SIGNAL(timeout()), this, SLOT(startTx2()));
+   loggit(&quot;Start Tx&quot;);
+   pttTimer-&gt;start(200);                         //Sequencer delay
++  lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ff0000}&quot;);
++  lab1-&gt;setText(message);
++  ui-&gt;xThermo-&gt;setValue(0.0);                    //Update thermometer
+ }
+ 
+ void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
+@@ -937,16 +958,20 @@
+ 
+ void MainWindow::startTx2()
+ {
+-  loggit(&quot;Start Tx2&quot;);
+   if(!soundOutThread.isRunning()) {
+     double snr=99.0;
+     soundOutThread.setTxSNR(snr);
+     soundOutThread.start(QThread::HighPriority);
++    m_transmitting=true;
++    m_switching=false;
++    loggit(&quot;Start Tx2&quot;);
+   }
+ }
+ 
+ void MainWindow::stopTx()
+ {
++  int itx=0;
++  ptt(m_pttPort,itx,&amp;m_iptt);                   //Lower PTT
+   loggit(&quot;Stop Tx&quot;);
+ }
+ 
+@@ -967,6 +992,12 @@
+   m_dialFreq=ui-&gt;dialFreqLineEdit-&gt;text().toDouble();
+ }
+ 
++void MainWindow::on_txFreqLineEdit_editingFinished()
++{
++  double txMHz=ui-&gt;txFreqLineEdit-&gt;text().toDouble();
++  m_txFreq=int(1.0e6 * (txMHz-m_dialFreq) + 0.5);
++}
++
+ void MainWindow::loggit(QString t)
+ {
+ //  qDebug() &lt;&lt; t &lt;&lt; m_sec0 &lt;&lt; m_nseq &lt;&lt; m_nrx &lt;&lt; m_ntr;
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/mainwindow.h	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -28,6 +28,7 @@
+   void dataSink(int k);
+   void diskDat();
+   void diskWriteFinished();
++  void freezeDecode(int n);
+   void guiUpdate();
+   void p1ReadFromStdout();
+   void p1ReadFromStderr();
+@@ -80,6 +81,8 @@
+ 
+   void on_TuneButton_clicked();
+ 
++  void on_txFreqLineEdit_editingFinished();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -112,9 +115,11 @@
+     qint32  m_ntune;
+     qint32  m_pctx;
+     qint32  m_iptt;
++    qint32  m_txFreq0;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
++    bool    m_switching;
+     bool    m_diskData;
+     bool    m_loopall;
+     bool    m_auto;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/mainwindow.ui	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -438,7 +438,7 @@
+            &lt;/widget&gt;
+           &lt;/item&gt;
+           &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
+-           &lt;widget class=&quot;QLineEdit&quot; name=&quot;lineEdit_2&quot;&gt;
++           &lt;widget class=&quot;QLineEdit&quot; name=&quot;txFreqLineEdit&quot;&gt;
+             &lt;property name=&quot;sizePolicy&quot;&gt;
+              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+               &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -456,6 +456,26 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
++          &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
++           &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
++            &lt;property name=&quot;maximumSize&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;16777215&lt;/width&gt;
++              &lt;height&gt;20&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;Tx Audio (Hz):&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++          &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
++           &lt;widget class=&quot;QLabel&quot; name=&quot;lab11&quot;&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;  1500&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
+          &lt;/layout&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
+
+Modified: branches/wsprx/plotter.cpp
+===================================================================
+--- branches/wsprx/plotter.cpp	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/plotter.cpp	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -32,7 +32,6 @@
+   m_nsps=15360;
+   m_dBStepSize=10;
+   m_Percent2DScreen = 30;	//percent of screen used for 2D display
+-  m_txFreq=0;
+ }
+ 
+ CPlotter::~CPlotter() { }                                      // Destructor
+@@ -270,7 +269,7 @@
+ 
+   QPen pen1(Qt::red, 3);                         //Mark Tx Freq with red tick
+   painter0.setPen(pen1);
+-  x = XfromFreq(m_txFreq);
++  x = XfromFreq(m_TxFreq);
+   painter0.drawLine(x,17,x,30);
+ 
+ }
+@@ -295,7 +294,7 @@
+ 
+ float CPlotter::FreqfromX(int x)                               //FreqfromX()
+ {
+-  return float(1000.0 + x*m_fftBinWidth);
++  return float(m_StartFreq + x*m_fftBinWidth);
+ }
+ 
+ void CPlotter::SetRunningState(bool running)              //SetRunningState()
+@@ -346,11 +345,10 @@
+ 
+ void CPlotter::mousePressEvent(QMouseEvent *event)       //mousePressEvent
+ {
+-  int x=event-&gt;x();
+-  setTxFreq(x,false);                               // Wideband waterfall
+   bool ctrl = (event-&gt;modifiers() &amp; Qt::ControlModifier);
+-  if(!ctrl) {
+-    setTxFreq(m_TxFreq);
++  if(ctrl) {
++    int x=event-&gt;x();
++    setTxFreq(x,false);
+     emit freezeDecode1(1);                  //### ???
+   }
+ }
+@@ -458,9 +456,4 @@
+   update();                              //trigger a new paintEvent}
+ }
+ 
+-void CPlotter::setTxFreq(int n)                                 //setTol()
+-{
+-  m_txFreq=n;
+-  DrawOverlay();
+-  update();
+-}
++
+
+Modified: branches/wsprx/plotter.h
+===================================================================
+--- branches/wsprx/plotter.h	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/plotter.h	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -49,7 +49,6 @@
+   void setPalette(QString palette);
+   void setFsample(int n);
+   void setNsps(int ntrperiod, int nsps);
+-  void setTxFreq(int n);
+   void SetPercent2DScreen(int percent){m_Percent2DScreen=percent;}
+ 
+ signals:
+@@ -95,7 +94,7 @@
+   qint32  m_h2;
+   qint32  m_tol;
+   qint32  m_TRperiod;
+-  qint32  m_txFreq;
++//  qint32  m_txFreq;
+ 
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+
+Modified: branches/wsprx/soundout.cpp
+===================================================================
+--- branches/wsprx/soundout.cpp	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/soundout.cpp	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -56,16 +56,21 @@
+     srand(mstr);                                //Initialize random seed
+   }
+   isym=ic/(4*udata-&gt;nsps);                      //Actual fsample=48000
+-  if(isym&gt;=162) return 1;
++  if(isym&gt;=162) {
++    qDebug() &lt;&lt; &quot;Returning 1 from d2aCallback&quot;;
++    return paComplete;
++  }
+   baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/48000.0;
++
+   /*
+   if(isym != isym0) {
+-    qDebug() &lt;&lt; isym &lt;&lt; itone[isym] &lt;&lt; btxok &lt;&lt; btxMute;
++    qDebug() &lt;&lt; isym &lt;&lt; itone[isym] &lt;&lt; udata-&gt;ntxfreq;
+     isym0=isym;
+   }
+   */
++
+   if(udata-&gt;txsnrdb &lt; 0.0) {
+     snr=pow(10.0,0.05*(udata-&gt;txsnrdb-6.0));
+     fac=3000.0;
+@@ -86,7 +91,7 @@
+     *wptr++ = i2;                   //left
+     ic++;
+   }
+-  return 0;
++  return paContinue;
+ }
+ 
+ void SoundOutThread::run()
+@@ -140,7 +145,8 @@
+ //---------------------------------------------- Soundcard output loop
+   while (!qe) {
+     qe = quitExecution;
+-    if (qe) break;
++    if(qe) break;
++    if(Pa_IsStreamActive(outStream)==0) break;
+ 
+     udata.txsnrdb=m_txsnrdb;
+     udata.nsps=m_nsps;
+
+Modified: branches/wsprx/widegraph.cpp
+===================================================================
+--- branches/wsprx/widegraph.cpp	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/widegraph.cpp	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -189,5 +189,10 @@
+ 
+ void WideGraph::setTxFreq(int n)
+ {
+-  ui-&gt;widePlot-&gt;setTxFreq(n);
++  ui-&gt;widePlot-&gt;setTxFreq(n,true);
+ }
++
++int WideGraph::txFreq()
++{
++  return ui-&gt;widePlot-&gt;m_TxFreq;
++}
+
+Modified: branches/wsprx/widegraph.h
+===================================================================
+--- branches/wsprx/widegraph.h	2013-01-04 16:08:31 UTC (rev 2887)
++++ branches/wsprx/widegraph.h	2013-01-04 19:23:31 UTC (rev 2888)
+@@ -22,6 +22,7 @@
+   void   setTxFreq(int n);
+   void   setDialFreq(double f);
+   double dialFreq();
++  int    txFreq();
+ 
+   qint32 m_qsoFreq;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002579.html">[WSJT-SVN] r2887 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002581.html">[WSJT-SVN] r2889 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2580">[ date ]</a>
+              <a href="thread.html#2580">[ thread ]</a>
+              <a href="subject.html#2580">[ subject ]</a>
+              <a href="author.html#2580">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,524 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2672 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2672%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121020163701.D2F2A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002363.html">
+   <LINK REL="Next"  HREF="002365.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2672 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2672%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121020163701.D2F2A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2672 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Oct 20 18:37:01 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002363.html">[WSJT-SVN] r2671 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002365.html">[WSJT-SVN] r2673 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2364">[ date ]</a>
+              <a href="thread.html#2364">[ thread ]</a>
+              <a href="subject.html#2364">[ subject ]</a>
+              <a href="author.html#2364">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-20 18:37:01 +0200 (Sat, 20 Oct 2012)
+New Revision: 2672
+
+Added:
+   branches/wsjtx/lib/genmet.f90
+Modified:
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/fano232.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+Log:
+More progress on GUI; cleanup of fano232 code.
+
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2012-10-19 19:26:07 UTC (rev 2671)
++++ branches/wsjtx/lib/decode9.f90	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -38,7 +38,7 @@
+   ndelta=17
+   limit=10000
+   call fano232(i1SoftSymbols,nbits+31,mettab,ndelta,limit,i1DecodedBytes,   &amp;
+-       ncycles,metric,ierr,maxmetric,maxnp)
++       ncycles,metric,ierr)
+ 
+   if(ncycles.lt.(nbits*limit)) then
+      nbytes=(nbits+7)/8
+
+Modified: branches/wsjtx/lib/fano232.f90
+===================================================================
+--- branches/wsjtx/lib/fano232.f90	2012-10-19 19:26:07 UTC (rev 2671)
++++ branches/wsjtx/lib/fano232.f90	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -1,14 +1,14 @@
+ subroutine fano232(symbol,nbits,mettab,ndelta,maxcycles,dat,     &amp;
+-     ncycles,metric,ierr,maxmetric,maxnp)
++     ncycles,metric,ierr)
+ 
+ ! Sequential decoder for K=32, r=1/2 convolutional code using 
+ ! the Fano algorithm.  Translated from C routine for same purpose
+ ! written by Phil Karn, KA9Q.
+ 
+   parameter (MAXBITS=103)
+-  parameter (MAXDAT=(MAXBITS+7)/8)
+-  integer*1 symbol(0:2*MAXBITS-1)
+-  integer*1 dat(MAXDAT)            !Decoded user data, 8 bits per byte
++  parameter (MAXBYTES=(MAXBITS+7)/8)
++  integer*1 symbol(0:2*MAXBITS-1)  !Soft symbols (as unsigned i*1)
++  integer*1 dat(MAXBYTES)          !Decoded user data, 8 bits per byte
+   integer mettab(0:255,0:1)        !Metric table
+ 
+ ! These were the &quot;node&quot; structure in Karn's C code:
+@@ -19,10 +19,8 @@
+   integer ii(0:MAXBITS-1)          !Current branch being tested
+ 
+   logical noback
+-  include 'conv232.f90'
++  include 'conv232.f90'            !Polynomials defined here
+ 
+-  maxmetric=-9999999
+-  maxnp=-9999999
+   ntail=nbits-31
+ 
+ ! Compute all possible branch metrics for each symbol pair.
+@@ -44,9 +42,8 @@
+   np=0
+   nstate(np)=0
+ 
+-! Compute and sort branch metrics from the root node
+-  n=iand(nstate(np),npoly1)
+-  n=ieor(n,ishft(n,-16))
++  n=iand(nstate(np),npoly1)                  !Compute and sort branch metrics 
++  n=ieor(n,ishft(n,-16))                     !from the root node
+   lsym=partab(iand(ieor(n,ishft(n,-8)),255))
+   n=iand(nstate(np),npoly2)
+   n=ieor(n,ishft(n,-16))
+@@ -54,38 +51,27 @@
+   m0=metrics(lsym,np)
+   m1=metrics(ieor(3,lsym),np)
+   if(m0.gt.m1) then
+-     tm(0,np)=m0                      !0-branch has better metric
++     tm(0,np)=m0                             !0-branch has better metric
+      tm(1,np)=m1
+   else
+-     tm(0,np)=m1                      !1-branch is better
++     tm(0,np)=m1                             !1-branch is better
+      tm(1,np)=m0
+-     nstate(np)=nstate(np) + 1        !Set low bit
++     nstate(np)=nstate(np) + 1               !Set low bit
+   endif
+ 
+-! Start with best branch
+-  ii(np)=0
++  ii(np)=0                                   !Start with best branch
+   gamma(np)=0
+   nt=0
+ 
+-! Start the Fano decoder
+-  do i=1,nbits*maxcycles
+-! Look forward
+-     ngamma=gamma(np) + tm(ii(np),np)
++  do i=1,nbits*maxcycles                     !Start the Fano decoder
++     ngamma=gamma(np) + tm(ii(np),np)        !Look forward
+      if(ngamma.ge.nt) then
+-
+ ! Node is acceptable.  If first time visiting this node, tighten threshold:
+         if(gamma(np).lt.(nt+ndelta)) nt=nt + ndelta * ((ngamma-nt)/ndelta)
+-
+-! Move forward
+-        gamma(np+1)=ngamma
++        gamma(np+1)=ngamma                   !Move forward
+         nstate(np+1)=ishft(nstate(np),1)
+         np=np+1
+-!        if(ngamma.gt.maxmetric) then
+-        if(np.gt.maxnp) then
+-           maxmetric=ngamma
+-           maxnp=np
+-        endif
+-        if(np.eq.nbits-1) go to 100     !We're done!
++        if(np.eq.nbits-1) go to 100          !We're done!
+ 
+         n=iand(nstate(np),npoly1)
+         n=ieor(n,ishft(n,-16))
+@@ -95,7 +81,7 @@
+         lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
+             
+         if(np.ge.ntail) then
+-           tm(0,np)=metrics(lsym,np)      !We're in the tail, all zeros
++           tm(0,np)=metrics(lsym,np)      !We're in the tail, now all zeros
+         else
+            m0=metrics(lsym,np)
+            m1=metrics(ieor(3,lsym),np)
+@@ -108,46 +94,37 @@
+               nstate(np)=nstate(np) + 1   !Set low bit
+            endif
+         endif
+-
+         ii(np)=0                          !Start with best branch
+-        go to 99
+-     endif
++     else
++        do while(.true.)
++           noback=.false.                 !Threshold violated, can't go forward
++           if(np.eq.0) noback=.true.
++           if(np.gt.0) then
++              if(gamma(np-1).lt.nt) noback=.true.
++           endif
+ 
+-! Threshold violated, can't go forward
+-10   noback=.false.
+-     if(np.eq.0) noback=.true.
+-     if(np.gt.0) then
+-        if(gamma(np-1).lt.nt) noback=.true.
+-     endif
++           if(noback) then               !Can't back up, either
++              nt=nt-ndelta               !Relax threshold and look forward again
++              if(ii(np).ne.0) then
++                 ii(np)=0
++                 nstate(np)=ieor(nstate(np),1)
++              endif
++              exit
++           endif
+ 
+-     if(noback) then
+-! Can't back up, either.  Relax threshold and look forward again 
+-! to a better branch.
+-        nt=nt-ndelta
+-        if(ii(np).ne.0) then
+-           ii(np)=0
+-           nstate(np)=ieor(nstate(np),1)
+-        endif
+-        go to 99
++           np=np-1                       !Back up
++           if(np.lt.ntail .and. ii(np).ne.1) then
++              ii(np)=ii(np)+1            !Search the next best branch
++              nstate(np)=ieor(nstate(np),1)
++              exit
++           endif
++        enddo
+      endif
+-
+-! Back up
+-     np=np-1
+-     if(np.lt.ntail .and. ii(np).ne.1) then
+-! Search the next best branch
+-        ii(np)=ii(np)+1
+-        nstate(np)=ieor(nstate(np),1)
+-        go to 99
+-     endif
+-     go to 10
+-99   continue
+   enddo
+   i=nbits*maxcycles
+   
+ 100 metric=gamma(np)                       !Final path metric
+-
+-! Copy decoded data to user's buffer
+-  nbytes=(nbits+7)/8
++  nbytes=(nbits+7)/8                       !Copy decoded data to user's buffer
+   np=7
+   do j=1,nbytes-1
+      i4a=nstate(np)
+@@ -155,7 +132,6 @@
+      np=np+8
+   enddo
+   dat(nbytes)=0
+-  
+   ncycles=i+1
+   ierr=0
+   if(i.ge.maxcycles*nbits) ierr=-1
+
+Added: branches/wsjtx/lib/genmet.f90
+===================================================================
+--- branches/wsjtx/lib/genmet.f90	                        (rev 0)
++++ branches/wsjtx/lib/genmet.f90	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -0,0 +1,88 @@
++program genmet
++
++! Former name: tstprob
++
++  character*12 arg
++  real*4 r(0:255)
++  integer hist(2,-128:128)
++  data hist/514*0/,idum/-1/
++
++  lim(x)=min(127,max(-128,nint(scale*x)))
++
++  nargs=iargc()
++  if(nargs.ne.5) then
++     print*,'Usage: genmet ncoh nadd m0 snr iters'
++     go to 999
++  endif
++  call getarg(1,arg)
++  read(arg,*) ncoh
++  call getarg(2,arg)
++  read(arg,*) nadd
++  call getarg(3,arg)
++  read(arg,*) m0
++  call getarg(4,arg)
++  read(arg,*) snr
++  call getarg(5,arg)
++  read(arg,*) iters
++
++  ntones=2**m0
++  xm0=m0
++  scale=5.0
++  fac=sqrt(1.0/nadd)
++  s=sqrt(10.0**(0.1*snr))
++  hist=0
++  nerr=0
++
++  do iter=1,iters
++     do i=0,ntones-1
++        r(i)=0.
++        do n=1,nadd
++           x1=0.707*gran()
++           y1=0.707*gran()
++           if(i.eq.0) x1=x1+s
++           if(ncoh.eq.0) r(i)=r(i) + x1*x1 + y1*y1
++           if(ncoh.ne.0) r(i)=r(i) + x1
++        enddo
++        r(i)=fac*r(i)
++     enddo
++     do m=0,m0-1
++        n=2**m
++        r1=0.
++        r2=0.
++        do i=0,ntones-1
++           if(iand(i,n).ne.0) r1=max(r1,r(i))
++           if(iand(i,n).eq.0) r2=max(r2,r(i))
++        enddo
++        don=r2-r1
++        doff=r1-r2
++        if(don.lt.0.0) nerr=nerr+1
++        j1=lim(doff)
++        hist(1,j1)=hist(1,j1)+1
++        j2=lim(don)
++        hist(2,j2)=hist(2,j2)+1
++     enddo
++  enddo
++
++  do i=-128,127
++     write(13,1010) i/scale,hist(1,i)/(xm0*iters),hist(2,i)/(xm0*iters)
++1010 format(f8.3,2f12.9)
++  enddo
++
++  ber=nerr/(xm0*iters)
++  write(*,1020) nadd,m0,snr,ber
++1020 format('nadd:',i3,'   m0:',i2,'   snr: 'f5.1,'   BER:',f8.3)
++      
++  xln2=log(2.0)
++  do i=-128,127
++     p1=hist(2,i)/(xm0*iters)
++     p0=hist(1,i)/(xm0*iters)
++     if(p0+p1.eq.0.0 .and. i.lt.0) p0=1.e-6
++     if(p0+p1.eq.0.0 .and. i.gt.0) p1=1.e-6
++     xlhd0=log(max(0.001,2.0*p0/(p0+p1)))/xln2
++     xlhd1=log(max(0.001,2.0*p1/(p0+p1)))/xln2
++     write(14,1012) i/scale,xlhd0,xlhd1,p0/(p0+p1),p1/(p0+p1)
++1012 format(f7.1,2f8.3,2f9.6)
++  enddo
++      
++999 end program genmet
++
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-10-19 19:26:07 UTC (rev 2671)
++++ branches/wsjtx/lib/jt9sim.f90	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -93,7 +93,7 @@
+      endif
+ 
+      if(msg0.ne.'                      ') then
+-        call genjt9(message,minutes,msgsent,i4tone) !Encode message into tone #s
++        call genjt9(message,msgsent,i4tone) !Encode message into tone #s
+      endif
+ 
+      rewind 12
+@@ -102,7 +102,7 @@
+         if(msg0.eq.'                      ') then
+            read(12,1004) message                !Use pre-generated message texts
+ 1004       format(a22)
+-           call genjt9(message,minutes,msgsent,i4tone)
++           call genjt9(message,msgsent,i4tone)
+         endif
+ 
+         f=f0
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-19 19:26:07 UTC (rev 2671)
++++ branches/wsjtx/mainwindow.cpp	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -341,7 +341,7 @@
+   QString t;
+   m_pctZap=nzap/178.3;
+   t.sprintf(&quot; Rx noise: %5.1f  %5.1f %% &quot;,px,m_pctZap);
+-  lab4-&gt;setText(t);
++  lab3-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);   //Update the thermometer
+   if(m_monitoring || m_diskData) {
+     g_pWideGraph-&gt;dataSink2(s,red,df3,ihsym,m_diskData,lstrong);
+@@ -578,7 +578,7 @@
+   lab2-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab2);
+ 
+-  lab3 = new QLabel(&quot;Freeze DF:   0&quot;);
++  lab3 = new QLabel(&quot;&quot;);
+   lab3-&gt;setAlignment(Qt::AlignHCenter);
+   lab3-&gt;setMinimumSize(QSize(80,10));
+   lab3-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+@@ -586,15 +586,9 @@
+ 
+   lab4 = new QLabel(&quot;&quot;);
+   lab4-&gt;setAlignment(Qt::AlignHCenter);
+-  lab4-&gt;setMinimumSize(QSize(80,10));
++  lab4-&gt;setMinimumSize(QSize(50,10));
+   lab4-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab4);
+-
+-  lab5 = new QLabel(&quot;&quot;);
+-  lab5-&gt;setAlignment(Qt::AlignHCenter);
+-  lab5-&gt;setMinimumSize(QSize(50,10));
+-  lab5-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+-  statusBar()-&gt;addWidget(lab5);
+ }
+ 
+ void MainWindow::on_tolSpinBox_valueChanged(int i)             //tolSpinBox
+@@ -752,6 +746,7 @@
+     ui-&gt;decodedTextBrowser-&gt;append(line);
+   }
+   f.close();
++  if(m_loopall) on_actionOpen_next_in_directory_triggered();
+ }
+ 
+ //Delete ../save/*.wav
+@@ -977,7 +972,6 @@
+   }
+ 
+   lab2-&gt;setText(&quot;QSO Freq:  &quot; + QString::number(g_pWideGraph-&gt;QSOfreq()));
+-  lab3-&gt;setText(&quot;Freeze DF:  &quot; + QString::number(g_pWideGraph-&gt;DF()));
+ 
+   if(m_startAnother) {
+     m_startAnother=false;
+@@ -1010,7 +1004,7 @@
+     ui-&gt;labUTC-&gt;setText(utc);
+     if(!m_monitoring and !m_diskData) {
+       ui-&gt;xThermo-&gt;setValue(0.0);                      // Set Rx level to 20
+-//      lab4-&gt;setText(&quot; Rx noise:    0.0 &quot;);
++//      lab3-&gt;setText(&quot; Rx noise:    0.0 &quot;);
+     }
+     m_hsym0=khsym;
+     m_sec0=nsec;
+@@ -1342,8 +1336,8 @@
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
+-  lab5-&gt;setText(m_mode);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
++  lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_1-&gt;setChecked(true);
+ }
+ 
+@@ -1356,8 +1350,8 @@
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+-  lab5-&gt;setText(m_mode);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
++  lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_2-&gt;setChecked(true);
+ }
+ 
+@@ -1370,8 +1364,8 @@
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
+-  lab5-&gt;setText(m_mode);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
++  lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_5-&gt;setChecked(true);
+ }
+ 
+@@ -1384,8 +1378,8 @@
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
+-  lab5-&gt;setText(m_mode);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
++  lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_10-&gt;setChecked(true);
+ }
+ 
+@@ -1398,8 +1392,8 @@
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
+-  lab5-&gt;setText(m_mode);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
++  lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_30-&gt;setChecked(true);
+ }
+ 
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-19 19:26:07 UTC (rev 2671)
++++ branches/wsjtx/plotter.cpp	2012-10-20 16:37:01 UTC (rev 2672)
+@@ -127,7 +127,7 @@
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+     if(m_bCurrent) y2 = gain*y + 30;
+-    if(m_bCumulative) y2=gain*10.0*log10(jt9com_.savg[i]);
++    if(m_bCumulative) y2=3*gain*10.0*log10(jt9com_.savg[i]);
+     if(m_bJT9Sync) y2=3*gain*red[i];
+     if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002363.html">[WSJT-SVN] r2671 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002365.html">[WSJT-SVN] r2673 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2364">[ date ]</a>
+              <a href="thread.html#2364">[ thread ]</a>
+              <a href="subject.html#2364">[ subject ]</a>
+              <a href="author.html#2364">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

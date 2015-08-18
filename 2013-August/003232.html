@@ -1,0 +1,474 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3540 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3540%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130809172209.8A63955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003230.html">
+   <LINK REL="Next"  HREF="003233.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3540 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3540%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130809172209.8A63955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3540 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Aug  9 19:22:09 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003230.html">[WSJT-SVN] r3539 - in branches/wsjtx: . logbook
+</A></li>
+        <LI>Next message: <A HREF="003233.html">[WSJT-SVN] r3541 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3232">[ date ]</a>
+              <a href="thread.html#3232">[ thread ]</a>
+              <a href="subject.html#3232">[ subject ]</a>
+              <a href="author.html#3232">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-08-09 19:22:08 +0200 (Fri, 09 Aug 2013)
+New Revision: 3540
+
+Added:
+   branches/wsjtx/wsjtx_update.iss
+Modified:
+   branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx
+   branches/wsjtx/commons.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/fillcom.f90
+   branches/wsjtx/lib/jt65a.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9c.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/widegraph.ui
+   branches/wsjtx/wsjtx.iss
+Log:
+1. Correct bug that prevented save/restore of Wide Graph geometry.
+2. Fix jt9 so that decoding starts at fStart (which now may be non-zero).
+3. Improved or new Tool Tips for some GUI controls.
+4. Updates to User's Guide.
+
+
+Modified: branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/commons.h	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -16,6 +16,7 @@
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int npts8;                        //npts for c0() array
+   int nfa;                          //Low decode limit (Hz)
++  int nfSplit;                      //JT65 | JT9 split frequency
+   int nfb;                          //High decode limit (Hz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+   int kin;
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/lib/decoder.f90	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -14,8 +14,8 @@
+   integer*2 id2(NTMAX*12000)
+   real*4 dd(NTMAX*12000)
+   integer*1 i1SoftSymbols(207)
+-  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
++  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfsplit,nfb,    &amp;
++       ntol,kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
+   common/tracer/limtrace,lu
+   save
+ 
+@@ -33,7 +33,10 @@
+   done65=.false.
+   if(nmode.ge.65 .and. ntxmode.eq.65) then
+      if(newdat.ne.0) dd(1:npts65)=id2(1:npts65)
+-     call jt65a(dd,npts65,newdat,nutc,nfa,nfqso,ntol65,nagain,ndecoded)
++     nf1=nfa
++     nf2=nfb
++     if(nmode.eq.65+9) nf2=nfsplit
++     call jt65a(dd,npts65,newdat,nutc,nf1,nf2,nfqso,ntol65,nagain,ndecoded)
+      done65=.true.
+   endif
+ 
+@@ -50,7 +53,9 @@
+   done=.false.
+ 
+   nf0=0
+-  ia=max(1,nint((nfa-nf0)/df3))
++  nf1=nfa
++  if(nmode.eq.65+9) nf1=nfsplit
++  ia=max(1,nint((nf1-nf0)/df3))
+   ib=min(NSMAX,nint((nfb-nf0)/df3))
+   lag1=-(2.5/tstep + 0.9999)
+   lag2=5.0/tstep + 0.9999
+@@ -89,7 +94,7 @@
+         ia1=ia
+         ib1=ib
+      else
+-        nfa1=nfa
++        nfa1=nf1
+         nfb1=nfb
+         ia=max(1,nint((nfa1-nf0)/df3))
+         ib=min(NSMAX,nint((nfb1-nf0)/df3))
+@@ -159,7 +164,7 @@
+ 
+   if(nmode.ge.65 .and. (.not.done65)) then
+      if(newdat.ne.0) dd(1:npts65)=id2(1:npts65)
+-     call jt65a(dd,npts65,newdat,nutc,nfa,nfqso,ntol65,nagain,ndecoded)
++     call jt65a(dd,npts65,newdat,nutc,nf1,nf2,nfqso,ntol65,nagain,ndecoded)
+   endif
+ 
+ !### JT65 is not yet producing info for nsynced, ndecoded.
+
+Modified: branches/wsjtx/lib/fillcom.f90
+===================================================================
+--- branches/wsjtx/lib/fillcom.f90	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/lib/fillcom.f90	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -1,7 +1,7 @@
+ subroutine fillcom(nutc0,ndepth0,nrxfreq)
+   character*20 datetime
+-  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
++  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfsplit,nfb,   &amp;
++       ntol,kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
+   save
+ 
+   nutc=nutc0
+@@ -10,7 +10,8 @@
+   nfqso=nrxfreq
+   newdat=1
+   npts8=74736
+-  nfa=2700
++  nfa=200
++  nfsplit=2700
+   nfb=4007
+   ntol=3
+   kin=1024
+
+Modified: branches/wsjtx/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx/lib/jt65a.f90	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/lib/jt65a.f90	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -1,4 +1,4 @@
+-subroutine jt65a(dd,npts,newdat,nutc,nfa,nfqso,ntol,nagain,ndecoded)
++subroutine jt65a(dd,npts,newdat,nutc,nf1,nf2,nfqso,ntol,nagain,ndecoded)
+ 
+ !  Process dd() data to find and decode JT65 signals.
+ 
+@@ -30,8 +30,8 @@
+         fa=nfqso - ntol
+         fb=nfqso + ntol
+      else                             !Wideband decode at all freqs
+-        fa=200
+-        fb=nfa
++        fa=nf1
++        fb=nf2
+      endif
+      ia=max(51,nint(fa/df))
+      ib=min(NSZ-51,nint(fb/df))
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/lib/jt9.f90	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -8,8 +8,8 @@
+   real*4 s(NSMAX)
+   integer*2 id2
+   character*80 arg,infile
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,       &amp;
+-       ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,ntr,       &amp;
++       mousefqso,newdat,nfa,nfsplit,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+   common/tracer/limtrace,lu
+ 
+   nargs=iargc()
+
+Modified: branches/wsjtx/lib/jt9c.f90
+===================================================================
+--- branches/wsjtx/lib/jt9c.f90	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/lib/jt9c.f90	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -4,10 +4,10 @@
+   real*4 ss(184*NSMAX),savg(NSMAX)
+   integer*2 id2(NTMAX*12000)
+ 
+-  integer nparams0(21),nparams(21)
++  integer nparams0(22),nparams(22)
+   character*20 datetime
+-  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
++  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfsplit,nfb,   &amp;
++       ntol,kin,nzhsym,nsave,nagain,ndepth,ntxmode,nmode,datetime
+   equivalence (nparams,nutc)
+ 
+   nutc=id2(1)+int(savg(1))             !Silence compiler warning
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/mainwindow.cpp	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -390,7 +390,6 @@
+ //--------------------------------------------------- MainWindow destructor
+ MainWindow::~MainWindow()
+ {
+-  writeSettings();
+   if(!m_decoderBusy) {
+     QFile lockFile(m_appDir + &quot;/.lock&quot;);
+     lockFile.remove();
+@@ -1057,6 +1056,7 @@
+ {
+   m_guiTimer.stop ();
+   g_pWideGraph-&gt;saveSettings();
++  writeSettings();
+   if(m_fname != &quot;&quot;) killFile();
+   m_killAll=true;
+   mem_jt9-&gt;detach();
+@@ -1320,14 +1320,11 @@
+   jt9com_.ndepth=m_ndepth;
+   jt9com_.ndiskdat=0;
+   if(m_diskData) jt9com_.ndiskdat=1;
+-  int nfa=g_pWideGraph-&gt;getFmin();
+-  int nfb=g_pWideGraph-&gt;getFmax();
+-  if(m_mode==&quot;JT9&quot;) nfa=200;                //decode from 0 to fmax
+-  if(m_mode==&quot;JT65&quot;) nfa=nfb;               //decode from 0 to fmax
+-  jt9com_.nfa=nfa;
+-  jt9com_.nfb=nfb;
++  jt9com_.nfa=g_pWideGraph-&gt;nStartFreq();
++  jt9com_.nfSplit=g_pWideGraph-&gt;getFmin();
++  jt9com_.nfb=g_pWideGraph-&gt;getFmax();
+   jt9com_.ntol=20;
+-  if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to all.txt
++  if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;       //Date and Time to all.txt
+   m_nutc0=jt9com_.nutc;
+   jt9com_.ntxmode=9;
+   if(m_modeTx==&quot;JT65&quot;) jt9com_.ntxmode=65;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/mainwindow.ui	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -461,7 +461,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;toolTip&quot;&gt;
+-         &lt;string&gt;Decode most recent Rx period at QSO Frequency (use shift for all freqs)&lt;/string&gt;
++         &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Decode most recent Rx period at QSO Frequency&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;&amp;Decode&lt;/string&gt;
+@@ -515,7 +515,7 @@
+       &lt;item&gt;
+        &lt;widget class=&quot;QPushButton&quot; name=&quot;tuneButton&quot;&gt;
+         &lt;property name=&quot;toolTip&quot;&gt;
+-         &lt;string&gt;Assert PTT and emit a pure tone&lt;/string&gt;
++         &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Transmit a pure tone&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;&amp;Tune&lt;/string&gt;
+@@ -584,6 +584,9 @@
+       &lt;/item&gt;
+       &lt;item row=&quot;5&quot; column=&quot;6&quot;&gt;
+        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxLock&quot;&gt;
++        &lt;property name=&quot;toolTip&quot;&gt;
++         &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Tx frequency tracks Rx frequency&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
++        &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;Lock Tx=Rx&lt;/string&gt;
+         &lt;/property&gt;
+@@ -647,6 +650,9 @@
+           &lt;height&gt;20&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
++        &lt;property name=&quot;toolTip&quot;&gt;
++         &lt;string&gt;Audio Rx frequency&lt;/string&gt;
++        &lt;/property&gt;
+         &lt;property name=&quot;suffix&quot;&gt;
+          &lt;string&gt;  Hz&lt;/string&gt;
+         &lt;/property&gt;
+@@ -1127,7 +1133,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;toolTip&quot;&gt;
+-           &lt;string&gt;Signal report (dB0&lt;/string&gt;
++           &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Signal report (dB)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;minimum&quot;&gt;
+            &lt;number&gt;-50&lt;/number&gt;
+@@ -2061,6 +2067,9 @@
+         &lt;property name=&quot;enabled&quot;&gt;
+          &lt;bool&gt;false&lt;/bool&gt;
+         &lt;/property&gt;
++        &lt;property name=&quot;toolTip&quot;&gt;
++         &lt;string&gt;Toggle Tx mode&lt;/string&gt;
++        &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;Tx JT9&lt;/string&gt;
+         &lt;/property&gt;
+@@ -2084,6 +2093,9 @@
+       &lt;/item&gt;
+       &lt;item row=&quot;1&quot; column=&quot;0&quot; colspan=&quot;2&quot;&gt;
+        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbPlus2kHz&quot;&gt;
++        &lt;property name=&quot;toolTip&quot;&gt;
++         &lt;string&gt;Add 2 kHz to requested dial frequency&lt;/string&gt;
++        &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;+2 kHz&lt;/string&gt;
+         &lt;/property&gt;
+@@ -2098,7 +2110,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;toolTip&quot;&gt;
+-         &lt;string&gt;If orange, click to read dial frequency once&lt;/string&gt;
++         &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If orange, click to read dial frequency&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string/&gt;
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/widegraph.ui	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -77,7 +77,7 @@
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Constant offset applied to waterfall data&lt;/string&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Constant offset applied to spectra&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;suffix&quot;&gt;
+           &lt;string/&gt;
+@@ -108,7 +108,7 @@
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Scaling (dB) applied to spectra before plotting&lt;/string&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Gain (dB) applied to spectra before display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+           &lt;string&gt;Gain &lt;/string&gt;
+@@ -161,6 +161,9 @@
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;toolTip&quot;&gt;
++          &lt;string&gt;Frequency (Hz) at left edge of waterfall&lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;suffix&quot;&gt;
+           &lt;string&gt; Hz&lt;/string&gt;
+          &lt;/property&gt;
+@@ -282,6 +285,9 @@
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;toolTip&quot;&gt;
++          &lt;string&gt;Correction applied to flatted displayed spectra&lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+           &lt;string&gt;Slope &lt;/string&gt;
+          &lt;/property&gt;
+@@ -336,7 +342,7 @@
+        &lt;item row=&quot;1&quot; column=&quot;4&quot;&gt;
+         &lt;widget class=&quot;QComboBox&quot; name=&quot;spec2dComboBox&quot;&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Select data for display curve&lt;/string&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select data for spectral display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;currentIndex&quot;&gt;
+           &lt;number&gt;1&lt;/number&gt;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2013-08-09 03:17:04 UTC (rev 3539)
++++ branches/wsjtx/wsjtx.iss	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -1,9 +1,9 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 1.1.1 r3520
++AppVerName=wsjtx Version 1.2 r3537
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+-DefaultDirName=c:\wsjtx2
+-DefaultGroupName=wsjtx2
++DefaultDirName=c:\wsjtx1.2
++DefaultGroupName=wsjtx1.2
+ 
+ [Files]
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\*.exe&quot;;                         DestDir: &quot;{app}&quot;
+@@ -14,12 +14,13 @@
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\CALL3.TXT&quot;;                     DestDir: &quot;{app}&quot;;  Flags: onlyifdoesntexist
+ Source: &quot;c:\Users\joe\wsjt\wsjtx\shortcuts.txt&quot;;                         DestDir: &quot;{app}&quot;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx\mouse_commands.txt&quot;;                    DestDir: &quot;{app}&quot;
+-Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Users_Guide_v1.1.1.pdf&quot;;         DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Users_Guide_v1.2.pdf&quot;;           DestDir: &quot;{app}&quot;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\save\Samples\130418_1742.wav&quot;;  DestDir: &quot;{app}\save\Samples&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\save\Samples\130610_2343.wav&quot;;  DestDir: &quot;{app}\save\Samples&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\platforms\qwindows.dll&quot;;        DestDir: &quot;{app}\platforms&quot;;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\Palettes\*.pal&quot;;                DestDir: &quot;{app}\Palettes&quot;;
+ 
+ [Icons]
+-Name: &quot;{group}\wsjtx2&quot;;        Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
+-Name: &quot;{userdesktop}\wsjtx2&quot;;  Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
++Name: &quot;{group}\wsjtx1.2&quot;;        Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
++Name: &quot;{userdesktop}\wsjtx1.2&quot;;  Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
+ 
+
+Added: branches/wsjtx/wsjtx_update.iss
+===================================================================
+--- branches/wsjtx/wsjtx_update.iss	                        (rev 0)
++++ branches/wsjtx/wsjtx_update.iss	2013-08-09 17:22:08 UTC (rev 3540)
+@@ -0,0 +1,18 @@
++[Setup]
++AppName=wsjtx
++AppVerName=wsjtx Version 1.2 r3537
++AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
++DefaultDirName=c:\wsjtx1.2
++DefaultGroupName=wsjtx1.2
++
++[Files]
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\wsjtx.exe&quot;;                     DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\jt9.exe&quot;;                       DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx\shortcuts.txt&quot;;                         DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx\mouse_commands.txt&quot;;                    DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Users_Guide_v1.2.pdf&quot;;           DestDir: &quot;{app}&quot;
++
++[Icons]
++Name: &quot;{group}\wsjtx1.2&quot;;        Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
++Name: &quot;{userdesktop}\wsjtx1.2&quot;;  Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
++
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003230.html">[WSJT-SVN] r3539 - in branches/wsjtx: . logbook
+</A></li>
+	<LI>Next message: <A HREF="003233.html">[WSJT-SVN] r3541 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3232">[ date ]</a>
+              <a href="thread.html#3232">[ thread ]</a>
+              <a href="subject.html#3232">[ subject ]</a>
+              <a href="author.html#3232">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

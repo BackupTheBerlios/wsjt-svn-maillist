@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r399 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r399%20-%20branches/map65&In-Reply-To=%3C200706211859.l5LIxrrv014113%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000083.html">
+   <LINK REL="Next"  HREF="000085.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r399 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r399%20-%20branches/map65&In-Reply-To=%3C200706211859.l5LIxrrv014113%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r399 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 21 20:59:53 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000083.html">[WSJT-SVN] r398 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000085.html">[WSJT-SVN] r400 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#84">[ date ]</a>
+              <a href="thread.html#84">[ thread ]</a>
+              <a href="subject.html#84">[ subject ]</a>
+              <a href="author.html#84">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-21 20:59:43 +0200 (Thu, 21 Jun 2007)
+New Revision: 399
+
+Modified:
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+Log:
+Account for lost packets, substituting zeros.
+
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-21 18:25:01 UTC (rev 398)
++++ branches/map65/map65a.f90	2007-06-21 18:59:43 UTC (rev 399)
+@@ -24,9 +24,9 @@
+   include 'gcom2.f90'
+   save
+ 
+-!  print*,'A',newdat2,nutc,nfile
+-  if(newdat2.eq.0) newdat2=1                      !###
++  print*,'nlost:',nlost
+ 
++  if(newdat2.eq.0) newdat2=1                      !###
+   if(newdat2.gt.0) nid=1
+   if(nid.eq.0) go to 999
+   rewind 11
+@@ -70,15 +70,8 @@
+      nfilt=2                      !nfilt=2 is faster for selected freq
+      freq=fselect
+      dt=2.314240                  !Not needed?
+-!     print*,'B',newdat2,nfilt,freq,nflip,ip0
+-
+-      write(*,3001) newdat2,nfilt,nflip,ip0,freq,               &amp;
+-           (id(1,i,kbuf),id(2,i,kbuf),id(3,i,kbuf),id(4,i,kbuf),i=1,2)
+- 3001 format(4i5,f10.3,8i5)
+-
+      call decode1a(id(1,1,kbuf),newdat2,nfilt,freq,nflip,ip0,sync2,        &amp;
+           a,dt,pol,nkv,nhist,qual,decoded)
+-!     print*,'C',nkv,qual,decoded
+      nsync1=0
+      nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+      ndf=nint(a(1))
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-21 18:25:01 UTC (rev 398)
++++ branches/map65/recvpkt.F90	2007-06-21 18:59:43 UTC (rev 399)
+@@ -30,14 +30,19 @@
+   nsec0=-999
+ 
+ 10 call recv_pkt(center_freq)
+-  if((nblock-nblock0).ne.1 .and. .not.first) then
+-     print*,'Lost packets?',nblock-nblock0,nblock,nblock0
++  lost=nblock-nblock0-1
++  if(lost.ne.0 .and. .not.first) then
++     print*,'Lost packets?',nblock,nblock0,lost
++     nlost=nlost + lost
++     do i=1,174*lost
++        k=k+1
++        d8(k)=0
++     enddo
+   endif
+   first=.false.
+   nblock0=nblock
+ 
+   if(monitoring.eq.1) then
+-
+      nsec=msec/1000
+      if(mod(nsec,60).eq.1) nreset=1
+      if(mod(nsec,60).eq.0 .and. nreset.eq.1) then
+@@ -46,6 +51,7 @@
+         kb=3-kb
+         k=0
+         if(kb.eq.2) k=NSZ
++        nlost=0
+      endif
+ 
+      do i=1,174
+@@ -64,9 +70,10 @@
+         nsec0=nsec
+      endif
+ 
+-     if(mod(nsec,60).eq.59) then
++     if(mod(nsec,60).eq.52) then
+         kbuf=kb
+         nutc=mutc
++        klost=nlost
+         ndecoding=1
+      endif
+   endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000083.html">[WSJT-SVN] r398 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000085.html">[WSJT-SVN] r400 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#84">[ date ]</a>
+              <a href="thread.html#84">[ thread ]</a>
+              <a href="subject.html#84">[ subject ]</a>
+              <a href="author.html#84">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3289 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3289%20-%20branches/wsjtx&In-Reply-To=%3C20130521204941.2784055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002980.html">
+   <LINK REL="Next"  HREF="002982.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3289 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3289%20-%20branches/wsjtx&In-Reply-To=%3C20130521204941.2784055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3289 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue May 21 22:49:41 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002980.html">[WSJT-SVN] r3288 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002982.html">[WSJT-SVN] r3290 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2981">[ date ]</a>
+              <a href="thread.html#2981">[ thread ]</a>
+              <a href="subject.html#2981">[ subject ]</a>
+              <a href="author.html#2981">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-21 22:49:40 +0200 (Tue, 21 May 2013)
+New Revision: 3289
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/rigclass.cpp
+Log:
+More work on HRD interface.
+
+*** Beware: some code in this revision will surely fail in Linux! ***
+*** Some &quot;#ifdef Win32&quot; statements are still to be included.      ***
+
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-05-21 19:49:41 UTC (rev 3288)
++++ branches/wsjtx/devsetup.cpp	2013-05-21 20:49:40 UTC (rev 3289)
+@@ -245,7 +245,6 @@
+   // Check to see whether SoundInThread must be restarted,
+   // and save user parameters.
+ 
+-  qDebug() &lt;&lt; &quot;a&quot;;
+   if(m_nDevIn!=ui.comboBoxSndIn-&gt;currentIndex() or
+      m_paInDevice!=m_inDevList[m_nDevIn]) m_restartSoundIn=true;
+ 
+@@ -293,12 +292,9 @@
+   m_dFreq.append(ui.f15-&gt;text());
+   m_dFreq.append(ui.f16-&gt;text());
+ 
+-  qDebug() &lt;&lt; &quot;b&quot;;
+-
+   if(m_bRigOpen) {
+     rig-&gt;close();
+     if(m_rig!=9999) delete rig;
+-    qDebug() &lt;&lt; &quot;c&quot;;
+     m_bRigOpen=false;
+   }
+ 
+@@ -446,12 +442,12 @@
+   }
+ 
+   rig = new Rig();
++
+   if(m_rig != 9999) {
+     if (!rig-&gt;init(m_rig)) {
+       msgBox(&quot;Rig init failure&quot;);
+       return;
+     }
+-
+     rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+     char buf[80];
+     sprintf(buf,&quot;%d&quot;,m_serialRate);
+@@ -461,7 +457,6 @@
+     sprintf(buf,&quot;%d&quot;,m_stopBits);
+     rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+     rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
+-
+     if(m_bDTRoff) {
+       rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+       rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-21 19:49:41 UTC (rev 3288)
++++ branches/wsjtx/mainwindow.cpp	2013-05-21 20:49:40 UTC (rev 3289)
+@@ -641,7 +641,7 @@
+     rig-&gt;close();
+     ui-&gt;readFreq-&gt;setStyleSheet(&quot;&quot;);
+     ui-&gt;readFreq-&gt;setEnabled(false);
+-    delete rig;
++    if(m_rig!=9999) delete rig;
+     m_bRigOpen=false;
+     m_catEnabled=false;
+   }
+@@ -2775,26 +2775,27 @@
+   QString t;
+   int ret;
+   rig = new Rig();
++
+   if(m_rig != 9999) {
+     if (!rig-&gt;init(m_rig)) {
+       msgBox(&quot;Rig init failure&quot;);
+       return;
+     }
++    rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
++    char buf[80];
++    sprintf(buf,&quot;%d&quot;,m_serialRate);
++    rig-&gt;setConf(&quot;serial_speed&quot;,buf);
++    sprintf(buf,&quot;%d&quot;,m_dataBits);
++    rig-&gt;setConf(&quot;data_bits&quot;,buf);
++    sprintf(buf,&quot;%d&quot;,m_stopBits);
++    rig-&gt;setConf(&quot;stop_bits&quot;,buf);
++    rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++    if(m_bDTRoff) {
++      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
++      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++    }
+   }
+ 
+-  rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+-  char buf[80];
+-  sprintf(buf,&quot;%d&quot;,m_serialRate);
+-  rig-&gt;setConf(&quot;serial_speed&quot;,buf);
+-  sprintf(buf,&quot;%d&quot;,m_dataBits);
+-  rig-&gt;setConf(&quot;data_bits&quot;,buf);
+-  sprintf(buf,&quot;%d&quot;,m_stopBits);
+-  rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+-  rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
+-  if(m_bDTRoff) {
+-    rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+-    rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
+-  }
+   ret=rig-&gt;open(m_rig);
+   if(ret==RIG_OK) {
+     m_bRigOpen=true;
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-05-21 19:49:41 UTC (rev 3288)
++++ branches/wsjtx/rigclass.cpp	2013-05-21 20:49:40 UTC (rev 3289)
+@@ -114,7 +114,6 @@
+     QString t;
+     int nhz=(int)freq;
+     t=m_context + &quot;Set Frequency-Hz &quot; + QString::number(nhz);
+-    qDebug() &lt;&lt; &quot;a&quot; &lt;&lt; freq &lt;&lt; nhz &lt;&lt; t;
+     const wchar_t* cmnd = (const wchar_t*) t.utf16();
+     const wchar_t* result=HRDInterfaceSendMessage(cmnd);
+     QString t2=QString::fromWCharArray (result,-1);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002980.html">[WSJT-SVN] r3288 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002982.html">[WSJT-SVN] r3290 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2981">[ date ]</a>
+              <a href="thread.html#2981">[ thread ]</a>
+              <a href="subject.html#2981">[ subject ]</a>
+              <a href="author.html#2981">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

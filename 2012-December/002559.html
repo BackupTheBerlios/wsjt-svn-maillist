@@ -1,0 +1,221 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2867 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2867%20-%20branches/wspr&In-Reply-To=%3C20121229161155.BA0A355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002558.html">
+   <LINK REL="Next"  HREF="002560.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2867 - branches/wspr</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2867%20-%20branches/wspr&In-Reply-To=%3C20121229161155.BA0A355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2867 - branches/wspr">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Dec 29 17:11:55 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002558.html">[WSJT-SVN] r2866 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002560.html">[WSJT-SVN] r2868 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2559">[ date ]</a>
+              <a href="thread.html#2559">[ thread ]</a>
+              <a href="subject.html#2559">[ subject ]</a>
+              <a href="author.html#2559">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-29 17:11:55 +0100 (Sat, 29 Dec 2012)
+New Revision: 2867
+
+Modified:
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+Log:
+Clean up the Thermo and &quot;Rx noise&quot; displays.
+Add sequencer delays after PTT=1 and before PTT=0.
+
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2012-12-29 02:48:20 UTC (rev 2866)
++++ branches/wspr/tx.f90	2012-12-29 16:11:55 UTC (rev 2867)
+@@ -168,6 +168,8 @@
+         endif
+      endif
+ 
++     call msleep(200)                     !T/R sequencing delay
++
+ 20   call gmtime2(nt,tsec2)
+ !     tdiff=tsec2-tsec0
+ !     if(tdiff.lt.0.9) then
+@@ -219,6 +221,7 @@
+      stop
+   endif
+ 
++  call msleep(200)                        !T/R sequencing delay
+   if(pttmode.eq.'CAT') then
+      if(nrig.eq.2509) then
+         cmnd='rigctl '//'-m'//crig//' -r USB T 0'
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2012-12-29 02:48:20 UTC (rev 2866)
++++ branches/wspr/wspr.py	2012-12-29 16:11:55 UTC (rev 2867)
+@@ -110,7 +110,6 @@
+ loopall=0
+ modpixmap0=0
+ mrudir=os.getcwd()
+-ndb0=99
+ ndbm0=-999
+ ncal0=999
+ ncall=0
+@@ -849,7 +848,7 @@
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+         modpixmap0,tw,s0,c0,fmid,fmid0,loopall,ntr0,txmsg,iband0, \
+         bandmap,bm,t0,nreject,gain,phdeg,ierr,itx0,timer1,ndecoding0, \
+-        hopping0,ndb0,ntune0,startup,nred,ntrminutes0
++        hopping0,ntune0,startup,nred,ntrminutes0
+ 
+     tsec=time.time()
+     utc=time.gmtime(tsec)
+@@ -1001,7 +1000,6 @@
+     newsecond=0					# =1 if a new second
+     if isec != isec0:                           #Do once per second
+ # this code block is executed once per second
+-        isec0=isec
+ 	newsecond=1
+         t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+         ldate.configure(text=t)
+@@ -1019,35 +1017,7 @@
+         gain=w.acom1.gain
+         phdeg=57.2957795*w.acom1.phase
+         nreject=int(w.acom1.reject)
+-## NB: the digital gain control &quot;ndgain&quot; presently is for cosmetic effect only.
+-        ndb=int(w.acom1.xdb1-41.0+ndgain.get())
+-        if ndb&lt;-30: ndb=-30
+-        dbave=w.acom1.xdb1
+-        if iq.iqmode.get():
+-	    t='Bal: %6.4f  Pha: %6.1f      &gt;%3d dB' % (gain,phdeg,nreject)
+-	    iq.lab1.configure(text=t)
+-            ndb2=int(w.acom1.xdb2-41.0)
+-            if ndb2&lt;-30: ndb2=-30
+-            dbave=0.5*(w.acom1.xdb1 + w.acom1.xdb2)
+-            t='Rx Noise: %3d %3d  dB' % (ndb,ndb2)
+-        else:
+-            t='Rx Noise: %3d  dB' % (ndb,)
+ 
+-# update noise display at lower left of screen
+-	bg='gray85'
+-	r=SUNKEN
+-	smcolor=&quot;green&quot;
+-	if w.acom1.receiving:
+-	    if ndb&gt;10 and ndb&lt;=20:
+-		bg='yellow'
+-		smcolor='yellow'
+-	    elif ndb&lt;-20 or ndb&gt;20:
+-		bg='red'
+-		smcolor='red'
+-	else:
+-	    t=''
+-	    r=FLAT
+-
+         if ntrminutes.get()!=ntrminutes0:
+             if ntrminutes.get()==2:
+                 msg4.configure(text='WSPR-2',bg='green')
+@@ -1059,17 +1029,40 @@
+                 setupmenu.entryconfig(3,state=DISABLED)
+             ntrminutes0=ntrminutes.get()
+ 
+-        if ndb0+2&lt;ndb or ndb0&gt;ndb+2:	# avoid redraws for small changes
+-	    ndb0=ndb
+-	    msg1.configure(text=t,bg=bg,relief=r)
+-	    dbave=dbave + ndgain.get()
+-	    if not receiving: dbave=0
+-	    sm.updateProgress(newValue=dbave,newColor=smcolor)
+-	if nred&gt;0:
+-            nred=nred-1
+-            if nred==0: lab02.configure(text=&quot;&quot;,bg='gray85')
+-
+ # this code block is executed ~5 times per second
++# NB: the digital gain control &quot;ndgain&quot; presently has cosmetic effect only.
++    ndb=int(w.acom1.xdb1-41.0+ndgain.get())
++    if ndb&lt;-30: ndb=-30
++    dbave=w.acom1.xdb1
++    if iq.iqmode.get():
++        t='Bal: %6.4f  Pha: %6.1f      &gt;%3d dB' % (gain,phdeg,nreject)
++        iq.lab1.configure(text=t)
++        ndb2=int(w.acom1.xdb2-41.0)
++        if ndb2&lt;-30: ndb2=-30
++        dbave=0.5*(w.acom1.xdb1 + w.acom1.xdb2)
++        t='Rx Noise: %3d %3d  dB' % (ndb,ndb2)
++    else:
++        t='Rx Noise: %3d  dB' % (ndb,)
++# update noise display at lower left of screen
++    bg='gray85'
++    r=SUNKEN
++    smcolor=&quot;green&quot;
++    if w.acom1.receiving==0:
++        t=''
++        r=FLAT
++        
++    if isec!=isec0:
++        msg1.configure(text=t,relief=r)
++        isec0=isec
++    
++    dbave=dbave + ndgain.get()
++    if not receiving: dbave=0
++    sm.updateProgress(newValue=dbave,newColor=smcolor)
++    
++    if nred&gt;0:
++        nred=nred-1
++        if nred==0: lab02.configure(text=&quot;&quot;,bg='gray85')
++
+ # If T/R status has changed, get new info
+     ntr=int(w.acom1.ntr)
+     itx=w.acom1.transmitting
+@@ -1125,7 +1118,7 @@
+         t0=t
+ 
+ # tend to percent scale
+-    ntune=w.acom1.ntune
++    ntune=int(w.acom1.ntune)
+     if ntune!=ntune0:
+         ntune0=ntune
+ 	if ntune==0:
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002558.html">[WSJT-SVN] r2866 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002560.html">[WSJT-SVN] r2868 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2559">[ date ]</a>
+              <a href="thread.html#2559">[ thread ]</a>
+              <a href="subject.html#2559">[ subject ]</a>
+              <a href="author.html#2559">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

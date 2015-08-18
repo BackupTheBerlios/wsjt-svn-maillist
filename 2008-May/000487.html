@@ -1,0 +1,770 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r799 - in trunk: . WsjtMod portaudio-v19/pablio	portaudio-v19/test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r799%20-%20in%20trunk%3A%20.%20WsjtMod%20portaudio-v19/pablio%0A%09portaudio-v19/test&In-Reply-To=%3C200805281809.m4SI9aqH031264%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000486.html">
+   <LINK REL="Next"  HREF="000488.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r799 - in trunk: . WsjtMod portaudio-v19/pablio	portaudio-v19/test</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r799%20-%20in%20trunk%3A%20.%20WsjtMod%20portaudio-v19/pablio%0A%09portaudio-v19/test&In-Reply-To=%3C200805281809.m4SI9aqH031264%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r799 - in trunk: . WsjtMod portaudio-v19/pablio	portaudio-v19/test">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 28 20:09:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000486.html">[WSJT-SVN] r798 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000488.html">[WSJT-SVN] r800 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#487">[ date ]</a>
+              <a href="thread.html#487">[ thread ]</a>
+              <a href="subject.html#487">[ subject ]</a>
+              <a href="author.html#487">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-28 20:09:28 +0200 (Wed, 28 May 2008)
+New Revision: 799
+
+Modified:
+   trunk/WsjtMod/specjt.py
+   trunk/astro0.F90
+   trunk/audio_init.F90
+   trunk/decode1.F90
+   trunk/decode3.F90
+   trunk/encode232.f
+   trunk/fivehz.F90
+   trunk/portaudio-v19/pablio/pablio.c
+   trunk/portaudio-v19/pablio/pablio.h
+   trunk/portaudio-v19/pablio/test_w_saw.c
+   trunk/portaudio-v19/test/patest_read_record.c
+   trunk/savedata.F90
+   trunk/spec.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjtgen.F90
+Log:
+First steps at adding WSPR mode to WSJT.  I think it transmits correctly
+now; decoding comes next.
+
+
+Modified: trunk/WsjtMod/specjt.py
+===================================================================
+--- trunk/WsjtMod/specjt.py	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/WsjtMod/specjt.py	2008-05-28 18:09:28 UTC (rev 799)
+@@ -291,7 +291,7 @@
+         root_geom=root.geometry()
+         g.rms=Audio.gcom1.rms
+         if isec==0: nscroll=0
+-        if isec==59: newMinute=1
++        if isec==59 and (g.mode!='WSPR' or utc[4]%2==1): newMinute=1
+ 
+     if g.showspecjt==1:
+         showspecjt()
+@@ -337,7 +337,7 @@
+         if Audio.gcom2.monitoring:
+             if minsep.get() and newMinute:
+                 draw.line((0,0,749,0),fill=128)     #Draw the minute separator
+-            if nscroll == 13:
++            if nscroll == 13 and (g.mode!='WSPR' or utc[4]%2==0):
+                 draw.text((5,2),t0[0:5],fill=253)   #Insert time label
+         else:
+             if minsep.get():
+
+Modified: trunk/astro0.F90
+===================================================================
+--- trunk/astro0.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/astro0.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -44,8 +44,12 @@
+      if(mode(5:5).eq.'B') mode65=2
+      if(mode(5:5).eq.'C') mode65=4
+   endif
+-  if(mode.eq.'Echo') nmode=3
+-  if(mode.eq.'JT6M') nmode=4
++  if(mode(1:4).eq.'Echo') nmode=3
++  if(mode(1:4).eq.'JT6M') nmode=4
++  if(mode(1:2).eq.'CW') nmode=5
++  if(mode(1:3).eq.'JT2') nmode=6
++  if(mode(1:3).eq.'JT4') nmode=7
++  if(mode(1:4).eq.'WSPR') nmode=8
+   uth=uth8
+ 
+   call astro(AppDir,nyear,month,nday,uth,nfreq,hisgrid,2,nmode,1,    &amp;
+
+Modified: trunk/audio_init.F90
+===================================================================
+--- trunk/audio_init.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/audio_init.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,4 +1,3 @@
+-!------------------------------------------------ audio_init
+ subroutine audio_init(ndin,ndout)
+ 
+ #ifdef CVF
+@@ -17,8 +16,13 @@
+      if(mode(5:5).eq.'B') mode65=2
+      if(mode(5:5).eq.'C') mode65=4
+   endif
+-  if(mode.eq.'Echo') nmode=3
+-  if(mode.eq.'JT6M') nmode=4
++  if(mode(1:4).eq.'Echo') nmode=3
++  if(mode(1:4).eq.'JT6M') nmode=4
++  if(mode(1:2).eq.'CW') nmode=5
++  if(mode(1:3).eq.'JT2') nmode=6
++  if(mode(1:3).eq.'JT4') nmode=7
++  if(mode(1:4).eq.'WSPR') nmode=8
++
+   ndevin=ndin
+   ndevout=ndout
+   TxOK=0
+
+Modified: trunk/decode1.F90
+===================================================================
+--- trunk/decode1.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/decode1.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -25,7 +25,7 @@
+ 
+ 10 continue
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4'  &amp;
+-       .or. mode(1:2).eq.'CW') then
++       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR') then
+      if(rxdone) then
+         call savedata
+         rxdone=.false.
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/decode3.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,4 +1,3 @@
+-!---------------------------------------------------- decode3
+ subroutine decode3(d2,jz,istart,filename)
+ 
+ #ifdef CVF
+@@ -24,8 +23,8 @@
+      if(mode(5:5).eq.'B') mode65=2
+      if(mode(5:5).eq.'C') mode65=4
+   endif
+-  if(mode.eq.'Echo') nmode=3
+-  if(mode.eq.'JT6M') nmode=4
++  if(mode(1:4).eq.'Echo') nmode=3
++  if(mode(1:4).eq.'JT6M') nmode=4
+   if(mode(1:2).eq.'CW') nmode=5
+   if(mode(1:3).eq.'JT2') nmode=6
+   if(mode(1:3).eq.'JT4') then
+@@ -38,6 +37,7 @@
+ !     if(mode(4:4).eq.'F') mode4=36
+ !     if(mode(4:4).eq.'G') mode4=72
+   endif
++  if(mode(1:4).eq.'WSPR') nmode=8
+ 
+ 
+   sum=0.
+@@ -53,7 +53,8 @@
+   if(nblank.ne.0) call blanker(d2d,jz)
+ 
+   nseg=1
+-  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7) then
++  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7 .or.           &amp;
++       nmode.eq.8) then
+      i=index(FileID,'.')-3
+      if(FileID(i:i).eq.'1'.or.FileID(i:i).eq.'3'.or.FileID(i:i).eq.'5'  &amp;
+           .or.FileID(i:i).eq.'7'.or.FileID(i:i).eq.'9') nseg=2
+@@ -94,7 +95,7 @@
+   
+   nclearave=0
+   nagain=0
+-  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7) then
++  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7 .or. nmode.eq.8 ) then
+      call pix2d65(d2d,jz)
+   else if(mode.eq.'FSK441') then
+      nz=s2(1,1)
+
+Modified: trunk/encode232.f
+===================================================================
+--- trunk/encode232.f	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/encode232.f	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,16 +1,19 @@
+-      subroutine encode232(dat,nbytes,symbol,nsym)
++      subroutine encode232(dat,nbytes,symbol,maxsym)
+ 
+ C  Convolutional encoder for a K=32, r=1/2 code.
+ 
+       integer*1 dat(nbytes)             !User data, packed 8 bits per byte
+-      integer*1 symbol(nsym)            !Channel symbols, one bit per byte
++      integer*1 symbol(maxsym)          !Channel symbols, one bit per byte
++      integer*1 i1
+       include 'conv232.f'
++      equivalence (i1,i4)
+ 
+       nstate=0
+       k=0
+       do j=1,nbytes
+          do i=7,0,-1
+-            nstate=ior(ishft(nstate,1),iand(ishft(dat(j),-i),1))
++            i1=dat(j)
++            nstate=ior(ishft(nstate,1),iand(ishft(i4,-i),1))
+             n=iand(nstate,npoly1)
+             n=ieor(n,ishft(n,-16))
+             k=k+1
+
+Modified: trunk/fivehz.F90
+===================================================================
+--- trunk/fivehz.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/fivehz.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -23,7 +23,7 @@
+   real*8 fs,fsample,tt,u
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+-  data first/.true./,nc0/1/,nc1/1/
++  data first/.true./,nc0/1/,nc1/1/,nsec0/-99/
+   save
+ 
+   n1=time()
+@@ -77,6 +77,9 @@
+      if(nwave.lt.126*4096) nwave=126*4096
+      tx2=txdelay + nwave/11025.0
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
++  else if(mode(1:4).eq.'WSPR') then
++     tx2=txdelay + nwave/11025.0
++     if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   endif
+ 
+   if(TxFirst.eq.0) then
+@@ -152,8 +155,9 @@
+   nbufs=ibuf-ibuf0
+   if(nbufs.lt.0) nbufs=nbufs+1024
+   tdata=nbufs*2048.0/11025.0
++
+   if((mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4' &amp;
+-       .or. mode(1:2).eq.'CW') .and. monitoring.eq.1 &amp;
++       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR') .and. monitoring.eq.1 &amp;
+        .and. tdata.gt.float(ntdecode) .and. ibuf0.ne.ibuf00) then
+      rxdone=.true.
+      ibuf00=ibuf0
+
+Modified: trunk/portaudio-v19/pablio/pablio.c
+===================================================================
+--- trunk/portaudio-v19/pablio/pablio.c	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/portaudio-v19/pablio/pablio.c	2008-05-28 18:09:28 UTC (rev 799)
+@@ -53,7 +53,7 @@
+ 
+ static int blockingIOCallback( void *inputBuffer, void *outputBuffer,
+                                unsigned long framesPerBuffer,
+-                               PaTimestamp outTime, void *userData );
++                               PaTime outTime, void *userData );
+ static PaError PABLIO_InitFIFO( RingBuffer *rbuf, long numFrames, long bytesPerFrame );
+ static PaError PABLIO_TermFIFO( RingBuffer *rbuf );
+ 
+@@ -66,7 +66,7 @@
+  */
+ static int blockingIOCallback( void *inputBuffer, void *outputBuffer,
+                                unsigned long framesPerBuffer,
+-                               PaTimestamp outTime, void *userData )
++                               PaTime outTime, void *userData )
+ {
+     PABLIO_Stream *data = (PABLIO_Stream*)userData;
+     long numBytes = data-&gt;bytesPerFrame * framesPerBuffer;
+@@ -221,7 +221,8 @@
+     /* Warning: numFrames must be larger than amount of data processed per interrupt
+      *    inside PA to prevent glitches. Just to be safe, adjust size upwards.
+      */
+-    minNumBuffers = 2 * Pa_GetMinNumBuffers( FRAMES_PER_BUFFER, sampleRate );
++    //    minNumBuffers = 2 * Pa_GetMinNumBuffers( FRAMES_PER_BUFFER, sampleRate );
++    minNumBuffers = 2;
+     numFrames = minNumBuffers * FRAMES_PER_BUFFER;
+     numFrames = RoundUpToNextPowerOf2( numFrames );
+ 
+@@ -247,11 +248,11 @@
+      * audio drivers. */
+     err = Pa_OpenStream(
+               &amp;aStream-&gt;stream,
+-              (doRead ? Pa_GetDefaultInputDeviceID() : paNoDevice),
++              (doRead ? Pa_GetDefaultInputDevice() : paNoDevice),
+               (doRead ? aStream-&gt;samplesPerFrame : 0 ),
+               format,
+               NULL,
+-              (doWrite ? Pa_GetDefaultOutputDeviceID() : paNoDevice),
++              (doWrite ? Pa_GetDefaultOutputDevice() : paNoDevice),
+               (doWrite ? aStream-&gt;samplesPerFrame : 0 ),
+               format,
+               NULL,
+
+Modified: trunk/portaudio-v19/pablio/pablio.h
+===================================================================
+--- trunk/portaudio-v19/pablio/pablio.h	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/portaudio-v19/pablio/pablio.h	2008-05-28 18:09:28 UTC (rev 799)
+@@ -53,7 +53,8 @@
+ {
+     RingBuffer   inFIFO;
+     RingBuffer   outFIFO;
+-    PortAudioStream *stream;
++  //    PortAudioStream *stream;
++    PaStream *stream;
+     int          bytesPerFrame;
+     int          samplesPerFrame;
+ }
+
+Modified: trunk/portaudio-v19/pablio/test_w_saw.c
+===================================================================
+--- trunk/portaudio-v19/pablio/test_w_saw.c	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/portaudio-v19/pablio/test_w_saw.c	2008-05-28 18:09:28 UTC (rev 799)
+@@ -65,9 +65,11 @@
+     fflush(stdout);
+ 
+     /* Open simplified blocking I/O layer on top of PortAudio. */
++    printf(&quot;A\n&quot;);
+     err = OpenAudioStream( &amp;aOutStream, SAMPLE_RATE, paFloat32,
+                            (PABLIO_WRITE | PABLIO_STEREO) );
+     if( err != paNoError ) goto error;
++    printf(&quot;B\n&quot;);
+ 
+     /* Initialize oscillator phases. */
+     phases[0] = 0.0;
+
+Modified: trunk/portaudio-v19/test/patest_read_record.c
+===================================================================
+--- trunk/portaudio-v19/test/patest_read_record.c	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/portaudio-v19/test/patest_read_record.c	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,41 +1,3 @@
+-/** @file patest_read_record.c
+-	@brief Record input into an array; Save array to a file; Playback recorded
+-    data. Implemented using the blocking API (Pa_ReadStream(), Pa_WriteStream() )
+-	@author Phil Burk  <A HREF="http://www.softsynth.com">http://www.softsynth.com</A>
+-    @author Ross Bencina <A HREF="https://lists.berlios.de/mailman/listinfo/wsjt-svn">rossb at audiomulch.com</A>
+-*/
+-/*
+- * $Id$
+- *
+- * This program uses the PortAudio Portable Audio Library.
+- * For more information see: <A HREF="http://www.portaudio.com">http://www.portaudio.com</A>
+- * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining
+- * a copy of this software and associated documentation files
+- * (the &quot;Software&quot;), to deal in the Software without restriction,
+- * including without limitation the rights to use, copy, modify, merge,
+- * publish, distribute, sublicense, and/or sell copies of the Software,
+- * and to permit persons to whom the Software is furnished to do so,
+- * subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be
+- * included in all copies or substantial portions of the Software.
+- *
+- * Any person wishing to distribute modifications to the Software is
+- * requested to send the modifications to the original developer so that
+- * they can be incorporated into the canonical version.
+- *
+- * THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND,
+- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+- * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+- * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+- * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+- *
+- */
+-
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &quot;portaudio.h&quot;
+@@ -150,19 +112,7 @@
+ 
+     printf(&quot;Sample max amplitude = &quot;PRINTF_S_FORMAT&quot;\n&quot;, max );
+     printf(&quot;Sample average = &quot;PRINTF_S_FORMAT&quot;\n&quot;, average );
+-/*  Was as below. Better choose at compile time because this
+-    keeps generating compiler-warnings:
+-    if( PA_SAMPLE_TYPE == paFloat32 )
+-    {
+-        printf(&quot;sample max amplitude = %f\n&quot;, max );
+-        printf(&quot;sample average = %f\n&quot;, average );
+-    }
+-    else
+-    {
+-        printf(&quot;sample max amplitude = %d\n&quot;, max );
+-        printf(&quot;sample average = %d\n&quot;, average );
+-    }
+-*/
++
+     /* Write recorded data to a file. */
+ #if 0
+     {
+
+Modified: trunk/savedata.F90
+===================================================================
+--- trunk/savedata.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/savedata.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,4 +1,3 @@
+-!----------------------------------------------------------- savedata
+ subroutine savedata
+ 
+ #ifdef CVF
+@@ -13,7 +12,7 @@
+   save
+ 
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4'   &amp;
+-       .or. mode(1:2).eq.'CW') then
++       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR') then
+      call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+      ibuf1=ibuf0
+      ibuf2=ibuf
+@@ -31,12 +30,13 @@
+ 1 jza=2048*(ibuf2-ibuf1)
+   if(jza.lt.0) jza=jza+NRxMax
+   if(jza.lt.110250) go to 999           !Don't save files less than 10 s
+-  if(jza.gt.60*11025) go to 999         !Don't save if something's fishy
++  if(jza.gt.120*11025) go to 999         !Don't save if something's fishy
+   k=2048*(ibuf1-1)
+   if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT4'   &amp;
+-       .and. mode(1:2).ne.'CW') k=k+3*2048
++       .and. mode(1:4).ne.'WSPR' .and. mode(1:2).ne.'CW') k=k+3*2048
+   if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT4'   &amp;
+-       .and. mode(1:2).ne.'CW' .and. jza.gt.30*11025) then
++       .and. mode(1:4).ne.'WSPR' .and. mode(1:2).ne.'CW' .and.               &amp;
++       jza.gt.30*11025) then
+      k=k + (jza-30*11025)
+      if(k.gt.NRxMax) k=k-NRxMax
+      jza=30*11025
+@@ -127,8 +127,8 @@
+ 30   continue
+   endif
+ 
+-999 if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT4'  &amp;
+-         .and. mode(1:2).ne.'CW') then
++999 if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT2' &amp;
++         .and. mode(1:3).ne.'JT4' .and. mode(1:2).ne.'CW') then
+      ibuf0z=ibuf0
+      call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+   endif
+
+Modified: trunk/spec.f90
+===================================================================
+--- trunk/spec.f90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/spec.f90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -1,4 +1,3 @@
+-!---------------------------------------------------- spec
+ subroutine spec(brightness,contrast,logmap,ngain,nspeed,a)
+ 
+ ! Called by SpecJT in its TopLevel Python code.  
+@@ -53,11 +52,12 @@
+ 
+   nmode=1
+   if(mode(1:4).eq.'JT65') nmode=2
+-  if(mode.eq.'Echo') nmode=3
+-  if(mode.eq.'JT6M') nmode=4
++  if(mode(1:4).eq.'Echo') nmode=3
++  if(mode(1:4).eq.'JT6M') nmode=4
+   if(mode(1:2).eq.'CW') nmode=5
+   if(mode(1:3).eq.'JT2') nmode=6
+   if(mode(1:3).eq.'JT4') nmode=7
++  if(mode(1:4).eq.'WSPR') nmode=8
+ 
+   nlines=0
+   newdat=0
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/wsjt.py	2008-05-28 18:09:28 UTC (rev 799)
+@@ -193,8 +193,8 @@
+     if textheight &lt;= 9:
+         textheight=21
+     else:
+-        if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4':
++        if mode.get()[:4]=='JT65' or mode.get()=='WSPR' or \
++               mode.get()[:3]=='JT2' or mode.get()[:3]=='JT4':
+             textheight=7
+         else:
+             textheight=9
+@@ -238,8 +238,8 @@
+ 
+ #------------------------------------------------------ dbl_click3_text
+ def dbl_click3_text(event):
+-    if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4':
++    if mode.get()[:4]=='JT65' or mode.get()=='WSPR' or \
++           mode.get()[:3]=='JT2' or mode.get()[:3]=='JT4':
+         t=text.get('1.0',END)           #Entire contents of text box
+         t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
+         n=t1.rfind(&quot;\n&quot;)
+@@ -675,6 +675,28 @@
+         GenStdMsgs()
+         erase()
+ 
++#------------------------------------------------------ ModeWSPR
++def ModeWSPR():
++    global slabel,isync,isync65,textheight,itol
++    mode.set(&quot;WSPR&quot;)
++    if lauto: toggleauto()
++    cleartext()
++    Audio.gcom1.trperiod=120
++    iframe4b.pack_forget()
++##    text.configure(height=9)
++##    bclravg.configure(state=DISABLED)
++##    binclude.configure(state=DISABLED)
++##    bexclude.configure(state=DISABLED)
++##    cbfreeze.configure(state=DISABLED)
++##    cbafc.configure(state=DISABLED)
++    if ltxdf: toggletxdf()
++    btxdf.configure(state=DISABLED)
++    report.configure(state=NORMAL)
++    ntx.set(1)
++    GenStdMsgs()
++    erase()
++
++
+ #------------------------------------------------------ ModeJT2
+ def ModeJT2():
+     global slabel,isync,isync65,textheight,itol
+@@ -758,12 +780,15 @@
+     Label(about,text=t,font=(font1,16)).pack(padx=20,pady=5)
+     t=&quot;&quot;&quot;
+ WSJT is a weak signal communications program.  It supports
+-four operating modes:
++these operating modes:
+ 
+   1. FSK441 - fast mode for meteor scatter
+   2. JT6M   - optimized for meteor and ionospheric scatter on 50 MHz
+   3. JT65   - for EME and troposcatter
+   4. CW     - 15 WPM Morse code, messages structured for EME
++  5. JT2    - for HF and EME
++  6. JT4    - for HF and EME
++  7. WSPR   - for HF and EME
+ 
+ Copyright (c) 2001-2007 by Joseph H. Taylor, Jr., K1JT, with
+ contributions from additional authors.  WSJT is Open Source 
+@@ -953,7 +978,8 @@
+         labDist.configure(text=&quot;&quot;)
+     else:
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4' or mode.get()[:2]==&quot;CW&quot;:
++               mode.get()[:3]=='JT4' or mode.get()[:2]==&quot;CW&quot; or \
++               mode.get()=='WSPR':
+             labAz.configure(text=&quot;Az: %d&quot; % (naz,))
+             labHotAB.configure(text=&quot;&quot;,bg='gray85')
+         else:
+@@ -1001,7 +1027,7 @@
+ def inctol(event=NONE):
+     global itol
+     maxitol=5
+-    if mode.get()[:4]=='JT65':
++    if mode.get()[:4]=='JT65' or mode.get()=='WSPR':
+         maxitol=6
+     if itol&lt;maxitol: itol=itol+1
+     ltol.configure(text='Tol    '+str(ntol[itol]))
+@@ -1060,7 +1086,8 @@
+ def erase(event=NONE):
+     graph1.delete(ALL)
+     if mode.get()[:4]!=&quot;JT65&quot; and mode.get()[:2]!=&quot;CW&quot; and \
+-            mode.get()[:3]!='JT2' and mode.get()[:3]!='JT4':
++            mode.get()!=&quot;WSPR&quot; and mode.get()[:3]!='JT2' and \
++            mode.get()[:3]!='JT4':
+         graph2.delete(ALL)
+     text.configure(state=NORMAL)
+     text.delete('1.0',END)
+@@ -1150,7 +1177,7 @@
+ # Readout of graphical cursor location
+ def dtdf_change(event):
+     if mode.get()[:4]!='JT65' and mode.get()[:3]!='JT2' and \
+-               mode.get()[:3]!='JT4':
++               mode.get()[:3]!='JT4' and mode.get()!='WSPR':
+         t=&quot;%.1f&quot; % (event.x*30.0/500.0,)
+         lab6.configure(text=t,bg='green')
+     else:
+@@ -1174,7 +1201,7 @@
+     global nopen
+     if not nopen:
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4':
++               mode.get()[:3]=='JT4' or mode.get()=='WSPR':
+             Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)
+         else:
+             if Audio.gcom2.ndecoding==0:              #If decoder is busy, ignore
+@@ -1190,7 +1217,8 @@
+ #------------------------------------------------------ double-click_g1
+ def double_click_g1(event):
+     if (mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-        mode.get()[:3]=='JT4') and Audio.gcom2.ndecoding==0:
++        mode.get()[:3]=='JT4' or mode.get()=='WSPR') and \
++        Audio.gcom2.ndecoding==0:
+         g.freeze_decode=1
+     
+ #------------------------------------------------------ mouse_up_g1
+@@ -1273,6 +1301,47 @@
+         tx4.insert(0,ToRadio.get() + &quot; &quot; + options.MyCall.get()+&quot; [RRR]&quot;)
+         tx5.insert(0,ToRadio.get() + &quot; &quot; + options.MyCall.get()+&quot; [73]&quot;)
+         tx6.insert(0,&quot;[CQ &quot; + options.MyCall.get() + &quot;]&quot;)
++    elif mode.get()==&quot;WSPR&quot;:
++        if options.MyCall.get()!= MyCall0 or \
++               options.addpfx.get()!= addpfx0 or ToRadio.get()!=ToRadio0:
++            MyCall0=options.MyCall.get()
++            addpfx0=options.addpfx.get()
++            ToRadio0=ToRadio.get()
++            t0=(&quot;SM5BSZ &quot;+options.MyCall.get()).upper()
++            Audio.gcom2.t0msg=(t0+'                      ')[:22]
++            nplain,naddon,ndiff=Audio.chkt0()
++            if nplain==1:
++                MsgBox(&quot;Bad 'MyCall' or bad prefix/suffix?\nPlease check on Setup | Options screen.&quot;)
++                options1()
++            t0=(&quot;SM5BSZ &quot;+ToRadio0).upper()
++            Audio.gcom2.t0msg=(t0+'                      ')[:22]
++            nplain,naddon,ndiff=Audio.chkt0()
++            if nplain==1:
++                MsgBox(&quot;Bad call in To Radio?\nPlease check.&quot;)
++            
++        t0=(&quot;&lt;&quot; + ToRadio.get() + &quot;&gt; &quot;+options.MyCall.get()).upper()
++        Audio.gcom2.t0msg=(t0+'                      ')[:22]
++##        nplain,naddon,ndiff=Audio.chkt0()
++##        if nplain==0 and naddon==0 and ndiff==0:
++##            t0=t0 + &quot; &quot;+options.MyGrid.get()[:4]
++        tx1.insert(0,t0.upper())
++        t2=(ToRadio.get() + &quot; &lt;&quot;+options.MyCall.get() + &quot;&gt; S1&quot;).upper()
++        Audio.gcom2.t0msg=(t0+'                      ')[:22]
++        tx2.insert(0,t2)
++        t3=(ToRadio.get() + &quot; &lt;&quot;+options.MyCall.get() + &quot;&gt; R S1&quot;).upper()
++        tx3.insert(0,t3)
++        t4=(&quot;&lt;&quot; + ToRadio.get() + &quot;&gt; &quot; + options.MyCall.get() + &quot; RRR&quot;).upper()
++        tx4.insert(0,t4)
++        t5=(&quot;73 DE &quot;+options.MyCall.get()+ &quot; &quot;+options.MyGrid.get()[:4]).upper()
++        tx5.insert(0,t5)
++
++        t0=&quot;CQ &quot; + options.MyCall.get().upper()
++        Audio.gcom2.t0msg=(t0+'                      ')[:22]
++        nplain,naddon,ndiff=Audio.chkt0()
++        if nplain==0 and naddon==0 and ndiff==0:
++            t0=t0 + &quot; &quot;+options.MyGrid.get()[:4]
++        tx6.insert(0,t0.upper())
++        altmsg=0
+     
+ #------------------------------------------------------ GenAltMsgs
+ def GenAltMsgs(event=NONE):
+@@ -1568,6 +1637,8 @@
+             msg2.configure(bg='#FF00FF')
+         elif mode.get()==&quot;CW&quot;:
+             msg2.configure(bg='#00FF00')
++        elif mode.get()==&quot;WSPR&quot;:
++            msg2.configure(bg='#FF8888')
+         elif mode.get()==&quot;JT2&quot;:
+             msg2.configure(bg='#8888FF')
+         elif mode.get()[:3]==&quot;JT4&quot;:
+@@ -1744,6 +1815,8 @@
+     Audio.gcom2.nchallenge=nchallenge.get()
+     if mode.get()=='CW':
+         Audio.gcom2.ntdecode=56
++    elif mode.get()=='WSPR':
++        Audio.gcom2.ntdecode=114
+     else:
+         if qdecode.get():
+             Audio.gcom2.ntdecode=48
+@@ -1848,6 +1921,7 @@
+                          accelerator='Ctrl+F8')
+ modemenu.add_radiobutton(label = 'CW', variable=mode, command = ModeCW, \
+                          accelerator='Shift+Ctrl+F8')
++modemenu.add_radiobutton(label = 'WSPR', variable=mode, command = ModeWSPR)
+ modemenu.add_radiobutton(label = 'JT2', variable=mode, command = ModeJT2)
+ modemenu.add_radiobutton(label = 'JT4A', variable=mode, command = ModeJT4A)
+ modemenu.add_radiobutton(label = 'JT4B', variable=mode, command = ModeJT4B)
+@@ -2302,6 +2376,8 @@
+                 ModeJT6M()
+             elif value=='CW':
+                 ModeCW()
++            elif value=='WSPR':
++                ModeWSPR()
+             elif value=='JT2':
+                 ModeJT2()
+             elif value[:3]=='JT4':
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/wsjt1.F	2008-05-28 18:09:28 UTC (rev 799)
+@@ -291,6 +291,27 @@
+      +        Nseg,MouseDF2,NAgain,ndepth,neme,idf,mycall,hiscall,
+      +        hisgrid,lumsg,lcum,nspecial,ndf,NSyncOK,ccf,psavg,ndiag)
+  	   goto 900
++	endif
++
++!  If we're in WSPR mode, call the wspr routines.
++  	if(mode.eq.8) then
++!  Lowpass filter and decimate by 2
++ 	   call lpf1(dat,jz,jz2,MouseDF,MouseDF2)
++	   idf=mousedf-mousedf2
++ 	   jz=jz2
++ 	   nadd=1
++ 	   fzap(1)=0.
++ 	   if(nzap.eq.1) call avesp2(dat,jz,nadd,mode,NFreeze,MouseDF2,
++     +       DFTolerance,fzap)
++    	   if(nzap.eq.1.and.nstest.eq.0) call bzap(dat,jz,nadd,mode,fzap)
++
++ 	   i=index(MyCall,char(0))
++	   if(i.le.0) i=index(MyCall,' ')
++ 	   mycall=MyCall(1:i-1)//'            '
++
++	   print*,'Calling WSPR decoder',jz
++
++ 	   goto 900
+  	endif
+ 
+ 
+
+Modified: trunk/wsjtgen.F90
+===================================================================
+--- trunk/wsjtgen.F90	2008-05-28 11:54:53 UTC (rev 798)
++++ trunk/wsjtgen.F90	2008-05-28 18:09:28 UTC (rev 799)
+@@ -117,7 +117,8 @@
+   dt=1.d0/fsample_out
+   LTone=2
+ 
+-  if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4') then
++  if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or.                  &amp;
++       mode(1:3).eq.'JT4' .or. mode(1:4).eq.'WSPR') then
+      if(mode(1:4).eq.'JT65') then
+ !  We're in JT65 mode.
+         if(mode(5:5).eq.'A') mode65=1
+@@ -125,6 +126,8 @@
+         if(mode(5:5).eq.'C') mode65=4
+         call gen65(msg,mode65,samfacout,ntxdf,iwave,nwave,sendingsh,   &amp;
+              msgsent,nmsg0)
++     else if(mode(1:4).eq.'WSPR') then
++        call genwspr(msg,samfacout,ntxdf,iwave,nwave,msgsent)
+      else
+         call gen24(msg,mode,mode4,samfacout,ntxdf,iwave,nwave,sendingsh,     &amp;
+              msgsent,nmsg0)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000486.html">[WSJT-SVN] r798 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000488.html">[WSJT-SVN] r800 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#487">[ date ]</a>
+              <a href="thread.html#487">[ thread ]</a>
+              <a href="subject.html#487">[ subject ]</a>
+              <a href="author.html#487">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

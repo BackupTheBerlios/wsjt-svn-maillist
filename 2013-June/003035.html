@@ -1,0 +1,1597 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3343 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3343%20-%20branches/wsjtx&In-Reply-To=%3C20130606161758.DCF6455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003034.html">
+   <LINK REL="Next"  HREF="003036.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3343 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3343%20-%20branches/wsjtx&In-Reply-To=%3C20130606161758.DCF6455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3343 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jun  6 18:17:58 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003034.html">[WSJT-SVN] r3342 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003036.html">[WSJT-SVN] r3344 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3035">[ date ]</a>
+              <a href="thread.html#3035">[ thread ]</a>
+              <a href="subject.html#3035">[ subject ]</a>
+              <a href="author.html#3035">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-06 18:17:58 +0200 (Thu, 06 Jun 2013)
+New Revision: 3343
+
+Modified:
+   branches/wsjtx/logqso.cpp
+   branches/wsjtx/logqso.h
+   branches/wsjtx/logqso.ui
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+1. Added Tx Power to ADIF log information, with option to retain between QSOs.
+2. Added option to retain between QSOs the Comments field for ADIF and
+   wsjtx logs.
+
+
+Modified: branches/wsjtx/logqso.cpp
+===================================================================
+--- branches/wsjtx/logqso.cpp	2013-06-06 15:09:49 UTC (rev 3342)
++++ branches/wsjtx/logqso.cpp	2013-06-06 16:17:58 UTC (rev 3343)
+@@ -23,6 +23,10 @@
+ {
+   ui-&gt;call-&gt;setText(hisCall);
+   ui-&gt;grid-&gt;setText(hisGrid);
++  ui-&gt;txPower-&gt;setText(&quot;&quot;);
++  ui-&gt;comments-&gt;setText(&quot;&quot;);
++  if(m_saveTxPower) ui-&gt;txPower-&gt;setText(m_txPower);
++  if(m_saveComments) ui-&gt;comments-&gt;setText(m_comments);
+   if(dBtoComments) {
+     QString t=mode;
+     if(rptSent!=&quot;&quot;) t+=&quot;  Sent: &quot; + rptSent;
+@@ -70,6 +74,8 @@
+   if(dialFreq&gt;47000.0 and dialFreq&lt;47200.0) band=&quot;6mm&quot;;
+   if(dialFreq&gt;75500.0 and dialFreq&lt;81000.0) band=&quot;4mm&quot;;
+   ui-&gt;band-&gt;setText(band);
++  ui-&gt;cbTxPower-&gt;setChecked(m_saveTxPower);
++  ui-&gt;cbComments-&gt;setChecked(m_saveComments);
+ }
+ 
+ void LogQSO::accept()
+@@ -87,10 +93,12 @@
+   time=ui-&gt;time-&gt;text();
+   band=ui-&gt;band-&gt;text();
+   name=ui-&gt;name-&gt;text();
++  m_txPower=ui-&gt;txPower-&gt;text();
+   comments=ui-&gt;comments-&gt;text();
++  m_comments=comments;
+   QString strDialFreq(QString::number(m_dialFreq,'f',6));
+ 
+-//Log this QSO to file wsjtx_log.adi
++//Log this QSO to file &quot;wsjtx_log.adi&quot;
+   QFile f2(&quot;wsjtx_log.adi&quot;);
+   if(!f2.open(QIODevice::Text | QIODevice::Append)) {
+     QMessageBox m;
+@@ -114,6 +122,8 @@
+         m_myCall;
+     t+=&quot; &lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; +
+         m_myGrid;
++    if(m_txPower!=&quot;&quot;) t+= &quot; &lt;tx_pwr:&quot; + QString::number(m_txPower.length()) +
++        &quot;&gt;&quot; + m_txPower;
+     if(comments!=&quot;&quot;) t+=&quot; &lt;comment:&quot; + QString::number(comments.length()) +
+         &quot;&gt;&quot; + comments;
+     if(name!=&quot;&quot;) t+=&quot; &lt;name:&quot; + QString::number(name.length()) +
+@@ -123,7 +133,7 @@
+     f2.close();
+   }
+ 
+-//Log this QSO to file wsjtx.log
++//Log this QSO to file &quot;wsjtx.log&quot;
+   QFile f(&quot;wsjtx.log&quot;);
+   if(!f.open(QIODevice::Text | QIODevice::Append)) {
+     QMessageBox m;
+@@ -149,3 +159,13 @@
+   emit(acceptQSO(false));
+   QDialog::reject();
+ }
++
++void LogQSO::on_cbTxPower_toggled(bool checked)
++{
++  m_saveTxPower=checked;
++}
++
++void LogQSO::on_cbComments_toggled(bool checked)
++{
++  m_saveComments=checked;
++}
+
+Modified: branches/wsjtx/logqso.h
+===================================================================
+--- branches/wsjtx/logqso.h	2013-06-06 15:09:49 UTC (rev 3342)
++++ branches/wsjtx/logqso.h	2013-06-06 16:17:58 UTC (rev 3343)
+@@ -25,8 +25,13 @@
+ 
+   double m_dialFreq;
+ 
++  bool m_saveTxPower;
++  bool m_saveComments;
++
+   QString m_myCall;
+   QString m_myGrid;
++  QString m_txPower;
++  QString m_comments;
+ 
+   QDateTime m_dateTime;
+ 
+@@ -37,6 +42,10 @@
+ signals:
+   void acceptQSO(bool accepted);
+ 
++private slots:
++  void on_cbTxPower_toggled(bool checked);
++  void on_cbComments_toggled(bool checked);
++
+ private:
+   Ui::LogQSO *ui;
+ };
+
+Modified: branches/wsjtx/logqso.ui
+===================================================================
+--- branches/wsjtx/logqso.ui	2013-06-06 15:09:49 UTC (rev 3342)
++++ branches/wsjtx/logqso.ui	2013-06-06 16:17:58 UTC (rev 3343)
+@@ -6,642 +6,704 @@
+    &lt;rect&gt;
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+-    &lt;width&gt;424&lt;/width&gt;
+-    &lt;height&gt;283&lt;/height&gt;
++    &lt;width&gt;372&lt;/width&gt;
++    &lt;height&gt;305&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
++  &lt;property name=&quot;maximumSize&quot;&gt;
++   &lt;size&gt;
++    &lt;width&gt;16777215&lt;/width&gt;
++    &lt;height&gt;16777215&lt;/height&gt;
++   &lt;/size&gt;
++  &lt;/property&gt;
+   &lt;property name=&quot;windowTitle&quot;&gt;
+    &lt;string&gt;Log QSO&lt;/string&gt;
+   &lt;/property&gt;
+-  &lt;widget class=&quot;QDialogButtonBox&quot; name=&quot;buttonBox&quot;&gt;
+-   &lt;property name=&quot;geometry&quot;&gt;
+-    &lt;rect&gt;
+-     &lt;x&gt;30&lt;/x&gt;
+-     &lt;y&gt;240&lt;/y&gt;
+-     &lt;width&gt;341&lt;/width&gt;
+-     &lt;height&gt;32&lt;/height&gt;
+-    &lt;/rect&gt;
+-   &lt;/property&gt;
+-   &lt;property name=&quot;orientation&quot;&gt;
+-    &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-   &lt;/property&gt;
+-   &lt;property name=&quot;standardButtons&quot;&gt;
+-    &lt;set&gt;QDialogButtonBox::Cancel|QDialogButtonBox::Ok&lt;/set&gt;
+-   &lt;/property&gt;
+-  &lt;/widget&gt;
+-  &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+-   &lt;property name=&quot;geometry&quot;&gt;
+-    &lt;rect&gt;
+-     &lt;x&gt;10&lt;/x&gt;
+-     &lt;y&gt;0&lt;/y&gt;
+-     &lt;width&gt;401&lt;/width&gt;
+-     &lt;height&gt;231&lt;/height&gt;
+-    &lt;/rect&gt;
+-   &lt;/property&gt;
+-   &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
+-    &lt;item&gt;
+-     &lt;spacer name=&quot;verticalSpacer_3&quot;&gt;
+-      &lt;property name=&quot;orientation&quot;&gt;
+-       &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-       &lt;size&gt;
+-        &lt;width&gt;20&lt;/width&gt;
+-        &lt;height&gt;40&lt;/height&gt;
+-       &lt;/size&gt;
+-      &lt;/property&gt;
+-     &lt;/spacer&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;widget class=&quot;QLabel&quot; name=&quot;label&quot;&gt;
+-      &lt;property name=&quot;font&quot;&gt;
+-       &lt;font&gt;
+-        &lt;pointsize&gt;10&lt;/pointsize&gt;
+-       &lt;/font&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;text&quot;&gt;
+-       &lt;string&gt;Click OK to confirm the following QSO:&lt;/string&gt;
+-      &lt;/property&gt;
+-     &lt;/widget&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;spacer name=&quot;verticalSpacer_4&quot;&gt;
+-      &lt;property name=&quot;orientation&quot;&gt;
+-       &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-       &lt;size&gt;
+-        &lt;width&gt;20&lt;/width&gt;
+-        &lt;height&gt;20&lt;/height&gt;
+-       &lt;/size&gt;
+-      &lt;/property&gt;
+-     &lt;/spacer&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_5&quot;&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab1&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;70&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;70&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Call&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab2&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Date&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab3&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Time&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab4&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Mode&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab5&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Band&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-     &lt;/layout&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_4&quot;&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;call&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;70&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;70&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;date&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;time&quot;&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;mode&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;band&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-     &lt;/layout&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;spacer name=&quot;verticalSpacer&quot;&gt;
+-      &lt;property name=&quot;orientation&quot;&gt;
+-       &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-       &lt;size&gt;
+-        &lt;width&gt;20&lt;/width&gt;
+-        &lt;height&gt;20&lt;/height&gt;
+-       &lt;/size&gt;
+-      &lt;/property&gt;
+-     &lt;/spacer&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab6&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Rpt Sent&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab7&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Rpt Rcvd&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab8&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Grid&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab9&quot;&gt;
+-        &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;true&lt;/bool&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Name&lt;/string&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;alignment&quot;&gt;
+-         &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-     &lt;/layout&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_2&quot;&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;sent&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;rcvd&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;grid&quot;&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;50&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;name&quot;&gt;
+-        &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;true&lt;/bool&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;sizePolicy&quot;&gt;
+-         &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-          &lt;horstretch&gt;0&lt;/horstretch&gt;
+-          &lt;verstretch&gt;0&lt;/verstretch&gt;
+-         &lt;/sizepolicy&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;minimumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;0&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;maximumSize&quot;&gt;
+-         &lt;size&gt;
+-          &lt;width&gt;100&lt;/width&gt;
+-          &lt;height&gt;16777215&lt;/height&gt;
+-         &lt;/size&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-     &lt;/layout&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;spacer name=&quot;verticalSpacer_2&quot;&gt;
+-      &lt;property name=&quot;orientation&quot;&gt;
+-       &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-       &lt;size&gt;
+-        &lt;width&gt;20&lt;/width&gt;
+-        &lt;height&gt;20&lt;/height&gt;
+-       &lt;/size&gt;
+-      &lt;/property&gt;
+-     &lt;/spacer&gt;
+-    &lt;/item&gt;
+-    &lt;item&gt;
+-     &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
+-        &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;true&lt;/bool&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;font&quot;&gt;
+-         &lt;font&gt;
+-          &lt;pointsize&gt;10&lt;/pointsize&gt;
+-         &lt;/font&gt;
+-        &lt;/property&gt;
+-        &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Comments&lt;/string&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-      &lt;item&gt;
+-       &lt;widget class=&quot;QLineEdit&quot; name=&quot;comments&quot;&gt;
+-        &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;true&lt;/bool&gt;
+-        &lt;/property&gt;
+-       &lt;/widget&gt;
+-      &lt;/item&gt;
+-     &lt;/layout&gt;
+-    &lt;/item&gt;
+-   &lt;/layout&gt;
+-  &lt;/widget&gt;
++  &lt;layout class=&quot;QFormLayout&quot; name=&quot;formLayout&quot;&gt;
++   &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++    &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
++     &lt;item&gt;
++      &lt;spacer name=&quot;verticalSpacer_3&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeType&quot;&gt;
++        &lt;enum&gt;QSizePolicy::MinimumExpanding&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++        &lt;size&gt;
++         &lt;width&gt;20&lt;/width&gt;
++         &lt;height&gt;10&lt;/height&gt;
++        &lt;/size&gt;
++       &lt;/property&gt;
++      &lt;/spacer&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;widget class=&quot;QLabel&quot; name=&quot;label&quot;&gt;
++       &lt;property name=&quot;font&quot;&gt;
++        &lt;font&gt;
++         &lt;pointsize&gt;10&lt;/pointsize&gt;
++        &lt;/font&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;text&quot;&gt;
++        &lt;string&gt;Click OK to confirm the following QSO:&lt;/string&gt;
++       &lt;/property&gt;
++      &lt;/widget&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;spacer name=&quot;verticalSpacer_4&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeType&quot;&gt;
++        &lt;enum&gt;QSizePolicy::MinimumExpanding&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++        &lt;size&gt;
++         &lt;width&gt;20&lt;/width&gt;
++         &lt;height&gt;10&lt;/height&gt;
++        &lt;/size&gt;
++       &lt;/property&gt;
++      &lt;/spacer&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_5&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab1&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;70&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;70&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Call&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab2&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Date&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab3&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Time&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab4&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Mode&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab5&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Band&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_4&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;call&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;70&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;70&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;date&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;time&quot;&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;mode&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;band&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;spacer name=&quot;verticalSpacer&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeType&quot;&gt;
++        &lt;enum&gt;QSizePolicy::MinimumExpanding&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++        &lt;size&gt;
++         &lt;width&gt;20&lt;/width&gt;
++         &lt;height&gt;10&lt;/height&gt;
++        &lt;/size&gt;
++       &lt;/property&gt;
++      &lt;/spacer&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab6&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Rpt Sent&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab7&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Rpt Rcvd&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab8&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Grid&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab9&quot;&gt;
++         &lt;property name=&quot;enabled&quot;&gt;
++          &lt;bool&gt;true&lt;/bool&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Name&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_2&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;sent&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;rcvd&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;grid&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;50&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;name&quot;&gt;
++         &lt;property name=&quot;enabled&quot;&gt;
++          &lt;bool&gt;true&lt;/bool&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;100&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;spacer name=&quot;verticalSpacer_2&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeType&quot;&gt;
++        &lt;enum&gt;QSizePolicy::MinimumExpanding&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++        &lt;size&gt;
++         &lt;width&gt;20&lt;/width&gt;
++         &lt;height&gt;10&lt;/height&gt;
++        &lt;/size&gt;
++       &lt;/property&gt;
++      &lt;/spacer&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_6&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;65&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Tx power&lt;/string&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;txPower&quot;/&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxPower&quot;&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Retain&lt;/string&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;spacer name=&quot;verticalSpacer_5&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeType&quot;&gt;
++        &lt;enum&gt;QSizePolicy::MinimumExpanding&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++        &lt;size&gt;
++         &lt;width&gt;20&lt;/width&gt;
++         &lt;height&gt;10&lt;/height&gt;
++        &lt;/size&gt;
++       &lt;/property&gt;
++      &lt;/spacer&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
++         &lt;property name=&quot;enabled&quot;&gt;
++          &lt;bool&gt;true&lt;/bool&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;65&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;font&quot;&gt;
++          &lt;font&gt;
++           &lt;pointsize&gt;10&lt;/pointsize&gt;
++          &lt;/font&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Comments&lt;/string&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QLineEdit&quot; name=&quot;comments&quot;&gt;
++         &lt;property name=&quot;enabled&quot;&gt;
++          &lt;bool&gt;true&lt;/bool&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbComments&quot;&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Retain&lt;/string&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++      &lt;/layout&gt;
++     &lt;/item&gt;
++     &lt;item&gt;
++      &lt;widget class=&quot;QDialogButtonBox&quot; name=&quot;buttonBox&quot;&gt;
++       &lt;property name=&quot;orientation&quot;&gt;
++        &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++       &lt;/property&gt;
++       &lt;property name=&quot;standardButtons&quot;&gt;
++        &lt;set&gt;QDialogButtonBox::Cancel|QDialogButtonBox::Ok&lt;/set&gt;
++       &lt;/property&gt;
++      &lt;/widget&gt;
++     &lt;/item&gt;
++    &lt;/layout&gt;
++   &lt;/item&gt;
++  &lt;/layout&gt;
+  &lt;/widget&gt;
+  &lt;resources/&gt;
+  &lt;connections&gt;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-06-06 15:09:49 UTC (rev 3342)
++++ branches/wsjtx/mainwindow.cpp	2013-06-06 16:17:58 UTC (rev 3343)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -418,6 +418,10 @@
+   settings.setValue(&quot;Polling&quot;,m_poll);
+   settings.setValue(&quot;OutBufSize&quot;,outBufSize);
+   settings.setValue(&quot;LockTxFreq&quot;,m_lockTxFreq);
++  settings.setValue(&quot;SaveTxPower&quot;,m_saveTxPower);
++  settings.setValue(&quot;SaveComments&quot;,m_saveComments);
++  settings.setValue(&quot;TxPower&quot;,m_txPower);
++  settings.value(&quot;LogComments&quot;,m_logComments);
+   settings.endGroup();
+ }
+ 
+@@ -543,6 +547,10 @@
+   outBufSize=settings.value(&quot;OutBufSize&quot;,4096).toInt();
+   m_lockTxFreq=settings.value(&quot;LockTxFreq&quot;,false).toBool();
+   ui-&gt;actionLockTxFreq-&gt;setChecked(m_lockTxFreq);
++  m_saveTxPower=settings.value(&quot;SaveTxPower&quot;,false).toBool();
++  m_saveComments=settings.value(&quot;SaveComments&quot;,false).toBool();
++  m_txPower=settings.value(&quot;TxPower&quot;,&quot;&quot;).toString();
++  m_logComments=settings.value(&quot;LogComments&quot;,&quot;&quot;).toString();
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -2342,6 +2350,10 @@
+   m_dateTimeQSO=QDateTime::currentDateTimeUtc();
+ 
+   logDlg = new LogQSO(0);
++  logDlg-&gt;m_saveTxPower=m_saveTxPower;
++  logDlg-&gt;m_saveComments=m_saveComments;
++  logDlg-&gt;m_txPower=m_txPower;
++  logDlg-&gt;m_comments=m_logComments;
+   logDlg-&gt;initLogQSO(m_hisCall,m_hisGrid,m_mode,m_rptSent,m_rptRcvd,
+                      m_dateTimeQSO,m_dialFreq,m_myCall,m_myGrid,
+                      m_noSuffix,m_toRTTY,m_dBtoComments);
+@@ -2354,6 +2366,10 @@
+ {
+   if(accepted) {
+     m_logQSOgeom=logDlg-&gt;geometry();
++    m_saveTxPower=logDlg-&gt;m_saveTxPower;
++    m_saveComments=logDlg-&gt;m_saveComments;
++    m_txPower=logDlg-&gt;m_txPower;
++    m_logComments=logDlg-&gt;m_comments;
+     if(m_clearCallGrid) {
+       m_hisCall=&quot;&quot;;
+       ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-06-06 15:09:49 UTC (rev 3342)
++++ branches/wsjtx/mainwindow.h	2013-06-06 16:17:58 UTC (rev 3343)
+@@ -258,6 +258,8 @@
+     bool    m_pttData;
+     bool    m_dontReadFreq;
+     bool    m_lockTxFreq;
++    bool    m_saveTxPower;
++    bool    m_saveComments;
+ 
+     char    m_decoded[80];
+ 
+@@ -318,6 +320,8 @@
+     QString m_msgSent0;
+     QString m_fileToSave;
+     QString m_QSOmsg;
++    QString m_txPower;
++    QString m_logComments;
+ 
+     QStringList m_macro;
+     QStringList m_dFreq;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003034.html">[WSJT-SVN] r3342 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003036.html">[WSJT-SVN] r3344 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3035">[ date ]</a>
+              <a href="thread.html#3035">[ thread ]</a>
+              <a href="subject.html#3035">[ subject ]</a>
+              <a href="author.html#3035">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

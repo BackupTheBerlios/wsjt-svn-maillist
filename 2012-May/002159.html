@@ -1,0 +1,503 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2467 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2467%20-%20trunk&In-Reply-To=%3C20120531153650.601D255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002158.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2467 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2467%20-%20trunk&In-Reply-To=%3C20120531153650.601D255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2467 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu May 31 17:36:50 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002158.html">[WSJT-SVN] r2466 - in branches/map65: . libm65
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2159">[ date ]</a>
+              <a href="thread.html#2159">[ thread ]</a>
+              <a href="subject.html#2159">[ subject ]</a>
+              <a href="author.html#2159">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-05-31 17:36:49 +0200 (Thu, 31 May 2012)
+New Revision: 2467
+
+Modified:
+   trunk/getpfx1.f
+   trunk/packcall.f
+   trunk/packmsg.f
+   trunk/unpackcall.f
+   trunk/unpackmsg.f
+   trunk/wsjt.py
+Log:
+Installed changes for JT65v2: new way of handling compound callsigns.
+
+
+Modified: trunk/getpfx1.f
+===================================================================
+--- trunk/getpfx1.f	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/getpfx1.f	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -1,12 +1,14 @@
+-      subroutine getpfx1(callsign,k)
++      subroutine getpfx1(callsign,k,nv2)
+ 
+-      character callsign*12
++      character*12 callsign0,callsign,lof,rof
+       character*8 c
+-      character addpfx*8
+-C  Can't 'include' *.f90 in *.f 
+-      common/gcom4/addpfx
++      character addpfx*8,tpfx*4,tsfx*3
++      logical ispfx,issfx,invalid
++      common/pfxcom/addpfx
+       include 'pfx.f'
+ 
++      callsign0=callsign
++      nv2=0
+       iz=index(callsign,' ') - 1
+       if(iz.lt.0) iz=12
+       islash=index(callsign(1:iz),'/')
+@@ -39,7 +41,56 @@
+          enddo
+       endif
+ 
+- 10   if(islash.ne.0 .and.k.eq.0) k=-1
++ 10   if(islash.ne.0 .and.k.eq.0) then
++!  Original JT65 would force this compound callsign to be treated as
++!  plain text.  In JT65v2, we will encode the prefix or suffix into nc1.
++!  The task here is to compute the proper value of k.
++         lof=callsign0(:islash-1)
++         rof=callsign0(islash+1:)
++         llof=len_trim(lof)
++         lrof=len_trim(rof)
++         ispfx=(llof.gt.0 .and. llof.le.4)
++         issfx=(lrof.gt.0 .and. lrof.le.3)
++         invalid=.not.(ispfx.or.issfx)
++         if(ispfx.and.issfx) then
++            if(llof.lt.3) issfx=.false.
++            if(lrof.lt.3) ispfx=.false.
++            if(ispfx.and.issfx) then
++               i=ichar(callsign0(islash-1:islash-1))
++               if(i.ge.ichar('0') .and. i.le.ichar('9')) then
++                  issfx=.false.
++               else
++                  ispfx=.false.
++               endif
++            endif
++         endif
++
++         if(invalid) then
++            k=-1
++         else
++            if(ispfx) then
++               tpfx=lof
++               k=nchar(tpfx(1:1))
++               k=37*k + nchar(tpfx(2:2))
++               k=37*k + nchar(tpfx(3:3))
++               k=37*k + nchar(tpfx(4:4))
++               nv2=1
++               i=index(callsign0,'/')
++               callsign=callsign0(:i-1)
++               callsign=callsign0(i+1:)
++            endif
++            if(issfx) then
++               tsfx=rof
++               k=nchar(tsfx(1:1))
++               k=37*k + nchar(tsfx(2:2))
++               k=37*k + nchar(tsfx(3:3))
++               nv2=2
++               i=index(callsign0,'/')
++               callsign=callsign0(:i-1)
++            endif
++         endif
++      endif
++
+       return
+       end
+ 
+
+Modified: trunk/packcall.f
+===================================================================
+--- trunk/packcall.f	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/packcall.f	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -3,9 +3,8 @@
+ C  Pack a valid callsign into a 28-bit integer.
+ 
+       parameter (NBASE=37*36*10*27*27*27)
+-      character callsign*6,c*1,tmp*6,digit*10
++      character callsign*6,c*1,tmp*6
+       logical text
+-      data digit/'0123456789'/
+ 
+       text=.false.
+ 
+@@ -17,15 +16,16 @@
+          if(callsign(4:4).ge.'0' .and. callsign(4:4).le.'9' .and. 
+      +      callsign(5:5).ge.'0' .and. callsign(5:5).le.'9' .and. 
+      +      callsign(6:6).ge.'0' .and. callsign(6:6).le.'9') then
+-            nfreq=100*(ichar(callsign(4:4))-48) + 
+-     +             10*(ichar(callsign(5:5))-48) +
+-     +                 ichar(callsign(6:6))-48
++            read(callsign(4:6),*) nfreq
+             ncall=NBASE + 3 + nfreq
+          endif
+          return
+       else if(callsign(1:4).eq.'QRZ ') then
+          ncall=NBASE + 2
+          return
++      else if(callsign(1:3).eq.'DE ') then
++         ncall=267796945
++         return
+       endif
+ 
+       tmp='      '
+@@ -36,7 +36,7 @@
+             text=.true.
+             return
+          endif
+-         tmp=' '//callsign
++         tmp=' '//callsign(:5)
+       else
+          text=.true.
+          return
+
+Modified: trunk/packmsg.f
+===================================================================
+--- trunk/packmsg.f	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/packmsg.f	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -1,9 +1,10 @@
+       subroutine packmsg(msg,dat)
+ 
+       parameter (NBASE=37*36*10*27*27*27)
++      parameter (NBASE2=262178562)
+       character*22 msg
+       integer dat(12)
+-      character*12 c1,c2
++      character*12 c1,c2,c2z
+       character*4 c3
+       character*6 grid6
+ c      character*3 dxcc                  !Where is DXCC implemented?
+@@ -49,19 +50,36 @@
+       c3='    '
+       if(ic.ge.ib+1) c3=msg(ib+1:ic)
+       if(c3.eq.'OOO ') c3='    '           !Strip out the OOO flag
+-      call getpfx1(c1,k1)
++      call getpfx1(c1,k1,junk)
+       call packcall(c1,nc1,text1)
+-      call getpfx1(c2,k2)
++      c2z=c2
++      call getpfx1(c2,k2,nv2)
+       call packcall(c2,nc2,text2)
+-      if(k1.lt.0 .or. k2.lt.0 .or. k1*k2.ne.0) go to 10
+-      if(k2.gt.0) k2=k2+450
+-      k=max(k1,k2)
+-      if(k.gt.0) then
+-         call k2grid(k,grid6)
+-         c3=grid6(1:4)                     !Explicitly truncate to 4 chars
++      if(nv2.eq.0) then
++         if(k1.lt.0 .or. k2.lt.0 .or. k1*k2.ne.0) go to 10
++         if(k2.gt.0) k2=k2+450
++         k=max(k1,k2)
++         if(k.gt.0) then
++            call k2grid(k,grid6)
++            c3=grid6(:4)
++         endif
+       endif
+       call packgrid(c3,ng,text3)
+-      if((.not.text1) .and. (.not.text2) .and. (.not.text3)) go to 20
++      if(nv2.eq.0 .and. (.not.text1) .and. (.not.text2) .and. 
++     +        (.not.text3)) go to 20
++      if(nv2.gt.0) then
++         if(nv2.eq.1) then
++            if(c1(1:3).eq.'CQ ')  nc1=262178563 + k2
++            if(c1(1:4).eq.'QRZ ') nc1=264002072 + k2 
++            if(c1(1:3).eq.'DE ')  nc1=265825581 + k2
++         endif
++         if(nv2.eq.2) then
++            if(c1(1:3).eq.'CQ ')  nc1=267649090 + k2
++            if(c1(1:4).eq.'QRZ ') nc1=267698375 + k2
++            if(c1(1:3).eq.'DE ')  nc1=267747660 + k2
++         endif
++         go to 20
++      endif
+ 
+ C  The message will be treated as plain text.
+  10   call packtext(msg,nc1,nc2,ng)
+
+Modified: trunk/unpackcall.f
+===================================================================
+--- trunk/unpackcall.f	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/unpackcall.f	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -1,10 +1,13 @@
+-      subroutine unpackcall(ncall,word)
++      subroutine unpackcall(ncall,word,iv2,psfx)
+ 
+-      character word*12,c*37
++      parameter (NBASE=37*36*10*27*27*27)
++      character word*12,c*37,psfx*4
+ 
+       data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ '/
+ 
+       n=ncall
++      iv2=0
++      if(n.ge.262177560) go to 20
+       word='......'
+       if(n.ge.262177560) go to 999            !Plain text message ...
+       i=mod(n,27)+11
+@@ -29,7 +32,111 @@
+       enddo
+       go to 999
+  10   word=word(i:)
++      go to 999
+ 
++ 20   if(n.ge.267796946) go to 999
++
++! We have a JT65v2 message
++      if((n.ge.262178563) .and. (n.le.264002071)) Then
++! CQ with prefix
++         iv2=1
++         n=n-262178563
++         i=mod(n,37)+1
++         psfx(4:4)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if((n.ge.264002072) .and. (n.le.265825580)) Then
++! QRZ with prefix
++         iv2=2
++         n=n-264002072
++         i=mod(n,37)+1
++         psfx(4:4)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if((n.ge.265825581) .and. (n.le.267649089)) Then
++! DE with prefix
++         iv2=3
++         n=n-265825581
++         i=mod(n,37)+1
++         psfx(4:4)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if((n.ge.267649090) .and. (n.le.267698374)) Then
++! CQ with suffix
++         iv2=4
++         n=n-267649090
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if((n.ge.267698375) .and. (n.le.267747659)) Then
++! QRZ with suffix
++         iv2=5
++         n=n-267698375
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if((n.ge.267747660) .and. (n.le.267796944)) Then
++! DE with suffix
++         iv2=6
++         n=n-267747660
++         i=mod(n,37)+1
++         psfx(3:3)=c(i:i)
++         n=n/37
++         i=mod(n,37)+1
++         psfx(2:2)=c(i:i)
++         n=n/37
++         i=n+1
++         psfx(1:1)=c(i:i)
++      endif
++
++      if(n.eq.267796945) Then
++! DE with no prefix or suffix
++         iv2=7
++         psfx = '    '
++      endif
++
+  999  if(word(1:3).eq.'3D0') word='3DA0'//word(4:)
++
+       return
+       end
+
+Modified: trunk/unpackmsg.f
+===================================================================
+--- trunk/unpackmsg.f	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/unpackmsg.f	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -3,7 +3,7 @@
+       parameter (NBASE=37*36*10*27*27*27)
+       parameter (NGBASE=180*180)
+       integer dat(12)
+-      character c1*12,c2*12,grid*4,msg*22,grid6*6
++      character c1*12,c2*12,grid*4,msg*22,grid6*6,psfx*4,junk2*4
+       logical cqnnn
+ 
+       cqnnn=.false.
+@@ -21,29 +21,38 @@
+          go to 100
+       endif
+ 
+-      if(nc1.lt.NBASE) then
+-         call unpackcall(nc1,c1)
+-      else
+-         c1='......'
++      call unpackcall(nc1,c1,iv2,psfx)
++      if(iv2.eq.0) then
++! This is an &quot;original JT65&quot; message
+          if(nc1.eq.NBASE+1) c1='CQ    '
+          if(nc1.eq.NBASE+2) c1='QRZ   '
+          nfreq=nc1-NBASE-3
+          if(nfreq.ge.0 .and. nfreq.le.999) then
+-            c1(1:3)='CQ '
+-            c1(4:4)=char(48+nfreq/100)
+-            c1(5:5)=char(48+mod(nfreq/10,10))
+-            c1(6:6)=char(48+mod(nfreq,10))
+-            cqnnn=.true.           
+-         endif         
++            write(c1,1002) nfreq
++ 1002       format('CQ ',i3.3)
++            cqnnn=.true.
++         endif
+       endif
+ 
+-      if(nc2.lt.NBASE) then
+-         call unpackcall(nc2,c2)
++      call unpackcall(nc2,c2,junk1,junk2)
++      call unpackgrid(ng,grid)
++
++      if(iv2.gt.0) then
++! This is a JT65v2 message
++         n1=len_trim(psfx)
++         n2=len_trim(c2)
++         if(iv2.eq.1) msg='CQ '//psfx(:n1)//'/'//c2(:n2)//' '//grid
++         if(iv2.eq.2) msg='QRZ '//psfx(:n1)//'/'//c2(:n2)//' '//grid
++         if(iv2.eq.3) msg='DE '//psfx(:n1)//'/'//c2(:n2)//' '//grid
++         if(iv2.eq.4) msg='CQ '//c2(:n2)//'/'//psfx(:n1)//' '//grid
++         if(iv2.eq.5) msg='QRZ '//c2(:n2)//'/'//psfx(:n1)//' '//grid
++         if(iv2.eq.6) msg='DE '//c2(:n2)//'/'//psfx(:n1)//' '//grid
++         if(iv2.eq.7) msg='DE '//c2(:n2)//' '//grid
++         go to 100
+       else
+-         c2='......'
++         
+       endif
+ 
+-      call unpackgrid(ng,grid)
+       grid6=grid//'ma'
+       call grid2k(grid6,k)
+       if(k.ge.1 .and. k.le.450)   call getpfx2(k,c1)
+@@ -57,7 +66,7 @@
+       msg='                      '
+       j=0
+       if(cqnnn) then
+-         msg=c1//'                '
++         msg=c1//'          '
+          j=7                                  !### ??? ###
+          go to 10
+       endif
+@@ -75,7 +84,7 @@
+          msg(j:j)=c2(i:i)
+          if(c2(i:i).eq.' ') go to 20
+       enddo
+-      j=j+1
++      if(j.le.21) j=j+1
+       msg(j:j)=' '
+ 
+  20   if(k.eq.0) then
+@@ -83,7 +92,7 @@
+             if(j.le.21) j=j+1
+             msg(j:j)=grid(i:i)
+          enddo
+-         j=j+1
++         if(j.le.21) j=j+1
+          msg(j:j)=' '
+       endif
+ 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2012-05-23 15:17:45 UTC (rev 2466)
++++ trunk/wsjt.py	2012-05-31 15:36:49 UTC (rev 2467)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002158.html">[WSJT-SVN] r2466 - in branches/map65: . libm65
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2159">[ date ]</a>
+              <a href="thread.html#2159">[ thread ]</a>
+              <a href="subject.html#2159">[ subject ]</a>
+              <a href="author.html#2159">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r535 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r535%20-%20trunk&In-Reply-To=%3C200709191918.l8JJIxwn009299%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000219.html">
+   <LINK REL="Next"  HREF="000221.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r535 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r535%20-%20trunk&In-Reply-To=%3C200709191918.l8JJIxwn009299%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r535 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 19 21:18:59 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000219.html">[WSJT-SVN] r534 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000221.html">[WSJT-SVN] r536 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#220">[ date ]</a>
+              <a href="thread.html#220">[ thread ]</a>
+              <a href="subject.html#220">[ subject ]</a>
+              <a href="author.html#220">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-19 21:18:47 +0200 (Wed, 19 Sep 2007)
+New Revision: 535
+
+Modified:
+   trunk/decode24.f
+   trunk/genmet.f
+   trunk/sync24.f
+   trunk/wsjt.py
+Log:
+Fixed and tweaked the decoding parameters.  JT2 now seems to perform
+about as well as JT65B, or slightly better.  Decodes more than 50%
+of transmissions at -24 dB.
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-19 16:45:01 UTC (rev 534)
++++ trunk/decode24.f	2007-09-19 19:18:47 UTC (rev 535)
+@@ -16,7 +16,7 @@
+       integer*1 i1,symbol(207)
+       integer*1 data1(13)                   !Decoded data (8-bit bytes)
+       integer   data4(12)                   !Decoded data (6-bit bytes)
+-      integer amp,delta,scale
++      integer amp,delta
+       integer mettab(0:255,0:1)             !Metric table
+       integer fano
+       integer npr2(207)
+@@ -47,7 +47,7 @@
+          dt=2.d0/11025          !Sample interval (2x downsampled data)
+          df=11025.d0/2520.d0
+          nsym=206
+-         amp=4
++         amp=15
+          first=.false.
+       endif
+ 
+@@ -60,7 +60,7 @@
+       k=istart
+       fac=1.e-4
+ 
+-      do j=1,nsym
++      do j=1,nsym+1
+          f0=1270.46 + dfx + npr2(j)*df
+          dphi=twopi*dt*f0
+          c1=0.
+@@ -100,10 +100,10 @@
+       enddo      
+ 
+       nbits=72+31
+-      delta=15
+-      limit=10000
++      delta=100
++      limit=100000
+       ncycles=0
+-      symbol(207)=-128
++!      symbol(207)=-128
+       do i=1,207
+          i1=symbol(i)
+          ierr=0
+@@ -113,6 +113,20 @@
+  3009    format(4i5)
+       enddo
+ 
++!      sum=0.
++!      do i=1,206
++!         i1=symbol(i+1)
++!         sum=sum + i4
++!      enddo
++!      ave=sum/206.
++!      sq=0.
++!      do i=1,206
++!         i1=symbol(i+1)
++!         sq=sq + (i4-ave)**2
++!      enddo
++!      rms=sqrt(sq/205.0)
++!      print*,ave,rms
++
+       ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,
+      +     delta,limit)
+ !      print*,'Decode24  ncount:',ncount,ncycles
+
+Modified: trunk/genmet.f
+===================================================================
+--- trunk/genmet.f	2007-09-19 16:45:01 UTC (rev 534)
++++ trunk/genmet.f	2007-09-19 19:18:47 UTC (rev 535)
+@@ -6,7 +6,7 @@
+       integer scale                     !scale factor for integer table
+       integer mettab(0:255,0:1)         !Metric table (RxSymbol,TxSymbol)
+ 
+-      bias=-0.5
++      bias=0.5
+       if(mode.eq.6) then       !JT2, DBPSK
+          open(19,file='dmet_20_-2_2.dat',status='old')
+          scale=20
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-09-19 16:45:01 UTC (rev 534)
++++ trunk/sync24.f	2007-09-19 19:18:47 UTC (rev 535)
+@@ -131,9 +131,8 @@
+       dtx=istart*dt
+       snrx=-99.0
+       ppmax=psavg(ipk)-1.0
+-C  Plus 3 dB because sync tone is on half the time.  (Don't understand 
+-C  why an additional +2 dB is needed ...)
+-      if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 5.0    !###
++
++      if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 7.5    !Semi-Empirical
+       if(snrx.lt.-33.0) snrx=-33.0
+ 
+ C  Compute width of sync tone to outermost -3 dB points
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-09-19 16:45:01 UTC (rev 534)
++++ trunk/wsjt.py	2007-09-19 19:18:47 UTC (rev 535)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000219.html">[WSJT-SVN] r534 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000221.html">[WSJT-SVN] r536 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#220">[ date ]</a>
+              <a href="thread.html#220">[ thread ]</a>
+              <a href="subject.html#220">[ subject ]</a>
+              <a href="author.html#220">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

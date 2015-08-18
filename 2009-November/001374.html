@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1683 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1683%20-%20branches/wspr&In-Reply-To=%3C200911150050.nAF0ox5w016056%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001373.html">
+   <LINK REL="Next"  HREF="001375.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1683 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1683%20-%20branches/wspr&In-Reply-To=%3C200911150050.nAF0ox5w016056%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1683 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Nov 15 01:50:59 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001373.html">[WSJT-SVN] r1682 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001375.html">[WSJT-SVN] r1684 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-15 01:50:56 +0100 (Sun, 15 Nov 2009)
+New Revision: 1683
+
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/acom1.f90
+   branches/wspr/tx.F90
+   branches/wspr/wspr2.F90
+Log:
+Experimental code to measure delays in the several PTT methods.
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2009-11-13 21:49:09 UTC (rev 1682)
++++ branches/wspr/Makefile.in	2009-11-15 00:50:56 UTC (rev 1683)
+@@ -4,7 +4,7 @@
+ CC ?= @CC@
+ FFLAGS	= @FFLAGS@
+ LDFLAGS	= @LDFLAGS@
+-LIBS	= @LIBS@ -lfftw3f -lfftw3single
++LIBS	= @LIBS@ -lfftw3f #-lfftw3single
+ CPPFLAGS = @CPPFLAGS@
+ CFLAGS	= @CFLAGS@
+ PREFIX	= @PREFIX@
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2009-11-13 21:49:09 UTC (rev 1682)
++++ branches/wspr/acom1.f90	2009-11-15 00:50:56 UTC (rev 1683)
+@@ -1,13 +1,13 @@
+   parameter (NMAX=120*12000)                          !Max length of waveform
+   parameter (NZ=120*48000)
+-  real*8 f0,ftx
++  real*8 f0,ftx,tsec0
+   logical ltest,receiving,transmitting
+   character*80 infile,outfile,pttport,thisfile
+   character cdate*8,utctime*10,rxtime*4,catport*12
+   character pttmode*3,appdir*80
+   character callsign*12,grid*4,grid6*6,ctxmsg*22,sending*22
+   integer*2 iwave,kwave
+-  common/acom1/ f0,ftx,rms,pctx,igrid6,nsec,ndevin,                    &amp;
++  common/acom1/ f0,ftx,tsec0,rms,pctx,igrid6,nsec,ndevin,              &amp;
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,                            &amp;
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-13 21:49:09 UTC (rev 1682)
++++ branches/wspr/tx.F90	2009-11-15 00:50:56 UTC (rev 1683)
+@@ -16,7 +16,8 @@
+   character crig*6,cbaud*6,cdata*1,cstop*1,chs*8
+   character cmnd*120,snrfile*80
+   integer*2 jwave,icwid
+-  integer soundout,ptt
++  integer soundout,ptt,nt(9)
++  real*8 tsec1
+   include 'acom1.f90'
+   common/bcom/ntransmitted
+   common/dcom/jwave(NMAX2),icwid(NMAX3)
+@@ -85,7 +86,10 @@
+   read(18,*,err=10,end=10) snr
+   close(18)
+ 
+-10 call genwspr(message,ntxdf,snr,appdir,nappdir,sending,jwave)
++10 continue
++  call gmtime2(nt,tsec1)
++  print*,'A',tsec1-tsec0
++  call genwspr(message,ntxdf,snr,appdir,nappdir,sending,jwave)
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
+   if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint) then
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-13 21:49:09 UTC (rev 1682)
++++ branches/wspr/wspr2.F90	2009-11-15 00:50:56 UTC (rev 1683)
+@@ -16,6 +16,7 @@
+   real*8 tsec
+   include 'acom1.f90'
+   character linetx*51,dectxt*80
++  integer nt(9)
+   common/acom2/ntune2,linetx
+   common/patience/npatience
+   data receiving/.false./,transmitting/.false./
+@@ -124,6 +125,7 @@
+      nsectx=mod(nsec,86400)
+      ntxdone=0
+      call cs_unlock
++     call gmtime2(nt,tsec0)
+      if(ndevsok.eq.1) call starttx
+ 
+   else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001373.html">[WSJT-SVN] r1682 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001375.html">[WSJT-SVN] r1684 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

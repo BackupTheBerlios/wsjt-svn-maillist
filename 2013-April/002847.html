@@ -1,0 +1,340 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3155 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3155%20-%20branches/wsjtx&In-Reply-To=%3C20130411165158.1631055B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002846.html">
+   <LINK REL="Next"  HREF="002848.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3155 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3155%20-%20branches/wsjtx&In-Reply-To=%3C20130411165158.1631055B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3155 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Apr 11 18:51:57 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002846.html">[WSJT-SVN] r3154 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002848.html">[WSJT-SVN] r3156 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2847">[ date ]</a>
+              <a href="thread.html#2847">[ thread ]</a>
+              <a href="subject.html#2847">[ subject ]</a>
+              <a href="author.html#2847">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-11 18:51:57 +0200 (Thu, 11 Apr 2013)
+New Revision: 3155
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/wsjtx.iss
+Log:
+1. Erase button: click once to erase QSO window, twice to erase both.
+2. New Setup options: &quot;Tx disabled after sending 73&quot; and &quot;Runaway Tx watchdog&quot;.
+3. Keyboard shortcuts:
+   Alt-D: decode again at QSO frequency (same as Decode() button)
+   Shift-D: full decode again, both windows
+   Alt-E: Erase()
+   Ctrl-F: Edit free text message
+   Alt-H: Halt Tx()
+   Alt M: Monitor()
+   Alt-N: Enable Tx()
+   Alt-Q: Log QSO
+   Alt-S: Stop()
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-11 01:10:40 UTC (rev 3154)
++++ branches/wsjtx/mainwindow.cpp	2013-04-11 16:51:57 UTC (rev 3155)
+@@ -172,6 +172,8 @@
+   m_bMiles=false;
+   m_decodedText2=false;
+   m_freeText=false;
++  m_msErase=0;
++  m_sent73=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -384,6 +386,8 @@
+   settings.setValue(&quot;GUItab&quot;,ui-&gt;tabWidget-&gt;currentIndex());
+   settings.setValue(&quot;QuickCall&quot;,m_quickCall);
+   settings.setValue(&quot;LeftColor&quot;,m_leftColor);
++  settings.setValue(&quot;73TxDisable&quot;,m_73TxDisable);
++  settings.setValue(&quot;Runaway&quot;,m_runaway);
+   settings.endGroup();
+ }
+ 
+@@ -488,6 +492,11 @@
+   ui-&gt;actionDouble_click_on_call_sets_Tx_Enable-&gt;setChecked(m_quickCall);
+   m_leftColor=settings.value(&quot;LeftColor&quot;,false).toBool();
+   ui-&gt;actionColor_highlighting_in_left_window-&gt;setChecked(m_leftColor);
++  m_73TxDisable=settings.value(&quot;73TxDisable&quot;,false).toBool();
++  ui-&gt;action_73TxDisable-&gt;setChecked(m_73TxDisable);
++  m_runaway=settings.value(&quot;Runaway&quot;,false).toBool();
++  ui-&gt;actionRunaway_Tx_watchdog-&gt;setChecked(m_runaway);
++
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+     !ui-&gt;actionAFMHot-&gt;isChecked() &amp;&amp; !ui-&gt;actionBlue-&gt;isChecked()) {
+     on_actionLinrad_triggered();
+@@ -713,6 +722,15 @@
+   int n;
+   switch(e-&gt;key())
+   {
++  case Qt::Key_D:
++    if(e-&gt;modifiers() &amp; Qt::ShiftModifier) {
++      if(!m_decoderBusy) {
++        jt9com_.newdat=0;
++        jt9com_.nagain=0;
++        decode();
++      }
++    }
++    break;
+   case Qt::Key_F3:
+     btxMute=!btxMute;
+     break;
+@@ -738,11 +756,27 @@
+     if(e-&gt;modifiers() &amp; Qt::ControlModifier) n+=100;
+     bumpFqso(n);
+     break;
++  case Qt::Key_F:
++    if(e-&gt;modifiers() &amp; Qt::ControlModifier) {
++      if(ui-&gt;tabWidget-&gt;currentIndex()==0) {
++        ui-&gt;tx5-&gt;clear();
++        ui-&gt;tx5-&gt;setFocus();
++      } else {
++        ui-&gt;freeTextMsg-&gt;clear();
++        ui-&gt;freeTextMsg-&gt;setFocus();
++      }
++      break;
++    }
+   case Qt::Key_G:
+     if(e-&gt;modifiers() &amp; Qt::AltModifier) {
+       genStdMsgs(m_rpt);
+       break;
+     }
++  case Qt::Key_H:
++    if(e-&gt;modifiers() &amp; Qt::AltModifier) {
++      on_stopTxButton_clicked();
++      break;
++    }
+   case Qt::Key_L:
+     if(e-&gt;modifiers() &amp; Qt::ControlModifier) {
+       lookup();
+@@ -1250,7 +1284,6 @@
+             }
+           }
+         }
+-        qDebug() &lt;&lt; b &lt;&lt; w[0] &lt;&lt; w[1] &lt;&lt; w[2] &lt;&lt; tt &lt;&lt; i1 &lt;&lt; ok &lt;&lt; m_rptRcvd;
+       }
+ 
+ #ifdef WIN32
+@@ -1298,8 +1331,10 @@
+ 
+ void MainWindow::on_EraseButton_clicked()                          //Erase
+ {
++  qint64 ms=QDateTime::currentMSecsSinceEpoch();
+   ui-&gt;decodedTextBrowser-&gt;clear();
+-  ui-&gt;decodedTextBrowser2-&gt;clear();
++  if((ms-m_msErase)&lt;500) ui-&gt;decodedTextBrowser2-&gt;clear();
++  m_msErase=ms;
+ }
+ 
+ void MainWindow::decodeBusy(bool b)                             //decodeBusy()
+@@ -1400,7 +1435,8 @@
+     t=&quot;&quot;;
+     if(w.length()==3) t=w[2];
+     icw[0]=0;
+-    if(m_After73 and (t==&quot;73&quot; or itext!=0)) {
++    m_sent73=(t==&quot;73&quot; or itext!=0);
++    if(m_sent73 and m_After73) {
+       icw[0]=m_ncw;
+ //      if(m_promptToLog) on_logQSOButton_clicked();
+       if(m_promptToLog) logQSOTimer-&gt;start(200);
+@@ -1448,8 +1484,10 @@
+     QString t=QString::fromAscii(msgsent);
+     if(t==m_msgSent0) {
+       m_repeatMsg++;
+-      if(m_repeatMsg&gt;5) {
+-        msgBox(&quot;Runaway Tx watchdog&quot;);
++      if(m_runaway and m_repeatMsg&gt;0) {
++        on_stopTxButton_clicked();
++        msgBox0.setText(&quot;Runaway Tx watchdog&quot;);
++        msgBox0.show();
+         m_repeatMsg=0;
+       }
+     } else {
+@@ -1601,6 +1639,7 @@
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+   }
++  if(m_73TxDisable and m_sent73) on_stopTxButton_clicked();
+ }
+ 
+ void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
+@@ -2440,3 +2479,13 @@
+ {
+   m_leftColor=checked;
+ }
++
++void MainWindow::on_action_73TxDisable_triggered(bool checked)
++{
++  m_73TxDisable=checked;
++}
++
++void MainWindow::on_actionRunaway_Tx_watchdog_triggered(bool checked)
++{
++  m_runaway=checked;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-11 01:10:40 UTC (rev 3154)
++++ branches/wsjtx/mainwindow.h	2013-04-11 16:51:57 UTC (rev 3155)
+@@ -145,14 +145,17 @@
+   void on_freeTextMsg_editingFinished();
+   void on_actionDouble_click_on_call_sets_Tx_Enable_triggered(bool checked);
+   void on_rptSpinBox_valueChanged(int n);
+-
+   void on_actionColor_highlighting_in_left_window_triggered(bool checked);
++  void on_action_73TxDisable_triggered(bool checked);
+ 
++  void on_actionRunaway_Tx_watchdog_triggered(bool checked);
++
+ private:
+     Ui::MainWindow *ui;
+ 
+     double  m_dialFreq;
+ 
++    qint64  m_msErase;
+     qint32  m_nDevIn;
+     qint32  m_nDevOut;
+     qint32  m_idInt;
+@@ -235,6 +238,9 @@
+     bool    m_freeText;
+     bool    m_quickCall;
+     bool    m_leftColor;
++    bool    m_73TxDisable;
++    bool    m_sent73;
++    bool    m_runaway;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-11 01:10:40 UTC (rev 3154)
++++ branches/wsjtx/mainwindow.ui	2013-04-11 16:51:57 UTC (rev 3155)
+@@ -473,7 +473,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Enable Tx&lt;/string&gt;
++           &lt;string&gt;E&amp;nable Tx&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -492,7 +492,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Halt Tx&lt;/string&gt;
++           &lt;string&gt;&amp;Halt Tx&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -1312,7 +1312,7 @@
+            &lt;enum&gt;QTabWidget::Triangular&lt;/enum&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;currentIndex&quot;&gt;
+-           &lt;number&gt;0&lt;/number&gt;
++           &lt;number&gt;1&lt;/number&gt;
+           &lt;/property&gt;
+           &lt;widget class=&quot;QWidget&quot; name=&quot;tab&quot;&gt;
+            &lt;attribute name=&quot;title&quot;&gt;
+@@ -1996,6 +1996,8 @@
+     &lt;addaction name=&quot;actionDisplay_distance_in_miles&quot;/&gt;
+     &lt;addaction name=&quot;actionDouble_click_on_call_sets_Tx_Enable&quot;/&gt;
+     &lt;addaction name=&quot;actionColor_highlighting_in_left_window&quot;/&gt;
++    &lt;addaction name=&quot;action_73TxDisable&quot;/&gt;
++    &lt;addaction name=&quot;actionRunaway_Tx_watchdog&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuView&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -2529,6 +2531,22 @@
+     &lt;string&gt;Color highlighting in left window&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;action_73TxDisable&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Tx disabled after sending 73&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionRunaway_Tx_watchdog&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Runaway Tx watchdog&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2013-04-11 01:10:40 UTC (rev 3154)
++++ branches/wsjtx/wsjtx.iss	2013-04-11 16:51:57 UTC (rev 3155)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.9 r3148
++AppVerName=wsjtx Version 0.9 r3151
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002846.html">[WSJT-SVN] r3154 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002848.html">[WSJT-SVN] r3156 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2847">[ date ]</a>
+              <a href="thread.html#2847">[ thread ]</a>
+              <a href="subject.html#2847">[ subject ]</a>
+              <a href="author.html#2847">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

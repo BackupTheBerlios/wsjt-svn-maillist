@@ -1,0 +1,915 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3509 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3509%20-%20branches/wsjtx&In-Reply-To=%3C20130730005142.AB14D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003200.html">
+   <LINK REL="Next"  HREF="003202.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3509 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3509%20-%20branches/wsjtx&In-Reply-To=%3C20130730005142.AB14D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3509 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jul 30 02:51:42 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003200.html">[WSJT-SVN] r3508 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003202.html">[WSJT-SVN] r3510 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3201">[ date ]</a>
+              <a href="thread.html#3201">[ thread ]</a>
+              <a href="subject.html#3201">[ subject ]</a>
+              <a href="author.html#3201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-30 02:51:42 +0200 (Tue, 30 Jul 2013)
+New Revision: 3509
+
+Added:
+   branches/wsjtx/soundin_1.cpp
+   branches/wsjtx/soundin_1.h
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundin.h
+   branches/wsjtx/wsjtx.pro
+Log:
+1. Refactoring of code so as to move audio input from a separate thread to 
+the main GUI thread (thanks to G4WJS).
+
+2.. Also, for the record, some example code for using QAudioInput instead 
+of PortAudio.  This code is not presently active, and will need to be 
+changed to accommodate the changes in #1, above.  But the basic ideas 
+are here...
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/devsetup.cpp	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -2,6 +2,8 @@
+ #include &lt;QDebug&gt;
+ #include &lt;QSettings&gt;
+ #include &lt;portaudio.h&gt;
++#include &lt;QAudioDeviceInfo&gt;
++#include &lt;QAudioInput&gt;
+ 
+ #define MAXDEVICES 100
+ 
+@@ -35,6 +37,25 @@
+   QString catPortDriver = settings.value(&quot;CATdriver&quot;,&quot;None&quot;).toString();
+   settings.endGroup();
+ 
++/*
++	QList&lt;QAudioDeviceInfo&gt; InDevices;
++	QList&lt;QAudioDeviceInfo&gt; OutDevices;
++	QAudioDeviceInfo deviceInfo;
++
++	InDevices = deviceInfo.availableDevices(QAudio::AudioInput);
++	OutDevices = deviceInfo.availableDevices(QAudio::AudioOutput);
++
++	foreach (const QAudioDeviceInfo &amp;deviceInfo, InDevices) {
++		ui.comboBoxSndIn-&gt;addItem(deviceInfo.deviceName(),
++															qVariantFromValue(deviceInfo));
++	}
++
++	foreach (const QAudioDeviceInfo &amp;deviceInfo, OutDevices) {
++		ui.comboBoxSndOut-&gt;addItem(deviceInfo.deviceName(),
++															 qVariantFromValue(deviceInfo));
++	}
++*/
++
+   int k,id;
+   int numDevices=Pa_GetDeviceCount();
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/mainwindow.cpp	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -86,11 +86,11 @@
+           SLOT(doubleClickOnCall2(bool,bool)));
+ 
+   setWindowTitle(Program_Title_Version);
+-  connect(&amp;soundInThread, SIGNAL(readyForFFT(int)),
++  connect(&amp;m_soundInput, SIGNAL(readyForFFT(int)),
+              this, SLOT(dataSink(int)));
+-  connect(&amp;soundInThread, SIGNAL(error(QString)), this,
++  connect(&amp;m_soundInput, SIGNAL(error(QString)), this,
+           SLOT(showSoundInError(QString)));
+-  connect(&amp;soundInThread, SIGNAL(status(QString)), this,
++  connect(&amp;m_soundInput, SIGNAL(status(QString)), this,
+           SLOT(showStatusMessage(QString)));
+   createStatusBar();
+ 
+@@ -302,13 +302,12 @@
+   watcher2 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
+-  soundInThread.setInputDevice(m_paInDevice);
+-  soundInThread.start(QThread::HighestPriority);
++  m_soundInput.start(m_paInDevice);
+   soundOutThread.setOutputDevice(m_paOutDevice);
+   soundOutThread.setTxFreq(m_txFreq);
+   soundOutThread.setTune(false);
+   m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+-  soundInThread.setMonitoring(m_monitoring);
++  m_soundInput.setMonitoring(m_monitoring);
+   m_diskData=false;
+ 
+ // Create &quot;m_worked&quot;, a dictionary of all calls in wsjtx.log
+@@ -373,10 +372,6 @@
+ MainWindow::~MainWindow()
+ {
+   writeSettings();
+-  if (soundInThread.isRunning()) {
+-    soundInThread.quit();
+-    soundInThread.wait(3000);
+-  }
+   if (soundOutThread.isRunning()) {
+     soundOutThread.quitExecution=true;
+     soundOutThread.wait(3000);
+@@ -712,7 +707,7 @@
+       watcher2-&gt;setFuture(*future2);
+     }
+   }
+-  soundInThread.m_dataSinkBusy=false;
++  //  m_soundInput.m_dataSinkBusy=false;
+ }
+ 
+ void MainWindow::showSoundInError(const QString&amp; errorMsg)
+@@ -832,10 +827,8 @@
+     m_After73=dlg.m_After73;
+ 
+     if(dlg.m_restartSoundIn) {
+-      soundInThread.quit();
+-      soundInThread.wait(1000);
+-      soundInThread.setInputDevice(m_paInDevice);
+-      soundInThread.start(QThread::HighestPriority);
++      m_soundInput.stop();
++      m_soundInput.start(m_paInDevice);
+     }
+ 
+     if(dlg.m_restartSoundOut) {
+@@ -870,7 +863,7 @@
+ void MainWindow::on_monitorButton_clicked()                  //Monitor
+ {
+   m_monitoring=true;
+-  soundInThread.setMonitoring(true);
++  m_soundInput.setMonitoring(true);
+   m_diskData=false;
+ }
+ 
+@@ -1132,7 +1125,7 @@
+ void MainWindow::on_stopButton_clicked()                       //stopButton
+ {
+   m_monitoring=false;
+-  soundInThread.setMonitoring(m_monitoring);
++  m_soundInput.setMonitoring(m_monitoring);
+   m_loopall=false;  
+ }
+ 
+@@ -1173,7 +1166,7 @@
+ void MainWindow::on_actionOpen_triggered()                     //Open File
+ {
+   m_monitoring=false;
+-  soundInThread.setMonitoring(m_monitoring);
++  m_soundInput.setMonitoring(m_monitoring);
+   QString fname;
+   fname=QFileDialog::getOpenFileName(this, &quot;Open File&quot;, m_path,
+                                        &quot;WSJT Files (*.wav)&quot;);
+@@ -1787,7 +1780,7 @@
+ 
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+-    soundInThread.setMonitoring(false);
++    m_soundInput.setMonitoring(false);
+     btxok=true;
+     m_transmitting=true;
+     ui-&gt;pbTxMode-&gt;setEnabled(false);
+@@ -1907,7 +1900,7 @@
+     soundOutThread.start(QThread::HighestPriority);
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+-    soundInThread.setMonitoring(false);
++    m_soundInput.setMonitoring(false);
+     btxok=true;
+     m_transmitting=true;
+     ui-&gt;pbTxMode-&gt;setEnabled(false);
+@@ -1927,7 +1920,7 @@
+   lab1-&gt;setText(&quot;&quot;);
+   ptt0Timer-&gt;start(200);                       //Sequencer delay
+   m_monitoring=true;
+-  soundInThread.setMonitoring(true);
++  m_soundInput.setMonitoring(true);
+ }
+ 
+ void MainWindow::stopTx2()
+@@ -2534,7 +2527,7 @@
+   m_TRperiod=60;
+   m_nsps=6912;
+   m_hsymStop=173;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  m_soundInput.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   lab3-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
+   lab3-&gt;setText(m_mode);
+@@ -2553,7 +2546,7 @@
+   m_TRperiod=60;
+   m_nsps=6912;                   //For symspec only
+   m_hsymStop=173;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  m_soundInput.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   lab3-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab3-&gt;setText(m_mode);
+@@ -2572,7 +2565,7 @@
+   m_TRperiod=60;
+   m_nsps=6912;
+   m_hsymStop=173;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  m_soundInput.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   lab3-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
+   lab3-&gt;setText(m_mode);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/mainwindow.h	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -337,7 +337,7 @@
+ 
+     QDateTime m_dateTimeQSO;
+ 
+-    SoundInThread soundInThread;             //Instantiate the audio threads
++    SoundInput m_soundInput;             //Instantiate the audio objects
+     SoundOutThread soundOutThread;
+     QSharedMemory *mem_jt9;
+  // Multiple instances:
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/soundin.cpp	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -33,30 +33,19 @@
+ } jt9com_;
+ }
+ 
+-typedef struct
+-{
+-  int kin;          //Parameters sent to/from the portaudio callback function
+-  int ncall;
+-  bool bzero;
+-  bool monitoring;
+-} paUserData;
+-
+ //--------------------------------------------------------------- a2dCallback
+-extern &quot;C&quot; int a2dCallback( const void *inputBuffer, void *outputBuffer,
+-                         unsigned long framesToProcess,
+-                         const PaStreamCallbackTimeInfo* timeInfo,
+-                         PaStreamCallbackFlags statusFlags,
+-                         void *userData )
++int a2dCallback( const void *inputBuffer, void * /* outputBuffer */,
++		 unsigned long framesToProcess,
++		 const PaStreamCallbackTimeInfo * /* timeInfo */,
++		 PaStreamCallbackFlags statusFlags,
++		 void *userData )
+ 
+ // This routine called by the PortAudio engine when samples are available.
+ // It may be called at interrupt level, so don't do anything
+ // that could mess up the system like calling malloc() or free().
+ 
+ {
+-  paUserData *udata=(paUserData*)userData;
+-  (void) outputBuffer;          //Prevent unused variable warnings.
+-  (void) timeInfo;
+-  (void) userData;
++  SoundInput::CallbackData * udata = reinterpret_cast&lt;SoundInput::CallbackData *&gt;(userData);
+   int nbytes,k;
+ 
+   udata-&gt;ncall++;
+@@ -79,22 +68,31 @@
+   return paContinue;
+ }
+ 
+-void SoundInThread::run()                           //SoundInThread::run()
++SoundInput::SoundInput()
++  : m_inStream(0),
++    m_dataSinkBusy(false),
++    m_TRperiod(60),
++    m_nsps(6912),
++    m_monitoring(false),
++    m_intervalTimer(this)
+ {
+-  quitExecution = false;
++  connect(&amp;m_intervalTimer, &amp;QTimer::timeout, this, &amp;SoundInput::intervalNotify);
++}
+ 
++void SoundInput::start(qint32 device)
++{
++  stop();
++
+ //---------------------------------------------------- Soundcard Setup
+   PaError paerr;
+   PaStreamParameters inParam;
+-  PaStream *inStream;
+-  paUserData udata;
+ 
+-  udata.kin=0;                              //Buffer pointer
+-  udata.ncall=0;                            //Number of callbacks
+-  udata.bzero=false;                        //Flag to request reset of kin
+-  udata.monitoring=m_monitoring;
++  m_callbackData.kin=0;                              //Buffer pointer
++  m_callbackData.ncall=0;                            //Number of callbacks
++  m_callbackData.bzero=false;                        //Flag to request reset of kin
++  m_callbackData.monitoring=m_monitoring;
+ 
+-  inParam.device=m_nDevIn;                  //### Input Device Number ###
++  inParam.device=device;		    //### Input Device Number ###
+   inParam.channelCount=1;                   //Number of analog channels
+   inParam.sampleFormat=paInt16;             //Get i*2 from Portaudio
+   inParam.suggestedLatency=0.05;
+@@ -106,103 +104,83 @@
+ //    return;
+   }
+   qDebug() &lt;&lt; &quot;&quot;;
+-  paerr=Pa_OpenStream(&amp;inStream,            //Input stream
+-        &amp;inParam,                           //Input parameters
+-        NULL,                               //No output parameters
+-        12000.0,                            //Sample rate
+-        FRAMES_PER_BUFFER,                  //Frames per buffer
++  paerr=Pa_OpenStream(&amp;m_inStream, //Input stream
++        &amp;inParam,		   //Input parameters
++        NULL,			   //No output parameters
++        12000.0,		   //Sample rate
++        FRAMES_PER_BUFFER,	   //Frames per buffer
+ //        paClipOff+paDitherOff,            //No clipping or dithering
+-        paClipOff,                          //No clipping
+-        a2dCallback,                        //Input callback routine
+-        &amp;udata);                            //userdata
+-
+-  paerr=Pa_StartStream(inStream);
++        paClipOff,		//No clipping
++        a2dCallback,		//Input callback routine
++        &amp;m_callbackData);	//userdata
++  paerr=Pa_StartStream(m_inStream);
+   if(paerr&lt;0) {
+     emit error(&quot;Failed to start audio input stream.&quot;);
+     return;
+   }
++  m_ntr0 = 99;		     // initial value higher than any expected
++  m_nBusy = 0;
++  m_intervalTimer.start(100);
++  m_ms0 = QDateTime::currentMSecsSinceEpoch();
++  m_nsps0 = 0;
++}
+ 
+-  bool qe = quitExecution;
+-  static int ntr0=99;
+-  int k=0;
+-  int nsec;
+-  int ntr;
+-  int nBusy=0;
+-  int nstep0=0;
+-  int nsps0=0;
+-  qint64 ms0 = QDateTime::currentMSecsSinceEpoch();
++void SoundInput::intervalNotify()
++{
++  m_callbackData.monitoring=m_monitoring;
++  qint64 ms = QDateTime::currentMSecsSinceEpoch();
++  m_SamFacIn=1.0;
++  if(m_callbackData.ncall&gt;100) {
++    m_SamFacIn=m_callbackData.ncall*FRAMES_PER_BUFFER*1000.0/(12000.0*(ms-m_ms0-50));
++  }
++  ms=ms % 86400000;
++  int nsec = ms/1000;             // Time according to this computer
++  int ntr = nsec % m_TRperiod;
+ 
+-//---------------------------------------------- Soundcard input loop
+-  while (!qe) {
+-    qe = quitExecution;
+-    if (qe) break;
+-    udata.monitoring=m_monitoring;
+-    qint64 ms = QDateTime::currentMSecsSinceEpoch();
+-    m_SamFacIn=1.0;
+-    if(udata.ncall&gt;100) {
+-      m_SamFacIn=udata.ncall*FRAMES_PER_BUFFER*1000.0/(12000.0*(ms-ms0-50));
+-    }
+-    ms=ms % 86400000;
+-    nsec = ms/1000;             // Time according to this computer
+-    ntr = nsec % m_TRperiod;
+-
+-// Reset buffer pointer and symbol number at start of minute
+-    if(ntr &lt; ntr0 or !m_monitoring or m_nsps!=nsps0) {
+-      nstep0=0;
+-      nsps0=m_nsps;
+-      udata.bzero=true;
+-    }
+-    k=udata.kin;
+-    if(m_monitoring) {
+-      int kstep=m_nsps/2;
+-//      m_step=k/kstep;
+-      m_step=(k-1)/kstep;
+-      if(m_step != nstep0) {
+-        if(m_dataSinkBusy) {
+-          nBusy++;
+-        } else {
+-//          m_dataSinkBusy=true;
+-//          emit readyForFFT(k);         //Signal to compute new FFTs
+-          emit readyForFFT(k-1);         //Signal to compute new FFTs
+-        }
+-        nstep0=m_step;
++  // Reset buffer pointer and symbol number at start of minute
++  if(ntr &lt; m_ntr0 or !m_monitoring or m_nsps!=m_nsps0) {
++    m_nstep0=0;
++    m_nsps0=m_nsps;
++    m_callbackData.bzero=true;
++  }
++  int k=m_callbackData.kin;
++  if(m_monitoring) {
++    int kstep=m_nsps/2;
++    //      m_step=k/kstep;
++    m_step=(k-1)/kstep;
++    if(m_step != m_nstep0) {
++      if(m_dataSinkBusy) {
++	m_nBusy++;
++      } else {
++	//          m_dataSinkBusy=true;
++	//          emit readyForFFT(k);         //Signal to compute new FFTs
++	emit readyForFFT(k-1);         //Signal to compute new FFTs
+       }
++      m_nstep0=m_step;
+     }
+-    msleep(100);
+-    ntr0=ntr;
+   }
+-  Pa_StopStream(inStream);
+-  Pa_CloseStream(inStream);
++  m_ntr0=ntr;
+ }
+ 
+-void SoundInThread::setInputDevice(int n)                  //setInputDevice()
++SoundInput::~SoundInput()
+ {
+-  if (isRunning()) return;
+-  this-&gt;m_nDevIn=n;
++  if (m_inStream)
++    {
++      Pa_CloseStream(m_inStream), m_inStream = 0;
++    }
+ }
+ 
+-void SoundInThread::quit()                                       //quit()
++void SoundInput::stop()
+ {
+-  quitExecution = true;
++  m_intervalTimer.stop();
++  if (m_inStream)
++    {
++      Pa_StopStream(m_inStream);
++      Pa_CloseStream(m_inStream), m_inStream = 0;
++    }
+ }
+ 
+-void SoundInThread::setMonitoring(bool b)                    //setMonitoring()
++void SoundInput::setMonitoring(bool b)
+ {
+   m_monitoring = b;
+ }
+-
+-void SoundInThread::setPeriod(int ntrperiod, int nsps)
+-{
+-  m_TRperiod=ntrperiod;
+-  m_nsps=nsps;
+-}
+-
+-int SoundInThread::mstep()
+-{
+-  return m_step;
+-}
+-
+-double SoundInThread::samFacIn()
+-{
+-  return m_SamFacIn;
+-}
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/soundin.h	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -1,50 +1,68 @@
+ #ifndef SOUNDIN_H
+ #define SOUNDIN_H
+ 
++#include &lt;portaudio.h&gt;
++
+ #include &lt;QtCore&gt;
++#include &lt;QScopedPointer&gt;
+ #include &lt;QDebug&gt;
+ 
++extern &quot;C&quot; int a2dCallback( const void *, void *, unsigned long, PaStreamCallbackTimeInfo const *, PaStreamCallbackFlags, void *);
+ 
+-// Thread gets audio data from soundcard and signals when a buffer of
++// Gets audio data from soundcard and signals when a buffer of
+ // specified size is available.
+-class SoundInThread : public QThread
++class SoundInput : public QObject
+ {
+   Q_OBJECT
+-  bool quitExecution;           // if true, thread exits gracefully
+ 
+-protected:
+-  virtual void run();
+-
+ public:
+-  bool m_dataSinkBusy;
++  SoundInput();
++  ~SoundInput();
+ 
+-  SoundInThread():
+-    quitExecution(false),
+-    m_dataSinkBusy(false)
++  void setMonitoring(bool b);
++  void setPeriod(int ntrperiod, int nsps) /* this can be called while processing samples */
+   {
++    m_TRperiod=ntrperiod;
++    m_nsps=nsps;
+   }
++  int  mstep() const {return m_step;}
++  double samFacIn() const {return m_SamFacIn;}
+ 
+-  void setInputDevice(qint32 n);
+-  void setMonitoring(bool b);
+-  void setPeriod(int ntrperiod, int nsps);
+-  int  mstep();
+-  double samFacIn();
+-
+ signals:
+   void readyForFFT(int k);
+   void error(const QString&amp; message);
+   void status(const QString&amp; message);
+ 
+ public slots:
+-  void quit();
++  void start(qint32 device);
++  void intervalNotify();
++  void stop();
+ 
+ private:
++  PaStream * m_inStream;
++  bool m_dataSinkBusy;
+   double m_SamFacIn;                    //(Input sample rate)/12000.0
+   qint32 m_step;
+-  qint32 m_nDevIn;
+   qint32 m_TRperiod;
+   qint32 m_TRperiod0;
+   qint32 m_nsps;
+   bool   m_monitoring;
++  qint64 m_ms0;
++  int m_ntr0;
++  int m_nBusy;
++  int m_nstep0;
++  int m_nsps0;
++
++  QTimer m_intervalTimer;
++
++  struct CallbackData
++  {
++    int kin;          //Parameters sent to/from the portaudio callback function
++    int ncall;
++    bool bzero;
++    bool monitoring;
++  } m_callbackData;
++
++  friend int a2dCallback(void const *, void *, unsigned long, PaStreamCallbackTimeInfo const *, PaStreamCallbackFlags, void *);
+ };
+ #endif // SOUNDIN_H
+
+Added: branches/wsjtx/soundin_1.cpp
+===================================================================
+--- branches/wsjtx/soundin_1.cpp	                        (rev 0)
++++ branches/wsjtx/soundin_1.cpp	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -0,0 +1,210 @@
++#include &quot;soundin.h&quot;
++#include &lt;stdexcept&gt;
++
++#define FRAMES_PER_BUFFER 1024
++//#define NSMAX 1365
++#define NSMAX 6827
++#define NTMAX 120
++
++extern &quot;C&quot; {
++#include &lt;portaudio.h&gt;
++extern struct {
++  float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
++  float savg[NSMAX];
++//  float c0[2*NTMAX*1500];
++  short int d2[NTMAX*12000];
++  int nutc;                         //UTC as integer, HHMM
++  int ndiskdat;                     //1 ==&gt; data read from *.wav file
++  int ntrperiod;                    //TR period (seconds)
++  int mousefqso;                    //User-selected QSO freq (kHz)
++  int newdat;                       //1 ==&gt; new data, must do long FFT
++  int npts8;                        //npts in c0() array
++  int nfa;                          //Low decode limit (Hz)
++  int nfb;                          //High decode limit (Hz)
++  int ntol;                         //+/- decoding range around fQSO (Hz)
++  int kin;
++  int nzhsym;
++  int nsave;
++  int nagain;
++  int ndepth;
++  int ntxmode;
++  int nmode;
++  char datetime[20];
++} jt9com_;
++}
++
++QString reportAudioError(QAudio::Error audioError)
++{
++	switch (audioError) {
++	case QAudio::NoError: Q_ASSERT(false);
++	case QAudio::OpenError: return QObject::tr(
++					&quot;An error opening the audio device has occurred.&quot;);
++	case QAudio::IOError: return QObject::tr(
++					&quot;An error occurred during read/write of audio device.&quot;);
++	case QAudio::UnderrunError: return QObject::tr(
++					&quot;Audio data not being fed to the audio device fast enough.&quot;);
++	case QAudio::FatalError: return QObject::tr(
++					&quot;Non-recoverable error, audio device not usable at this time.&quot;);
++	}
++	Q_ASSERT(false);
++	return &quot;&quot;;
++}
++
++typedef struct
++{
++  int kin;          //Parameters sent to/from the portaudio callback function
++  int ncall;
++  bool bzero;
++  bool monitoring;
++} paUserData;
++
++
++void SoundInThread::run()                           //SoundInThread::run()
++{
++  quitExecution = false;
++
++//---------------------------------------------------- Soundcard Setup
++
++	quitExecutionMutex.lock();
++	quitExecution = false;
++	quitExecutionMutex.unlock();
++
++	//### Temporary: hardwired device selection
++	QAudioDeviceInfo  DeviceInfo;
++	QList&lt;QAudioDeviceInfo&gt; m_InDevices;
++	QAudioDeviceInfo  m_InDeviceInfo;
++	m_InDevices = DeviceInfo.availableDevices(QAudio::AudioInput);
++	inputDevice = m_InDevices.at(0);
++	//###
++
++	const char* pcmCodec = &quot;audio/pcm&quot;;
++	QAudioFormat audioFormat = inputDevice.preferredFormat();
++	audioFormat.setChannelCount(1);
++	audioFormat.setCodec(pcmCodec);
++	audioFormat.setSampleRate(12000);
++	audioFormat.setSampleType(QAudioFormat::SignedInt);
++	audioFormat.setSampleSize(16);
++
++	if (!audioFormat.isValid()) {
++		emit error(tr(&quot;Requested audio format is not available.&quot;));
++		return;
++	}
++
++	QAudioInput audioInput(inputDevice, audioFormat);
++	if (audioInput.error() != QAudio::NoError) {
++		emit error(reportAudioError(audioInput.error()));
++		return;
++	}
++
++	QIODevice* stream = audioInput.start();
++
++  bool qe = quitExecution;
++  static int ntr0=99;
++  int k=0;
++  int nsec;
++  int ntr;
++  int nBusy=0;
++  int nstep0=0;
++  int nsps0=0;
++	qint16 buf0[4096];
++
++//---------------------------------------------- Soundcard input loop
++  while (!qe) {
++		quitExecutionMutex.lock();
++		qe = quitExecution;
++		quitExecutionMutex.unlock();
++    if (qe) break;
++
++		// Error checking...
++		if (audioInput.error() != QAudio::NoError) {
++			emit error(reportAudioError(audioInput.error()));
++			return;
++		}
++
++//  udata.monitoring=m_monitoring;
++    qint64 ms = QDateTime::currentMSecsSinceEpoch();
++    ms=ms % 86400000;
++    nsec = ms/1000;             // Time according to this computer
++    ntr = nsec % m_TRperiod;
++
++// Reset buffer pointer and symbol number at start of minute
++    if(ntr &lt; ntr0 or !m_monitoring or m_nsps!=nsps0) {
++      nstep0=0;
++      nsps0=m_nsps;
++//    udata.bzero=true;
++			k=0;
++    }
++//  k=udata.kin;
++
++		// How many new samples have been acquired?
++		const qint32 bytesReady = audioInput.bytesReady();
++		Q_ASSERT(bytesReady &gt;= 0);
++		Q_ASSERT(bytesReady % 2 == 0);
++		if (bytesReady == 0) {
++			msleep(50);
++			continue;
++		}
++
++		// Get the new samples
++		qint32 bytesRead;
++		bytesRead = stream-&gt;read((char*)buf0, bytesReady);
++		Q_ASSERT(bytesRead &lt;= bytesReady);
++		if (bytesRead &lt; 0) {
++			emit error(tr(&quot;audio stream QIODevice::read returned -1.&quot;));
++			return;
++		}
++		Q_ASSERT(bytesRead % 2 == 0);
++
++//		memcpy(jt9com_.d2[k],buf0,bytesRead);
++//		k+=bytesRead/2;
++
++		for(int i=0; i&lt;bytesRead/2; i++) {
++			jt9com_.d2[k++]=buf0[i];
++		}
++
++    if(m_monitoring) {
++      int kstep=m_nsps/2;
++      m_step=(k-1)/kstep;
++      if(m_step != nstep0) {
++        if(m_dataSinkBusy) {
++          nBusy++;
++        } else {
++          emit readyForFFT(k-1);         //Signal to compute new FFTs
++        }
++        nstep0=m_step;
++      }
++    }
++    msleep(100);
++    ntr0=ntr;
++  }
++//  Pa_StopStream(inStream);
++//  Pa_CloseStream(inStream);
++}
++
++void SoundInThread::setInputDevice(int n)                  //setInputDevice()
++{
++  if (isRunning()) return;
++  this-&gt;m_nDevIn=n;
++}
++
++void SoundInThread::quit()                                       //quit()
++{
++  quitExecution = true;
++}
++
++void SoundInThread::setMonitoring(bool b)                    //setMonitoring()
++{
++  m_monitoring = b;
++}
++
++void SoundInThread::setPeriod(int ntrperiod, int nsps)
++{
++  m_TRperiod=ntrperiod;
++  m_nsps=nsps;
++}
++
++int SoundInThread::mstep()
++{
++  return m_step;
++}
++
+
+Added: branches/wsjtx/soundin_1.h
+===================================================================
+--- branches/wsjtx/soundin_1.h	                        (rev 0)
++++ branches/wsjtx/soundin_1.h	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -0,0 +1,53 @@
++#ifndef SOUNDIN_H
++#define SOUNDIN_H
++
++#include &lt;QtCore&gt;
++#include &lt;QDebug&gt;
++
++#include &lt;QAudioDeviceInfo&gt;
++#include &lt;QAudioInput&gt;
++#include &lt;valarray&gt;
++
++// Thread gets audio data from soundcard and signals when a buffer of
++// specified size is available.
++class SoundInThread : public QThread
++{
++  Q_OBJECT
++  bool quitExecution;           // if true, thread exits gracefully
++	QMutex quitExecutionMutex;    // protects the quitExecution variable
++	QAudioDeviceInfo inputDevice; // audioinput device name
++
++protected:
++  virtual void run();
++
++public:
++  bool m_dataSinkBusy;
++
++  SoundInThread():
++    quitExecution(false),
++    m_dataSinkBusy(false)
++  {
++  }
++
++  void setInputDevice(qint32 n);
++  void setMonitoring(bool b);
++  void setPeriod(int ntrperiod, int nsps);
++  int  mstep();
++
++signals:
++  void readyForFFT(int k);
++  void error(const QString&amp; message);
++  void status(const QString&amp; message);
++
++public slots:
++  void quit();
++
++private:
++  qint32 m_step;
++  qint32 m_nDevIn;
++  qint32 m_TRperiod;
++  qint32 m_TRperiod0;
++  qint32 m_nsps;
++  bool   m_monitoring;
++};
++#endif // SOUNDIN_H
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-07-27 16:15:24 UTC (rev 3508)
++++ branches/wsjtx/wsjtx.pro	2013-07-30 00:51:42 UTC (rev 3509)
+@@ -10,6 +10,7 @@
+ #CONFIG   += console
+ 
+ TARGET = wsjtx
++#DESTDIR = ../qt4_install
+ DESTDIR = ../wsjtx_install
+ VERSION = 1.1
+ TEMPLATE = app
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003200.html">[WSJT-SVN] r3508 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003202.html">[WSJT-SVN] r3510 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3201">[ date ]</a>
+              <a href="thread.html#3201">[ thread ]</a>
+              <a href="subject.html#3201">[ subject ]</a>
+              <a href="author.html#3201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

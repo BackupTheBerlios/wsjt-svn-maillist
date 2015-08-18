@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r478 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r478%20-%20branches/map65&In-Reply-To=%3C200707091928.l69JS4n7029178%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000162.html">
+   <LINK REL="Next"  HREF="000164.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r478 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r478%20-%20branches/map65&In-Reply-To=%3C200707091928.l69JS4n7029178%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r478 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  9 21:28:04 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000162.html">[WSJT-SVN] r477 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000164.html">[WSJT-SVN] r479 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#163">[ date ]</a>
+              <a href="thread.html#163">[ thread ]</a>
+              <a href="subject.html#163">[ subject ]</a>
+              <a href="author.html#163">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-09 21:27:58 +0200 (Mon, 09 Jul 2007)
+New Revision: 478
+
+Modified:
+   branches/map65/ftn_init.F90
+   branches/map65/map65a.F90
+Log:
+Improved and the implementation of &quot;Find dphi&quot;.
+
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-07-09 16:14:00 UTC (rev 477)
++++ branches/map65/ftn_init.F90	2007-07-09 19:27:58 UTC (rev 478)
+@@ -17,6 +17,7 @@
+ !   24  meas24.dat
+ !   25  meas25.dat
+ !   26  tmp26.tmp
++!   27  dphi.txt
+ 
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+@@ -132,6 +133,13 @@
+   open(26,file=appdir(:iz)//'/tmp26.txt',status='unknown')
+ #endif
+ 
++#ifdef Win32
++  open(27,file=appdir(:iz)//'/dphi.txt',status='unknown',                 &amp;
++       share='denynone')
++#else
++  open(27,file=appdir(:iz)//'/dphi.txt',status='unknown')
++#endif
++
+   return
+ 
+ 910 print*,'Error opening DECODED.TXT'
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-09 16:14:00 UTC (rev 477)
++++ branches/map65/map65a.F90	2007-07-09 19:27:58 UTC (rev 478)
+@@ -167,9 +167,8 @@
+ !  Keep only the best candidate within ftol.
+ !  (Am I deleting any good decodes by doing this?)
+               if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.               &amp;
+-                   nkm.eq.1 .and.ndphi.eq.0) km=km-1
+-              if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .or.                 &amp;
+-                   ndphi.eq.1) then
++                   nkm.eq.1) km=km-1
++              if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+                  call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,          &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,      &amp;
+@@ -233,27 +232,34 @@
+               nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+               nw=0                                !### Fix this! ###
+               nwrite=nwrite+1
+-              write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,  &amp;
+-                   nqual,30*iloop
+-1010          format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
++              if(ndphi.eq.0) then
++                 write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
++1010             format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
++              else
++                 write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,  &amp;
++                      nqual,30*iloop
++                 write(27,1011) 30*iloop,nkHz,ndf,npol,nutc,  &amp;
++                      dt,sync2,nkv,nqual,decoded
++1011             format(i3,i4,i5,i4,i5.4,f5.1,f7.1,i3,i5,2x,a22)
++              endif
+            endif
+         enddo
+         if(nwrite.eq.0) then
+-           write(11,1011) mousefqso,nutc
+-1011          format(i3,9x,i5.4)
++           write(11,1012) mousefqso,nutc
++1012          format(i3,9x,i5.4)
+         endif
+    
+-        write(11,*) '$EOF'
+-        call flushqqq(11)
+-        t2=sec_midn()
+-        if(ndebug.eq.2) write(*,3002) mod(int(t2),60)
+-3002 format('mod65a  2:'i8.2)
+-        ndecdone=1
+      endif
+      if(ndphi.eq.1 .and.iloop.lt.12) then
+         iloop=iloop+1
+         go to 1
+      endif
++     write(11,*) '$EOF'
++     call flushqqq(11)
++     ndecdone=1
++     t2=sec_midn()
++     if(ndebug.eq.2) write(*,3002) mod(int(t2),60)
++3002 format('mod65a  2:'i8.2)
+      if(nagain.eq.1) go to 999
+   enddo
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000162.html">[WSJT-SVN] r477 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000164.html">[WSJT-SVN] r479 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#163">[ date ]</a>
+              <a href="thread.html#163">[ thread ]</a>
+              <a href="subject.html#163">[ subject ]</a>
+              <a href="author.html#163">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2352 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2352%20-%20branches/wspr&In-Reply-To=%3C20110221182012.888FB481264%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002043.html">
+   <LINK REL="Next"  HREF="002045.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2352 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2352%20-%20branches/wspr&In-Reply-To=%3C20110221182012.888FB481264%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2352 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb 21 19:20:12 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002043.html">[WSJT-SVN] r2351 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002045.html">[WSJT-SVN] r2353 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2044">[ date ]</a>
+              <a href="thread.html#2044">[ thread ]</a>
+              <a href="subject.html#2044">[ subject ]</a>
+              <a href="author.html#2044">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-21 19:20:12 +0100 (Mon, 21 Feb 2011)
+New Revision: 2352
+
+Modified:
+   branches/wspr/clean.f90
+   branches/wspr/wwv.f90
+Log:
+Updated wwv to its first &quot;distributed&quot; version.
+
+
+Modified: branches/wspr/clean.f90
+===================================================================
+--- branches/wspr/clean.f90	2011-02-21 15:56:46 UTC (rev 2351)
++++ branches/wspr/clean.f90	2011-02-21 18:20:12 UTC (rev 2352)
+@@ -1,4 +1,4 @@
+-subroutine clean(xx,ipk,dtmin,dtmax,snr,delay,nwwv,nd)
++subroutine clean(xx,ipk,dtmin,dtmax,dbmin,snr,delay,nwwv,nd)
+ 
+   parameter (NFSMAX=48000)
+   real xx(NFSMAX)                             !Dirty profile
+@@ -33,7 +33,7 @@
+   enddo
+ 
+   lag1=0.001*dtmin*nfs
+-  lagmax=0.001*dtmax*nfz
++  lagmax=0.001*dtmax*nfs
+ 
+   do ii=1,4
+      ccf1=0.
+@@ -81,16 +81,17 @@
+      if(ii.eq.1) ccfmax0=ccfmax
+      if(ccfmax.lt.0.2*ccfmax0) go to 100
+ 
+-     nd=nd+1
+-     snr(nd)=db(snr0/12.0)
+-     delay(nd)=1000.0*lagpk*dt
+-     nwwv(nd)=nw
++     snrdb=db(snr0/12.0)
++     if(snrdb.ge.dbmin) then
++        nd=nd+1
++        snr(nd)=snrdb
++        delay(nd)=1000.0*lagpk*dt
++        nwwv(nd)=nw
++     endif
+ 
+   enddo
+ 
+ 100 continue
+-!  call flush(13)
+-!  call flush(14)
+ 
+   return
+ end subroutine clean
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-21 15:56:46 UTC (rev 2351)
++++ branches/wspr/wwv.f90	2011-02-21 18:20:12 UTC (rev 2352)
+@@ -41,19 +41,22 @@
+   read(10,*) mygrid                    !Get my grid locator
+   close(10)
+ 
++  open(13,file='prof.dat',status='unknown')  !Files for 1PPS+WWV profiles
++  open(14,file='short.dat',status='unknown')
++
+   dtmin=2.0
+   dtmax=40.0
++  dbmin=0.0
+   nsave=1
+   open(10,file='wwv.ini',status='old',err=1)  !Optional parameter file
+   read(10,*) param,dtmin
+   read(10,*) param,dtmax
++  read(10,*) param,dbmin
+   read(10,*) param,nsave
+   close(10)
+ 
+-  open(13,file='prof.dat',status='unknown')  !Files for 1PPS+WWV profiles
+-  open(14,file='short.dat',status='unknown')
+-
+ 1 nfs=48000                                  !Sample rate
++  dt=1.0/nfs
+   nchan=1                                    !Single-channel recording
+   call soundinit                             !Initialize Portaudio
+ 
+@@ -157,7 +160,7 @@
+   xx=prof1
+ 
+   if(nsave.ne.0) then
+-     iipk=maxloc(xx)
++     iipk=maxloc(prof1)
+      i0=0.001/dt
+      rewind 13
+      rewind 14
+@@ -207,7 +210,7 @@
+   xx=fac*xx
+   iipk=maxloc(xx)
+ 
+-  call clean(xx,ipk,dtmin,dtmax,snr,delay,nwwv,nd)
++  call clean(xx,ipk,dtmin,dtmax,dbmin,snr,delay,nwwv,nd)
+ 
+   day2011=time()/86400.d0 - 14974.d0
+   ikhz=nhz/1000
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002043.html">[WSJT-SVN] r2351 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002045.html">[WSJT-SVN] r2353 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2044">[ date ]</a>
+              <a href="thread.html#2044">[ thread ]</a>
+              <a href="subject.html#2044">[ subject ]</a>
+              <a href="author.html#2044">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,376 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1662 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1662%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911121626.nACGQZB0013618%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001352.html">
+   <LINK REL="Next"  HREF="001354.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1662 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1662%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911121626.nACGQZB0013618%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1662 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 12 17:26:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001352.html">[WSJT-SVN] r1661 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001354.html">[WSJT-SVN] r1663 - branches/wspr/WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1353">[ date ]</a>
+              <a href="thread.html#1353">[ thread ]</a>
+              <a href="subject.html#1353">[ subject ]</a>
+              <a href="author.html#1353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-12 17:26:30 +0100 (Thu, 12 Nov 2009)
+New Revision: 1662
+
+Modified:
+   branches/wspr/WSPR.iss
+   branches/wspr/WsprMod/advanced.py
+   branches/wspr/WsprMod/options.py
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.F90
+Log:
+Use validators for CWID, BFOfreq, and Fcal.
+No error exceptions for blank fields.
+Station parameters and Advanced open at top left of main screen.
+&quot;Decoding&quot; label moved to status bar.
+Implemented logic for determining message type:
+	1. K1ABC FN42 37
+	2. PJ4/K1ABC 37
+	3. &lt;PJ4/K1ABC&gt; FK52UD 37
+Corrected logic for uploading new message types.  Needs testing and
+OK from W1BW!
+Fixed bandmap handling of message types 2 and 3.
+
+
+Modified: branches/wspr/WSPR.iss
+===================================================================
+--- branches/wspr/WSPR.iss	2009-11-12 01:55:11 UTC (rev 1661)
++++ branches/wspr/WSPR.iss	2009-11-12 16:26:30 UTC (rev 1662)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=WSPR
+-AppVerName=WSPR Version 2.00 r1659
++AppVerName=WSPR Version 2.00 r1660
+ 
+ AppCopyright=Copyright (C) 2008-2009 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSPR
+@@ -10,7 +10,7 @@
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\wspr.exe&quot;;            DestDir: &quot;{app}&quot;
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\wsjt.ico&quot;;            DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\wsprrc.win&quot;;          DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\k1jt\svn\wsjt\wspr\supported_rigs.txt&quot;;  DestDir: &quot;{app}&quot;;
++Source: &quot;c:\k1jt\svn\wsjt\wspr\hamlib_rig_numbers&quot;;  DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\default_freqs.txt&quot;;   DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\rigctl.exe&quot;;          DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\k1jt\svn\wsjt\wspr\libhamlib-2.dll&quot;;     DestDir: &quot;{app}&quot;;
+
+Modified: branches/wspr/WsprMod/advanced.py
+===================================================================
+--- branches/wspr/WsprMod/advanced.py	2009-11-12 01:55:11 UTC (rev 1661)
++++ branches/wspr/WsprMod/advanced.py	2009-11-12 16:26:30 UTC (rev 1662)
+@@ -41,11 +41,15 @@
+ lab1=Label(g1.interior(),text=t,justify=LEFT)
+ 
+ cwid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='CW ID (minutes):',
+-        value='0',entry_textvariable=idint,entry_width=5)
++        value='0',entry_textvariable=idint,entry_width=5,
++        validate={'validator':'numeric','min':0,'max':60})
+ rxbfo=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Rx BFO (Hz):',
+-        value='1500',entry_textvariable=bfofreq,entry_width=10)
++        value='1500',entry_textvariable=bfofreq,entry_width=10,
++        validate={'validator':'real','min':-3000,'max':3000})
+ fcal=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Fcal factor:',
+-        value='1.0000000',entry_textvariable=calfactor,entry_width=10)
++        value='1.0000000',entry_textvariable=calfactor,entry_width=10,
++        validate={'validator':'real','min':0.99999,'max':1.00001,
++        'minstrict':0,'maxstrict':0})
+ lab2=Label(g1.interior(),text='',justify=LEFT)
+ bgrid6=Checkbutton(g1.interior(),text='Transmit 6-digit locator',variable=igrid6)
+ 
+
+Modified: branches/wspr/WsprMod/options.py
+===================================================================
+--- branches/wspr/WsprMod/options.py	2009-11-12 01:55:11 UTC (rev 1661)
++++ branches/wspr/WsprMod/options.py	2009-11-12 16:26:30 UTC (rev 1662)
+@@ -55,6 +55,7 @@
+ serial_handshake=StringVar()
+ cat_enable=IntVar()
+ rig=StringVar()
++rig.set('214     Kenwood         TS-2000')
+ rignum=IntVar()
+ inbad=IntVar()
+ outbad=IntVar()
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-12 01:55:11 UTC (rev 1661)
++++ branches/wspr/wspr.py	2009-11-12 16:26:30 UTC (rev 1662)
+@@ -228,12 +228,17 @@
+ 
+ #------------------------------------------------------ options1
+ def options1(event=NONE):
+-#    options.options2(root_geom[root_geom.index(&quot;+&quot;):])
+-    options.options2(&quot;&quot;)
++    t=&quot;&quot;
++    if root_geom.find(&quot;+&quot;)&gt;=0:
++        t=root_geom[root_geom.index(&quot;+&quot;):]
++    options.options2(t)
+ 
+ #------------------------------------------------------ advanced1
+ def advanced1(event=NONE):
+-    advanced.advanced2(&quot;&quot;)
++    t=&quot;&quot;
++    if root_geom.find(&quot;+&quot;)&gt;=0:
++        t=root_geom[root_geom.index(&quot;+&quot;):]
++    advanced.advanced2(t)
+ 
+ #------------------------------------------------------ stub
+ def stub(event=NONE):
+@@ -480,19 +485,32 @@
+             d['drift'] = fields[-3]
+             d['cycles'] = fields[-2]
+             d['ii'] = fields[-1]
+-            # try to figure out whether this is a beacon msg or QSO msg
+-            d['beacon'] = True
+-            if len(msg) != 3 or len(msg[1]) != 4 or len(msg[0]) &lt; 3 or len(msg[0]) &gt; 6 \
+-                   or not msg[2].isdigit():
+-                d['beacon'] = False
++
++            # Determine message type
++            d['type1'] = True
++            d['type2'] = False
++            d['type3'] = False
++            if len(msg) != 3 or len(msg[1]) != 4 or len(msg[0]) &lt; 3 or \
++                len(msg[0]) &gt; 6 or not msg[2].isdigit():
++                d['type1'] = False
+             else:
+                 dbm = int(msg[2])
+                 if dbm &lt; 0 or dbm &gt; 60:
+-                    d['beacon'] = False
+-            # try to extract the callsign of the Tx station from beacon or QSO msg
+-            if d['beacon']: d['call'] = d['msg'][0]
+-            elif d['msg'][0] == 'CQ' or d['msg'][0][0] == '&lt;':
+-                d['call'] = d['msg'][1]
++                    d['type1'] = False
++                n=dbm%10
++                if n!=0 and n!=3 and n!=7:
++                    d['type1'] = False
++            if not d['type1']:
++                if len(msg)==2:
++                    d['type2']=True
++                else:
++                    d['type3']=True
++            # Get callsign
++            callsign = d['msg'][0]
++            if callsign[0]=='&lt;':
++                n=callsign.find('&gt;')
++                callsign=callsign[1:n]
++            d['call'] = callsign
+             decodes.append(d)
+         f.close()
+     except:
+@@ -519,9 +537,10 @@
+ #  Remove any &quot;too old&quot; information from bandmap.
+         bandmap=[]
+         for callsign,ft in bm.iteritems():
+-            ndf,tdecoded=ft
+-            if nseq-tdecoded &lt; 60:                        #60 minutes 
+-                bandmap.append((ndf,callsign,tdecoded))
++            if callsign!='...':
++                ndf,tdecoded=ft
++                if nseq-tdecoded &lt; 60:                        #60 minutes 
++                    bandmap.append((ndf,callsign,tdecoded))
+ 
+         iz=len(bandmap)
+         bm={}
+@@ -550,6 +569,20 @@
+ 
+     if loopall: opennext()
+ 
++##    for d in decodes:
++##        m=d['msg']
++##        tcall=m[0]
++##        if d['type2']:
++##            tgrid=''
++##            dbm=m[1]
++##        else:
++##            tgrid=m[1]
++##            dbm=m[2]
++##        if tcall[0]=='&lt;':
++##            n=tcall.find('&gt;')
++##            tcall=tcall[1:n]
++##        print 'Call:',tcall,'   Grid:',tgrid,'   dBm:',dbm
++
+ #------------------------------------------------------ autologger
+ def autolog(decodes):
+     # Random delay of up to 15 seconds to spread load out on server --W1BW
+@@ -563,25 +596,33 @@
+         # Any spots to upload?
+         if len(decodes) &gt; 0:
+             for d in decodes:
+-                # don't upload QSO messages, only things we think are beacons
+-                if not d['beacon']: continue
+                 # now to format as a string to use for autologger upload using urlencode
+                 # so we get a string formatted for http get/put operations:
+-                m = d['msg']
++                m=d['msg']
++                tcall=m[0]
++                if d['type2']:
++                    tgrid=''
++                    dbm=m[1]
++                else:
++                    tgrid=m[1]
++                    dbm=m[2]
++                if tcall[0]=='&lt;':
++                    n=tcall.find('&gt;')
++                    tcall=tcall[1:n]
++                if tcall=='...': continue
+                 reportparams = urllib.urlencode({'function': 'wspr',
+                                                  'rcall': options.MyCall.get(),
+                                                  'rgrid': options.MyGrid.get(),
+                                                  'rqrg': str(f0),
+                                                  'date': d['date'],
+                                                  'time': d['time'],
+-                                                 #'sync': d['sync'],
+                                                  'sig': d['snr'],
+                                                  'dt': d['dt'],
+                                                  'tqrg': d['freq'],
+                                                  'drift': d['drift'],
+-                                                 'tcall': m[0],
+-                                                 'tgrid': m[1],
+-                                                 'dbm': m[2],
++                                                 'tcall': tcall,
++                                                 'tgrid': tgrid,
++                                                 'dbm': dbm,
+                                                  'version': Version})
+                 # reportparams now contains a properly formed http request string for
+                 # the agreed upon format between W6CQZ and N8FQ.
+@@ -652,8 +693,14 @@
+     w.acom1.idsec=idsec
+     w.acom1.ntxfirst=ntxfirst.get()
+     w.acom1.nsave=nsave.get()
+-    w.acom1.nbfo=advanced.bfofreq.get()
+-    w.acom1.idint=advanced.idint.get()
++    try:
++        w.acom1.nbfo=advanced.bfofreq.get()
++    except:
++        w.acom1.nbfo=1500
++    try:
++        w.acom1.idint=advanced.idint.get()
++    except:
++        w.acom1.idint=0
+     if options.MyCall.get().find('/')&gt;0:
+         advanced.igrid6.set(1)
+     w.acom1.igrid6=advanced.igrid6.get()
+@@ -848,9 +895,8 @@
+     if fmid!=fmid0 or ftx.get()!=ftx0:
+         draw_axis()
+         lftx.configure(validate={'validator':'real',
+-            'min':f0.get()+0.001500-0.000100,'minstrict':1,
+-            'max':f0.get()+0.001500+0.000100,'maxstrict':1})
+-
++            'min':f0.get()+0.001500-0.000100,'minstrict':0,
++            'max':f0.get()+0.001500+0.000100,'maxstrict':0})
+     w.acom1.ndebug=ndebug.get()
+     w.acom1.pttmode=(options.pttmode.get().strip()+'   ')[:3]
+     w.acom1.ncat=options.cat_enable.get()
+@@ -889,9 +935,9 @@
+     else:
+         msg3.configure(text='Invalid audio output device.',bg='red')
+     if w.acom1.ndecoding:
+-        lab03.configure(text='Decoding',bg='#66FFFF')
++        msg5.configure(text='Decoding',bg='#66FFFF',relief=SUNKEN)
+     else:
+-        lab03.configure(text='',bg='gray85')
++        msg5.configure(text='',bg='gray85',relief=FLAT)
+ 
+     ldate.after(200,update)
+     
+@@ -1099,7 +1145,7 @@
+ c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+ c.pack(side=LEFT)
+ 
+-text1=Text(iframe1, height=10, width=12, bg='Navy', fg=&quot;yellow&quot;)
++text1=Text(iframe1, height=10, width=15, bg='Navy', fg=&quot;yellow&quot;)
+ text1.pack(side=LEFT, padx=1)
+ text1.tag_configure('age0',foreground='red')
+ text1.tag_configure('age1',foreground='yellow')
+@@ -1134,7 +1180,8 @@
+ iframe2a = Frame(frame, bd=1, relief=FLAT)
+ g1=Pmw.Group(iframe2a,tag_text=&quot;Frequencies (MHz)&quot;)
+ lf0=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Dial:',
+-        value=10.1387,entry_textvariable=sf0,entry_width=12,validate='real')
++        value=10.1387,entry_textvariable=sf0,entry_width=12,
++        validate='real')
+ lftx=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Tx: ',
+         value=10.140000,entry_textvariable=sftx,entry_width=12,validate='real')
+ widgets = (lf0,lftx)
+@@ -1217,10 +1264,10 @@
+ msg4.pack(side=LEFT, fill=X, padx=1)
+ balloon.configure(statuscommand=msg4)
+ 
+-##msg5=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg5.pack(side=LEFT, fill=X, padx=1)
++msg5=Message(iframe6, text='      ', width=300,relief=FLAT)
+ msg6=Message(iframe6, text='      ', width=400,relief=SUNKEN)
+ msg6.pack(side=RIGHT, fill=X, padx=1)
++msg5.pack(side=RIGHT, fill=X, padx=1)
+ iframe6.pack(expand=1, fill=X, padx=4)
+ frame.pack()
+ 
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-12 01:55:11 UTC (rev 1661)
++++ branches/wspr/wspr2.F90	2009-11-12 16:26:30 UTC (rev 1662)
+@@ -6,7 +6,7 @@
+ 
+ ! Logical units:
+ !  12  Audio data in *.wav file
+-!  13  ALL_MEPT.TXT
++!  13  ALL_WSPR.TXT
+ !  14  decoded.txt
+ !  16  pixmap.dat
+ !  17  audio_caps
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001352.html">[WSJT-SVN] r1661 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001354.html">[WSJT-SVN] r1663 - branches/wspr/WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1353">[ date ]</a>
+              <a href="thread.html#1353">[ thread ]</a>
+              <a href="subject.html#1353">[ subject ]</a>
+              <a href="author.html#1353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

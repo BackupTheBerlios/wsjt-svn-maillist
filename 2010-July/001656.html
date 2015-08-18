@@ -1,0 +1,485 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1964 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1964%20-%20wsjt7a&In-Reply-To=%3C20100708181518.ECB06480A0D%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001655.html">
+   <LINK REL="Next"  HREF="001657.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1964 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1964%20-%20wsjt7a&In-Reply-To=%3C20100708181518.ECB06480A0D%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1964 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul  8 20:15:18 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001655.html">[WSJT-SVN] r1963 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001657.html">[WSJT-SVN] r1965 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-08 20:15:18 +0200 (Thu, 08 Jul 2010)
+New Revision: 1964
+
+Added:
+   wsjt7a/msgtrim.f90
+Modified:
+   wsjt7a/Makefile.MinGW
+   wsjt7a/Makefile.in
+   wsjt7a/dec441.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/pp441.f90
+   wsjt7a/t72.f90
+   wsjt7a/wsjt.py
+Log:
+Many updates to the FSK441++ decoder.
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/Makefile.MinGW	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -33,7 +33,7 @@
+ 	packname.f90 unpackname.f90 packtext2.f90 unpacktext2.f90 \
+ 	packprop.f90 unpackprop.f90 hash.f90 wsjtwspr.f90 gen64.f90 \
+ 	thnix.f90 enc441.f90 pp441.f90 tweak1.f90 smo.f90 analytic.f90 \
+-	gen441.f90 dec441.f90 token.f90
++	gen441.f90 dec441.f90 token.f90 msgtrim.f90
+ 
+ 
+ SRCS2F77 = wsjt1.f avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+
+Modified: wsjt7a/Makefile.in
+===================================================================
+--- wsjt7a/Makefile.in	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/Makefile.in	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -17,7 +17,7 @@
+ # WSJT specific Fortran flags
+ #FFLAGS += -Wall -Wno-precision-loss -fbounds-check -fno-second-underscore -fPIC
+ 
+-Audio:	WsjtMod/Audio.so
++Audio:	WsjtMod/Audio.so t72
+ 
+ # The default rules
+ #.c.o:
+@@ -61,7 +61,7 @@
+ OBJS5 = t72.o analytic.o four2a.o smooth.o pctile.o db.o \
+ 	thnix_stub.o sort.o ssort.o gen441.o abc441.o ping441.o \
+ 	indexx.o ping.o smo.o tweak1.o enc441.o pp441.o dec441.o \
+-	token.o
++	token.o msgtrim.o
+ 
+ OBJS6 = test441pp.o analytic.o four2a.o smooth.o pctile.o db.o \
+ 	thnix_stub.o sort.o ssort.o gen441.o abc441.o ping441.o \
+@@ -79,7 +79,7 @@
+ 	packname.f90 unpackname.f90 packtext2.f90 unpacktext2.f90 \
+ 	packprop.f90 unpackprop.f90 hash.f90 wsjtwspr.f90 gen64.f90 \
+ 	thnix.f90 enc441.f90 pp441.f90 tweak1.f90 smo.f90 analytic.f90 \
+-	gen441.f90 dec441.f90 token.f90
++	gen441.f90 dec441.f90 token.f90 msgtrim.f90
+ 
+ OBJS2F90 = ${SRCS2F90:.f90=.o}
+ 
+
+Modified: wsjt7a/dec441.f90
+===================================================================
+--- wsjt7a/dec441.f90	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/dec441.f90	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -1,6 +1,6 @@
+-subroutine dec441(msg2,msg)
++subroutine dec441(msg1,n2,msg2)
+ 
+-  character*28 msg2,msg
++  character*28 msg1,msg2
+   character*4 tok(12)
+   character*12 ctok
+   integer ntok(12)
+@@ -26,41 +26,27 @@
+ ! Token indexes, as characters
+   data ctok/'168_$GINRTOZ'/
+ 
+-  do i=28,1,-1
+-     if(msg2(i:i).ne.' ') go to 10
+-  enddo
+-10 len2=i                                !Encoded message length
+-
+-  if(msg2(1:2).eq.'$!') then
+-     do i=1,12
+-        if(ctok(i:i).eq.msg2(3:3)) go to 12
+-     enddo
+-12   if(i.le.12) len2=len(i)
+-  endif
+-
+   len0=0
+   do j=1,12
+-     if(msg2(3:3).eq.ctok(j:j)) len0=len(j)
++     if(msg1(3:3).eq.ctok(j:j)) len0=len(j)
+   enddo
+ 
+   iz=0
+   do i=1,12
+-     if(msg2(4:4).eq.ctok(i:i)) iz=i
++     if(msg1(4:4).eq.ctok(i:i)) iz=i
+   enddo
++  if(msg1(4:4).eq.' ') iz=4
+ 
+   if(iz.eq.0) then
+-     msg=msg2
++     msg2=msg1
++     if(msg1(1:2).eq.'$!') msg2=msg1(5:)
+   else if(iz.le.3) then
+-     msg=tok(iz)(1:ntok(iz))//msg2(5:)
++     msg2=tok(iz)(1:ntok(iz))//msg1(5:)
+   else
+-     if(len2.eq.4) then
+-        msg=tok(iz)(2:)
++     if(n2.eq.4) then
++        msg2=tok(iz)(2:)
+      else
+-        do i=28,1,-1
+-           if(msg2(i:i).ne.' ') go to 20
+-        enddo
+-20      i2=i
+-        msg=msg2(5:i2)//tok(iz)
++        msg2=msg1(5:n2)//tok(iz)
+      endif
+   endif
+ 
+
+Added: wsjt7a/msgtrim.f90
+===================================================================
+--- wsjt7a/msgtrim.f90	                        (rev 0)
++++ wsjt7a/msgtrim.f90	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -0,0 +1,43 @@
++subroutine msgtrim(msg,msglen)
++
++  character*24 msg
++
++! Remove leading blanks
++  do i=1,24
++     if(msg(1:1).ne.' ') go to 2
++     msg=msg(2:)
++  enddo
++  go to 800                                  !Error return
++
++2 do i=24,1,-1
++     if(msg(i:i).ne.' ') go to 3
++  enddo
++  go to 800
++3 iz=i
++
++! Collapse multiple blanks to one
++  ib2=index(msg,'  ')
++  if(ib2.eq.0 .or. ib2.eq.iz+1) go to 10
++  msg=msg(:ib2-1)//msg(ib2+1:)
++  iz=iz-1
++  go to 2
++
++! Convert letters to upper case
++10 do i=1,22
++     if(msg(i:i).ge.'a' .and. msg(i:i).le.'z')                      &amp;
++          msg(i:i)= char(ichar(msg(i:i))+ichar('A')-ichar('a'))
++  enddo
++
++  do i=24,1,-1
++     if(msg(i:i).ne.' ') go to 20
++  enddo
++  go to 800                                  !Error return
++
++20  msglen=i
++  go to 999
++
++800 continue
++!  print*,'Error in msgtrim: ',msg
++
++999 return
++end subroutine msgtrim
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/mtdecode.f	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -16,7 +16,7 @@
+       real ps(128)
+       real ps0(128)
+       character msg*40,msg3*3
+-      character frag*28
++      character frag*28,tok1*4,tok2*4,c1*1
+       character*90 line
+       common/ccom/nline,tping(100),line(100)
+       data frag/'$!'/
+@@ -114,7 +114,11 @@
+          if(peak.ge.23.0) nstrength=9
+          npeak=peak
+          nrpt=10*nwidth + nstrength
++         t2=tstart + dt*(istart-1)
+ 
++         call pp441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,
++     +              dftolerance,frag,0)
++
+          if(msglen.eq.0) go to 100
+ 
+ C  Discard this ping if DF outside tolerance limits or bauderr too big.
+@@ -131,23 +135,30 @@
+             enddo
+          endif
+    
+-         t2=tstart + dt*(istart-1)
+          if(nline.le.99) nline=nline+1
+          tping(nline)=t2
+          call cs_lock('mtdecode')
+ 
+-         do i=37,1,-1                             !Remove Sync and tokens
+-            if(msg(i:i+1).eq.'$!') msg=msg(:i-1)//'  '//msg(i+4:)
++         do i=37,1,-1                             !Detect sync and tokens
++            if(msg(i:i+1).eq.'$!') then
++               c1=msg(i+2:i+2)
++               if(c1.eq.' ') c1='_'
++               call token(c1,i1,tok1,n1)
++               c1=msg(i+3:i+3)
++               if(c1.eq.' ') c1='_'
++               call token(c1,i2,tok2,n2)
++!               print*,'length:',n1,'   token:',tok2
++               msg3=tok2
++               if(tok2(1:1).eq.' ') msg3=tok2(2:)
++               msg=msg(:i-1)//'..'//msg(i+4:)
++            endif
+          enddo
+ 
+          write(line(nline),1050) cfile6,t2,mswidth,int(peak),
+-     +        nrpt,noffset,msg3,msg,'A'
+- 1050    format(a6,f5.1,i5,i3,1x,i2.2,i5,1x,a3,1x,a40,3x,a1)
++     +        nrpt,noffset,msg3,msg
++ 1050    format(a6,f5.1,i5,i3,1x,i2.2,i5,1x,a3,1x,a40)
+          call cs_unlock
+  100     continue
+-
+-         call pp441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,
+-     +              dftolerance,frag,0)
+       enddo
+ 
+       return
+
+Modified: wsjt7a/pp441.f90
+===================================================================
+--- wsjt7a/pp441.f90	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/pp441.f90	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -121,7 +121,8 @@
+      endif
+   enddo
+ 
+-  if(sbest.lt.ccfmax) go to 800         !Skip if not FSK441 data
++!  print*,'aa',ccfmax,sbest
++  if(sbest.lt.0.25*ccfmax) go to 800     !Skip if not decodable FSK441++ data
+ 
+ ! We know DF and DT; now demodulate and decode.
+   spec=0.
+@@ -188,11 +189,13 @@
+ 
+   nc=16*dit(6) + 4*dit(7) +dit(8)
+   c1=' '
+-  if(nc.le.47 .and. nc.ge.0) c1=c(nc+1:nc+1)
++  if(nc.ge.0 .and. nc.le.47) c1=c(nc+1:nc+1)
++  if(c1.eq.' ') c1='_'
+   call token(c1,n1,tok1,n2)                     !Get length encoded in msg, n2
+   nc=16*dit(9) + 4*dit(10) +dit(11)
+   c1=' '
+-  if(nc.le.47 .and. nc.ge.0) c1=c(nc+1:nc+1)
++  if(nc.ge.0 .and. nc.le.47) c1=c(nc+1:nc+1)
++  if(c1.eq.' ') c1='_'
+   call token(c1,n3,tok2,n4)                     !Get encoded token, if any
+ 
+   msg='                                        '
+@@ -209,22 +212,27 @@
+ 
+   call cs_lock('pp441')
+ ! Probably shouldn't write multiple times, just use the best one:
++  msg0='@'
++!  print*,'a ',ccfmax,sbest,n2,msglen
++!  print*,'b ',msg
++!  print*,'a ',n1,n2,n3,n4,msglen,' ',c1,' ',tok2
+   do i=1,msglen-n2-1
+      if(msg(i:i+1).eq.'$!') then
+         msg1=msg(i:i+n2-1)
+-        call dec441(msg1,msg2)
++        call dec441(msg1,n2,msg2)
+         i3=index(msg2,'$')
+-        if(i3.gt.1) msg2=msg2(:i3-1)
++        if(i3.gt.3) msg2=msg2(:i3-1)
+         i4=index(msg2,'!')
+-        if(i4.gt.1) msg2=msg2(:i4-2)
++        if(i4.gt.4) msg2=msg2(:i4-2)
++        call msgtrim(msg2,junk)
+         if(msg2.ne.msg0) then
+            if(ncon.ne.0) write(*,1110) cfile6,tbest,mswidth,npeak,     &amp;
+-                nrpt,nint(dfx),msg2,'B',n2
+-1110       format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,10x,5x,a1,i3)
++                nrpt,nint(dfx),msg2,' +',n2
++1110       format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,10x,4x,a2,i3)
+            if(nline.le.99) nline=nline+1
+            tping(nline)=t2
+            write(line(nline),1110) cfile6,t2,mswidth,npeak,        &amp;
+-                nrpt,nint(dfx),msg2,'B',n2
++                nrpt,nint(dfx),msg2,' +',n2
+            msg0=msg2
+         endif
+      endif
+@@ -266,23 +274,29 @@
+         msg(i:i)=' '
+         if(nc.le.47 .and. nc.ge.0) msg(i:i)=c(nc+1:nc+1)
+      enddo
+-     call token(msg(4:4),n3,tok2,n4)              !Get encoded token, if any
++     c1=msg(4:4)
++     if(c1.eq.' ') c1='_'
++     call token(c1,n3,tok2,n4)              !Get encoded token, if any
+      msg3=msg(5:n2)
+-     if(n3.ge.1 .and. n3.le.3) msg3=tok2//msg3
++     if(n3.ge.1 .and. n3.le.3) then
++        if(tok2(3:3).eq.' ') msg3=tok2(1:3)//msg3
++        if(tok2(3:3).ne.' ') msg3=tok2//msg3
++     endif
+      if(n3.ge.4 .and. n3.le.11) then
+-        do i=28,1,-1
++        do i=n2,1,-1
+            if(msg3(i:i).ne.' ') go to 100
+         enddo
+ 100     msg3=msg3(1:i)//tok2
++        if(i.eq.0) msg3=msg3(1:i)//tok2(2:)
+      endif
+ 
+      call cs_lock('pp441')
+      if(ncon.ne.0) write(*,1110) cfile6,tbest,mswidth,npeak,nrpt,     &amp;
+-          nint(dfx),msg3,'C',n2
++          nint(dfx),msg3,'++',n2
+         if(nline.le.99) nline=nline+1
+         tping(nline)=t2
+         write(line(nline),1110) cfile6,t2,mswidth,npeak,              &amp;
+-             nrpt,nint(dfx),msg3,'C',n2
++             nrpt,nint(dfx),msg3,'++',n2
+      call cs_unlock
+   endif
+ 
+
+Modified: wsjt7a/t72.f90
+===================================================================
+--- wsjt7a/t72.f90	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/t72.f90	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -4,11 +4,11 @@
+ 
+   parameter (NMAX=512*1024)
+   parameter (MAXFFT=8192)
+-  real dat0(NMAX)                          !Raw signal, 30 s at 11025 sps
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+   character arg*12                        !Command-line argument
+   character cfile6*6                      !File time
+   character frag*28                       !Message fragment to be matched
++  character infile*40
+   integer dftolerance
+   logical pick
+   real pingdat(3,100)                     !Detected pings
+@@ -17,14 +17,15 @@
+   data c/' 123456789.,?/# $ABCD FGHIJKLMNOPQRSTUVWXY 0EZ*!'/
+ 
+   nargs=iargc()
+-  if(nargs.ne.2) then
+-     print*,'Usage: t72 nfile frag'
++  if(nargs.ne.3) then
++     print*,'Usage: t72 infile nrec frag'
+      go to 999
+   endif
+-  call getarg(1,arg)
+-  read(arg,*) nfile
+-  call getarg(2,frag)
+-  open(72,file='dat.72c',form='unformatted',status='old')
++  call getarg(1,infile)
++  call getarg(2,arg)
++  read(arg,*) nrec
++  call getarg(3,frag)
++  open(72,file=infile,form='unformatted',status='old')
+ 
+ ! Initialize variables
+   minsigdb=2
+@@ -38,25 +39,10 @@
+   if(xn-n .gt.0.001) n=n+1
+   cfile6='441++'
+ 
+-  do ifile=1,nfile
+-     read(72,end=999) jz,nz,cfile6,(dat0(j),j=1,jz)
+-     if(ifile.ne.nfile .and. nfile.ne.999) go to 900
++  do irec=1,nrec
++     read(72,end=999) jz,nz,cfile6,(dat(j),j=1,jz)
++     if(irec.ne.nrec .and. nrec.ne.999) go to 900
+ 
+-! If necessary, correct sample-rate errors
+-     if(ifile.eq.3 .or. ifile.eq.4 .or. ifile.eq.5) then
+-        j=0
+-        do i=1,jz
+-           j=j+1
+-           if(mod(i,147).eq.0) then
+-              j=j-1
+-           endif
+-           dat(i)=dat0(j)
+-        enddo
+-        dat(j:jz)=0.
+-     else
+-        dat(1:jz)=dat0(1:jz)
+-     endif
+-
+      call ping441(dat,jz,nz,MinSigdB,MinWidth,pick,pingdat,nping)   !Find pings
+ 
+      do iping=1,nping                        !Process each ping
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-08 01:02:57 UTC (rev 1963)
++++ wsjt7a/wsjt.py	2010-07-08 18:15:18 UTC (rev 1964)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001655.html">[WSJT-SVN] r1963 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001657.html">[WSJT-SVN] r1965 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

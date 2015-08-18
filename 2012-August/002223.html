@@ -1,0 +1,304 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2531 - branches/map65/libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2531%20-%20branches/map65/libm65&In-Reply-To=%3C20120828134847.600EC55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002222.html">
+   <LINK REL="Next"  HREF="002224.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2531 - branches/map65/libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2531%20-%20branches/map65/libm65&In-Reply-To=%3C20120828134847.600EC55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2531 - branches/map65/libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Aug 28 15:48:47 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002222.html">[WSJT-SVN] r2530 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="002224.html">[WSJT-SVN] r2532 - branches/map65/libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2223">[ date ]</a>
+              <a href="thread.html#2223">[ thread ]</a>
+              <a href="subject.html#2223">[ subject ]</a>
+              <a href="author.html#2223">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-28 15:48:46 +0200 (Tue, 28 Aug 2012)
+New Revision: 2531
+
+Added:
+   branches/map65/libm65/cgen65.f90
+   branches/map65/libm65/mapsim.f90
+   branches/map65/libm65/noisegen.f90
+Modified:
+   branches/map65/libm65/Makefile.MinGW
+Log:
+First cut at program &quot;mapsim&quot;.  (Frequency stuff is not right, yet.)
+
+
+Modified: branches/map65/libm65/Makefile.MinGW
+===================================================================
+--- branches/map65/libm65/Makefile.MinGW	2012-08-07 17:43:45 UTC (rev 2530)
++++ branches/map65/libm65/Makefile.MinGW	2012-08-28 13:48:46 UTC (rev 2531)
+@@ -17,7 +17,7 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libm65.a m65.exe JT65code.exe
++all:    libm65.a m65.exe JT65code.exe mapsim.exe
+ 
+ OBJS1 = trimlist.o display.o getdphi.o pctile.o ccf65.o \
+ 	decode1a.o sort.o filbig.o fil6521.o afc65b.o \
+@@ -50,6 +50,10 @@
+ JT65code.exe: $(OBJS2) libm65.a
+ 	$(FC) -o JT65code.exe $(OBJS2) libm65.a
+ 
++OBJS6 = mapsim.o cgen65.o noisegen.o gran.o
++mapsim.exe: $(OBJS6) libm65.a
++	$(FC) -o mapsim.exe $(OBJS6) libm65.a
++
+ INCPATH = -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include/QtCore' \
+ 	 -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include' \
+ 	 -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include/ActiveQt' \
+
+Added: branches/map65/libm65/cgen65.f90
+===================================================================
+--- branches/map65/libm65/cgen65.f90	                        (rev 0)
++++ branches/map65/libm65/cgen65.f90	2012-08-28 13:48:46 UTC (rev 2531)
+@@ -0,0 +1,96 @@
++subroutine cgen65(message,mode65,samfac,nsendingsh,msgsent,cwave,nwave)
++
++! Encodes a JT65 message into a wavefile.  
++! Executes in 17 ms on opti-745.
++
++  parameter (NMAX=60*96000)     !Max length of wave file
++  character*22 message          !Message to be generated
++  character*22 msgsent          !Message as it will be received
++  character*3 cok               !'   ' or 'OOO'
++  real*8 dt,phi,f,f0,dfgen,dphi,twopi,samfac
++  complex cwave(NMAX)           !Generated complex wave file
++  integer dgen(12)
++  integer sent(63)
++  logical first
++  integer nprc(126)
++  real pr(126)
++  data nprc/1,0,0,1,1,0,0,0,1,1,1,1,1,1,0,1,0,1,0,0,  &amp;
++            0,1,0,1,1,0,0,1,0,0,0,1,1,1,0,0,1,1,1,1,  &amp;
++            0,1,1,0,1,1,1,1,0,0,0,1,1,0,1,0,1,0,1,1,  &amp;
++            0,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0,0,0,1,  &amp;
++            1,0,0,0,0,0,0,0,1,1,0,1,0,0,1,0,1,1,0,1,  &amp;
++            0,1,0,1,0,0,1,1,0,0,1,0,0,1,0,0,0,0,1,1,  &amp;
++            1,1,1,1,1,1/
++  data twopi/6.283185307179586476d0/,first/.true./
++  save
++
++  if(first) then
++     do i=1,126
++        pr(i)=2*nprc(i)-1
++     enddo
++     first=.false.
++  endif
++
++  call chkmsg(message,cok,nspecial,flip)
++  if(nspecial.eq.0) then
++     call packmsg(message,dgen)          !Pack message into 72 bits
++     nsendingsh=0
++     if(iand(dgen(10),8).ne.0) nsendingsh=-1    !Plain text flag
++
++     call rs_encode(dgen,sent)
++     call interleave63(sent,1)           !Apply interleaving
++     call graycode(sent,63,1)            !Apply Gray code
++     nsym=126                            !Symbols per transmission
++     nsps=4096
++  else
++     nsym=32
++     nsps=16384
++     nsendingsh=1                         !Flag for shorthand message
++  endif
++  if(mode65.eq.0) go to 900
++
++  nsps=nint(nsps*96000.d0/11025.d0)
++
++! Set up necessary constants
++  dt=1.d0/(samfac*96000.d0)
++  f0=118*11025.d0/1024
++  dfgen=mode65*11025.d0/4096.d0
++  phi=0.d0
++  i=0
++  k=0
++  do j=1,nsym
++     f=f0
++     if(nspecial.ne.0 .and. mod(j,2).eq.0) f=f0+10*nspecial*dfgen
++     if(nspecial.eq.0 .and. flip*pr(j).lt.0.0) then
++        k=k+1
++        f=f0+(sent(k)+2)*dfgen
++     endif
++     dphi=twopi*dt*f
++     do ii=1,nsps
++        phi=phi+dphi
++        if(phi.gt.twopi) phi=phi-twopi
++        xphi=phi
++        i=i+1
++!        iwave(i)=32767.0*sin(xphi)
++        cwave(i)=cmplx(cos(xphi),-sin(xphi))
++     enddo
++  enddo
++
++  cwave(nsym*nsps+1:)=0
++  nwave=nsym*nsps + 5512
++  call unpackmsg(dgen,msgsent)
++  if(flip.lt.0.0) then
++     do i=22,1,-1
++        if(msgsent(i:i).ne.' ') goto 10
++     enddo
++10   msgsent=msgsent(1:i)//' OOO'
++  endif
++
++  if(nsendingsh.eq.1) then
++     if(nspecial.eq.2) msgsent='RO'
++     if(nspecial.eq.3) msgsent='RRR'
++     if(nspecial.eq.4) msgsent='73'
++  endif
++
++900 return
++end subroutine cgen65
+
+Added: branches/map65/libm65/mapsim.f90
+===================================================================
+--- branches/map65/libm65/mapsim.f90	                        (rev 0)
++++ branches/map65/libm65/mapsim.f90	2012-08-28 13:48:46 UTC (rev 2531)
+@@ -0,0 +1,77 @@
++program mapsim
++
++  parameter (NMAX=96000*60)
++  integer*2 id2(2,NMAX)
++  integer*2 id4(4,NMAX)
++  real*4 d4(4,NMAX)
++  complex cwave(NMAX)
++  complex z,zx,zy
++  real*8 fcenter,fsample,samfac,f,dt,twopi,phi,dphi
++  character message*22,msgsent*22,arg*8
++
++  nargs=iargc()
++  if(nargs.ne.2) then
++     print*,'Usage: mapsim &quot;message&quot; pol'
++     go to 999
++  endif
++  call getarg(1,message)
++  call getarg(2,arg)
++  read(arg,*) pol
++
++  open(10,file='000000_0000.iq',access='stream',status='unknown')
++  open(11,file='000000_0000.tf2',access='stream',status='unknown')
++
++  call noisegen(d4,NMAX)
++  mode65=2
++  samfac=1.d0
++  call cgen65(message,mode65,samfac,nsendingsh,msgsent,cwave,nwave)
++
++  fcenter=144.125d0
++  fsample=96000.d0
++  twopi=8.d0*atan(1.d0)
++  rad=360.0/twopi
++  a=cos(pol/rad)
++  b=sin(pol/rad)
++  dt=1.d0/fsample
++
++  do isig=10,10
++     f=-23 + 3*isig 
++     dt=0.05d0*(isig-1)
++!     snrdb=-(19.0 + (isig-1)/2.0)
++     snrdb=-20.0
++     sig=sqrt(2500.0/96000.0) * 10.0**(0.05*snrdb)
++     sig=1.6*sig
++     dphi=twopi*f*dt
++     phi=0.
++     i0=fsample*(3.5d0+dt)
++     print*,f,dt,dphi,i0,sig
++
++     do i=1,nwave
++        phi=phi + dphi
++!        if(phi.gt.twopi) phi=phi-twopi
++!        xphi=phi
++        z=sig*cwave(i)*cmplx(cos(phi),sin(phi))
++        zx=a*z
++        zy=b*z
++        j=i+i0
++        d4(1,j)=d4(1,j) + real(zx)
++        d4(2,j)=d4(2,j) + aimag(zx)
++        d4(3,j)=d4(3,j) + real(zy)
++        d4(4,j)=d4(4,j) + aimag(zy)
++     enddo
++  enddo
++
++  s=31.6
++  do i=1,NMAX
++     id4(1,i)=nint(s*d4(1,i))
++     id4(2,i)=nint(s*d4(2,i))
++     id4(3,i)=nint(s*d4(3,i))
++     id4(4,i)=nint(s*d4(4,i))
++     id2(1,i)=id4(1,i)
++     id2(2,i)=id4(2,i)
++  enddo
++
++  write(10) fcenter,id2
++  write(11) fcenter,id4
++
++999 end program mapsim
+
+Added: branches/map65/libm65/noisegen.f90
+===================================================================
+--- branches/map65/libm65/noisegen.f90	                        (rev 0)
++++ branches/map65/libm65/noisegen.f90	2012-08-28 13:48:46 UTC (rev 2531)
+@@ -0,0 +1,13 @@
++subroutine noisegen(d4,nmax)
++
++  real*4 d4(4,nmax)
++
++  do i=1,nmax
++     d4(1,i)=gran()
++     d4(2,i)=gran()
++     d4(3,i)=gran()
++     d4(4,i)=gran()
++  enddo
++
++  return
++end subroutine noisegen
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002222.html">[WSJT-SVN] r2530 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="002224.html">[WSJT-SVN] r2532 - branches/map65/libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2223">[ date ]</a>
+              <a href="thread.html#2223">[ thread ]</a>
+              <a href="subject.html#2223">[ subject ]</a>
+              <a href="author.html#2223">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

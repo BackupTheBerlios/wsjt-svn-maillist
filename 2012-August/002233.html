@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2541 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2541%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830145746.9C81155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002232.html">
+   <LINK REL="Next"  HREF="002234.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2541 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2541%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830145746.9C81155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2541 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Aug 30 16:57:46 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002232.html">[WSJT-SVN] r2540 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002234.html">[WSJT-SVN] r2542 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2233">[ date ]</a>
+              <a href="thread.html#2233">[ thread ]</a>
+              <a href="subject.html#2233">[ subject ]</a>
+              <a href="author.html#2233">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-30 16:57:46 +0200 (Thu, 30 Aug 2012)
+New Revision: 2541
+
+Modified:
+   branches/map65/libm65/decode0.f90
+   branches/map65/libm65/map65a.f90
+   branches/map65/mainwindow.cpp
+Log:
+Close to OK with message averaging?
+
+
+Modified: branches/map65/libm65/decode0.f90
+===================================================================
+--- branches/map65/libm65/decode0.f90	2012-08-30 14:22:30 UTC (rev 2540)
++++ branches/map65/libm65/decode0.f90	2012-08-30 14:57:46 UTC (rev 2541)
+@@ -53,15 +53,15 @@
+   call timer('map65a  ',0)
+   call map65a(dd,ss,savg,newdat,nutc,fcenter,ntol,idphi,nfa,nfb,           &amp;
+        mousedf,mousefqso,nagain,ndecdone,ndiskdat,nfshift,ndphi,           &amp;
+-       nfcal,nkeep,mcall3b,nsum,nsave0,nxant,rmsdd,mycall,mygrid,          &amp;
++       nfcal,nkeep,mcall3b,nsum,nsave,nxant,rmsdd,mycall,mygrid,          &amp;
+        neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65)
+ 
+   call timer('map65a  ',1)
+   call timer('decode0 ',1)
+   if(nstandalone.eq.0) call timer('decode0 ',101)
+ 
+-  write(*,1010) nsum,nsave0
+-1010 format('&lt;m65aFinished&gt;',2i4)
++  write(*,1010) nsum,nsave
++1010 format('&lt;DecodeFinished&gt;',2i4)
+   flush(6)
+ 
+   return
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-08-30 14:22:30 UTC (rev 2540)
++++ branches/map65/libm65/map65a.f90	2012-08-30 14:57:46 UTC (rev 2541)
+@@ -325,6 +325,11 @@
+      endif
+      
+      if(ndphi.eq.1 .and.iloop.eq.12) call getdphi(qphi)
++     if(nqd.eq.1) then
++        write(*,1013) nsum,nsave
++1013    format('&lt;QuickDecodeDone&gt;',2i4)
++        flush(6)
++     endif
+      if(nagain.eq.1) go to 999
+   enddo
+ 
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-30 14:22:30 UTC (rev 2540)
++++ branches/map65/mainwindow.cpp	2012-08-30 14:57:46 UTC (rev 2541)
+@@ -821,6 +821,12 @@
+   lab5-&gt;setMinimumSize(QSize(50,10));
+   lab5-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab5);
++
++  lab6 = new QLabel(&quot;Avg: 0/0&quot;);
++  lab6-&gt;setAlignment(Qt::AlignHCenter);
++  lab6-&gt;setMinimumSize(QSize(50,10));
++  lab6-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
++  statusBar()-&gt;addWidget(lab6);
+ }
+ 
+ void MainWindow::on_tolSpinBox_valueChanged(int i)             //tolSpinBox
+@@ -1254,13 +1260,14 @@
+   while(proc_m65.canReadLine())
+   {
+     QByteArray t=proc_m65.readLine();
+-    if(t.indexOf(&quot;&lt;m65aFinished&gt;&quot;) &gt;= 0) {
+-//      int nsum,nsave;
+-//      scanf(&quot;&lt;m65aFinished&gt; %d %d&quot;,&amp;nsum,&amp;nsave);
+-//      m_nsum=nsum;
+-//      m_nsave=nsave;
+-//      qDebug() &lt;&lt; m_nsum &lt;&lt; m_nsave;
+-      qDebug() &lt;&lt; t;
++    if(t.indexOf(&quot;&lt;QuickDecodeDone&gt;&quot;) &gt;= 0) {
++      m_nsum=t.mid(17,4).toInt();
++      m_nsave=t.mid(21,4).toInt();
++      QString t2;
++      t2.sprintf(&quot;Avg: %d/%d&quot;,m_nsum,m_nsave);
++      lab6-&gt;setText(t2);
++    }
++    if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
+       if(m_widebandDecode) {
+         g_pMessages-&gt;setText(m_messagesText);
+         g_pBandMap-&gt;setText(m_bandmapText);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002232.html">[WSJT-SVN] r2540 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002234.html">[WSJT-SVN] r2542 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2233">[ date ]</a>
+              <a href="thread.html#2233">[ thread ]</a>
+              <a href="subject.html#2233">[ subject ]</a>
+              <a href="author.html#2233">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

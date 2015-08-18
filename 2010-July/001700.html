@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2008 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2008%20-%20wsjt7a&In-Reply-To=%3C20100716191514.40D8E480266%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001699.html">
+   <LINK REL="Next"  HREF="001701.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2008 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2008%20-%20wsjt7a&In-Reply-To=%3C20100716191514.40D8E480266%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2008 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 16 21:15:14 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001699.html">[WSJT-SVN] r2007 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001701.html">[WSJT-SVN] r2009 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1700">[ date ]</a>
+              <a href="thread.html#1700">[ thread ]</a>
+              <a href="subject.html#1700">[ subject ]</a>
+              <a href="author.html#1700">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-16 21:15:14 +0200 (Fri, 16 Jul 2010)
+New Revision: 2008
+
+Added:
+   wsjt7a/setupms.f90
+Modified:
+   wsjt7a/decodems.f90
+   wsjt7a/mtdecode.f
+Log:
+Working toward a JTMS_2a decoder.
+
+
+Modified: wsjt7a/decodems.f90
+===================================================================
+--- wsjt7a/decodems.f90	2010-07-16 18:12:44 UTC (rev 2007)
++++ wsjt7a/decodems.f90	2010-07-16 19:15:14 UTC (rev 2008)
+@@ -1,48 +1,21 @@
+-subroutine decodems(dat,npts,nchar,imsg)
++subroutine decodems(dat,npts,cfile6,t2,mswidth,ndb,nrpt,Nfreeze,DFTolerance)
+ 
+   parameter (NZ=30*11025)
+   real dat(NZ)
+-  character msg*28
+-  complex zsum
+-  integer imsg(5250)
+-  real ss(0:63)
+-  real*8 t
+-  complex cw
+-  common/mscom/cw(63,0:63)
++  integer DFTolerance
++  character*6 cfile6
+ 
+-  nchar=5250
+-  fac=1.0/300000.0
+-  nerr=0
+-  do k=1,nchar
+-     i0=(k-1)*63
+-     smax1=0.
+-     do j=0,63                               !Test 64 possible characters
+-        zsum=0.
+-        do i=1,63                            !Sum over 63 samples
+-           zsum=zsum + conjg(cw(i,j))*dat(i0+i)
+-        enddo
+-        sum=abs(zsum)
+-        if(sum.gt.smax1) then
+-           smax1=sum
+-           jpk=j
+-        endif
+-        ss(j)=sum
+-     enddo
++  ndf=0
++  write(*,3001) cfile6,t2,mswidth,ndb,nrpt,ndf,npts,NFreeze,DFTolerance
++3001 format(a6,f5.1,i5,i3,i3.2,i5,2x,4i6)
++! 1050    format(a6,f5.1,i5,i3,1x,i2.2,i5,1x,a3,1x,a40)
+ 
+-     ss(jpk)=0.
+-     smax2=0.
+-     do j=0,63                               !Test 64 possible characters
+-        smax2=max(ss(j),smax2)
++  if(t2.lt.3.0) then
++     do i=1,npts
++        write(51,3002) i,dat(i)
++3002    format(i8,f10.1)
+      enddo
+-     rr=smax1/smax2
+-     if(jpk.ne.imsg(k)) nerr=nerr+1
+-!     write(*,3001) k,imsg(k),jpk,rr
+-!3001 format(3i6,f12.3)
+-  enddo
++  endif
+ 
+-  ferr=float(nerr)/nchar
+-  write(*,1110) nerr,ferr
+-1110 format('Errors:',i5,f10.4)
+-
+   return
+ 999 end subroutine decodems
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-07-16 18:12:44 UTC (rev 2007)
++++ wsjt7a/mtdecode.f	2010-07-16 19:15:14 UTC (rev 2008)
+@@ -116,7 +116,12 @@
+          nrpt=10*nwidth + nstrength
+          t2=tstart + dt*(istart-1)
+ 
+-         write(*,1050) cfile6,t2,mswidth,int(peak),nrpt,noffset
++         if(mode.eq.8) then
++            nfreeze=0
++            call decodems(dat(jj),jjz,cfile6,t2,mswidth,int(peak),
++     +           nrpt,nfreeze,DFTolerance)
++            go to 100
++         endif
+ 
+          if(n441pp.eq.1 .and.mode.eq.1) call pp441(dat,jz,cfile6,    
+      +         tstart,t2,width,npeak,nrpt,dftolerance,frag,0)
+
+Added: wsjt7a/setupms.f90
+===================================================================
+--- wsjt7a/setupms.f90	                        (rev 0)
++++ wsjt7a/setupms.f90	2010-07-16 19:15:14 UTC (rev 2008)
+@@ -0,0 +1,42 @@
++subroutine setupms(f0,f1,csync,c0,c1)
++
++  complex csync(256)                   !Complex sync waveform
++  complex c0(8)                        !Complex waveform for bit=0
++  complex c1(8)                        !Complex waveform for bit=1
++  real*8 twopi,fs,dt,f0,f1
++  integer is32(32)                     !Sync vector in one-bit format
++  data is32/0,0,0,1,1,0,1,0,1,1,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,1,1,1,0,1/ 
++
++  nsps=8
++  nsync=32
++  twopi=8*atan(1.d0)
++  dt=1.d0/12000.d0                     !Sample interval
++
++! Generate sync waveform
++  k=0
++  phi=0.
++  dphi0=twopi*dt*f0
++  dphi1=twopi*dt*f1
++  do j=1,nsync
++     if(is32(j).eq.0) then
++        dphi=dphi0
++     else
++        dphi=dphi1
++     endif
++     do i=1,nsps
++        k=k+1
++        phi=phi+dphi
++        csync(k)=cmplx(cos(phi),sin(phi))
++     enddo
++  enddo
++
++  phi0=0.d0
++  phi1=0.d0
++  do i=1,8                        !Generate signal templates for 0 and 1
++     phi0=phi0+dphi0
++     phi1=phi1+dphi1
++     c0(i)=cmplx(cos(phi0),sin(phi0))
++     c1(i)=cmplx(cos(phi1),sin(phi1))
++  enddo
++
++end subroutine setupms
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001699.html">[WSJT-SVN] r2007 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001701.html">[WSJT-SVN] r2009 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1700">[ date ]</a>
+              <a href="thread.html#1700">[ thread ]</a>
+              <a href="subject.html#1700">[ subject ]</a>
+              <a href="author.html#1700">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

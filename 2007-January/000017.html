@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r332 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r332%20-%20branches/map65&In-Reply-To=%3C200701091746.l09HkH8R018586%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000016.html">
+   <LINK REL="Next"  HREF="000018.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r332 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r332%20-%20branches/map65&In-Reply-To=%3C200701091746.l09HkH8R018586%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r332 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jan  9 18:46:17 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000016.html">[WSJT-SVN] r331 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000018.html">[WSJT-SVN] r333 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17">[ date ]</a>
+              <a href="thread.html#17">[ thread ]</a>
+              <a href="subject.html#17">[ subject ]</a>
+              <a href="author.html#17">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-09 18:46:02 +0100 (Tue, 09 Jan 2007)
+New Revision: 332
+
+Modified:
+   branches/map65/Makefile.win
+   branches/map65/gcom1.f90
+   branches/map65/jtaudio.c
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+Log:
+Starting on the data input and waterfall display necessities ...
+
+
+Modified: branches/map65/Makefile.win
+===================================================================
+--- branches/map65/Makefile.win	2007-01-09 17:14:55 UTC (rev 331)
++++ branches/map65/Makefile.win	2007-01-09 17:46:02 UTC (rev 332)
+@@ -19,12 +19,12 @@
+ 	i1tor4.f90 pix2d65.f90 rfile.f90 savedata.f90 spec.f90 \
+ 	wsjtgen.f90 runqqq.f90 fivehz.f90
+ 
+-SRCS2F77 = wsjt1.f avesp2.f bzap.f \
+-	stdecode.f indexx.f s2shape.f flat2.f gen65.f chkmsg.f \
+-	gentone.f \
+-	set.f flatten.f db.f pctile.f sort.f ssort.f ps.f smooth.f \
+-	peakup.f sync.f detect.f avemsg65.f decode65.f demod64a.f \
+-	encode65.f extract.f flat1.f four2.f gencw.f getpfx1.f \
++SRCS2F77 = wsjt1.f bzap.f avesp2.f flatten.f \
++	indexx.f flat2.f gen65.f chkmsg.f \
++	gentone.f gencwid.f \
++	set.f db.f pctile.f sort.f ssort.f ps.f smooth.f \
++	peakup.f avemsg65.f decode65.f demod64a.f \
++	encode65.f extract.f flat1.f four2.f getpfx1.f \
+ 	getpfx2.f getsnr.f graycode.f grid2k.f interleave63.f k2grid.f \
+ 	limit.f lpf1.f deep65.f morse.f nchar.f packcall.f packgrid.f \
+ 	packmsg.f packtext.f setup65.f short65.f slope.f spec2d65.f \
+
+Modified: branches/map65/gcom1.f90
+===================================================================
+--- branches/map65/gcom1.f90	2007-01-09 17:14:55 UTC (rev 331)
++++ branches/map65/gcom1.f90	2007-01-09 17:46:02 UTC (rev 332)
+@@ -36,7 +36,6 @@
+ integer ndsec          !Dsec in units of 0.1 s                  GUI
+ integer ndevin         !Device# for audio input                 GUI
+ integer ndevout        !Device# for audio output                GUI
+-integer nx             !x coordinate for waterfall pixmap       GUI
+ integer mfsample       !Measured sample rate, input             SoundIn
+ integer mfsample2      !Measured sample rate, output            SoundOut
+ integer ns0            !Time at last ALL.TXT date entry         Decoder
+@@ -46,7 +45,7 @@
+      samfacin,samfacout,txsnrdb,y1(NRXMAX),y2(NRXMAX),                  &amp;
+      nmax,iwrite,iread,iwave(NTXMAX),nwave,TxOK,Receiving,Transmitting, &amp;
+      TxFirst,TRPeriod,ibuf,ibuf0,ave,rms,ngo,level,mute,newdat,ndsec,   &amp;
+-     ndevin,ndevout,nx,mfsample,mfsample2,ns0,devin_name,devout_name
++     ndevin,ndevout,mfsample,mfsample2,ns0,devin_name,devout_name
+ 
+ !### volatile /gcom1/
+ 
+
+Modified: branches/map65/jtaudio.c
+===================================================================
+--- branches/map65/jtaudio.c	2007-01-09 17:14:55 UTC (rev 331)
++++ branches/map65/jtaudio.c	2007-01-09 17:46:02 UTC (rev 332)
+@@ -120,6 +120,7 @@
+   } else {
+     memset((void*)outputBuffer, 0, 2*sizeof(short)*framesPerBuffer);
+   }
++  fivehz_();                               //Call fortran routine
+   fivehztx_();                             //Call fortran routine
+   return 0;
+ }
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-01-09 17:14:55 UTC (rev 331)
++++ branches/map65/spec.f90	2007-01-09 17:46:02 UTC (rev 332)
+@@ -1,17 +1,18 @@
+ !---------------------------------------------------- spec
+ subroutine spec(brightness,contrast,logmap,ngain,nspeed,a)
+ 
+-! Called by SpecJT in its TopLevel Python code.  
++! Called by SpecJT.  
+ ! Probably should use the &quot;!f2py intent(...)&quot; structure here.
+ 
+ ! Input:
++  parameter (NX=750,NY=130,NTOT=NX*NY)
+   integer brightness,contrast   !Display parameters
+   integer ngain                 !Digital gain for input audio
+   integer nspeed                !Scrolling speed index
+ ! Output:
+-  integer*2 a(225000)           !Pixel values for 750 x 300 array
++  integer*2 a(NTOT)             !Pixel values for NX x NY array
+ 
+-  real a0(225000)               !Save the last 300 spectra
++  real a0(NTOT)                 !Save the last NY spectra
+   integer nstep(5)
+   integer b0,c0
+   real x(4096)                  !Data for FFT
+@@ -45,7 +46,6 @@
+      c0=-999
+      logmap0=-999
+      nspeed0=-999
+-     nx=0
+      ncall=0
+      jza=0
+      rms=0.
+@@ -123,15 +123,15 @@
+ 
+   if(nsum.ge.nstep(nspeed)) then      !Integrate for specified time
+      nlines=nlines+1
+-     do i=225000,751,-1               !Move spectra up one row
+-        a0(i)=a0(i-750)               ! (will be &quot;down&quot; on display)
++     do i=NTOT,NX+1,-1               !Move spectra up one row
++        a0(i)=a0(i-NX)               ! (will be &quot;down&quot; on display)
+      enddo
+      if(ndiskdat.eq.1 .and. nlines.eq.1) then
+-        do i=1,750
++        do i=1,NX
+            a0(i)=255
+         enddo
+-        do i=225000,751,-1
+-           a0(i)=a0(i-750)
++        do i=NTOT,NX+1,-1
++           a0(i)=a0(i-NX)
+         enddo
+      endif
+ 
+@@ -142,10 +142,10 @@
+         i0=182 + nint((nfmid-1500)/df)
+         if(i0.lt.0) ia=1-i0
+      else if(nfrange.eq.4000) then
+-        i0=nint(nfmid/df - 752.0)
++        i0=nint(nfmid/df - (NX+2.0))
+         if(i0.lt.0) ia=1-i0/2
+      endif
+-     do i=ia,750                       !Insert new data in top row
++     do i=ia,NX                       !Insert new data in top row
+         if(nfrange.eq.2000) then
+            a0(i)=5*ss(i+i0)/nsum
+         else if(nfrange.eq.4000) then
+@@ -158,7 +158,7 @@
+      do i=1,nh                         !Zero the accumulating array
+         ss(i)=0.
+      enddo
+-     if(jz.lt.300) jz=jz+1
++     if(jz.lt.NY) jz=jz+1
+   endif
+ 
+   if(ndiskdat.eq.1) then
+@@ -171,11 +171,11 @@
+   if(npts.ge.4096) go to 10
+ 
+ !  Compute pixel values 
+-  iz=750
++  iz=NX
+   logmap=0
+   if(brightness.ne.b0 .or. contrast.ne.c0 .or. logmap.ne.logmap0 .or.    &amp;
+           nspeed.ne.nspeed0 .or. nlines.gt.1) then
+-     iz=225000
++     iz=NTOT
+      gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
+      gamma=1.3 + 0.01*contrast
+      offset=(brightness+64.0)/2
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-01-09 17:14:55 UTC (rev 331)
++++ branches/map65/specjt.py	2007-01-09 17:46:02 UTC (rev 332)
+@@ -68,11 +68,19 @@
+ ttot=0.0
+ 
+ c=Canvas()
+-a=zeros(225000,'s')
+-im=Image.new('P',(750,300))
+-line0=Image.new('P',(750,1))      #Image fragment for top line of waterfall
++
++a=zeros(750*130,'s')
++im=Image.new('P',(750,130))
++line0=Image.new('P',(750,1))  #Image fragment for top line of waterfall
+ draw=ImageDraw.Draw(im)
+ pim=ImageTk.PhotoImage(im)
++
++a2=zeros(750*130,'s')
++im2=Image.new('P',(750,130))
++line02=Image.new('P',(750,1)) #Image fragment for top line of zoomed waterfall
++draw2=ImageDraw.Draw(im2)
++pim2=ImageTk.PhotoImage(im2)
++
+ balloon=Pmw.Balloon(root)
+ 
+ def pal_gray0():
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000016.html">[WSJT-SVN] r331 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000018.html">[WSJT-SVN] r333 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17">[ date ]</a>
+              <a href="thread.html#17">[ thread ]</a>
+              <a href="subject.html#17">[ subject ]</a>
+              <a href="author.html#17">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

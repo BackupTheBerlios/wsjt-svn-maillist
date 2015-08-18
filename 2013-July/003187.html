@@ -1,0 +1,285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3495 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3495%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130719002341.A4C8855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003186.html">
+   <LINK REL="Next"  HREF="003188.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3495 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3495%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130719002341.A4C8855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3495 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jul 19 02:23:41 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003186.html">[WSJT-SVN] r3494 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003188.html">[WSJT-SVN] r3496 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3187">[ date ]</a>
+              <a href="thread.html#3187">[ thread ]</a>
+              <a href="subject.html#3187">[ subject ]</a>
+              <a href="author.html#3187">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-19 02:23:40 +0200 (Fri, 19 Jul 2013)
+New Revision: 3495
+
+Modified:
+   branches/wsjtx/lib/ipcomm.cpp
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9a.f90
+   branches/wsjtx/main.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+Full activation of &quot;Multiple Instances&quot;, thanks to some code by 
+Josh Rovero, KK1D.
+
+
+Modified: branches/wsjtx/lib/ipcomm.cpp
+===================================================================
+--- branches/wsjtx/lib/ipcomm.cpp	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/lib/ipcomm.cpp	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -2,6 +2,7 @@
+ #include &lt;qsharedmemory.h&gt;
+ #include &lt;QSystemSemaphore&gt;
+ 
++// Multiple instances: KK1D, 17 Jul 2013
+ QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
+ QSystemSemaphore sem_jt9(&quot;sem_jt9&quot;, 1, QSystemSemaphore::Open);
+ 
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/lib/jt9.f90	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -17,13 +17,16 @@
+      print*,'Usage: jt9 TRperiod ndepth rxfreq file1 [file2 ...]'
+      print*,'       Reads data from *.wav files.'
+      print*,''
+-     print*,'       jt9 -s'
+-     print*,'       Gets data from shared memory region.'
++     print*,'       jt9 -s &lt;key&gt;'
++     print*,'       Gets data from shared memory region with key==&lt;key&gt;'
+      go to 999
+   endif
+   call getarg(1,arg)
+   if(arg(1:2).eq.'-s') then
+-     call jt9a
++! Multiple instances:
++     call getarg(2,arg)
++     i0=len(trim(arg))
++     call jt9a(trim(arg))
+      go to 999
+   endif
+   read(arg,*) ntrperiod
+
+Modified: branches/wsjtx/lib/jt9a.f90
+===================================================================
+--- branches/wsjtx/lib/jt9a.f90	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/lib/jt9a.f90	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -1,7 +1,8 @@
+-subroutine jt9a
++subroutine jt9a(thekey)
+ 
++  character(len=*), intent(in):: thekey
++
+ ! These routines connect the shared memory region to the decoder.
+-
+   interface
+      function address_jt9()
+      integer*1, pointer :: address_jt9
+@@ -13,15 +14,26 @@
+   integer size_jt9
+   integer*1, pointer :: p_jt9
+   character*80 cwd
++! Multiple instances:
++  character*80 mykey
+   logical fileExists
+   common/tracer/limtrace,lu
+ 
++! Multiple instances:
++  i0 = len(trim(thekey))
++
+   call getcwd(cwd)
+   open(12,file='timer.out',status='unknown')
+ 
+   limtrace=0
+ !  limtrace=-1                            !Disable all calls to timer()
+   lu=12
++
++! Multiple instances: set the shared memory key before attaching
++  mykey=trim(repeat(thekey,1))
++  i0 = len(mykey)
++  i0=setkey_jt9(trim(mykey))
++
+   i1=attach_jt9()
+ 
+ 10 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
+@@ -41,7 +53,7 @@
+   nbytes=size_jt9()
+   if(nbytes.le.0) then
+      print*,'jt9a: Shared memory mem_jt9 does not exist.' 
+-     print*,&quot;Must start 'jt9 -s' from within WSJT-X.&quot;
++     print*,&quot;Must start 'jt9 -s &lt;thekey&gt;' from within WSJT-X.&quot;
+      go to 999
+   endif
+   p_jt9=&gt;address_jt9()
+
+Modified: branches/wsjtx/main.cpp
+===================================================================
+--- branches/wsjtx/main.cpp	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/main.cpp	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -7,7 +7,10 @@
+ #include &lt;portaudio.h&gt;
+ #include &quot;mainwindow.h&quot;
+ 
+-QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
++// Multiple instances:
++QSharedMemory mem_jt9;
++QUuid         my_uuid;
++QString       my_key;
+ 
+ int main(int argc, char *argv[])
+ {
+@@ -26,6 +29,11 @@
+   }
+ 
+   // Create and initialize shared memory segment
++  // Multiple instances: generate shared memory keys with UUID
++  my_uuid = QUuid::createUuid();
++  my_key = my_uuid.toString();
++  mem_jt9.setKey(my_key);
++
+   if(!mem_jt9.attach()) {
+     if (!mem_jt9.create(sizeof(jt9com_))) {
+       QMessageBox::critical( 0, &quot;Error&quot;, &quot;Unable to create shared memory segment.&quot;);
+@@ -45,7 +53,8 @@
+     exit(1);
+   }
+ 
+-  MainWindow w(&amp;mem_jt9);
++// Multiple instances:  Call MainWindow() with the UUID key
++  MainWindow w(&amp;mem_jt9, &amp;my_key);
+   w.show();
+   return a.exec();
+ }
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/mainwindow.cpp	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -40,7 +40,8 @@
+                               &quot;    by K1JT&quot;;
+ 
+ //-------------------------------------------------- MainWindow constructor
+-MainWindow::MainWindow(QSharedMemory *shdmem, QWidget *parent) :
++// Multiple instances: new arg *thekey
++MainWindow::MainWindow(QSharedMemory *shdmem, QString *thekey, QWidget *parent) :
+   QMainWindow(parent),
+   ui(new Ui::MainWindow)
+ {
+@@ -200,6 +201,8 @@
+   ui-&gt;labDist-&gt;setStyleSheet(&quot;border: 0px;&quot;);
+ 
+   mem_jt9 = shdmem;
++// Multiple instances:
++  mykey_jt9 = thekey;
+   readSettings();		             //Restore user's setup params
+   if(m_dFreq.length()&lt;=1) {      //Use the startup default frequencies
+     m_dFreq.clear();
+@@ -225,8 +228,13 @@
+   lockFile.open(QIODevice::ReadWrite);
+   //QFile quitFile(m_appDir + &quot;/.lock&quot;);
+   //quitFile.remove();
+-  proc_jt9.start(QDir::toNativeSeparators('&quot;' + m_appDir + '&quot;' + &quot;/jt9 -s&quot;));
+ 
++// Multiple instances: make the Qstring key into command line arg
++// Multiple instances: start &quot;jt9 -s &lt;thekey&gt;&quot;
++  QByteArray  ba = mykey_jt9-&gt;toLocal8Bit();
++  const char *bc = ba.data();
++  proc_jt9.start(QDir::toNativeSeparators('&quot;' + m_appDir + '&quot;' + &quot;/jt9 -s &quot; + bc));
++
+   m_pbdecoding_style1=&quot;QPushButton{background-color: cyan; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/mainwindow.h	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -27,8 +27,9 @@
+ {
+   Q_OBJECT
+ 
++// Multiple instances: call MainWindow() with *thekey
+ public:
+-  explicit MainWindow(QSharedMemory *shdmem, QWidget *parent = 0);
++  explicit MainWindow(QSharedMemory *shdmem, QString *thekey, QWidget *parent = 0);
+   ~MainWindow();
+ 
+ public slots:
+@@ -332,6 +333,8 @@
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+     QSharedMemory *mem_jt9;
++ // Multiple instances:
++    QString       *mykey_jt9;
+     PSK_Reporter *psk_Reporter;
+     SignalMeter *signalMeter;
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-07-18 15:23:34 UTC (rev 3494)
++++ branches/wsjtx/mainwindow.ui	2013-07-19 00:23:40 UTC (rev 3495)
+@@ -2214,7 +2214,7 @@
+     &lt;/property&gt;
+     &lt;widget class=&quot;QMenu&quot; name=&quot;menuAdvanced&quot;&gt;
+      &lt;property name=&quot;enabled&quot;&gt;
+-      &lt;bool&gt;false&lt;/bool&gt;
++      &lt;bool&gt;true&lt;/bool&gt;
+      &lt;/property&gt;
+      &lt;property name=&quot;title&quot;&gt;
+       &lt;string&gt;Advanced&lt;/string&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003186.html">[WSJT-SVN] r3494 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003188.html">[WSJT-SVN] r3496 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3187">[ date ]</a>
+              <a href="thread.html#3187">[ thread ]</a>
+              <a href="subject.html#3187">[ subject ]</a>
+              <a href="author.html#3187">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

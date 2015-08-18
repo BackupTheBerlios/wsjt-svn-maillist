@@ -1,0 +1,513 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2382 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2382%20-%20trunk&In-Reply-To=%3C20110413194750.A3A4A481380%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002073.html">
+   <LINK REL="Next"  HREF="002075.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2382 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2382%20-%20trunk&In-Reply-To=%3C20110413194750.A3A4A481380%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2382 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 13 21:47:50 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002073.html">[WSJT-SVN] r2381 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002075.html">[WSJT-SVN] r2383 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2074">[ date ]</a>
+              <a href="thread.html#2074">[ thread ]</a>
+              <a href="subject.html#2074">[ subject ]</a>
+              <a href="author.html#2074">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-13 21:47:50 +0200 (Wed, 13 Apr 2011)
+New Revision: 2382
+
+Modified:
+   trunk/Makefile.MinGW
+   trunk/decode2.f90
+   trunk/decode3.f90
+   trunk/iscat.f90
+   trunk/synciscat.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Many tweaks top the ISCAT decoder, especially to improve AFC.
+
+
+Modified: trunk/Makefile.MinGW
+===================================================================
+--- trunk/Makefile.MinGW	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/Makefile.MinGW	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -56,7 +56,7 @@
+ 	iscat.f90 four2a.f90 hipass.f90 msdf.f90 syncms.f90 lenms.f90 \
+ 	jtms.f90 foldms.f90 avecho.f90 echogen.f90 alignmsg.f90 \
+ 	chk441.f90 gen441.f90 tm2.f90 gendiana.f90 diana.f90 \
+-	specdiana.f90 syncdiana.f90 decdiana.f90 tweak2.f90
++	specdiana.f90 syncdiana.f90 decdiana.f90 tweak2.f90 dtrim.f90
+ 
+ 
+ SRCS2F77 = avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+
+Modified: trunk/decode2.f90
+===================================================================
+--- trunk/decode2.f90	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/decode2.f90	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -74,21 +74,25 @@
+      enddo
+      call decode3(d2b,lenpick,istart,fnamex)
+ 
++  else if(ndecoding.eq.4) then
+ !Recorded file
+-  else if(ndecoding.eq.4) then
+      jzz=jzc
+      if(mousebutton.eq.0) istart=1
+-     if(mousebutton.gt.0) then
++     if(mousebutton.eq.1 .or. mode(1:5).ne.'ISCAT') then
+         jzz=lenpick
+-
+ !  This is a major kludge:
+         istart=istart + 3300 - jzz/2
+-
+         if(istart.lt.2) istart=2
+         if(istart+jzz.gt.jzc) istart=jzc-jzz
+      endif
++
+      if(mode(1:5).eq.'ISCAT' .and. MouseButton.eq.3) then
+-        lenpick=istart
++        lenpick=11.025*npingtime
++        if(lenpick.gt.jzz) then
++           lenpick=jzz
++           npingtime=jzz/11.015
++        endif
++        if(lenpick.lt.24586) lenpick=24586
+         istart=1
+         call decode3(d2c,lenpick,istart,filename)
+      else
+
+Modified: trunk/decode3.f90
+===================================================================
+--- trunk/decode3.f90	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/decode3.f90	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -55,10 +55,10 @@
+   endif
+   mb0=mousebutton
+   call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,                     &amp;
+-       MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,         &amp;
++       MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,              &amp;
+        nMode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,              &amp;
+        MyCall,HisCall,HisGrid,neme,ntx2,s2,                            &amp;
+-       ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,         &amp;
++       ps0,npkept,lumsg,nslim2,psavg,ccf,Nseg,                         &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+   nforce=0
+   ntx2=0
+
+Modified: trunk/iscat.f90
+===================================================================
+--- trunk/iscat.f90	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/iscat.f90	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -1,23 +1,17 @@
+-subroutine iscat(dat,npts0,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,    &amp;
+-     mousebutton,mode4,nafc,psavg)
++subroutine iscat(dat,npts0,t2,cfile6,MinSigdB,DFTolerance,NFreeze,   &amp;
++     MouseDF,mousebutton,mode4,nafc,psavg)
+ 
+ ! Decode an ISCAT signal
+ 
+   parameter (NMAX=34*11025)
+   parameter (NSZ=4*1400)
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+-!  complex cdat(368640)
+-!  complex cdat0(368640)
+   character cfile6*6                      !File time
+   character c42*42
+   character msg*29,msg1*29
+   character csync*1
+-!  real x(NSZ),x2(NSZ)
+-!  complex c(288)
+   real s0(288,NSZ)
+   real fs1(0:41,30)
+-!  real savg(288)
+-!  real ccf(1:96)
+   real psavg(72)                          !Average spectrum of whole file
+   integer dftolerance
+   integer icos(4)
+@@ -25,10 +19,12 @@
+   data nsync/4/,nlen/2/,ndat/18/
+   data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?@-'/
+ 
+-  call synciscat(dat,npts0,s0,jsym,df,MinSigdB,DFTolerance,NFreeze,MouseDF, &amp;
+-       mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,ipk,jpk,idf)
++! Compute symbol spectra and establish sync:
++  call synciscat(dat,npts0,s0,jsym,df,MinSigdB,DFTolerance,NFreeze,    &amp;
++       MouseDF,mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,    &amp;
++       ipk,jpk,idf,df1)
+ 
+-  if(nsig.lt.MinSigdB) then
++  if(nsig.lt.MinSigdB .or. xsync.le.1.0) then
+      msglen=0
+      worst=1.
+      avg=1.
+@@ -49,7 +45,8 @@
+      if(mod(k-1,nblk)+1.gt.6) then
+         n=n+1
+         m=mod(n-1,msglen)+1
+-        ii=nint(idf*float(j-jb/2)/2584.0)
++!        ii=nint(idf*float(j-jb/2)/2584.0)
++        ii=nint(idf*float(j-jb/2)/float(jb))
+         do i=0,41
+            iii=ii+ipk+2*i
+            if(iii.ge.1 .and. iii.le.288) fs1(i,m)=fs1(i,m) + s0(iii,j)
+@@ -98,15 +95,12 @@
+   if(navg.le.0) msg=' '
+   csync=' '
+   if(isync.ge.1) csync='*'
+-  nfdot=nint(idf*df*mode4/30.0)
++  nfdot=nint(idf*df1)
+ 
+   call cs_lock('iscat')
+-  write(11,1020) cfile6,isync,nsig,ndf0,nfdot,csync,msg,msglen,nworst,navg
+-  write(21,1020) cfile6,isync,nsig,ndf0,nfdot,csync,msg,msglen,nworst,navg
+-1020 format(a6,2i4,i5,i4,1x,a1,2x,a28,i4,2i3)
+-
+-!  write(*,1021) cfile6,isync,nsig,ndf0,nfdot,csync,msg,xsync,msglen,nworst,navg
+-!1021 format(a6,2i4,i5,i4,1x,a1,2x,a28,f5.1,3i3)
++  write(11,1020) cfile6,isync,nsig,t2,ndf0,nfdot,csync,msg,msglen,nworst,navg
++  write(21,1020) cfile6,isync,nsig,t2,ndf0,nfdot,csync,msg,msglen,nworst,navg
++1020 format(a6,2i4,f5.1,i5,i4,1x,a1,2x,a28,i4,2i3)
+   call cs_unlock
+ 
+   return
+
+Modified: trunk/synciscat.f90
+===================================================================
+--- trunk/synciscat.f90	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/synciscat.f90	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -1,5 +1,6 @@
+ subroutine synciscat(dat,npts0,s0,jsym,df,MinSigdB,DFTolerance,NFreeze,   &amp;
+-     MouseDF,mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,ipk,jpk,idf)
++     MouseDF,mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,         &amp;
++     ipk,jpk,idf,df1)
+ 
+ ! Synchronize an ISCAT signal
+ 
+@@ -7,7 +8,7 @@
+   parameter (NSZ=4*1400)
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+   complex cdat(368640)
+-  complex cdat0(368640)
++!  complex cdat0(368640)
+   real x(NSZ),x2(NSZ)
+   complex c(288)
+   real s0(288,NSZ)
+@@ -54,7 +55,7 @@
+   df=fsample/nfft
+   fac=1.0/1000.0                       !Somewhat arbitrary
+   savg=0.
+-  cdat0(:npts)=cdat(:npts)
++!  cdat0(:npts)=cdat(:npts)
+ 
+   ia=1-kstep
+   do j=1,4*nsym                                   !Compute symbol spectra
+@@ -70,12 +71,11 @@
+      enddo
+   enddo
+ 
+-  jsym=j-1
+-  jh=jsym/2
++  jsym=4*nsym
+   savg=savg/jsym
+   do i=1,nfft
+      x(1:jsym)=s0(i,1:jsym)
+-     call pctile(x,x2,jsym,30,b(i))           !Baseline level for each freq bin
++     call pctile(x,x2,jsym,50,b(i))           !Baseline level for each freq bin
+   enddo
+   b(1:10)=b(11)
+ 
+@@ -87,44 +87,44 @@
+      endif
+   enddo
+ 
+-!### Not sure about this ? ###
+-  do j=1,jsym                                    !Normalize the symbol spectra
+-     s0(1:nfft,j)=s0(1:nfft,j)/b(1:nfft)
++  do i=1,nfft
++     fac=1.0/b(i)
++     do j=1,jsym                             !Normalize the symbol spectra
++        s0(i,j)=fac*s0(i,j)
++     enddo
+   enddo
+ 
+-  idfmax=0
+-  idfstep=1
+-  jb=(jsym-4*nblk+1)/4
+-  jb=4*jb
+-  idftop=60
+-  if(nafc.ne.0) then
+-     idfmax=idftop
+-     iimax=idftop*(jb/2)/2584.0
+-     if(iimax.eq.0) then
+-        idfmax=0
+-     else
+-        idfstep=nint(float(idftop)/iimax)
+-        idfmax=nint(float(idftop)/idfstep)
+-        idfmax=idfstep*idfmax
+-     endif
++!  print*,jsym,0.25*jsym*nsps/fsample
++  nfold=jsym/96
++  jb=96*nfold
++
++  ttot=npts/fsample                         !Length of record (s)
++  df1=df/ttot                               !Step size for f1=fdot
++  idf1=-25.0/df1
++  idf2=5.0/df1
++  if(nafc.eq.0) then
++     idf1=0
++     idf2=0
++  else if(mod(-idf1,2).eq.1) then
++     idf1=idf1-1
+   endif
++  dts4=nsps/(4.0*fsample)
++
+   xsyncbest=0.
+-  do idf=-idfmax,idfmax,idfstep
++  do idf=idf1,idf2,2
+      fs0=0.
+      do j=1,jb                             !Fold s0 into fs0, modulo 4*nblk 
+         k=mod(j-1,4*nblk)+1
+-        ii=nint(idf*float(j-jb/2)/2584.0)
++        ii=nint(idf*float(j-jb/2)/float(jb))
+         ia=max(1-ii,1)
+         ib=min(nfft-ii,nfft)
+         do i=ia,ib
+            fs0(i,k)=fs0(i,k) + s0(i+ii,j)
+         enddo
+      enddo
++!     ref=sum(fs0(ia:ib,1:96))/(24.0*(ib-ia+1))
++     ref=nfold*4
+ 
+-     do j=1,12
+-        fs0(1:nfft,96+j)=fs0(1:nfft,j)
+-     enddo
+-
+      i0=27
+      if(mode4.eq.1) i0=95                  !bin of nominal lowest tone
+      ia=i0-600/df                          !Set search range in frequency...
+@@ -154,29 +154,18 @@
+         enddo
+      enddo
+ 
+-     ref=fs0(ipk+2,jpk)  + fs0(ipk+4,jpk)    + fs0(ipk+6,jpk)   +     &amp;
+-          fs0(ipk,jpk+4)  + fs0(ipk+4,jpk+4)  + fs0(ipk+6,jpk+4) +     &amp;
+-          fs0(ipk,jpk+8)  + fs0(ipk+2,jpk+8)  + fs0(ipk+4,jpk+8) +     &amp;
+-          fs0(ipk,jpk+12) + fs0(ipk+2,jpk+12) + fs0(ipk+6,jpk+12)
+-     ref=ref/3.0
++     xsync=smax/ref - 1.0
++     if(nfold.lt.26) xsync=xsync * sqrt(nfold/26.0)
++     xsync=xsync-0.5                           !Empirical
++     
++!     write(*,3001) idf,idf*df1,smax,ref,xsync,(ipk-i0)*df
++!     write(41,3001) idf,idf*df1,smax,ref,xsync,(ipk-i0)*df
++!3001 format(i3,f8.1,2f8.0,f8.3,f8.0)
+ 
+-     kk=0
+-     do j=0,4*nblk-1
+-        ss=0.
+-        do n=1,4
+-           k=j+4*n-3
+-           ss=ss + fs0(ipk+2*icos(n),k)
+-        enddo
+-        kk=kk+1
+-        ccf(kk)=ss/ref
+-     enddo
+-
+-     xsync=smax/ref
+      nsig=nint(db(smax/ref - 1.0) -15.0)
+      if(mode4.eq.1) nsig=nsig-5
+      if(nsig.lt.-20) nsig=-20
+      ndf0=nint(df*(ipk-i0))
+-     if(nsig.lt.MinSigdB) go to 900
+ 
+      smax=0.
+      ja=jpk+16
+@@ -203,9 +192,6 @@
+         jpkbest=jpk
+         idfbest=idf
+      endif
+-     fdot=idf*df/30.0
+-!     write(*,3001) idf,fdot,xsync,nsig,ndf0,msglen
+-!3001 format(i5,2f8.1,3i5)
+   enddo
+ 
+   xsync=xsyncbest
+@@ -216,5 +202,9 @@
+   jpk=jpkbest
+   idf=idfbest
+ 
++!  print*,'A',idf,df1,idf*df1,nfold
++!  call flush(41)
++!  rewind 41
++
+ 900 return
+ end subroutine synciscat
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/wsjt.py	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -695,7 +695,7 @@
+         cleartext()
+         ModeFSK441()
+         mode.set(&quot;ISCAT-B&quot;)
+-        lab2.configure(text='FileID       Sync     dB     DF       F1')
++        lab2.configure(text='FileID       Sync    dB      DT       DF       F1')
+         isync=isync_iscat
+         lsync.configure(text=slabel+str(isync))
+         cbafc.grid(column=1,row=1,padx=2,sticky='W')
+@@ -1918,8 +1918,12 @@
+                     x1=(Audio.gcom2.npingtime - 195)/60.0
+                     x2=(Audio.gcom2.npingtime2 - 195)/60.0
+                 else:
+-                    x1=(Audio.gcom2.npingtime  - 195 - 1000)/60.0
+-                    x2=(Audio.gcom2.npingtime2 - 195 + 1000)/60.0                    
++                    if Audio.gcom2.mousebutton==3:
++                        x1=2
++                        x2=(Audio.gcom2.npingtime - 195)/60.0
++                    else:
++                        x1=(Audio.gcom2.npingtime  - 195 - 1000)/60.0
++                        x2=(Audio.gcom2.npingtime2 - 195 + 1000)/60.0
+                 graph1.create_line([x1,90,x2,90],fill=&quot;yellow&quot;)
+                 graph1.create_line([x1,85,x1,95],fill=&quot;yellow&quot;)
+                 graph1.create_line([x2,85,x2,95],fill=&quot;yellow&quot;)
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-06 19:24:07 UTC (rev 2381)
++++ trunk/wsjt1.f90	2011-04-13 19:47:50 UTC (rev 2382)
+@@ -2,7 +2,7 @@
+      MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,            &amp;
+      Mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,            &amp;
+      MyCall,HisCall,HisGrid,neme,ntx2,s2,                          &amp;
+-     ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,       &amp;
++     ps0,npkept,lumsg,nslim2,psavg,ccf,Nseg,                       &amp;
+      MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+ 
+   parameter (NP2=120*11025)
+@@ -19,7 +19,6 @@
+   real ps0(431)           !Spectrum of best ping
+   integer npkept          !Number of pings kept and decoded
+   integer lumsg           !Logical unit for decoded.txt
+-  real basevb             !Baseline signal level, dB
+   integer nslim2          !Minimum strength for single-tone pings, dB
+   real psavg(450)         !Average spectrum of the whole file
+   integer Nseg            !First or second Tx sequence?
+@@ -36,6 +35,7 @@
+   real yellow(216)
+   real yellow0(216)
+   real fzap(200)
++  real sumsq(600)
+   integer resample
+   real*8 samfacin,samratio
+   real dat2(NP2)
+@@ -127,7 +127,7 @@
+      sq=sq + dat(j)**2
+   enddo
+   avesq=sq/jz
+-  basevb=dB(avesq) - 44    !Base power level to send back to GUI
++  basevb=dB(avesq) - 44    !Base power level
+   if(avesq.eq.0) go to 900
+ 
+   nz=600
+@@ -141,10 +141,10 @@
+         sum=sum+dat(k)**2
+      enddo
+      sum=sum/nstep
+-     sq=sq + (sum-avesq)**2
++     sumsq(j)=sum
+   enddo
+-  rmspower=sqrt(sq/nz)
+ 
++
+   pick=.false.
+   if(mousebutton.ne.0) pick=.true. !This is a mouse-picked decoding
+   if(.not.pick .and. nforce.eq.0 .and.                                 &amp;
+@@ -164,7 +164,6 @@
+ 
+ ! If we're in JT65 mode, call the decode65 routines.
+   if(mode.eq.2) then
+-!          if(rmspower.gt.34000.0) go to 900     !Reject very noisy data
+ ! Check for a JT65 shorthand message
+      nstest=0
+      if(ntx2.ne.1) call short65(dat,jz,NFreeze,MouseDF,              &amp;
+@@ -234,11 +233,14 @@
+   endif
+ 
+   if(mode.eq.9) then                             !ISCAT mode
+-      jz=min(jz,30*11025)
+-      nz=jz/nstep - 1            !# of spectra to compute
+-!     write(74) jz,cfile6,(dat(j),j=1,jz)
++     nz=jz/nstep - 1            !# of spectra to compute
++!    write(74) jz,cfile6,(dat(j),j=1,jz)
+      call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+-     if(jz.ge.11025) call iscat(dat,jz,cfile6,MinSigdB,DFTolerance,     &amp;
++     call dtrim(dat,jz,dat2,jz2)
++     t2=0.
++     if(pick) t2=(istart+0.5*jz2)/11025.0 + 0.5           !### +0.5 is empirical
++     jz2=min(jz2,30*11025)
++     call iscat(dat2,jz2,t2,cfile6,MinSigdB,DFTolerance,     &amp;
+           NFreeze,MouseDF,mousebutton,mode4,nafc,psavg)
+      psavg(65:)=0.
+      go to 800
+@@ -306,8 +308,8 @@
+   endif
+ 
+ 800 continue
+-  call s2shape(s2,nchan,nz,tbest)
+-  
++  if(nz.ge.1) call s2shape(s2,nchan,nz,tbest)
++
+ 900 LDecoded = ((NSyncOK.gt.0) .or. npkept.gt.0)
+   endfile 11
+   call flush(11)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002073.html">[WSJT-SVN] r2381 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002075.html">[WSJT-SVN] r2383 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2074">[ date ]</a>
+              <a href="thread.html#2074">[ thread ]</a>
+              <a href="subject.html#2074">[ subject ]</a>
+              <a href="author.html#2074">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

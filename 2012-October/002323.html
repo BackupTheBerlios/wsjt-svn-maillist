@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2631 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2631%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121003004107.AB4B555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002322.html">
+   <LINK REL="Next"  HREF="002324.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2631 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2631%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121003004107.AB4B555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2631 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct  3 02:41:07 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002322.html">[WSJT-SVN] r2630 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002324.html">[WSJT-SVN] r2632 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2323">[ date ]</a>
+              <a href="thread.html#2323">[ thread ]</a>
+              <a href="subject.html#2323">[ subject ]</a>
+              <a href="author.html#2323">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-03 02:41:07 +0200 (Wed, 03 Oct 2012)
+New Revision: 2631
+
+Added:
+   branches/wsjtx/libm65/decode9.f90
+Modified:
+   branches/wsjtx/mainwindow.cpp
+Log:
+Add the decode9 routine.
+
+
+Added: branches/wsjtx/libm65/decode9.f90
+===================================================================
+--- branches/wsjtx/libm65/decode9.f90	                        (rev 0)
++++ branches/wsjtx/libm65/decode9.f90	2012-10-03 00:41:07 UTC (rev 2631)
+@@ -0,0 +1,54 @@
++subroutine decode9(i1SoftSymbols,msg)
++
++! Decoder for JT9
++! Input:   i1SoftSymbols(207) - Single-bit soft symbols
++! Output:  msg                - decoded message (blank if erasure)
++
++  character*22 msg
++  integer*4 i4DecodedBytes(9)
++  integer*4 i4Decoded6BitWords(12)
++  integer*1 i1DecodedBytes(13)   !72 bits and zero tail as 8-bit bytes
++  integer*1 i1SoftSymbols(207)
++  integer*1 i1DecodedBits(72)
++
++  integer*1 i1
++  logical first
++  integer*4 mettab(0:255,0:1)
++  equivalence (i1,i4)
++  data first/.true./
++  save
++
++  if(first) then
++! Get the metric table
++     bias=0.37                          !To be optimized, in decoder program
++     scale=10                           !  ... ditto ...
++     open(19,file='met8.21',status='old')
++     do i=0,255
++        read(19,*) x00,x0,x1
++        mettab(i,0)=nint(scale*(x0-bias))
++        mettab(i,1)=nint(scale*(x1-bias))    !### Check range, etc.  ###
++     enddo
++     close(19)
++     first=.false.
++  endif
++
++  msg='                      '
++  nbits=72
++  ndelta=17
++  limit=1000
++  call fano232(i1SoftSymbols,nbits+31,mettab,ndelta,limit,i1DecodedBytes,   &amp;
++       ncycles,metric,ierr,maxmetric,maxnp)
++
++  if(ncycles.lt.(nbits*limit)) then
++     nbytes=(nbits+7)/8
++     do i=1,nbytes
++        n=i1DecodedBytes(i)
++        i4DecodedBytes(i)=iand(n,255)
++     enddo
++     call unpackbits(i4DecodedBytes,nbytes,8,i1DecodedBits)
++     call packbits(i1DecodedBits,12,6,i4Decoded6BitWords)
++     call unpackmsg(i4Decoded6BitWords,msg)                !Unpack decoded msg
++  endif
++
++  return
++end subroutine decode9
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-03 00:38:42 UTC (rev 2630)
++++ branches/wsjtx/mainwindow.cpp	2012-10-03 00:41:07 UTC (rev 2631)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002322.html">[WSJT-SVN] r2630 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002324.html">[WSJT-SVN] r2632 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2323">[ date ]</a>
+              <a href="thread.html#2323">[ thread ]</a>
+              <a href="subject.html#2323">[ subject ]</a>
+              <a href="author.html#2323">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

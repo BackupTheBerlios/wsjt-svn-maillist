@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2537 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2537%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120829140958.C142055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002228.html">
+   <LINK REL="Next"  HREF="002230.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2537 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2537%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120829140958.C142055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2537 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Aug 29 16:09:58 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002228.html">[WSJT-SVN] r2536 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002230.html">[WSJT-SVN] r2538 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2229">[ date ]</a>
+              <a href="thread.html#2229">[ thread ]</a>
+              <a href="subject.html#2229">[ subject ]</a>
+              <a href="author.html#2229">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-29 16:09:58 +0200 (Wed, 29 Aug 2012)
+New Revision: 2537
+
+Modified:
+   branches/map65/libm65/cgen65.f90
+   branches/map65/libm65/mapsim.f90
+   branches/map65/mainwindow.cpp
+Log:
+Minor corrections to cgen65.
+
+
+Modified: branches/map65/libm65/cgen65.f90
+===================================================================
+--- branches/map65/libm65/cgen65.f90	2012-08-28 19:01:05 UTC (rev 2536)
++++ branches/map65/libm65/cgen65.f90	2012-08-29 14:09:58 UTC (rev 2537)
+@@ -1,4 +1,4 @@
+-subroutine cgen65(message,mode65,samfac,nsendingsh,msgsent,cwave,nwave)
++subroutine cgen65(message,mode65,nfast,samfac,nsendingsh,msgsent,cwave,nwave)
+ 
+ ! Encodes a JT65 message into a wavefile.  
+ ! Executes in 17 ms on opti-745.
+@@ -7,7 +7,7 @@
+   character*22 message          !Message to be generated
+   character*22 msgsent          !Message as it will be received
+   character*3 cok               !'   ' or 'OOO'
+-  real*8 dt,phi,f,f0,dfgen,dphi,twopi,samfac
++  real*8 t,dt,phi,f,f0,dfgen,dphi,twopi,samfac,tsymbol
+   complex cwave(NMAX)           !Generated complex wave file
+   integer dgen(12)
+   integer sent(63)
+@@ -31,7 +31,7 @@
+      first=.false.
+   endif
+ 
+-  call chkmsg(message,cok,nspecial,flip)
++  call chkmsg(message,cok,nspecial,flip) !See if it's a shorthand
+   if(nspecial.eq.0) then
+      call packmsg(message,dgen)          !Pack message into 72 bits
+      nsendingsh=0
+@@ -41,43 +41,44 @@
+      call interleave63(sent,1)           !Apply interleaving
+      call graycode(sent,63,1)            !Apply Gray code
+      nsym=126                            !Symbols per transmission
+-     nsps=4096
++     tsymbol=4096.d0/(nfast*11025.d0)    !Time per symbol
+   else
++     nsendingsh=1                        !Flag for shorthand message
+      nsym=32
+-     nsps=16384
+-     nsendingsh=1                         !Flag for shorthand message
++     tsymbol=16384.d0/11025.d0
+   endif
+-  if(mode65.eq.0) go to 900
+ 
+-  nsps=nint(nsps*96000.d0/11025.d0)
+-
+ ! Set up necessary constants
+   dt=1.d0/(samfac*96000.d0)
+   f0=118*11025.d0/1024
+   dfgen=mode65*11025.d0/4096.d0
++  t=0.d0
+   phi=0.d0
+-  i=0
+   k=0
+-  do j=1,nsym
+-     f=f0
+-     if(nspecial.ne.0 .and. mod(j,2).eq.0) f=f0+10*nspecial*dfgen
+-     if(nspecial.eq.0 .and. flip*pr(j).lt.0.0) then
+-        k=k+1
+-        f=f0+(sent(k)+2)*dfgen
++  j0=0
++  ndata=nsym*96000.d0*samfac*tsymbol
++
++  do i=1,ndata
++     t=t+dt
++     j=int(t/tsymbol) + 1                    !Symbol number, 1-126
++     if(j.ne.j0) then
++        f=f0
++        if(nspecial.ne.0 .and. mod(j,2).eq.0) f=f0+10*nspecial*dfgen
++        if(nspecial.eq.0 .and. flip*pr(j).lt.0.0) then
++           k=k+1
++           f=f0+(sent(k)+2)*dfgen
++        endif
++        dphi=twopi*dt*f
++        j0=j
+      endif
+-     dphi=twopi*dt*f
+-     do ii=1,nsps
+-        phi=phi+dphi
+-        if(phi.gt.twopi) phi=phi-twopi
+-        xphi=phi
+-        i=i+1
+-!        iwave(i)=32767.0*sin(xphi)
+-        cwave(i)=cmplx(cos(xphi),-sin(xphi))
+-     enddo
++     phi=phi+dphi
++     if(phi.gt.twopi) phi=phi-twopi
++     xphi=phi
++     cwave(i)=cmplx(cos(xphi),-sin(xphi))
+   enddo
+ 
+-  cwave(nsym*nsps+1:)=0
+-  nwave=nsym*nsps + 5512
++  cwave(ndata+1:)=0
++  nwave=ndata + 48000
+   call unpackmsg(dgen,msgsent)
+   if(flip.lt.0.0) then
+      do i=22,1,-1
+@@ -92,5 +93,5 @@
+      if(nspecial.eq.4) msgsent='73'
+   endif
+ 
+-900 return
++  return
+ end subroutine cgen65
+
+Modified: branches/map65/libm65/mapsim.f90
+===================================================================
+--- branches/map65/libm65/mapsim.f90	2012-08-28 19:01:05 UTC (rev 2536)
++++ branches/map65/libm65/mapsim.f90	2012-08-29 14:09:58 UTC (rev 2537)
+@@ -9,7 +9,7 @@
+   complex cwave(NMAX)                 !Generated complex waveform (no noise)
+   complex z,zx,zy
+   real*8 fcenter,fsample,samfac,f,dt,twopi,phi,dphi
+-  character msg0*22,message*22,msgsent*22,arg*8,fname*14,mode*2
++  character msg0*22,message*22,msgsent*22,arg*8,fname*13,mode*2
+ 
+   nargs=iargc()
+   if(nargs.ne.9) then
+@@ -51,6 +51,8 @@
+   mode65=1
+   if(mode(1:1).eq.'B') mode65=2
+   if(mode(1:1).eq.'C') mode65=4
++  nfast=1
++  if(mode(2:2).eq.'2') nfast=2
+   open(12,file='msgs.txt',status='old')
+ 
+   write(*,1000)
+@@ -68,7 +70,7 @@
+      call noisegen(d4,NMAX)                      !Generate Gaussuian noise
+ 
+      if(msg0.ne.'                      ') then
+-        call cgen65(message,mode65,samfac,nsendingsh,msgsent,cwave,nwave)
++        call cgen65(message,mode65,nfast,samfac,nsendingsh,msgsent,cwave,nwave)
+      endif
+ 
+      rewind 12
+@@ -77,7 +79,8 @@
+         if(msg0.eq.'                      ') then
+            read(12,1004) message
+ 1004       format(a22)
+-           call cgen65(message,mode65,samfac,nsendingsh,msgsent,cwave,nwave)
++           call cgen65(message,mode65,nfast,samfac,nsendingsh,msgsent,    &amp;
++                cwave,nwave)
+         endif
+            
+         if(npol.lt.0) pol=(isig-1)*180.0/nsigs
+@@ -89,7 +92,7 @@
+         snrdbx=snrdb
+         if(snrdb.ge.-1.0) snrdbx=-15.0 - 15.0*(isig-1.0)/nsigs
+         sig=sqrt(2.2*2500.0/96000.0) * 10.0**(0.05*snrdbx)
+-        write(*,1020) isig,0.001*f,snrdbx,nint(pol),message
++        write(*,1020) isig,0.001*f,snrdbx,nint(pol),msgsent
+ 1020    format(i3,f8.3,f7.1,i5,2x,a22)
+ 
+         phi=0.
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-28 19:01:05 UTC (rev 2536)
++++ branches/map65/mainwindow.cpp	2012-08-29 14:09:58 UTC (rev 2537)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -981,6 +981,8 @@
+   }
+   for (i = 0; i &lt; list.size()-1; ++i) {
+     if(i==list.size()-2) m_loopall=false;
++    qDebug() &lt;&lt; len &lt;&lt; m_path;
++
+     if(list.at(i)==m_path.right(len)) {
+       int n=m_path.length();
+       QString fname=m_path.replace(n-len,len,list.at(i+1));
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002228.html">[WSJT-SVN] r2536 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002230.html">[WSJT-SVN] r2538 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2229">[ date ]</a>
+              <a href="thread.html#2229">[ thread ]</a>
+              <a href="subject.html#2229">[ subject ]</a>
+              <a href="author.html#2229">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

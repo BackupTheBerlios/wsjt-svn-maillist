@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1842 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1842%20-%20branches/wspr&In-Reply-To=%3C201003161624.o2GGOPkv002501%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001533.html">
+   <LINK REL="Next"  HREF="001535.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1842 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1842%20-%20branches/wspr&In-Reply-To=%3C201003161624.o2GGOPkv002501%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1842 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 16 17:24:25 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001533.html">[WSJT-SVN] r1841 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001535.html">[WSJT-SVN] r1843 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1534">[ date ]</a>
+              <a href="thread.html#1534">[ thread ]</a>
+              <a href="subject.html#1534">[ subject ]</a>
+              <a href="author.html#1534">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-16 17:24:22 +0100 (Tue, 16 Mar 2010)
+New Revision: 1842
+
+Added:
+   branches/wspr/fmt.f90
+   branches/wspr/g1.bat
+Log:
+Save a command-line FMT program.
+
+
+Added: branches/wspr/fmt.f90
+===================================================================
+--- branches/wspr/fmt.f90	2010-03-16 15:56:28 UTC (rev 1841)
++++ branches/wspr/fmt.f90	2010-03-16 16:24:22 UTC (rev 1842)
+@@ -0,0 +1,93 @@
++program fmt
++
++! Program for ARRL Frequency Measuring Test, etc.
++
++  parameter (NZ1=65536+9)                          !Max length of waveform
++  parameter (NZ4=4*NZ1)
++  integer*2 iwave(NZ1),kwave(NZ4)
++  character arg*12,cmnd*120
++  real x(65536)
++  complex c(0:32768)
++  real*8 s,sq
++  integer time
++  integer soundin
++  equivalence (x,c)
++
++  nargs=iargc()
++  if(nargs.ne.2) then
++     print*,'Usage: fmt &lt;kHz&gt; &lt;offset&gt;'
++     go to 999
++  endif
++  call getarg(1,arg)
++  read(arg,*) nkhz
++  call getarg(2,arg)
++  read(arg,*) noffset
++
++!  cmnd='rigctl '//'-m'//crig//' -r'//catport//' -s'//cbaud//           &amp;
++!          ' -C data_bits='//cdata//' -C stop_bits='//cstop//              &amp;
++!          ' -C serial_handshake='//chs//' T 1'
++
++! Example rigctl command:
++! rigctl -m 1608 -r /dev/ttyUSB0 -s 57600 -C data_bits=8 -C stop_bits=1 \
++!   -C serial_handshake=Hardware T 1
++
++!  iret=system(cmnd)
++!  if(iret.ne.0) then
++!     print*,'Error executing rigctl command to set frequency:'
++!     print*,cmnd
++!     go to 999
++!  endif
++
++  open(13,file='fmt.out',status='unknown',position='append')
++  call soundinit
++  ndevin=0
++  npts=NZ1
++  do iter=1,100
++     nsec=time()
++     ierr=soundin(ndevin,kwave,4*npts)
++     if(ierr.ne.0) then
++        print*,'Error in soundin',ierr
++        stop
++     endif
++     call fil1(kwave,4*npts,iwave,n2)
++
++     s=0.
++     do i=1,n2
++        s=s + iwave(i)
++     enddo
++     ave=s/n2
++     sq=0.
++     do i=1,n2
++        x(i)=iwave(i)-ave
++        sq=sq + x(i)**2
++     enddo
++     rms=sqrt(sq/n2)
++
++     nfft=65536
++     call four2a(x,nfft,1,-1,0)
++
++     df=12000.d0/nfft
++     smax=0.
++     nq=nfft/4
++     fac=1.0/float(nfft)**2
++     do i=10,nq
++        s=fac * (real(c(i))**2 + aimag(c(i))**2)
++        if(s.gt.smax) then
++           smax=s
++           ipk=i
++        endif
++     enddo
++
++     fpeak=ipk*df
++     n=mod(nsec,86400)
++     nhr=n/3600
++     nmin=mod(n/60,60)
++     nsec=mod(n,60)
++     write(*,1100) nhr,nmin,nsec,nkhz,noffset,fpeak,smax,ave,rms
++     write(13,1100) nhr,nmin,nsec,nkhz,noffset,fpeak,smax,ave,rms
++1100 format(i2.2,':',i2.2,':',i2.2,i7,i6,4f10.2)
++     call flush(13)
++  enddo
++
++999 end program fmt
++
+
+Added: branches/wspr/g1.bat
+===================================================================
+--- branches/wspr/g1.bat	2010-03-16 15:56:28 UTC (rev 1841)
++++ branches/wspr/g1.bat	2010-03-16 16:24:22 UTC (rev 1842)
+@@ -0,0 +1 @@
++g95 -o fmt.exe fmt.f90 fil1.f90 four2.o sound.o libportaudio.a c:\MinGW\lib\libwinmm.a
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001533.html">[WSJT-SVN] r1841 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001535.html">[WSJT-SVN] r1843 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1534">[ date ]</a>
+              <a href="thread.html#1534">[ thread ]</a>
+              <a href="subject.html#1534">[ subject ]</a>
+              <a href="author.html#1534">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

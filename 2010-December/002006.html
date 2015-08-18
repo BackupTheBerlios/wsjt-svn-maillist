@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2314 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2314%20-%20branches/wspr&In-Reply-To=%3C20101221152134.A51CE480BF9%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002005.html">
+   <LINK REL="Next"  HREF="002007.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2314 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2314%20-%20branches/wspr&In-Reply-To=%3C20101221152134.A51CE480BF9%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2314 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec 21 16:21:34 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002005.html">[WSJT-SVN] r2313 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002007.html">[WSJT-SVN] r2315 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2006">[ date ]</a>
+              <a href="thread.html#2006">[ thread ]</a>
+              <a href="subject.html#2006">[ subject ]</a>
+              <a href="author.html#2006">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-21 16:21:34 +0100 (Tue, 21 Dec 2010)
+New Revision: 2314
+
+Modified:
+   branches/wspr/genmept.f
+   branches/wspr/start_threads.c
+   branches/wspr/wspr.py
+   branches/wspr/wspr0_tx.f90
+Log:
+Reduce a timing constant in start_threads.
+Disable the band menu items during a &quot;tune&quot; transmission.
+Cancel the &quot;update&quot; timer on program exit.
+Fix genmept() to work with negative dBm values.
+
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2010-12-20 21:26:09 UTC (rev 2313)
++++ branches/wspr/genmept.f	2010-12-21 15:21:34 UTC (rev 2314)
+@@ -1,16 +1,15 @@
+-      subroutine genmept(call1,grid,ndbm,ntxdf,snrdb,iwave)
++      subroutine genmept(message,ntxdf,snrdb,iwave)
+ 
+-C  Encode an MEPT_JT message and generate the corresponding wavefile.
++C  Encode a WSPR message and generate the corresponding wavefile.
+ 
+-      character*12 call1,call2
+-      character*4 grid,grid2
++      character*22 message
+       parameter (NMAX=120*12000)     !Max length of wave file
+       integer*2 iwave(NMAX)          !Generated wave file
+       parameter (MAXSYM=176)
+       integer*1 symbol(MAXSYM)
+       integer*1 data0(11),i1
+       integer npr3(162)
+-      logical first,lbad1,lbad2
++      logical first
+       real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+       equivalence(i1,i4)
+       data npr3/
+@@ -33,12 +32,7 @@
+          first=.false.
+       endif
+ 
+-      call packcall(call1,n1,lbad1)
+-      call packgrid(grid,ng,lbad2)
+-      n2=128*ng + (ndbm+64)
+-!      write(*,3010) n1,n2,call1,grid,ndbm
+-! 3010 format(2z12,2x,a12,2x,a4,i6)
+-      call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
++      call wqencode(message,ntype,data0)
+       nbytes=(50+31+7)/8
+       call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+       call inter_mept(symbol,1)                   !Apply interleaving
+@@ -47,16 +41,6 @@
+          i1=symbol(i)
+       enddo
+ 
+-      call unpackcall(n1,call2)
+-      call unpackgrid(n2/128,grid2)
+-      ndbm2=iand(n2,127) - 64
+-!      write(*,3010) n1,n2,call2,grid2,ndbm2
+-      if(lbad1 .or. lbad2 .or. (call1.ne.call2) .or. 
+-     +   (grid.ne.grid2) .or. (ndbm.ne.ndbm2)) then
+-         print*,'Error in structure of Tx message'
+-         stop
+-      endif
+-
+ C  Set up necessary constants
+       tsymbol=8192.d0/12000.d0
+       dt=1.d0/12000.d0
+
+Modified: branches/wspr/start_threads.c
+===================================================================
+--- branches/wspr/start_threads.c	2010-12-20 21:26:09 UTC (rev 2313)
++++ branches/wspr/start_threads.c	2010-12-21 15:21:34 UTC (rev 2314)
+@@ -51,7 +51,7 @@
+ 
+   if(decode_started&gt;0)  {
+     // the following was &quot;&lt; 100&quot;:
+-    if(time(NULL)-decode_started &lt; 5)  {
++    if(time(NULL)-decode_started &lt; 2)  {
+       printf(&quot;Attempted to start decoder too soon:  %d   %d&quot;,
+ 	     time(NULL),decode_started);
+       return 0;
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-20 21:26:09 UTC (rev 2313)
++++ branches/wspr/wspr.py	2010-12-21 15:21:34 UTC (rev 2314)
+@@ -77,6 +77,7 @@
+ ipctx=IntVar()
+ isec0=0
+ isync=1
++itx0=0
+ loopall=0
+ modpixmap0=0
+ mrudir=os.getcwd()
+@@ -104,6 +105,7 @@
+ sftx=StringVar()
+ start_idle=IntVar()
+ t0=&quot;&quot;
++timer1=0
+ txmsg=StringVar()
+ nreject=0
+ gain=1.0
+@@ -777,7 +779,7 @@
+     global root_geom,isec0,im,pim,ndbm0,nsec0,a,ftx0,nin0,nout0, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+         modpixmap0,tw,s0,c0,fmid,fmid0,loopall,ntr0,txmsg,iband0, \
+-        bandmap,bm,t0,nreject,gain,phdeg,ierr
++        bandmap,bm,t0,nreject,gain,phdeg,ierr,itx0,timer1
+ 
+     tsec=time.time()
+     utc=time.gmtime(tsec)
+@@ -954,9 +956,11 @@
+ 
+ # If T/R status has changed, get new info
+     ntr=int(w.acom1.ntr)
+-    if ntr!=ntr0:
++    itx=w.acom1.transmitting
++    if ntr!=ntr0 or itx!=itx0:
+         ntr0=ntr
+-        if ntr==-1:
++        itx0=int(itx)
++        if ntr==-1 or itx==1:
+             transmitting=1
+             receiving=0
+         elif ntr==0:
+@@ -989,7 +993,7 @@
+         else:
+             for i in range(15):
+                 bandmenu.entryconfig(i,state=NORMAL)
+-
++        
+     bgcolor='gray85'
+     t='Waiting to start'
+     bgcolor='pink'
+@@ -1154,7 +1158,7 @@
+         advanced.A_entry.configure(entry_state=DISABLED,label_state=DISABLED)
+         advanced.B_entry.configure(entry_state=DISABLED,label_state=DISABLED)
+   
+-    ldate.after(200,update)
++    timer1=ldate.after(200,update)
+     
+ #------------------------------------------------------ audio_config
+ def audio_config():
+@@ -1722,12 +1726,13 @@
+ sftx.set(t)
+ 
+ ldate.after(100,update)
+-
+ ldate.after(100,audio_config)
+ 
+ ##from WsprMod import specjt
+ root.mainloop()
+ 
++ldate.after_cancel(timer1)
++
+ # Clean up and save user options, then terminate.
+ if options.pttmode.get()=='CAT':
+     if options.rignum.get()==2509 or options.rignum.get()==2511:
+
+Modified: branches/wspr/wspr0_tx.f90
+===================================================================
+--- branches/wspr/wspr0_tx.f90	2010-12-20 21:26:09 UTC (rev 2313)
++++ branches/wspr/wspr0_tx.f90	2010-12-21 15:21:34 UTC (rev 2314)
+@@ -50,7 +50,7 @@
+   do ifile=1,nfiles
+      if(nfiles.gt.1 .and. nfiles.lt.9999) write(outfile,1010) ifile
+ 1010 format(i5.5,'.wav')
+-     call genmept(call1,grid,ndbm,ntxdf,snrdb,iwave)
++     call genmept(message,ntxdf,snrdb,iwave)
+      if(snrdb.eq.11.0) go to 999
+      if(outfile.ne.&quot;&quot;) then
+         call wfile5(iwave,NMAX,12000,outfile)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002005.html">[WSJT-SVN] r2313 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002007.html">[WSJT-SVN] r2315 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2006">[ date ]</a>
+              <a href="thread.html#2006">[ thread ]</a>
+              <a href="subject.html#2006">[ subject ]</a>
+              <a href="author.html#2006">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

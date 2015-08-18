@@ -1,0 +1,225 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r707 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r707%20-%20branches/wspr&In-Reply-To=%3C200804120035.m3C0ZVct027109%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000394.html">
+   <LINK REL="Next"  HREF="000396.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r707 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r707%20-%20branches/wspr&In-Reply-To=%3C200804120035.m3C0ZVct027109%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r707 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Apr 12 02:35:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000394.html">[WSJT-SVN] r706 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000396.html">[WSJT-SVN] r708 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#395">[ date ]</a>
+              <a href="thread.html#395">[ thread ]</a>
+              <a href="subject.html#395">[ subject ]</a>
+              <a href="author.html#395">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-12 02:35:24 +0200 (Sat, 12 Apr 2008)
+New Revision: 707
+
+Added:
+   branches/wspr/padevsub.c
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/getfile.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Fixed bandmap aging; made it compile with MinGW on Windows.
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2008-04-11 19:53:15 UTC (rev 706)
++++ branches/wspr/Makefile.MinGW	2008-04-12 00:35:24 UTC (rev 707)
+@@ -10,7 +10,7 @@
+ 
+ OBJS1 = rxtest.o mept162.o getrms.o mix162.o deg2grid.o \
+ 	sync162.o decode162.o spec162.o set.o xfft.o \
+-	four1.o ps162.o pctile.o xcor162.o peakup.o db.o \
++	ps162.o pctile.o xcor162.o peakup.o db.o \
+ 	inter_mept.o fano232.o unpack50.o unpackcall.o \
+ 	unpackgrid.o four2.o flat3.o sort.o ssort.o \
+ 	nchar.o grid2deg.o decode.o gmtime2.o wfile5.o \
+@@ -28,7 +28,7 @@
+ 
+ SRCS2F77 = mept162.f getrms.f wfile5.f mix162.f \
+ 	sync162.f decode162.f spec162.f set.f xfft.f \
+-	four1.f ps162.f pctile.f xcor162.f peakup.f db.f \
++	ps162.f pctile.f xcor162.f peakup.f db.f \
+ 	inter_mept.f fano232.f unpack50.f unpackcall.f \
+ 	unpackgrid.f four2.f flat3.f sort.f deg2grid.f \
+ 	ssort.f genmept.f \
+@@ -36,7 +36,7 @@
+ 	nchar.f grid2deg.f \
+ 	afc.f fchisq.f ccf2.f twkfreq.f 
+ 
+-SRCS2C = ptt.c start_threads.c
++SRCS2C = ptt.c start_threads.c padevsub.c
+ 
+ WSPR.EXE: w.pyd wspr.spec
+ 	c:/python25/python c:/python25/pyinstaller-1.3/Build.py wspr.spec
+
+Modified: branches/wspr/getfile.f90
+===================================================================
+--- branches/wspr/getfile.f90	2008-04-11 19:53:15 UTC (rev 706)
++++ branches/wspr/getfile.f90	2008-04-12 00:35:24 UTC (rev 707)
+@@ -42,7 +42,7 @@
+ #endif
+ 
+   ndecdone=0                              !??? ### ???
+-  decoding=.true.
++!  decoding=.true.
+   outfile=fname
+   call startdec
+ 
+
+Added: branches/wspr/padevsub.c
+===================================================================
+--- branches/wspr/padevsub.c	2008-04-11 19:53:15 UTC (rev 706)
++++ branches/wspr/padevsub.c	2008-04-12 00:35:24 UTC (rev 707)
+@@ -0,0 +1,49 @@
++#include &lt;stdio.h&gt;
++#include &lt;portaudio.h&gt;
++#include &lt;string.h&gt;
++
++int padevsub_(int *numdev, int *ndefin, int *ndefout, 
++	      int nchin[], int nchout[])
++{
++  int      i, devIdx;
++  int      numDevices;
++  PaDeviceInfo *pdi;
++  PaError  err;
++
++  Pa_Initialize();
++  numDevices = Pa_GetDeviceCount();
++  *numdev = numDevices;
++
++  if( numDevices &lt; 0 )  {
++    err = numDevices;
++    Pa_Terminate();
++    return err;
++  }
++
++  if ((devIdx = Pa_GetDefaultInputDevice()) &gt; 0) {
++    *ndefin = devIdx;
++  } else {
++    *ndefin = 0;
++  }
++
++  if ((devIdx = Pa_GetDefaultOutputDevice()) &gt; 0) {
++    *ndefout = devIdx;
++  } else {
++    *ndefout = 0;
++  }
++
++  printf(&quot;\nAudio     Input    Output     Device Name\n&quot;);
++  printf(&quot;Device  Channels  Channels\n&quot;);
++  printf(&quot;------------------------------------------------------------------\n&quot;);
++
++  for( i=0; i &lt; numDevices; i++ )  {
++    pdi = Pa_GetDeviceInfo(i);
++//    if(i == Pa_GetDefaultInputDevice()) *ndefin = i;
++//    if(i == Pa_GetDefaultOutputDevice()) *ndefout = i;
++    nchin[i]=pdi-&gt;maxInputChannels;
++    nchout[i]=pdi-&gt;maxOutputChannels;
++    printf(&quot;  %2d       %2d        %2d       %s\n&quot;,i,nchin[i],nchout[i],pdi-&gt;name);
++  }
++  return 0;
++}
++
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-11 19:53:15 UTC (rev 706)
++++ branches/wspr/wspr.py	2008-04-12 00:35:24 UTC (rev 707)
+@@ -8,8 +8,8 @@
+ import os,time,sys
+ ##import pyaudio
+ from math import log10
+-#from numpy.oldnumeric import zeros
+-from Numeric import zeros
++from numpy.oldnumeric import zeros
++#from Numeric import zeros
+ import array
+ import dircache
+ import Image, ImageTk, ImageDraw
+@@ -396,7 +396,8 @@
+             if callsign[:1] != ' ':
+                 i1=callsign.find(' ')
+                 callsign=callsign[:i1]
+-                nseq=int(lines[i][7:11]) + 1440*int(lines[i][4:6])
++                nseq=1440*int(lines[i][4:6]) + 60*int(lines[i][7:9]) + \
++                      int(lines[i][9:11])
+                 ndf=int(lines[i][33:36])
+                 bandmap.append((ndf,callsign,nseq))
+         text.configure(state=DISABLED)
+@@ -463,7 +464,7 @@
+                 #The following opens a url and passes the reception report to the database insertion handler for W6CQZ
+ #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
+                 #The following opens a url and passes the reception report to the database insertion handler from N8FQ/K3UK
+-                urlf = urllib.urlopen(&quot;<A HREF="http://www.electroblog.com/drsked/meptspots.php?%s">http://www.electroblog.com/drsked/meptspots.php?%s</A>&quot; % reportparams)
++                urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; % reportparams)
+                 #The proper way to handle url posting will be to define the url as a configuration parameter so data sinks
+                 #could be added/removed as necessary.  It is not strictly necessary to post reports to W6CQZ, but, since I
+                 #happen to be W6CQZ I can better debug things from the server side by sending to my system during the active
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2008-04-11 19:53:15 UTC (rev 706)
++++ branches/wspr/wspr2.f90	2008-04-12 00:35:24 UTC (rev 707)
+@@ -35,6 +35,7 @@
+ 
+   idevin=ndevin
+   idevout=ndevout
++
+   call padevsub(numdevs,ndefin,ndefout,nchin,nchout)
+   write(*,1003) idevin,idevout
+ 1003 format(/'User requested devices:  Input =',i2,'   Output =',i2)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000394.html">[WSJT-SVN] r706 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000396.html">[WSJT-SVN] r708 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#395">[ date ]</a>
+              <a href="thread.html#395">[ thread ]</a>
+              <a href="subject.html#395">[ subject ]</a>
+              <a href="author.html#395">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

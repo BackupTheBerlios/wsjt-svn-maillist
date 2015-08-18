@@ -1,0 +1,217 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2892 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2892%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130105163149.6F20955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002583.html">
+   <LINK REL="Next"  HREF="002585.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2892 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2892%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130105163149.6F20955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2892 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jan  5 17:31:49 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002583.html">[WSJT-SVN] r2891 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002585.html">[WSJT-SVN] r2893 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2584">[ date ]</a>
+              <a href="thread.html#2584">[ thread ]</a>
+              <a href="subject.html#2584">[ subject ]</a>
+              <a href="author.html#2584">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-05 17:31:48 +0100 (Sat, 05 Jan 2013)
+New Revision: 2892
+
+Modified:
+   branches/wsprx/lib/symspec.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/plotter.cpp
+Log:
+Cleaning up the waterfall display (etc) for WSPR-15 mode.
+
+
+Modified: branches/wsprx/lib/symspec.f90
+===================================================================
+--- branches/wsprx/lib/symspec.f90	2013-01-04 21:38:39 UTC (rev 2891)
++++ branches/wsprx/lib/symspec.f90	2013-01-05 16:31:48 UTC (rev 2892)
+@@ -111,11 +111,15 @@
+   ihsym=ihsym+1
+ 
+   cx(0:nfft3-1)=w3(1:nfft3)*cx(0:nfft3-1)  !Apply window w3
+-  call four2a(cx,nfft3,1,1,1)           !Third forward FFT (X)
++  call four2a(cx,nfft3,1,1,1)              !Third FFT
+ 
+   df3=1500.0/nfft3
+   i0=nint(-500.0/df3)
+   iz=min(NSMAX,nint(1000.0/df3))
++  if(nsps.eq.65536) then 
++     i0=50.0/df3
++     iz=min(NSMAX,nint(125.0/df3))
++  endif
+   fac=(1.0/nfft3)**2
+   do i=1,iz
+      j=i0+i-1
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-04 21:38:39 UTC (rev 2891)
++++ branches/wsprx/mainwindow.cpp	2013-01-05 16:31:48 UTC (rev 2892)
+@@ -466,7 +466,7 @@
+ {
+   lab1 = new QLabel(&quot;Receiving&quot;);
+   lab1-&gt;setAlignment(Qt::AlignHCenter);
+-  lab1-&gt;setMinimumSize(QSize(85,18));
++  lab1-&gt;setMinimumSize(QSize(150,18));
+   lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #00ff00}&quot;);
+   lab1-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab1);
+@@ -952,7 +952,7 @@
+   loggit(&quot;Start Tx&quot;);
+   pttTimer-&gt;start(200);                         //Sequencer delay
+   lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ff0000}&quot;);
+-  lab1-&gt;setText(message);
++  lab1-&gt;setText(&quot;Transmitting:  &quot; + message);
+   ui-&gt;xThermo-&gt;setValue(0.0);                    //Update thermometer
+ }
+ 
+
+Modified: branches/wsprx/plotter.cpp
+===================================================================
+--- branches/wsprx/plotter.cpp	2013-01-04 21:38:39 UTC (rev 2891)
++++ branches/wsprx/plotter.cpp	2013-01-05 16:31:48 UTC (rev 2892)
+@@ -70,6 +70,7 @@
+ 
+     m_fSpan=m_w*m_fftBinWidth;
+     m_StartFreq=100 * int((1500-0.5*m_fSpan)/100.0 + 0.5);
++    if(m_nsps==65536) m_StartFreq=20 * int((1612.5-0.5*m_fSpan)/20.0 + 0.5);
+   }
+   DrawOverlay();
+ }
+@@ -105,6 +106,7 @@
+   bool strong0=false;
+   bool strong=false;
+   int i0=(m_StartFreq-1000)/m_fftBinWidth;
++  if(m_nsps==65536) i0=(m_StartFreq-1550)/m_fftBinWidth;
+ 
+   for(int i=0; i&lt;m_w; i++) {
+     strong=false;
+@@ -186,7 +188,16 @@
+   painter.setBrush(Qt::SolidPattern);
+ 
+   double df = m_fftBinWidth;
++  m_fSpan = w*df;
++  int n=m_fSpan/10;
++  m_freqPerDiv=10;
++  if(n&gt;25) m_freqPerDiv=50;
++  if(n&gt;70) m_freqPerDiv=100;
++  if(n&gt;140) m_freqPerDiv=200;
++  if(n&gt;310) m_freqPerDiv=500;
+   pixperdiv = m_freqPerDiv/df;
++  m_hdivs = w*df/m_freqPerDiv + 0.9999;
++
+   y = m_h2 - m_h2/VERT_DIVS;
+   for( int i=1; i&lt;m_hdivs; i++)                   //draw vertical grids
+   {
+@@ -216,14 +227,6 @@
+   painter0.setFont(Font);
+   painter0.setPen(Qt::black);
+ 
+-  m_fSpan = w*df;
+-  int n=m_fSpan/10;
+-  m_freqPerDiv=10;
+-  if(n&gt;25) m_freqPerDiv=50;
+-  if(n&gt;70) m_freqPerDiv=100;
+-  if(n&gt;140) m_freqPerDiv=200;
+-  if(n&gt;310) m_freqPerDiv=500;
+-  m_hdivs = w*df/m_freqPerDiv + 0.9999;
+   m_ScalePixmap.fill(Qt::white);
+   painter0.drawRect(0, 0, w, 30);
+ 
+@@ -265,11 +268,18 @@
+     }
+   }
+ 
+-  QPen pen0(Qt::green, 3);                 //Mark QSO Freq with green tick
++  QPen pen0(Qt::green, 3);              //Mark decoding range with green line
+   painter0.setPen(pen0);
+-  x=XfromFreq(1500);
+-  int x1=x - 100/df;
+-  int x2=x + 100/df;
++  int x1,x2;
++  if(m_nsps==8192) {
++    x=XfromFreq(1500);
++    x1=x - 100/df;
++    x2=x + 100/df;
++  } else {
++    x=XfromFreq(1612.5);
++    x1=x - 12.5/df;
++    x2=x + 12.5/df;
++  }
+   pen0.setWidth(6);
+   painter0.drawLine(x1,28,x2,28);
+ 
+@@ -448,18 +458,16 @@
+       m_ColorTbl[i].setRgb(r,g,b);
+     }
+   }
+-
+ }
+ 
+ void CPlotter::setNsps(int ntrperiod, int nsps)                                  //setNSpan()
+ {
+   m_TRperiod=ntrperiod;
+   m_nsps=nsps;
+-  m_fftBinWidth=1500.0/2048.0;
+-  if(m_nsps==15360)  m_fftBinWidth=1500.0/2048.0;
+-  if(m_nsps==82944)  m_fftBinWidth=1500.0/12288.0;
++  m_fftBinWidth=4.0*1500.0/m_nsps;
++  m_fSpan=m_w*m_fftBinWidth;
++  m_StartFreq=100 * int((1500-0.5*m_fSpan)/100.0 + 0.5);
++  if(m_nsps==65536) m_StartFreq=10 * int((1612.5-0.5*m_fSpan)/10.0 + 0.5);
+   DrawOverlay();                         //Redraw scales and ticks
+   update();                              //trigger a new paintEvent}
+ }
+-
+-
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002583.html">[WSJT-SVN] r2891 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002585.html">[WSJT-SVN] r2893 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2584">[ date ]</a>
+              <a href="thread.html#2584">[ thread ]</a>
+              <a href="subject.html#2584">[ subject ]</a>
+              <a href="author.html#2584">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

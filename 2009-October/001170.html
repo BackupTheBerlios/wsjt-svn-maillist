@@ -1,0 +1,497 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1479 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1479%20-%20branches/wsjt8a&In-Reply-To=%3C200910021523.n92FNn9r030762%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001169.html">
+   <LINK REL="Next"  HREF="001171.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1479 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1479%20-%20branches/wsjt8a&In-Reply-To=%3C200910021523.n92FNn9r030762%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1479 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 17:23:49 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001169.html">[WSJT-SVN] r1478 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001171.html">[WSJT-SVN] r1480 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1170">[ date ]</a>
+              <a href="thread.html#1170">[ thread ]</a>
+              <a href="subject.html#1170">[ subject ]</a>
+              <a href="author.html#1170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-02 17:23:43 +0200 (Fri, 02 Oct 2009)
+New Revision: 1479
+
+Added:
+   branches/wsjt8a/longx.f90
+   branches/wsjt8a/ping.f90
+Modified:
+   branches/wsjt8a/avesp2.f
+   branches/wsjt8a/bzap.f
+   branches/wsjt8a/decode3.F90
+   branches/wsjt8a/ftpeak64.f90
+   branches/wsjt8a/gen64.f90
+   branches/wsjt8a/wsjt.py
+   branches/wsjt8a/wsjt1.f90
+Log:
+Now with the (very rough) beginnings of a JTMS decoder.
+
+
+Modified: branches/wsjt8a/avesp2.f
+===================================================================
+--- branches/wsjt8a/avesp2.f	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/avesp2.f	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -2,6 +2,7 @@
+      +  DFTolerance,fzap)
+ 
+       real dat(jza)
++      character*6 mode
+       integer DFTolerance
+       real psa(1024)                 !Ave ps, flattened and rolled off
+       real ref(557)                  !Ref spectrum, lines excised
+@@ -28,8 +29,7 @@
+       ib=2700/df
+       n=0
+       fmouse=0.
+-      if(mode.eq.2) fmouse=1270.46+MouseDF
+-      if(mode.eq.4) fmouse=1076.66+MouseDF
++      if(mode(1:4).eq.'JT64') fmouse=1270.46+MouseDF     !### not needed? ###
+ 
+       do i=ia,ib
+          if(birdie(i)-ref(i).gt.3.0) then
+
+Modified: branches/wsjt8a/bzap.f
+===================================================================
+--- branches/wsjt8a/bzap.f	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/bzap.f	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -3,6 +3,7 @@
+       parameter (NMAX=1024*1024)
+       parameter (NMAXH=NMAX)
+       real dat(jz),x(NMAX)
++      character*6 mode
+       real fzap(200)
+       complex c(NMAX)
+       equivalence (x,c)
+@@ -22,7 +23,7 @@
+ 
+ C  This is a kludge:
+       df=12000.0/(nadd*nfft)
+-      if(mode.eq.2) df=12000.0/(2*nadd*nfft)
++      if(mode(1:4).eq.'JT64') df=12000.0/(2*nadd*nfft)
+ 
+       tol=10.
+       itol=nint(2.0/df)
+
+Modified: branches/wsjt8a/decode3.F90
+===================================================================
+--- branches/wsjt8a/decode3.F90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/decode3.F90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -61,7 +61,7 @@
+   endif
+   call wsjt1(d2d,jz,istart,FileID,ndepth,                         &amp;
+        MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,         &amp;
+-       nMode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,         &amp;
++       mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,         &amp;
+        MyCall,HisCall,HisGrid,ntx2,s2,                            &amp;
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,    &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+
+Modified: branches/wsjt8a/ftpeak64.f90
+===================================================================
+--- branches/wsjt8a/ftpeak64.f90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/ftpeak64.f90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -57,7 +57,7 @@
+ ! NB: if istart is increased by 64, kpk will decrease by 1.
+ 
+   k0=nint(istart/64.0 - 7.0)
+-  call symsync65(c5,n5,k0,s,flip,pr,16,kpk,ccf,smax)
++  call symsync64(c5,n5,k0,s,flip,pr,16,kpk,ccf,smax)
+ 
+ ! Fix up the value of istart.  (The -1 is empirical.)
+   istart=istart + 64.0*(kpk-1.0)
+
+Modified: branches/wsjt8a/gen64.f90
+===================================================================
+--- branches/wsjt8a/gen64.f90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/gen64.f90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -30,10 +30,6 @@
+      else
+ ! Apply FEC and do the channel encoding
+         call chenc(cmode,nbit,iu0,gsym)
+-        do i=1,63
+-           write(51,3001) i,gsym(i)
+-3001       format(2i5)
+-        enddo
+ 
+ ! Decode channel symbols to recover source-encoded message bits
+ !        call chdec(cmode,nbit,gsym,iu)
+
+Added: branches/wsjt8a/longx.f90
+===================================================================
+--- branches/wsjt8a/longx.f90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/longx.f90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -0,0 +1,130 @@
++subroutine longx(dat,npts0,ps,DFTolerance,noffset,msg,msglen,bauderr)
++
++! Look for 441-baud modulation, synchronize to it, and decode message.
++! Longest allowed data analysis is 1 second.
++
++  parameter (NMAX=11025)
++  parameter (NDMAX=NMAX/25)
++  real dat(npts0)
++  real ps(128),psmo(20)
++  integer DFTolerance
++  real y1(NMAX)
++  real y2(NMAX)
++  real y3(NMAX)
++  real y4(NMAX)
++  real wgt(-2:2)
++  integer dit(NDMAX)
++  integer n4(0:2)
++  character msg*40
++  character c*48
++  common/acom/a1,a2,a3,a4
++  data c/' 123456789.,?/# $ABCD FGHIJKLMNOPQRSTUVWXY 0EZ  '/
++  data wgt/1.0,4.0,6.0,4.0,1.0/
++
++  kpk=0 !shut up compiler warnings -db
++  do i=1,NDMAX
++     dit(i)=0
++  enddo
++  NSPD=25                                !Change if FSK110 is implemented
++  LTone=2
++  NBaud=11025/NSPD
++  npts=min(NMAX,npts0)
++  df=11025.0/256.0
++  smax=0.
++
++! Find the frequency offset of this ping.
++! NB: this might be improved by including a bandpass correction to ps.
++
++  ia=nint((LTone*NBaud-DFTolerance)/df)
++  ib=nint((LTone*NBaud+DFTolerance)/df)
++
++  do i=ia,ib                            !Search for correct DF
++     sum=0.
++     do j=1,4                           !Sum over the 4 tones
++        m=nint((i*df+(j-1)*NBaud)/df)
++        do k=-2,2                       !Weighted averages over 5 bins
++           sum=sum+wgt(k)*ps(m+k)
++        enddo
++     enddo
++     k=i-ia+1
++     psmo(k)=sum
++     
++     if(sum.gt.smax) then
++        smax=sum
++        noffset=nint(i*df-LTone*NBaud)
++        kpk=k
++     endif
++  enddo
++
++  if(kpk.gt.1 .and. kpk.lt.20) then
++     call peakup(psmo(kpk-1),psmo(kpk),psmo(kpk+1),dx)
++     noffset=nint(noffset+dx*df)
++  endif
++
++! Do square-law detection in each of four filters.
++  f1=LTone*NBaud+noffset
++  f2=(LTone+1)*NBaud+noffset
++  f3=(LTone+2)*NBaud+noffset
++  f4=(LTone+3)*NBaud+noffset
++  call detect(dat,npts,f1,y1)
++  call detect(dat,npts,f2,y2)
++  call detect(dat,npts,f3,y3)
++  call detect(dat,npts,f4,y4)
++
++! Bandpass correction:
++  npts=npts-(NSPD-1)
++  do i=1,npts
++     y1(i)=y1(i)*a1
++     y2(i)=y2(i)*a2
++     y3(i)=y3(i)*a3
++     y4(i)=y4(i)*a4
++  enddo
++
++  call sync(y1,y2,y3,y4,npts,jpk,baud,bauderr)
++
++! Decimate y arrays by NSPD
++  ndits=npts/NSPD - 1
++  do i=1,ndits
++     y1(i)=y1(jpk+(i-1)*NSPD)
++     y2(i)=y2(jpk+(i-1)*NSPD)
++     y3(i)=y3(jpk+(i-1)*NSPD)
++     y4(i)=y4(jpk+(i-1)*NSPD)
++  enddo
++
++! Now find the mod3 phase that has no tone 3's
++  n4(0)=0
++  n4(1)=0
++  n4(2)=0
++  do i=1,ndits
++     ymax=max(y1(i),y2(i),y3(i),y4(i))
++     if(y1(i).eq.ymax) dit(i)=0
++     if(y2(i).eq.ymax) dit(i)=1
++     if(y3(i).eq.ymax) dit(i)=2
++     if(y4(i).eq.ymax) then
++        dit(i)=3
++        k=mod(i,3)
++        n4(k)=n4(k)+1
++     endif
++  enddo
++
++  n4min=min(n4(0),n4(1),n4(2))
++  if(n4min.eq.n4(0)) jsync=3
++  if(n4min.eq.n4(1)) jsync=1
++  if(n4min.eq.n4(2)) jsync=2
++! Might want to notify if n4min&gt;0 or if one of the others is equal
++! to n4min.  In both cases, could then decode 2 or 3 times, using
++! other starting phases.
++
++! Finally, decode the message.
++  msg='                                        '
++  msglen=ndits/3
++  msglen=min(msglen,40)
++  do i=1,msglen
++     j=(i-1)*3+jsync
++     nc=16*dit(j) + 4*dit(j+1) +dit(j+2)
++     msg(i:i)=' '
++     if(nc.le.47 .and. nc.ge.0) msg(i:i)=c(nc+1:nc+1)
++  enddo
++  
++  return
++end subroutine longx
+
+Added: branches/wsjt8a/ping.f90
+===================================================================
+--- branches/wsjt8a/ping.f90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/ping.f90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -0,0 +1,42 @@
++subroutine ping(s,nz,dtbuf,slim,wmin,pingdat,nping)
++
++! Detect pings and make note of their start time, duration, and peak strength.
++
++  real*4 s(nz)
++  real*4 pingdat(3,100)
++  logical inside
++
++  nping=0
++  peak=0.
++  inside=.false.
++  snrlim=10.0**(0.1*slim) - 1.0
++  sdown=10.0*log10(0.25*snrlim+1.0)
++
++  i0=0 !Shut up compiler warnings. -db
++  tstart=0.0 !Shut up compiler warnings. -db
++  do i=2,nz
++     if(s(i).ge.slim .and. .not.inside) then
++        i0=i
++        tstart=i0*dtbuf
++        inside=.true.
++        peak=0.
++     endif
++     if(inside .and. s(i).gt.peak) then
++        peak=s(i)
++     endif
++     if(inside .and. (s(i).lt.sdown .or. i.eq.nz)) then
++        if(i.gt.i0) then
++           if(dtbuf*(i-i0).ge.wmin) then
++              if(nping.le.99) nping=nping+1
++              pingdat(1,nping)=tstart
++              pingdat(2,nping)=dtbuf*(i-i0)
++              pingdat(3,nping)=peak
++           endif
++           inside=.false.
++           peak=0.
++        endif
++     endif
++  enddo
++
++  return
++end subroutine ping
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/wsjt.py	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -932,19 +932,6 @@
+     f.close()
+     Audio.gcom2.nclearave=1
+ 
+-#------------------------------------------------------ defaults
+-def defaults():
+-    global slabel,isync,itol,idsec
+-    isync=1
+-    if g.mode==&quot;JTMS&quot;: isync=2
+-    itol=5
+-    ltol.configure(text='Tol    '+str(ntol[itol]))
+-    if g.mode==&quot;ISCAT&quot;:
+-        isync=-10
+-        itol=4
+-        ltol.configure(text='Tol    '+str(ntol[itol]))
+-    lsync.configure(text=slabel+str(isync))
+-
+ #------------------------------------------------------ delwav
+ def delwav():
+     t=&quot;Are you sure you want to delete\nall *.WAV files in the RxWav directory?&quot;
+@@ -1923,8 +1910,6 @@
+ ltol.grid(column=0,row=2,padx=2,pady=1,sticky='EW')
+ Widget.bind(ltol,'&lt;Button-1&gt;',inctol)
+ Widget.bind(ltol,'&lt;Button-3&gt;',dectol)
+-Button(f5b,text='Defaults',command=defaults,padx=1,pady=1).grid(column=0,
+-                              row=3,sticky='EW')
+ ldsec=Label(f5b, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+ ldsec.grid(column=0,row=4,ipadx=3,padx=2,pady=5,sticky='EW')
+ lshift=Label(f5b, bg='white', fg='black', text='Shift 0.0', width=8, relief=RIDGE)
+@@ -2157,7 +2142,6 @@
+ Audio.gcom2.azeldir=(options.azeldir.get()+' '*80)[:80]
+ Audio.gcom2.ndepth=ndepth.get()
+ stopmon()
+-#options.defaults()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title('  WSJT 8     by K1JT')
+ from WsjtMod import astro
+
+Modified: branches/wsjt8a/wsjt1.f90
+===================================================================
+--- branches/wsjt8a/wsjt1.f90	2009-10-02 13:52:01 UTC (rev 1478)
++++ branches/wsjt8a/wsjt1.f90	2009-10-02 15:23:43 UTC (rev 1479)
+@@ -1,6 +1,6 @@
+ subroutine wsjt1(d,jz0,istart,FileID,ndepth,                       &amp;
+      MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,            &amp;
+-     Mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,            &amp;
++     mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,            &amp;
+      MyCall,HisCall,HisGrid,ntx2,s2,                               &amp;
+      ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,       &amp;
+      MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+@@ -16,6 +16,7 @@
+   character*12 mycall
+   character*12 hiscall
+   character*6 hisgrid
++  character*6 mode
+   real ps0(431)           !Spectrum of best ping
+   integer npkept          !Number of pings kept and decoded
+   integer lumsg           !Logical unit for decoded.txt
+@@ -48,11 +49,8 @@
+   common/extcom/ntdecode
+   save
+ 
+-  if(mode.eq.8) nzap=0
+-  lcum=.true.
+   jz=jz0
+   ntdecode=ntdecode0
+-  modea=Mode
+   MinWidth=40                            !Minimum width of pings, ms
+   call zero(psavg,450)
+   rewind 11
+@@ -72,11 +70,7 @@
+   ndiag=1
+   close(16)
+ 
+-4 if(mode.lt.8 .and. jz.gt.655360) jz=655360
+-  if(mode.eq.4 .and. jz.gt.330750) jz=330750      !### Fix this!
+-  if(mode.eq.8 .and. jz.gt.1323000) jz=1323000
+-
+-  sum=0.
++4  sum=0.
+   do j=1,jz            !Convert raw data from i*2 to real, remove DC
+      dat(j)=0.1*d(j)
+      sum=sum + dat(j)
+@@ -101,9 +95,9 @@
+ !           enddo
+ !        endif
+ 
+-  if(mode.ne.2 .and. nzap.ne.0) then
++  if(mode(1:4).ne.'JT64' .and. nzap.ne.0) then
+      nfrz=NFreeze
+-     if(mode.eq.1) nfrz=0
++     if(mode(1:4).eq.'JTMS') nfrz=0
+      if(jz.gt.100000) call avesp2(dat,jz,2,mode,nfrz,MouseDF,DFTolerance,fzap)
+      nadd=1
+      call bzap(dat,jz,nadd,mode,fzap)
+@@ -151,18 +145,13 @@
+ 
+ 
+ ! Iscat mode:
+-  if(mode.eq.4) then
++  if(mode(1:5).eq.'ISCAT') then
+ ! For waterfall plot
+      call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+-  endif
+-
+ ! JT8 mode:
+-  if(mode.eq.6 .or. mode.eq.7) then
+-     goto 900
+-  endif
+-
++  else if(mode(1:3).eq.'JT8') then
+ !  JT64 mode:
+-  if(mode.eq.9) then
++  else if(mode(1:4).eq.'JT64') then
+      mode64=1
+      nstest=0
+      if(ntx2.ne.1) call short64(dat,jz,NFreeze,MouseDF,                &amp;
+@@ -195,19 +184,10 @@
+           MouseDF2,NAgain,ndepth,nchallenge,idf,idfsh,                   &amp;
+           mycall,hiscall,hisgrid,lumsg,lcum,nspecial,ndf,                &amp;
+           nstest,dfsh,snrsh,NSyncOK,ccf,psavg,ndiag,nwsh)
+-     goto 900
++  else if(mode(1:4).eq.'JTMS') then
++     call wsjtms(dat,jz,cfile6,MinSigdB,pick,lumsg,lcum,NSyncOK,ps0,psavg)
+   endif
+ 
+-!  We're in JTMS mode. Compute the 2D spectrum.
+-  df=12000.0/256.0            !FFT resolution ~43 Hz
+-  dtbuf=nstep/12000.0
+-  stlim=nslim2                !Single-tone threshold
+-  call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+-  if(sigma.lt.0.0) basevb=-99.0
+-  if(sigma.lt.0.0) go to 900
+-  nline0=nline
+-  call s2shape(s2,nchan,nz,tbest)
+-
+ 900 LDecoded = ((NSyncOK.gt.0) .or. npkept.gt.0)
+   endfile 11
+   call flushqqq(11)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001169.html">[WSJT-SVN] r1478 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001171.html">[WSJT-SVN] r1480 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1170">[ date ]</a>
+              <a href="thread.html#1170">[ thread ]</a>
+              <a href="subject.html#1170">[ subject ]</a>
+              <a href="author.html#1170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

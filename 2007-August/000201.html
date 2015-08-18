@@ -1,0 +1,459 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r516 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r516%20-%20trunk&In-Reply-To=%3C200708021916.l72JGEhk010913%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000200.html">
+   <LINK REL="Next"  HREF="000202.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r516 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r516%20-%20trunk&In-Reply-To=%3C200708021916.l72JGEhk010913%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r516 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug  2 21:16:14 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000200.html">[WSJT-SVN] r515 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000202.html">[WSJT-SVN] r517 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#201">[ date ]</a>
+              <a href="thread.html#201">[ thread ]</a>
+              <a href="subject.html#201">[ subject ]</a>
+              <a href="author.html#201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-08-02 21:16:08 +0200 (Thu, 02 Aug 2007)
+New Revision: 516
+
+Added:
+   trunk/foldcw.f
+Modified:
+   trunk/Makefile.in
+   trunk/Makefile.win
+   trunk/decodecw.f
+   trunk/wsjt.py
+Log:
+Implemented first cut at CW decoder.
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2007-08-02 12:44:13 UTC (rev 515)
++++ trunk/Makefile.in	2007-08-02 19:16:08 UTC (rev 516)
+@@ -66,7 +66,8 @@
+         nchar.f packcall.f packgrid.f packmsg.f packtext.f setup65.f \
+         short65.f slope.f spec2d65.f sync65.f unpackcall.f \
+         unpackgrid.f unpackmsg.f unpacktext.f xcor.f xfft.f xfft2.f wsjt65.f \
+-	ftpeak65.f fil651.f fil652.f fil653.f symsync65.f decodecw.f
++	ftpeak65.f fil651.f fil652.f fil653.f symsync65.f decodecw.f \
++	foldcw.f
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+
+Modified: trunk/Makefile.win
+===================================================================
+--- trunk/Makefile.win	2007-08-02 12:44:13 UTC (rev 515)
++++ trunk/Makefile.win	2007-08-02 19:16:08 UTC (rev 516)
+@@ -42,7 +42,8 @@
+ 	xcor.f xfft.f xfft2.f wsjt65.f astro.f azdist.f coord.f dcoord.f \
+ 	deg2grid.f dot.f ftsky.f geocentric.f GeoDist.f grid2deg.f \
+ 	moon2.f MoonDop.f sun.f toxyz.f pfxdump.f \
+-	ftpeak65.f fil651.f fil652.f fil653.f symsync65.f decodecw.f
++	ftpeak65.f fil651.f fil652.f fil653.f symsync65.f decodecw.f \
++	foldcw.f
+ 
+ SRCS2C   = resample.c ptt.c igray.c wrapkarn.c
+ 
+
+Modified: trunk/decodecw.f
+===================================================================
+--- trunk/decodecw.f	2007-08-02 12:44:13 UTC (rev 515)
++++ trunk/decodecw.f	2007-08-02 19:16:08 UTC (rev 516)
+@@ -1,31 +1,40 @@
+       subroutine decodecw(dat,jz,cfile6,DFTolerance,NFreeze,
+      +        MouseDF,mycall,hiscall,hisgrid)
+ 
+-      parameter (NFFT=16384,NH=NFFT/2)
++      parameter (NFFT=4096,NH=NFFT/2)
+       parameter (NMAX=150*11025)
+       real dat(jz)
+-      character cfile6*6
++      character cfile6*6,rpt*3
+       character mycall*12,hiscall*12,hisgrid*6
+       integer DFTolerance
+-      integer nparm(5,30)
++      integer nparm(5,30),id(300)
+       real s(NH),s1(NH)
++      real tmp(2600)
++      real f1(300),f2(300)
+       real x(65536)
++      real y2(32)
+       real*8 dt,f0,phi,dhpi,twopi
+-      complex c(NMAX),z,cx(32768)
++      complex c(NMAX),z,cx(0:32768)
+       equivalence (x,cx)
+ 
+       twopi=8.d0*atan(1.d0)
+-      nblk=jz/nfft
+-      call zero(s,nh)
++      rewind 71
++      rewind 72
++      rewind 73
++
++C  Examine the RF spectrum.  This might be needed to find f0.
++      nblk=jz/nfft                       !Number of non-overlapping blocks
++      call zero(s,nh)                    !Zero the accumulating array
+       k=0
+-      do n=1,nblk
++      do n=1,nblk                        !Compute spectra
+          do i=1,nfft
+             k=k+1
+             x(i)=dat(k)
+          enddo
+          call ps(x,nfft,s1)
+-         call add(s,s1,s,nh)
++         call add(s,s1,s,nh)             !Add spectrum into s().
+       enddo
++      call smooth(s,NH)                  !Smooth it once, 1-2-1
+ 
+       df=11025.0/nfft
+       do i=1,nh
+@@ -36,59 +45,180 @@
+  3001    format(3f10.3)
+       enddo
+ 
++C  Mix signal to baseband
+       dt=1.d0/11025.d0
+-      f0=800.d0
++      f0=800.d0                          !Assumed f0, for now
+       dphi=twopi*f0*dt
+       phi=0.d0
+-      fac=1.e-4
++      fac=1.e-5
+       do i=1,jz
+          phi=phi+dphi
+          c(i)=fac*dat(i)*cmplx(cos(phi),-sin(phi))
+       enddo
+ 
+-      nstep=nint(0.003d0/dt)
+-      nsum=nint(0.06d0/dt)
++C  Compute oversampled symbol spectra
++      nstep=nint(0.003d0/dt)             !Step size, in samples
++      nsum=nint(0.06d0/dt)               !Nominal symbol length
+       iz=jz/nstep
+       do i=1,iz
+          k=nstep*(i-1)
+          z=0.
+-         do n=1,nsum
++         do n=1,nsum                     !Integrate and dump
+             k=k+1
+             z=z+c(k)
+          enddo
+-         x(i)=real(z)**2 + imag(z)**2
++         x(i)=real(z)**2 + imag(z)**2    !Convert to power
+       enddo
+-      do i=iz+1,65536
++
++      nfft2=2**(int(log(float(iz))/log(2.0)) + 1)
++      nh2=nfft2/2
++      dt2=dt*nstep
++      df2=(1.d0/dt2)/nfft2
++      do i=iz+1,nfft2
+          x(i)=0.
+       enddo
+-      call xfft(x,65536)
+-      dt2=dt*nstep
+-      df2=(1.d0/dt2)/65536
++      call xfft(x,nfft2)                 !Compute specurum
++      do i=1,nh2                         !Convert to power
++         x(i)=real(cx(i))**2 + imag(cx(i))**2
++      enddo
++      call smooth(x,nh2)                 !Smooth once
++
+       ia=15.0/df2
+       ib=18.333/df2
+       ymax=-99.
+-      do i=ia,ib
+-         y=real(cx(i))**2 + imag(cx(i))**2
+-         yy=-20.
+-         if(y.gt.0.0) yy=10.0*log10(y)
+-         write(72,3002) (i-1)*df2,y,yy
+- 3002    format(f10.3,e12.3,f10.3)
++      do i=ia,ib                         !Do two-harmonic summing
++         ih=i/2
++         if(2*ih.eq.i) then
++            y=x(ih) + x(i)
++         else
++            y=0.5*(x(ih)+x(ih+1)) + x(i)
++         endif
++         write(72,3002) (i-1)*df2,y
++ 3002    format(f10.3,f12.1)
+          if(y.gt.ymax) then
+             ymax=y
+-            ipk=i-1
++            ipk=i
+          endif
+       enddo
+ 
+       fdit=df2*ipk
+       bits=1.2*fdit*966.6667/20.0
+       nbits=2*nint(0.5*bits)
+-      print*,bits,nbits,fdit,ipk
++      b4=58.0*20.0/1.2
++      wpm=20.0*nbits/b4
++      tdit=1.2d0/wpm                     !Key-down dit time, seconds
++      fdit=1.0/tdit
++!      print*,bits,nbits,fdit,wpm
++
++C  OK, now we (probably) know the actual keying rate.  Re-compute the
++C  symbol spectra.
++
++      tstep=tdit/16.0                    !Oversample by 16 x
++      isym=tdit*11025.0
++      t=-tstep
++      do k=1,41000
++         t=t+tstep
++         ia=t*11025.0 + 1.0
++         ib=ia+isym
++         if(ib.gt.jz) go to 10
++         z=0.
++         do i=ia,ib
++            z=z+c(i)
++         enddo
++         x(k)=real(z)**2 + imag(z)**2    !Convert to power
++      enddo
++
++ 10   kz=k-1
++
++C  Fold at nibble (2-symbol) length.
++      nnib=kz/32
++      call zero(y2,32)
++      do i=1,32*nnib
++         j=mod(i-1,32) + 1
++         y2(j)=y2(j)+x(i)
++      enddo
++
++      ymax=-99.
++      do i=1,32
++         y2(i)=y2(i)/nnib
++         if(y2(i).gt.ymax) then
++            ymax=y2(i)
++            ipk=i
++         endif
++         write(73,3003) i,y2(i)
++ 3003    format(i2,f10.6)
++      enddo
++
++C  Final downsampling, phased at symbol peaks
++      nsym=2*nnib
++      do i=1,nsym
++         j=(i-1)*16 + ipk
++         x(i)=x(j)
++      enddo
++
++C  Get median of lower half, then normalize
++      call pctile(x,tmp,nsym,25,base)
++      i50=nint(0.25*nsym)
++      i84=nint(0.42*nsym)
++      sigma=tmp(i84)-tmp(i50)
++      do i=1,nsym
++         x(i)=(x(i)-base)/sigma
++      enddo
++
+       call msgparms(nbits,nparm,kz)
++
++      qbest=-99.
+       do k=1,kz
+-         write(*,3003) k,(nparm(i,k),i=1,5)
+- 3003    format(6i5)
++         ntype=nparm(1,k)
++         nr1=nparm(2,k)
++         nz1=nparm(3,k)
++         nr2=nparm(4,k)
++         nz2=nparm(5,k)
++         call foldcw(x,nsym,ntype,nr1,nz1,nr2,nz2,f1,f2,qual)
++         if(qual.gt.qbest) then
++            kpk=k
++            qbest=qual
++         endif
+       enddo
+ 
++      ntype=nparm(1,kpk)
++      nr1=nparm(2,kpk)
++      nz1=nparm(3,kpk)
++      nr2=nparm(4,kpk)
++      nz2=nparm(5,kpk)
++      rpt='   '
++      if(ntype.eq.3) rpt='OOO'
++      if(ntype.eq.2 .and. nz2.eq.28) rpt='RO '
++      if(ntype.eq.2 .and. nz2.eq.34) rpt='RRR'
++      if(ntype.eq.2 .and. nz2.eq.36) rpt='73 '
++
++
++      call foldcw(x,nsym,ntype,nr1,nz1,nr2,nz2,f1,f2,qual)
++      write(*,3100) nbits,nsym,ntype,nr1,nz1,nr2,nz2,qual,rpt
++ 3100 format(7i5,f7.2,2x,a3)
++
++      write(80,3100) nbits,nsym,ntype,nr1,nz1,nr2,nz2,qual,rpt
++      if(ntype.eq.2) then
++         do i=1,nz2
++            id(i)=0
++            if(f2(i).gt.0.0) id(i)=1
++         enddo
++         write(80,3101) (id(i),i=1,nz2)
++ 3101    format(70i1)
++      else
++         do i=1,nz1
++            id(i)=0
++            if(f1(i).gt.0.0) id(i)=1
++         enddo
++         write(80,3101) (id(i),i=1,nz1)
++         if(ntype.eq.3) then
++            do i=1,nz1
++               id(i)=0
++               if(f2(i).gt.0.0) id(i)=1
++            enddo
++            write(80,3101) (id(i),i=1,nz2)
++         endif
++      endif
++
+       return
+       end
+-
+
+Added: trunk/foldcw.f
+===================================================================
+--- trunk/foldcw.f	2007-08-02 12:44:13 UTC (rev 515)
++++ trunk/foldcw.f	2007-08-02 19:16:08 UTC (rev 516)
+@@ -0,0 +1,79 @@
++      subroutine foldcw(x,nsym,ntype,nr1,nz1,nr2,nz2,f1,f2,qual)
++
++      real x(nsym)
++      real f1(300),f2(300),tmp(300)
++      integer hist1(-10:30),hist2(-10:30)
++
++      rewind 74
++      rewind 75
++      rewind 76
++
++      call zero(f1,200)
++      call zero(f2,50)
++      q1=0.
++      q2=0.
++
++C  Fold at period nz1
++      do i=1,nr1*nz1
++         j=mod(i-1,nz1) + 1
++         f1(j)=f1(j) + x(i)
++      enddo
++      do i=1,nz1
++         f1(i)=f1(i)/nr1
++      enddo
++
++C  Get median, re-normalize, and compute histogram
++      call pctile(f1,tmp,nz1,25,b1)
++      call pctile(f1,tmp,nz1,75,b2)
++      q1=b2-b1
++      bmid=0.5*(b1+b2)
++      call zero(hist1,41)
++      do i=1,nz1
++         f1(i)=(f1(i)-bmid)/(b2-b1)
++         write(75,3005) i,f1(i)
++ 3005    format(i3,f10.3)
++         j=nint(5.0*f1(i))
++         if(j.lt.-10) j=-10
++         if(j.gt.30) j=30
++         hist1(j)=hist1(j)+1
++      enddo
++
++      if(nr2*nz2.gt.0) then
++C  Fold at period nz2
++         k=nr1*nz1
++         do i=1,nr2*nz2
++            k=k+1
++            j=mod(i-1,nz2) + 1
++            f2(j)=f2(j) + x(k)
++         enddo
++         do i=1,nz2
++            f2(i)=f2(i)/nr2
++         enddo
++         
++C  Get median, re-normalize, and compute histogram
++         call pctile(f2,tmp,nz2,25,b3)
++         call pctile(f2,tmp,nz2,75,b4)
++         q2=b4-b3
++         bmid=0.5*(b3+b4)
++         call zero(hist2,41)
++         do i=1,nz2
++            f2(i)=(f2(i)-bmid)/(b4-b3)
++            write(76,3005) i,f2(i)
++            j=nint(5.0*f2(i))
++            if(j.lt.-10) j=-10
++            if(j.gt.30) j=30
++            hist2(j)=hist2(j)+1
++         enddo
++      endif
++
++      do i=-10,30
++         write(74,3004) i,hist1(i),hist2(i)
++ 3004    format(i3,2i5)
++      enddo
++      write(74,3004) 31,0
++
++      qual=q1
++      if(ntype.eq.2) qual=q2
++      
++      return
++      end
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-08-02 12:44:13 UTC (rev 515)
++++ trunk/wsjt.py	2007-08-02 19:16:08 UTC (rev 516)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000200.html">[WSJT-SVN] r515 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000202.html">[WSJT-SVN] r517 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#201">[ date ]</a>
+              <a href="thread.html#201">[ thread ]</a>
+              <a href="subject.html#201">[ subject ]</a>
+              <a href="author.html#201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

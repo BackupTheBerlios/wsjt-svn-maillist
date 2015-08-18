@@ -1,0 +1,280 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3209 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3209%20-%20branches/wsjtx&In-Reply-To=%3C20130424194158.D0A6955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002900.html">
+   <LINK REL="Next"  HREF="002902.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3209 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3209%20-%20branches/wsjtx&In-Reply-To=%3C20130424194158.D0A6955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3209 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Apr 24 21:41:58 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002900.html">[WSJT-SVN] r3208 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002902.html">[WSJT-SVN] r3210 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2901">[ date ]</a>
+              <a href="thread.html#2901">[ thread ]</a>
+              <a href="subject.html#2901">[ subject ]</a>
+              <a href="author.html#2901">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-24 21:41:58 +0200 (Wed, 24 Apr 2013)
+New Revision: 3209
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Add a setup checkbox &quot;RTS/DTR Off&quot;, to enable proper CAT control of 
+Elecraft K2 (and possibly other rigs?).
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-04-24 17:55:33 UTC (rev 3208)
++++ branches/wsjtx/devsetup.cpp	2013-04-24 19:41:58 UTC (rev 3209)
+@@ -139,6 +139,7 @@
+   m_paInDevice=m_inDevList[m_nDevIn];
+   m_paOutDevice=m_outDevList[m_nDevOut];
+   ui.cbEnableCAT-&gt;setChecked(m_catEnabled);
++  ui.cbDTRoff-&gt;setChecked(m_bDTRoff);
+   ui.catPortComboBox-&gt;setEnabled(m_catEnabled);
+   ui.rigComboBox-&gt;setEnabled(m_catEnabled);
+   ui.serialRateComboBox-&gt;setEnabled(m_catEnabled);
+@@ -397,12 +398,16 @@
+     sprintf(buf,&quot;%d&quot;,m_stopBits);
+     rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+     rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++    if(m_bDTRoff) {
++      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
++      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++    }
+     rig-&gt;open();
+     m_bRigOpen=true;
+   }
+   catch (const RigException &amp;Ex) {
+     m_bRigOpen=false;
+-    msgBox(&quot;Failed to open rig (A)&quot;);
++    msgBox(&quot;Failed to open rig (devsetup)&quot;);
+     return;
+   }
+   double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
+@@ -413,7 +418,6 @@
+ 
+ void DevSetup::on_testPTTButton_clicked()
+ {
+-  int iret=0;
+   m_test=1-m_test;
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,m_test,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -422,3 +426,8 @@
+     rig-&gt;setPTT((ptt_t)m_iptt, RIG_VFO_CURR);
+   }
+ }
++
++void DevSetup::on_cbDTRoff_toggled(bool checked)
++{
++  m_bDTRoff=checked;
++}
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-04-24 17:55:33 UTC (rev 3208)
++++ branches/wsjtx/devsetup.h	2013-04-24 19:41:58 UTC (rev 3209)
+@@ -5,7 +5,7 @@
+ #include &lt;QProcess&gt;
+ #include &lt;QMessageBox&gt;
+ #include &quot;ui_devsetup.h&quot;
+-#include &quot;mainwindow.h&quot;
++#include &lt;hamlib/rigclass.h&gt;
+ 
+ class DevSetup : public QDialog
+ {
+@@ -46,6 +46,7 @@
+   bool    m_catEnabled;
+   bool    m_After73;
+   bool    m_bRigOpen;
++  bool    m_bDTRoff;
+ 
+   QString m_myCall;
+   QString m_myGrid;
+@@ -57,8 +58,6 @@
+   QStringList m_macro;
+   QStringList m_dFreq;
+ 
+-  Rig* rig;
+-
+   QProcess p4;
+   QMessageBox msgBox0;
+ 
+@@ -85,9 +84,14 @@
+ 
+   void on_testPTTButton_clicked();
+ 
++  void on_cbDTRoff_toggled(bool checked);
++
+ private:
++  Rig* rig;
+   void msgBox(QString t);
+   Ui::DialogSndCard ui;
+ };
+ 
++extern int ptt(int nport, int ntx, int* iptt, int* nopen);
++
+ #endif // DEVSETUP_H
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-04-24 17:55:33 UTC (rev 3208)
++++ branches/wsjtx/devsetup.ui	2013-04-24 19:41:58 UTC (rev 3209)
+@@ -773,6 +773,26 @@
+           &lt;/widget&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_13&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbDTRoff&quot;&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;RTS/DTR OFF&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
+           &lt;spacer name=&quot;horizontalSpacer_5&quot;&gt;
+            &lt;property name=&quot;orientation&quot;&gt;
+             &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-24 17:55:33 UTC (rev 3208)
++++ branches/wsjtx/mainwindow.cpp	2013-04-24 19:41:58 UTC (rev 3209)
+@@ -17,6 +17,7 @@
+ wchar_t buffer[256];
+ bool btxok;                           //True if OK to transmit
+ bool btxMute;
++bool bDTRoff;
+ double outputLatency;                 //Latency in seconds
+ double dFreq[]={0.136,0.4742,1.838,3.578,5.357,7.078,10.130,14.078,
+            18.104,21.078,24.918,28.078,50.293,70.091,144.489,432.178};
+@@ -400,6 +401,7 @@
+   settings.setValue(&quot;Runaway&quot;,m_runaway);
+   settings.setValue(&quot;Tx2QSO&quot;,m_tx2QSO);
+   settings.setValue(&quot;MultipleOK&quot;,m_bMultipleOK);
++  settings.setValue(&quot;DTRoff&quot;,bDTRoff);
+   settings.endGroup();
+ }
+ 
+@@ -512,6 +514,7 @@
+   ui-&gt;actionTx2QSO-&gt;setChecked(m_tx2QSO);
+   m_bMultipleOK=settings.value(&quot;MultipleOK&quot;,false).toBool();
+   ui-&gt;actionAllow_multiple_instances-&gt;setChecked(m_bMultipleOK);
++  bDTRoff=settings.value(&quot;DTRoff&quot;,false).toBool();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+     !ui-&gt;actionAFMHot-&gt;isChecked() &amp;&amp; !ui-&gt;actionBlue-&gt;isChecked()) {
+@@ -619,6 +622,7 @@
+   dlg.m_stopBitsIndex=m_stopBitsIndex;
+   dlg.m_handshake=m_handshake;
+   dlg.m_handshakeIndex=m_handshakeIndex;
++  dlg.m_bDTRoff=bDTRoff;
+ 
+   if(m_bRigOpen) {
+     rig-&gt;close();
+@@ -654,6 +658,7 @@
+     m_stopBitsIndex=dlg.m_stopBitsIndex;
+     m_handshake=dlg.m_handshake;
+     m_handshakeIndex=dlg.m_handshakeIndex;
++    bDTRoff=dlg.m_bDTRoff;
+ 
+ #ifdef WIN32
+     if(dlg.m_pskReporter!=m_pskReporter) {
+@@ -2621,13 +2626,17 @@
+     sprintf(buf,&quot;%d&quot;,m_stopBits);
+     rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+     rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++    if(bDTRoff) {
++      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
++      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++    }
+     rig-&gt;open();
+     m_bRigOpen=true;
+   }
+   catch (const RigException &amp;Ex) {
+     m_catEnabled=false;
+     m_bRigOpen=false;
+-    msgBox(&quot;Failed to open rig (B)&quot;);
++    msgBox(&quot;Failed to open rig (mainwindow)&quot;);
+     delete rig;
+   }
+ }
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-24 17:55:33 UTC (rev 3208)
++++ branches/wsjtx/mainwindow.h	2013-04-24 19:41:58 UTC (rev 3209)
+@@ -255,6 +255,8 @@
+     bool    m_tune;
+     bool    m_bRigOpen;
+     bool    m_bMultipleOK;
++//    bool    junk999;
++
+     char    m_decoded[80];
+ 
+     float   m_pctZap;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002900.html">[WSJT-SVN] r3208 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002902.html">[WSJT-SVN] r3210 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2901">[ date ]</a>
+              <a href="thread.html#2901">[ thread ]</a>
+              <a href="subject.html#2901">[ subject ]</a>
+              <a href="author.html#2901">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

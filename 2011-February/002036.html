@@ -1,0 +1,211 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2344 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2344%20-%20branches/wspr&In-Reply-To=%3C20110210195847.09CEE481394%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002035.html">
+   <LINK REL="Next"  HREF="002037.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2344 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2344%20-%20branches/wspr&In-Reply-To=%3C20110210195847.09CEE481394%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2344 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Feb 10 20:58:46 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002035.html">[WSJT-SVN] r2343 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002037.html">[WSJT-SVN] r2345 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2036">[ date ]</a>
+              <a href="thread.html#2036">[ thread ]</a>
+              <a href="subject.html#2036">[ subject ]</a>
+              <a href="author.html#2036">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-10 20:58:46 +0100 (Thu, 10 Feb 2011)
+New Revision: 2344
+
+Modified:
+   branches/wspr/wwv.f90
+Log:
+Allow frequency hopping to all WWV freqs.
+
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-10 16:35:07 UTC (rev 2343)
++++ branches/wspr/wwv.f90	2011-02-10 19:58:46 UTC (rev 2344)
+@@ -8,7 +8,7 @@
+   character arg*12                           !Command-line arg
+   character cdate*8                          !CCYYMMDD
+   character ctime*10                         !HHMMSS.SSS
+-  character cmnd*120                         !Command to set rig frequency
++  character*120 cmnd0,cmnd                   !Command to set rig frequency
+   character*4 cwwv
+   character*6 mycall,mygrid
+   real*8 tsec,tsec0,fkhz,p1,samfac
+@@ -18,48 +18,37 @@
+   real ccf1(0:NFSMAX/40)
+   integer soundin
+   integer resample
++  integer nkhz(0:4)
++  data nkhz/2500,5000,10000,15000,20000/
++  data nloop/-1/,nHz0/-99/
+ 
+   nargs=iargc()
+-  if(nargs.ne.3) then
+-     print*,'Usage:    wwv  &lt;fsample&gt; &lt;f_kHz&gt; &lt;nsec&gt;'
+-     print*,'Example:  wwv    48000    10000    60'
++  if(nargs.ne.4) then
++     print*,'Usage:    wwv  &lt;fsample&gt; &lt;f_kHz&gt; &lt;nsave&gt; &lt;nsec&gt;'
++     print*,'Example:  wwv    48000    10000     0      60'
+      go to 999
+   endif
+ 
+   call getarg(1,arg)
+-  read(arg,*) nfs                 !Sample rate (Hz)
++  read(arg,*) nfs                      !Sample rate (Hz)
+   call getarg(2,arg)
+   read(arg,*) fkhz                     !Rx frequency (kHz)
+   call getarg(3,arg)
+-  read(arg,*) nsec                     !Duration of recording (s)
++  read(arg,*) nsave                    !nsave=1 to save all profiles and ccfs
++  call getarg(4,arg)
++  read(arg,*) nsec                     !Duration of each recording (s)
+ 
+   open(10,file='fmt.ini',status='old',err=910)
+-  read(10,'(a120)') cmnd              !Get rigctl command to set frequency
++  read(10,'(a120)') cmnd0              !Get rigctl command to set frequency
+   read(10,*) ndevin
+   read(10,*) mycall
+   read(10,*) mygrid
+   close(10)
+ 
+   open(16,file='delay.dat',status='unknown',position='append')
++  open(20,file='wwv.bin',form='unformatted',status='unknown',position='append')
+ 
+-  nHz=nint(1.d3*fkhz)
+-  i1=index(cmnd,' F ')
+-  write(cmnd(i1+2:),*) nHz                   !Insert desired frequency
+-  iret=system(cmnd)                          !Set Rx frequency
+-  if(iret.ne.0) then
+-     print*,'Error executing rigctl command to set frequency:'
+-     print*,cmnd
+-     go to 999
+-  endif
+ 
+-  cmnd(i1+1:)='M AM 0'
+-  iret=system(cmnd)                          !Set Rx mode
+-  if(iret.ne.0) then
+-     print*,'Error executing rigctl command to set Rx mode:'
+-     print*,cmnd
+-     go to 999
+-  endif
+-
+   call soundinit                             !Initialize Portaudio
+ 
+   npts=nfs*nsec
+@@ -72,7 +61,37 @@
+ 
+   call getutc(cdate,ctime,tsec0)
+ 
+-10 call getutc(cdate,ctime,tsec)
++10 nloop=nloop+1
++
++  if(fkhz.gt.0.d0) then
++     nHz=nint(1.d3*fkhz)
++  else
++     nHz=1000*nkhz(mod(nloop,5))
++  endif
++  
++  if(nHz.ne.nHz0) then
++     cmnd=cmnd0
++     i1=index(cmnd,' F ')
++     write(cmnd(i1+2:),*) nHz                   !Insert desired frequency
++     iret=system(cmnd)                          !Set Rx frequency
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set frequency:'
++        print*,cmnd
++        go to 999
++     endif
++
++     cmnd(i1+1:)='M AM 0'
++     iret=system(cmnd)                          !Set Rx mode
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set Rx mode:'
++        print*,cmnd
++        go to 999
++     endif
++     nHz0=nHz
++  endif
++
++  call getutc(cdate,ctime,tsec)
++
+   ierr=soundin(ndevin,nfs,id,npts,nchan-1)   !Get audio data
+   if(ierr.ne.0) then
+      print*,'Error in soundin',ierr
+@@ -155,9 +174,9 @@
+   hrs=mod(tsec,86400.d0)/3600
+   read(cdate(7:8),*) nday
+   day=nday + hrs/24.0
+-  nkhz=nint(fkhz)
+-  write(*,1012)  cdate,ctime(:6),day,delay,ccfmax1,nkhz,p1,mycall,mygrid
+-  write(16,1012) cdate,ctime(:6),day,delay,ccfmax1,nkhz,p1,mycall,mygrid
++  ikhz=nhz/1000
++  write(*,1012)  cdate,ctime(:6),day,delay,ccfmax1,ikhz,p1,mycall,mygrid
++  write(16,1012) cdate,ctime(:6),day,delay,ccfmax1,ikhz,p1,mycall,mygrid
+ 1012 format(a8,2x,a6,f11.5,f8.2,f10.3,i7,f10.2,1x,a6,1x,a6)
+ 
+ !  call flush(13)
+@@ -165,6 +184,12 @@
+ !  call flush(15)
+   call flush(16)
+ 
++  if(nsave.gt.0) then
++     write(20)  cdate,ctime(:6),day,delay,ccfmax1,ikhz,p1,mycall,mygrid,  &amp;
++          prof1(:ip),ccf1(:lagmax)
++     call flush(20)
++  endif
++
+   go to 10
+ 
+ 910 print*,'Cannot open file: fmt.ini'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002035.html">[WSJT-SVN] r2343 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002037.html">[WSJT-SVN] r2345 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2036">[ date ]</a>
+              <a href="thread.html#2036">[ thread ]</a>
+              <a href="subject.html#2036">[ subject ]</a>
+              <a href="author.html#2036">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

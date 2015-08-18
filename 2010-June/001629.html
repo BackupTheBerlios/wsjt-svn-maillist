@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1937 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1937%20-%20trunk&In-Reply-To=%3C201006141655.o5EGt0nX028407%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001630.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1937 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1937%20-%20trunk&In-Reply-To=%3C201006141655.o5EGt0nX028407%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1937 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 14 18:55:00 CEST 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001630.html">[WSJT-SVN] r1938 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1629">[ date ]</a>
+              <a href="thread.html#1629">[ thread ]</a>
+              <a href="subject.html#1629">[ subject ]</a>
+              <a href="author.html#1629">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-06-14 18:54:56 +0200 (Mon, 14 Jun 2010)
+New Revision: 1937
+
+Modified:
+   trunk/decode65.f
+   trunk/deep65.F
+   trunk/wsjt.py
+Log:
+Added code to compute Doppler spreads after a JT65 deep-search decode.
+NB: this stuff may be temporary...
+
+
+Modified: trunk/decode65.f
+===================================================================
+--- trunk/decode65.f	2010-05-27 14:11:43 UTC (rev 1936)
++++ trunk/decode65.f	2010-06-14 16:54:56 UTC (rev 1937)
+@@ -10,6 +10,11 @@
+       real ftrack(126)
+       character decoded*22,deepmsg*22
+       character mycall*12,hiscall*12,hisgrid*6
++!###
++      real xx(256)
++      real ss(-128:128)
++      common/tmp8/ mcode(63)
++!###
+       include 'avecom.h'
+       include 'prcom.h'
+ 
+@@ -35,6 +40,38 @@
+       if(ndepth.ge.1) call deep65(s3,mode65,neme,
+      +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
++
++!###
++      if(qual.gt.10.0) then
++         rewind 82
++         j=1
++         do i=1,126
++            k=mdat(j)
++            if(flip.lt.0.0) k=mdat2(j)
++            if(i.eq.k) then
++               xx(i)=s2(mcode(j)+7,i)
++               j=j+1
++            else
++               xx(i)=s2(6,i)
++            endif
++         enddo
++         do i=127,256
++            xx(i)=0.
++         enddo
++         call ps(xx,256,ss(1))
++         do i=1,128
++            ss(-i)=ss(i)
++         enddo
++         ss(0)=ss(1)
++         call smooth(ss,257)
++         do i=-128,128
++            ff=i*11025.0/(4096.0*256)
++            write(82,3001) ff,1000.0*ss(i),db(ss(i)/ss(0))
++ 3001       format(f9.4,2f12.3)
++         enddo
++      endif
++!###
++
+       if(ncount.lt.0) decoded='                      '
+ 
+ C  Suppress &quot;birdie messages&quot;:
+
+Modified: trunk/deep65.F
+===================================================================
+--- trunk/deep65.F	2010-05-27 14:11:43 UTC (rev 1936)
++++ trunk/deep65.F	2010-06-14 16:54:56 UTC (rev 1937)
+@@ -14,6 +14,7 @@
+ !      character*1 cflag
+       character*36 cc
+       integer dgen(12)
++      common/tmp8/ mcode(63)
+       common/tmp9/ mrs(63),mrs2(63)
+       data cc/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'/
+ #ifdef CVF
+@@ -151,6 +152,9 @@
+          if(ip1.le.ntot) then
+             if(qual.lt.6.0) c='?'
+             decoded=testmsg(ip1)
++            do j=1,63
++               mcode(j)=ncode(j,ip1)+1
++            enddo
+          else
+             i=ip1-ntot-1
+             i1=i/(36**3)
+@@ -160,6 +164,7 @@
+             decoded=cc(i1+1:i1+1)//cc(i2+1:i2+1)//cc(i3+1:i3+1)//
+      +           cc(i4+1:i4+1)//'                  '
+          endif
++
+       endif
+       decoded(22:22)=c
+ 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2010-05-27 14:11:43 UTC (rev 1936)
++++ trunk/wsjt.py	2010-06-14 16:54:56 UTC (rev 1937)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001630.html">[WSJT-SVN] r1938 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1629">[ date ]</a>
+              <a href="thread.html#1629">[ thread ]</a>
+              <a href="subject.html#1629">[ subject ]</a>
+              <a href="author.html#1629">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,292 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2064 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2064%20-%20wsjt7a&In-Reply-To=%3C20100802173912.6E0D1480EE5%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001755.html">
+   <LINK REL="Next"  HREF="001757.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2064 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2064%20-%20wsjt7a&In-Reply-To=%3C20100802173912.6E0D1480EE5%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2064 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug  2 19:39:12 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001755.html">[WSJT-SVN] r2063 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001757.html">[WSJT-SVN] r2065 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1756">[ date ]</a>
+              <a href="thread.html#1756">[ thread ]</a>
+              <a href="subject.html#1756">[ subject ]</a>
+              <a href="author.html#1756">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-02 19:39:12 +0200 (Mon, 02 Aug 2010)
+New Revision: 2064
+
+Modified:
+   wsjt7a/len441.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/new441.f90
+   wsjt7a/wsjt.py
+Log:
+Use new441 to reject non-FSK441 data, find msglen, and decode the
+folded message.  Use old decoder for unfolded decodes.
+
+
+Modified: wsjt7a/len441.f90
+===================================================================
+--- wsjt7a/len441.f90	2010-08-01 19:06:14 UTC (rev 2063)
++++ wsjt7a/len441.f90	2010-08-02 17:39:12 UTC (rev 2064)
+@@ -20,7 +20,7 @@
+      acf(j)=abs(z)/(npts-j)
+   enddo
+ 
+-!  rewind 52
++!  rewind 53
+   jstep=50
+   smax=0.
+   do j=ja+jstep,jb-jstep
+@@ -34,10 +34,10 @@
+         smax=acf2(j)
+         jpk=j
+      endif
+-!     write(52,5001) j,j/75.0,acf2(j)
++!     write(53,5001) j,j/75.0,acf2(j)
+ !5001 format(i8,2f12.3)
+   enddo
+-!  call flush(52)
++!  call flush(53)
+   
+   np=nint(jpk/75.0)
+   chk=(jpk/75.0)/np
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-08-01 19:06:14 UTC (rev 2063)
++++ wsjt7a/mtdecode.f	2010-08-02 17:39:12 UTC (rev 2064)
+@@ -125,9 +125,9 @@
+          endif
+ 
+          call new441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,
+-     +              nfreeze,mousedf,dftolerance,mycall,0)
++     +              nfreeze,mousedf,dftolerance,mycall,0,nok)
+ 
+-         if(msglen.eq.0) go to 100
++         if(msglen.eq.0 .or. nok.eq.0) go to 100
+ 
+ C  Discard this ping if DF outside tolerance limits or bauderr too big.
+ C  (However, if the ping was mouse-picked, proceed anyway.)
+
+Modified: wsjt7a/new441.f90
+===================================================================
+--- wsjt7a/new441.f90	2010-08-01 19:06:14 UTC (rev 2063)
++++ wsjt7a/new441.f90	2010-08-02 17:39:12 UTC (rev 2064)
+@@ -1,5 +1,5 @@
+ subroutine new441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,nfreeze,     &amp;
+-     mousedf,dftolerance,mycall,ncon)
++     mousedf,dftolerance,mycall,ncon,nok)
+ 
+ ! Experimental FSK441 decoder
+ 
+@@ -32,9 +32,9 @@
+   integer dit(-3000:3000)
+   real y(0:3,-3000:3000)
+   complex za(0:3,-3000:3000)
+-  real yf(0:3,0:86)
+-  integer nf(0:86)
+-  integer ditf(0:86)
++  real yf(0:3,0:83)
++  integer nf(0:83)
++  integer ditf(0:83)
+   character c*48
+   character*90 line
+   common/ccom/nline,tping(100),line(100)
+@@ -72,16 +72,19 @@
+   if(xn-n .gt.0.001) n=n+1
+   nfft1=2**n
+   df1=11025.0/nfft1
++  nok=0
+ 
+   call analytic(dat(i0),npts,nfft1,s,cdat)    !Convert to analytic signal
+ 
+-  call len441(cdat,npts,lenacf,nacf)
++  call len441(cdat,npts,lenacf,nacf)          !Do ACF to find message length
+ 
+-  ia=dftolerance/df1
++  ia=nint(dftolerance/df1)
++  i0=0
++  if(nfreeze.ne.0) i0=nint(mousedf/df1)
+   ccfmax=0.
+   do i=-ia,ia                                 !Find DF
+-     ccf(i)=s(i+nint(882.0/df1)) + s(i+nint(1323.0/df1)) +           &amp;
+-          s(i+nint(1764.0/df1)) + s(i+nint(2205.0/df1))
++     ccf(i)=s(i0+i+nint(882.0/df1)) + s(i0+i+nint(1323.0/df1)) +        &amp;
++          s(i0+i+nint(1764.0/df1)) + s(i0+i+nint(2205.0/df1))
+   enddo
+   ccf(:-ia-1)=0.
+   ccf(ia+1:)=0.
+@@ -91,19 +94,21 @@
+   do i=-ia,ia                                 !Find max of smoothed CCF
+      if(ccf(i).gt.ccfmax) then
+         ccfmax=ccf(i)
+-        ipk=i
+-        dfx=i*df1
++        ipk=i0+i
++        dfx=ipk*df1
+      endif
+   enddo
+ 
+-  ib=min(nint(220.5/df1),ia)                  !Search range +/- 220.5 Hz
+-  call pctile(ccf(ipk-ib),work,2*ib+1,50,base)
++  ic=min(nint(220/df1),ia)                    !Baseline range +/- 220 Hz
++  call pctile(ccf(ipk-ic),work,2*ic+1,50,base)
+   ccfmax=ccfmax/base
+-  if(ccfmax.lt.4.0) go to 800                 !Is CCF search successful?
+ 
++  if(ccfmax.lt.4.0) go to 800                 !Reject non-FSK441 signals
++
+ ! We seem to have an FSK441 ping, and we know DF; now find DT.
+   call tweak1(cdat,npts,-dfx,cdat)            !Mix to standard frequency
+ 
++!  rewind 51
+   ibest=1
+ ! Look for best match to &quot;frag&quot;, find its DT
+   sbest=0.
+@@ -115,19 +120,23 @@
+         a=a + abs(cdat(j+i-1))
+         z=z + cdat(j+i-1)*cfrag(j)
+      enddo
+-!     ss=abs(z)/a
+-     ss=abs(z)
++     ss=abs(z)/a
++!     ss=abs(z)
+      rr(i)=ss
+      if(ss.gt.sbest) then
+         sbest=ss
+         ibest=i
+         tbest=(i+i0-1)*dt
+      endif
++!     write(51,3001) i,i/75.0,rr(i)
++!3001 format(i6,2f12.3)
+   enddo
+   rr(npts-nsam+1:)=0
++!  call flush(51)
+ 
+   if(sbest.lt.0.75) go to 800     !Skip if not decodable FSK441 data
+ 
++  nok=1
+ !  call len441(cdat,npts,lenacf)
+ 
+ ! We know DF and DT; now demodulate and decode.
+@@ -197,6 +206,7 @@
+   msglen=min((is2-is1+1)/3,40)         !Legth of potentially decodable text
+   j=is1/3                              !Set starting location
+   j=3*j
++  j=j-3
+ 
+   do i=1,msglen                        !Read off the hard-decision message
+      j=j+3
+@@ -205,15 +215,16 @@
+      if(nc.le.47 .and. nc.ge.0) msg(i:i)=c(nc+1:nc+1)
+   enddo
+ 
++  if(msglen.lt.2*lenacf) go to 800     !Width less than twice message length
+   n2=lenacf
+   ndf=nint(dfx)
+-  call cs_lock('new441')
+-  if(ncon.ne.0) write(*,1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
+-1008 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a40,5x,'*')
+-  if(nline.le.99) nline=nline+1
+-  tping(nline)=t2
+-  write(line(nline),1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
+-  call cs_unlock
++!  call cs_lock('new441')
++!  if(ncon.ne.0) write(*,1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
++!1008 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a40,5x,'*')
++!  if(nline.le.99) nline=nline+1
++!  tping(nline)=t2
++!  write(line(nline),1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
++!  call cs_unlock
+ 
+ 
+   if(n2.ge.4) then
+@@ -229,6 +240,7 @@
+         nf(k)=nf(k)+1
+      enddo
+ 
++!     rewind 52
+      do k=0,3*n2-1                     !Get dit values for averaged spectrum
+         if(nf(k).gt.0) then
+            rmax=0.
+@@ -241,7 +253,10 @@
+            enddo
+         endif
+         ditf(k)=ipk
++!        write(52,6001) k,ditf(k),rf,nf(k)
++!6001    format(2i3,4f10.3,i5)
+      enddo
++!     call flush(52)
+ 
+      j=-3
+      msg=' '
+@@ -258,7 +273,6 @@
+      if(idone.eq.0) call align28('CQ',  3,msg2,n2,idone)
+      if(idone.eq.0) call align28('QRZ', 3,msg2,n2,idone)
+      if(idone.eq.0) call align28('RRR', 3,msg2,n2,idone)
+-     if(idone.eq.0) call align28('73',  3,msg2,n2,idone)
+      if(idone.eq.0) call align28(' ',   1,msg2,n2,idone)
+      msg2=adjustl(msg2)
+ 
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-01 19:06:14 UTC (rev 2063)
++++ wsjt7a/wsjt.py	2010-08-02 17:39:12 UTC (rev 2064)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001755.html">[WSJT-SVN] r2063 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001757.html">[WSJT-SVN] r2065 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1756">[ date ]</a>
+              <a href="thread.html#1756">[ thread ]</a>
+              <a href="subject.html#1756">[ subject ]</a>
+              <a href="author.html#1756">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

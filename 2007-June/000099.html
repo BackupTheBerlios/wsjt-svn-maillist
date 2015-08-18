@@ -1,0 +1,440 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r414 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r414%20-%20branches/map65&In-Reply-To=%3C200706242326.l5ONQZIY012020%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000098.html">
+   <LINK REL="Next"  HREF="000100.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r414 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r414%20-%20branches/map65&In-Reply-To=%3C200706242326.l5ONQZIY012020%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r414 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 25 01:26:35 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000098.html">[WSJT-SVN] r413 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000100.html">[WSJT-SVN] r415 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#99">[ date ]</a>
+              <a href="thread.html#99">[ thread ]</a>
+              <a href="subject.html#99">[ subject ]</a>
+              <a href="author.html#99">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-25 01:26:17 +0200 (Mon, 25 Jun 2007)
+New Revision: 414
+
+Modified:
+   branches/map65/ftn_init.F90
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/specjt.py
+   branches/map65/symspec.f
+Log:
+Tick marks on waterfall displays.
+Display percent of deopped packets.
+Save all decodes to ALL65.txt.
+Shift F12/F11 to inrecment/decrement fqso.
+Save even/odd ip00 separately.
+
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/ftn_init.F90	2007-06-24 23:26:17 UTC (rev 414)
+@@ -11,7 +11,7 @@
+ !   18  test file to be transmitted (wsjtgen.f90)
+ !   19  bandmap.txt
+ !   20  bandmap2.txt
+-!   21  ALL.TXT
++!   21  ALL65.TXT
+ !   22  kvasd.dat
+ !   23  CALL3.TXT
+ 
+@@ -88,10 +88,10 @@
+   endfile 20
+ 
+ #ifdef Win32
+-  open(21,file=appdir(:iz)//'/ALL.TXT',status='unknown',                   &amp;
++  open(21,file=appdir(:iz)//'/ALL65.TXT',status='unknown',                   &amp;
+        access='append',share='denynone',err=950)
+ #else
+-  open(21,file=appdir(:iz)//'/ALL.TXT',status='unknown',                   &amp;
++  open(21,file=appdir(:iz)//'/ALL65.TXT',status='unknown',                   &amp;
+ 	access='append',err=950)
+   do i=1,9999999
+      read(21,*,end=10) cjunk
+@@ -135,7 +135,7 @@
+   stop
+ 940 print*,'Error opening DEBUG.TXT'
+   stop
+-950 print*,'Error opening ALL.TXT'
++950 print*,'Error opening ALL65.TXT'
+   stop
+ 
+ end subroutine ftn_init
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/gcom2.f90	2007-06-24 23:26:17 UTC (rev 414)
+@@ -6,6 +6,7 @@
+ real ccf               !CCF in time (blue curve)                Decoder
+ real green             !Data for green line                     GUI
+ real fselect           !Specified QSO frequency                 GUI
++real pctlost           !Percent of lost packets                 Decoder
+ real rxnoise           !Rx noise in dB                        recvpkt
+ integer ngreen         !Length of green                         GUI
+ real dgain             !Digital audio gain setting              GUI
+@@ -89,18 +90,18 @@
+ character*12 pttport
+ character*8 utcdata     !HHMM UTC for the processed data       Decoder
+ 
+-common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+-     green(500),fselect,rxnoise,ngreen,dgain,iter,ndecoding,          &amp;
++common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),               &amp;
++     green(500),fselect,pctlost,rxnoise,ngreen,dgain,iter,ndecoding,    &amp;
+      ndecoding0,mousebutton,   &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+-     dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
++     dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,     &amp;
+      nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+-     mousedf,mousefqso,neme,nsked,naggressive,ntx2,nagain,nsavelast,     &amp;
+-     shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,   &amp;
+-     idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,  &amp;
+-     ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+-     mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+-     fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport,  &amp;
++     mousedf,mousefqso,neme,nsked,naggressive,ntx2,nagain,nsavelast,    &amp;
++     shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,     &amp;
++     idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,&amp;
++     ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),     &amp;
++     mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,           &amp;
++     fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport, &amp;
+      utcdata
+ 
+ !### volatile /gcom2/
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/map65.py	2007-06-24 23:26:17 UTC (rev 414)
+@@ -879,6 +879,14 @@
+     if n&lt;0: n=n-5
+     if n==Audio.gcom2.mousedf: n=n-5
+     Audio.gcom2.mousedf=n
++
++#------------------------------------------------------ inc_fqso
++def inc_fqso(event=NONE):
++    Audio.gcom2.mousefqso=Audio.gcom2.mousefqso + 1
++
++#------------------------------------------------------ dec_fqso
++def dec_fqso(event=NONE):
++    Audio.gcom2.mousefqso=Audio.gcom2.mousefqso - 1
+     
+ #------------------------------------------------------ GenStdMsgs
+ def GenStdMsgs(event=NONE):
+@@ -1086,8 +1094,10 @@
+         t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+         Audio.gcom2.utcdate=t[:12]
+         ldate.configure(text=t)
+-        t=&quot;Rx noise: %.1f&quot; % Audio.gcom2.rxnoise
++        t=&quot;Rx noise: %.1f dB&quot; % Audio.gcom2.rxnoise
+         msg5.configure(text=t)
++        t=&quot;Drop: %.1f %%&quot; % Audio.gcom2.pctlost
++        msg6.configure(text=t)
+         root_geom=root.geometry()
+         try:
+             bm_geom=bm.geometry()
+@@ -1363,7 +1373,7 @@
+ filemenu.add('command', label = 'Delete all *.WAV files in RxWav', \
+              command = delwav)
+ filemenu.add_separator()
+-filemenu.add('command', label = 'Erase ALL.TXT', command = del_all)
++filemenu.add('command', label = 'Erase ALL65.TXT', command = del_all)
+ filemenu.add_separator()
+ filemenu.add('command', label = 'Exit', command = quit)
+ 
+@@ -1528,7 +1538,9 @@
+ root.bind_all('&lt;F10&gt;', showspecjt)
+ root.bind_all('&lt;Shift-F10&gt;', astro1)
+ root.bind_all('&lt;F11&gt;',left_arrow)
++root.bind_all('&lt;Shift-F11&gt;',dec_fqso)
+ root.bind_all('&lt;F12&gt;',right_arrow)
++root.bind_all('&lt;Shift-F12&gt;',inc_fqso)
+ root.bind_all('&lt;Alt-Key-1&gt;',btx1)
+ root.bind_all('&lt;Alt-Key-2&gt;',btx2)
+ root.bind_all('&lt;Alt-Key-3&gt;',btx3)
+@@ -1754,6 +1766,8 @@
+ msg4.pack(side=LEFT, fill=X, padx=1)
+ msg5=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
+ msg5.pack(side=LEFT, fill=X, padx=1)
++msg6=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
++msg6.pack(side=LEFT, fill=X, padx=1)
+ msg7=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
+ msg7.pack(side=RIGHT, fill=X, padx=1)
+ iframe6.pack(expand=1, fill=X, padx=4)
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/map65a.f90	2007-06-24 23:26:17 UTC (rev 414)
+@@ -15,17 +15,20 @@
+   character*3 shmsg0(4),shmsg
+   integer indx(MAXMSG),nsiz(MAXMSG)
+   logical done(MAXMSG)
++  logical even
+   character decoded*22,blank*22
+   include 'datcom.f90'
+   common/spcom/ip0,ss(4,322,NFFT),ss5(322,NFFT)
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+-  data nfile/0/,nutc0/-999/,nid/0/,ip00/1/
++  data nfile/0/,nutc0/-999/,nid/0/,ip000/1/,ip001/1/
+   include 'gcom2.f90'
+   save
+ 
+-  if(nlost.ne.0) write(*,1001) nutc,nlost
+-1001 format('UTC:',i5.4,'   Lost packets:',i6)
++  pctlost=nlost/331.03
++  if(nlost.ne.0) write(*,1001) nutc,nlost,pctlost
++1001 format('UTC:',i5.4,'   Lost packets:',i6,', or',f6.1,' %')
++  even=mod(nutc,2).eq.0
+ 
+   if(newdat2.eq.0) newdat2=1                      !###
+   if(newdat2.gt.0) nid=1
+@@ -75,7 +78,8 @@
+      nfilt=2                      !nfilt=2 is faster for selected freq
+      do kpol=0,3
+         freq=fselect + 0.001*mousedf
+-        ip0=ip00+kpol
++        if(even) ip0=ip000+kpol
++        if(.not.even) ip0=ip001+kpol
+         if(ip0.gt.4) ip0=ip0-4
+         dt00=2.314240
+         dt=dt00
+@@ -91,7 +95,9 @@
+         if(nkv.gt.0) go to 5
+      enddo
+ 
+-5    ip00=ip0
++5    if(even) ip000=ip0
++     if(.not.even) ip001=ip0
++
+      nkHz=nint(freq-1.600)
+      npol=nint(57.2957795*pol)
+      nqual=qual
+@@ -304,6 +310,8 @@
+            nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+            write(26,1014) f0,ndf,ndf0,ndf1,ndf2,dt,npol,nsync1,       &amp;
+                 nsync2,nutc,decoded,nkv,nqual,nhist
++           write(21,1014) f0,ndf,ndf0,ndf1,ndf2,dt,npol,nsync1,       &amp;
++                nsync2,nutc,decoded,nkv,nqual,nhist
+ 1014       format(f7.3,i5,3i3,f5.1,i5,i3,i4,i5.4,2x,a22,3i3)
+ 
+         endif
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/specjt.py	2007-06-24 23:26:17 UTC (rev 414)
+@@ -43,6 +43,7 @@
+ isec0=-99
+ mode0=&quot;&quot;
+ mousedf0=0
++mousefqso0=0
+ naxis=IntVar()
+ ncall=0
+ newMinute=0
+@@ -123,11 +124,13 @@
+ def set_fqso(event):
+     n=int(g.Freq + 0.5)
+     Audio.gcom2.mousefqso=n
++    df_mark()
+ 
+ #---------------------------------------------------- set_freezedf
+ def set_freezedf(event):
+     n=int(g.DFreq + 0.5)
+     Audio.gcom2.mousedf=n
++    df_mark()
+ 
+ #------------------------------------------------------ ftnstr
+ def ftnstr(x):
+@@ -139,41 +142,28 @@
+ #---------------------------------------------------- df_mark
+ def df_mark():
+     draw_axis()
+-    if nmark.get()==0 or Audio.gcom2.nfreeze:
+-        fstep=10.0*11025.0/4096.0
+-        if g.mode[4:5]=='B': fstep=2*fstep
+-        if g.mode[4:5]=='C': fstep=4*fstep
++#    if nmark.get()==0 or Audio.gcom2.nfreeze:
++# Mark QSO freq in top graph
++    color='green'
++    df=96.0/750.0
++    x1=393.0 + (Audio.gcom2.mousefqso-125)/df
++    c.create_line(x1-0.5,25,x1-0.5,12,fill=color)
++    c.create_line(x1+0.5,25,x1+0.5,12,fill=color)
+ 
++    df=96000.0/32768.0
+ # Mark sync tone and top JT65 tone (green) and shorthand tones (red)
+-        dx=288.7 + (1500-fmid)/df
+-        color='green'
+-        x1=(Audio.gcom2.mousedf + 6.6*fstep)/df + dx
+-        c.create_line(x1-0.5,25,x1-0.5,12,fill=color)
+-        c.create_line(x1+0.5,25,x1+0.5,12,fill=color)
+-        for i in range(5):
+-            x1=(Audio.gcom2.mousedf + i*fstep)/df + dx
+-            j=12
+-            if i&gt;0: j=15
+-            if i!=1: c.create_line(x1-0.5,25,x1-0.5,j,fill=color)
+-            if i!=1: c.create_line(x1+0.5,25,x1+0.5,j,fill=color)
+-            color='red'
++    fstep=20.0*11025.0/4096.0
++    x1=375.0 + (Audio.gcom2.mousedf + 6.6*fstep)/df
++    c2.create_line(x1-0.5,25,x1-0.5,12,fill=color)
++    c2.create_line(x1+0.5,25,x1+0.5,12,fill=color)
++    for i in range(5):
++        x1=375.0 + (Audio.gcom2.mousedf + i*fstep)/df
++        j=12
++        if i&gt;0: j=15
++        if i!=1: c2.create_line(x1-0.5,25,x1-0.5,j,fill=color)
++        if i!=1: c2.create_line(x1+0.5,25,x1+0.5,j,fill=color)
++        color='red'
+ 
+-#---------------------------------------------------- change_fmid
+-##def change_fmid1():
+-##    global fmid
+-##    fmid=fmid+100
+-##    if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
+-##
+-##def change_fmid2():
+-##    global fmid
+-##    fmid=fmid-100
+-##    if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+-##
+-##def set_fmid():
+-##    global fmid
+-##    if nfr.get()==1: fmid=1200
+-##    if nfr.get()==2: fmid=2200
+-
+ #---------------------------------------------------- freq_range
+ def freq_range(event):
+ # Move frequency scale left or right in 100 Hz increments
+@@ -221,7 +211,7 @@
+ def update():
+     global a,a2,b0,c0,g0,im,im2,isec0,line0,line02,newMinute,\
+            nscroll,pim,pim2, \
+-           root_geom,t0,mousedf0,nfreeze0,tol0,mode0,nmark0, \
++           root_geom,t0,mousedf0,mousefqso0,nfreeze0,tol0,mode0,nmark0, \
+            fmid,fmid0,frange,frange0
+     
+     utc=time.gmtime(time.time()+0.1*Audio.gcom1.ndsec)
+@@ -299,13 +289,14 @@
+         newMinute=0
+         Audio.gcom2.newspec=0
+ 
+-    if (Audio.gcom2.mousedf != mousedf0 or Audio.gcom2.dftolerance != tol0):
++    if (Audio.gcom2.mousedf != mousedf0 or
++            Audio.gcom2.mousefqso != mousefqso0):
+         df_mark()
+         
+ # The following int() calls are to ensure that the values copied to
+-# mousedf0 and tol0 are static.
++# mousedf0 and mousefqso0 are static.
+         mousedf0=int(Audio.gcom2.mousedf)
+-        tol0=int(Audio.gcom2.dftolerance)
++        mousefqso0=int(Audio.gcom2.mousefqso)
+ 
+     if Audio.gcom2.nfreeze != nfreeze0:
+         if not Audio.gcom2.nfreeze: draw_axis()
+@@ -376,10 +367,10 @@
+             c2.create_text(x,y,text=str(ix))
+         c2.create_line(i,25,i,j,fill='black')
+ 
+-    tol=Audio.gcom2.dftolerance
+-    x1=(Audio.gcom2.mousedf-tol)/xdf2 + 0.5*NX
+-    x2=(Audio.gcom2.mousedf+tol)/xdf2 + 0.5*NX
+-    c2.create_line(x1,25,x2,25,fill='green',width=2)
++#    tol=Audio.gcom2.dftolerance
++#    x1=(Audio.gcom2.mousedf-tol)/xdf2 + 0.5*NX
++#    x2=(Audio.gcom2.mousedf+tol)/xdf2 + 0.5*NX
++#    c2.create_line(x1,25,x2,25,fill='green',width=2)
+ 
+ 
+ #-------------------------------------------------------- Create GUI widgets
+@@ -476,8 +467,6 @@
+ graph2=Canvas(iframe1, bg='black', width=NX, height=NY,bd=0,cursor='crosshair')
+ graph2.pack(side=TOP)
+ Widget.bind(graph2,&quot;&lt;Motion&gt;&quot;,fdf_change2)
+-#Widget.bind(graph2,&quot;&lt;Button-1&gt;&quot;,decode_request)
+-#Widget.bind(graph2,&quot;&lt;Button-3&gt;&quot;,decode_request)
+ Widget.bind(graph2,&quot;&lt;Button-1&gt;&quot;,set_freezedf)
+ Widget.bind(graph2,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
+ iframe1.pack(expand=1, fill=X)
+@@ -553,7 +542,9 @@
+     npal.set(5)
+ 
+ #---------------------------------------------- Display GUI and start mainloop
+-draw_axis()
++#draw_axis()
++df_mark()
++
+ try:
+     ndevin=g.ndevin.get()
+ except:
+
+Modified: branches/map65/symspec.f
+===================================================================
+--- branches/map65/symspec.f	2007-06-24 19:47:35 UTC (rev 413)
++++ branches/map65/symspec.f	2007-06-24 23:26:17 UTC (rev 414)
+@@ -13,7 +13,7 @@
+ 
+ !      fac=1.e-4
+ !      fac=1.7e-4
+-      fac=0.0002 * 10.0**(0.1*(-rxnoise))
++      fac=0.0002 * 10.0**(0.05*(-rxnoise))
+ 
+       hsym=2048.d0*96000.d0/11025.d0     !Samples per half symbol
+       npts=hsym                          !Integral samples per half symbol
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000098.html">[WSJT-SVN] r413 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000100.html">[WSJT-SVN] r415 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#99">[ date ]</a>
+              <a href="thread.html#99">[ thread ]</a>
+              <a href="subject.html#99">[ subject ]</a>
+              <a href="author.html#99">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2362 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2362%20-%20branches/wspr&In-Reply-To=%3C20110228013952.880B0481476%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002053.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2362 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2362%20-%20branches/wspr&In-Reply-To=%3C20110228013952.880B0481476%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2362 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb 28 02:39:52 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002053.html">[WSJT-SVN] r2361 - branches/wspr
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2054">[ date ]</a>
+              <a href="thread.html#2054">[ thread ]</a>
+              <a href="subject.html#2054">[ subject ]</a>
+              <a href="author.html#2054">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-28 02:39:52 +0100 (Mon, 28 Feb 2011)
+New Revision: 2362
+
+Modified:
+   branches/wspr/clean.f90
+   branches/wspr/wwv.f90
+Log:
+Version 1.04 of wwv: better estimate of rms noise in subroutine 
+clean, leading to more reliable S/N values and delays.
+
+
+Modified: branches/wspr/clean.f90
+===================================================================
+--- branches/wspr/clean.f90	2011-02-26 19:25:00 UTC (rev 2361)
++++ branches/wspr/clean.f90	2011-02-28 01:39:52 UTC (rev 2362)
+@@ -6,6 +6,7 @@
+   real w1(NFSMAX/200)                         !Waveform of WWV tick
+   real w2(NFSMAX/200)                         !Waveform of WWVH tick
+   real ccf1(0:NFSMAX/6),ccf2(0:NFSMAX/6)
++  real sq1(0:NFSMAX/6),sq2(0:NFSMAX/6),tmp(0:NFSMAX/6)
+   real delay(4)
+   real snr(4)
+   integer nwwv(4)
+@@ -63,22 +64,26 @@
+         endif
+      enddo
+ 
+-     call averms(ccf1(101:200),100,ave1,rms1,xmax1)        !Get ave, rms
+-     call averms(ccf2(101:200),100,ave2,rms2,xmax2)
++     iz=lagmax-lag1+1
++     do i=1,iz
++        sq1(i)=abs(ccf1(i+lag1-1))
++        sq2(i)=abs(ccf2(i+lag1-1))
++     enddo
++     call pctile(sq1,tmp,iz,50,rms1a)
++     call pctile(sq2,tmp,iz,50,rms2a)
+ 
+      fac=gamma*ccfmax/120.0
+      if(nw.eq.1) then
+         xt(lagpk:lagpk+239)=xt(lagpk:lagpk+239)-fac*w1
+-        snr0=ccfmax/rms1
++        snr0=ccfmax/rms1a
+      else
+         xt(lagpk:lagpk+239)=xt(lagpk:lagpk+239)-fac*w2
+-        snr0=ccfmax/rms2
++        snr0=ccfmax/rms2a
+      endif
+ 
+-     snrdb=db(snr0/12.0)
+-     if(snrdb.lt.dbmin) go to 100
++     snrdb=db(snr0/8.0)
+      if(ii.eq.1) ccfmax0=ccfmax
+-     if(ccfmax.lt.0.2*ccfmax0) go to 100
++     if(snrdb.lt.dbmin .or. ccfmax.lt.0.2*ccfmax0) go to 100
+      nd=nd+1
+      snr(nd)=snrdb
+      delay(nd)=1000.0*lagpk*dt
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-26 19:25:00 UTC (rev 2361)
++++ branches/wspr/wwv.f90	2011-02-28 01:39:52 UTC (rev 2362)
+@@ -62,7 +62,7 @@
+ 
+   call getarg(1,arg)
+   if(arg(:2).eq.'-v') then
+-     print*,'Version 1.03'
++     print*,'Version 1.04'
+      go to 999
+   else if(arg.eq.'cal' .or. arg.eq.'CAL') then
+      nsec=60
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002053.html">[WSJT-SVN] r2361 - branches/wspr
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2054">[ date ]</a>
+              <a href="thread.html#2054">[ thread ]</a>
+              <a href="subject.html#2054">[ subject ]</a>
+              <a href="author.html#2054">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

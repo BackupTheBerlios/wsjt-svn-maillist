@@ -1,0 +1,617 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2608 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2608%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120928235951.7C4E155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002299.html">
+   <LINK REL="Next"  HREF="002301.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2608 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2608%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120928235951.7C4E155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2608 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 29 01:59:51 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002299.html">[WSJT-SVN] r2607 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002301.html">[WSJT-SVN] r2609 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2300">[ date ]</a>
+              <a href="thread.html#2300">[ thread ]</a>
+              <a href="subject.html#2300">[ subject ]</a>
+              <a href="author.html#2300">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-29 01:59:50 +0200 (Sat, 29 Sep 2012)
+New Revision: 2608
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/jt9.txt
+   branches/wsjtx/libm65/genjt9.f90
+   branches/wsjtx/libm65/jt9sim.f90
+   branches/wsjtx/libm65/symspecx.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/widegraph.cpp
+Log:
+Now can see signal on both waterfall plots.  (Far from correct, though!)
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/commons.h	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -1,14 +1,14 @@
+ #ifndef COMMONS_H
+ #define COMMONS_H
+ 
+-#define NFFT 32768
++#define NSMAX 15750
+ 
+ extern &quot;C&quot; {
+ 
+ extern struct {
+   short int d2[1800*12000];         //This is &quot;common/jt8com/...&quot; in fortran
+-  float ss[184*4400];
+-  float savg[4400];
++  float ss[184*NSMAX];
++  float savg[NSMAX];
+   double fcenter;                   //USB dial freq (kHz)
+   int nutc;                         //UTC as integer, HHMM
+   int ntrperiod;                    //TR period (seconds)
+
+Modified: branches/wsjtx/jt9.txt
+===================================================================
+--- branches/wsjtx/jt9.txt	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/jt9.txt	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -5,17 +5,17 @@
+ of (72+31)*2 = 206 bits.  Modulation is 9-FSK: 8 tones for data, one
+ for synchronization.  Sixteen symbol intervals are used for
+ synchronization, so a transmission requires a total of 207/3 + 16 = 85
+-channel symbols.  Symbol durations tsym are set to approximately
++channel symbols.  Symbol durations tsym are approximately
+ (TRperiod-10)/85, where TRperiod is the T/R sequence length in
+-seconds.  The exact symbol lengths are chosen so as to make nsps, the
+-number of samples at 12000 samples per second, a number rich in
+-factors less than 7.  This choice makes for efficient FFTs.  Tone
+-spacing of the 9-FSK modulation is df=1/tsym, the same as the keying
+-rate.  The total occupied bandwidth is 9*df.
++seconds.  Exact symbol lengths are chosen so that nsps, the number of
++samples per symbol (at 12000 samples per second) is a number with no
++prime factor greater than 7.  This choice makes for efficient FFTs.
++Tone spacing of the 9-FSK modulation is df=1/tsym=12000/nsps, the same
++as the keying rate.  The total occupied bandwidth is 9*df.
+ 
+-Parameters of the five JT9 sub-modes are summarized in the following
++Parameters of five JT9 sub-modes are summarized in the following
+ table, along with S/N thresholds measured by simulation on an AWGN
+-(additive white Gaussian noise) channel.  
++(additive white Gaussian noise) channel.
+ 
+ -------------------------------------------------------------------------
+ Mode     nsps nsps2   df    tsym  BW    S/N*   Tdec  Tfree   Factors 
+@@ -33,7 +33,7 @@
+ Transmitting
+ ------------
+ 1. Source encode the structured message to 72 bits
+-2. Convolutionally encode (K=32, r=1/2) to (72+31)*2 = 206 bits
++2. Apply convolutional ECC (K=32, r=1/2) to yield (72+31)*2 = 206 bits
+ 3. Interleave to scramble the bit order
+ 4. Assemble 3-bit groups to make (206+1)/3 = 69 symbols
+ 5. Gray-code the symbol values
+@@ -43,21 +43,21 @@
+ Receiving
+ ---------
+ 1.  Apply noise blanking with the timf2 method
+-2.  Filter to 500 Hz bandwidth, downsample (1/16) to 750 Hz complex
+-    (FIR filter with 61 taps).  Complex data to array c0 (max 1.35M)
++2.  Filter to 500 Hz bandwidth and downsample (1/16) to 750 Hz (FIR
++    filter with 61 taps).  Complex data to array c0 (max 1.35M)
+ 3.  Compute symbol-length spectra at half-symbol steps.  Use for
+-    waterfalls s(15750) and detecting sync vectors; save in ss(184,15750)
+-    and savg(15750)
+-4.  At time Tdec, look for sync vectors in ss(); get estimates of DF, DT
+-5.  Do full-length FFTs, NFFT1=96*nsps2
++    waterfall display s(15750) and save in ss(184,15750) and 
++    savg(15750) for detecting sync vectors.
++4.  At time Tdec, find sync vectors in ss(); get estimates of DF, DT
++5.  Do full-length FFT, NFFT1=96*nsps2, zero-pad as required.
+ 6.  For each candidate signal, do inverse FFT of length 1536.  This 
+-    will provide 16 complex samples per symbol, and sync tone should be 
+-    close to f=0.
++    yields 16 complex samples per symbol, and sync tone should be 
++    close to zero frequency.
+ 7.  Use afc65b method to get improved values of DF, DT.
+ 8.  Tweak freq and time offset to 0.
+-9.  Compute 8-bin spectra of 69 data symbols: s2(8,69).  Re-order the
+-    bins by removing Gray code.
+-10. Compute soft symbols for 206 bits
+-11. Re-order the bits by removing interleaving.
++9.  Compute 8-bin spectra of 69 data symbols: s2(8,69).  Re-order bins
++    by removing Gray code.
++10. Compute soft symbols for 206 bits.
++11. Remove interleaving
+ 12. Pack bits into bytes, send to Fano decoder
+ 13. If Fano succeeds, remove source encoding and display user message.
+
+Modified: branches/wsjtx/libm65/genjt9.f90
+===================================================================
+--- branches/wsjtx/libm65/genjt9.f90	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/libm65/genjt9.f90	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -7,8 +7,6 @@
+   character*22 message          !Message to be generated
+   character*22 msgsent          !Message as it will be received
+ 
+-  integer*4 mettab(0:255,0:1)
+-
+   integer*4 d0(13)              !72-bit message as 6-bit words
+   integer*1 d1(13)              !72 bits and zero tail as 8-bit bytes
+   integer*1 d2(207)             !Encoded information-carrying bits
+@@ -17,18 +15,6 @@
+   integer*4 d5(69)              !Gray-coded symbols, values 0-7
+   integer*4 d6(85)              !Channel symbols including sync, values 0-8
+ 
+-  integer*4 t0(13)              !72-bit message as 6-bit words
+-  integer*1 t1(13)              !72 bits and zero tail as 8-bit bytes
+-  integer*1 t2(207)             !Encoded information-carrying bits
+-  integer*1 t3(207)             !Bits from t4, after interleaving
+-  integer*4 t4(69)              !Symbols from t5, values 0-7
+-  integer*4 t5(69)              !Gray-coded symbols, values 0-7
+-  integer*4 t6(85)              !Channel symbols including sync, values 0-8
+-
+-  integer*1 tmp(72)
+-
+-  integer*1 i1
+-  equivalence (i1,i4)
+   integer isync(85)             !Sync vector
+   data isync/                                    &amp;
+        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,  &amp;
+@@ -58,60 +44,5 @@
+      endif
+   enddo
+ 
+-! We're done!  Now reverse the process, as a test.
+-
+-  t6=d6
+-  j=0
+-  do i=1,85
+-     if(isync(i).eq.1) cycle
+-     j=j+1
+-     t5(j)=t6(i)-1
+-  enddo
+-
+-  call graycode(t5,69,-1,t4)
+-  call unpackbits(t4,69,3,t3)
+-  call interleave9(t3,-1,t2)
+-
+-! Get the metric table
+-  bias=0.37
+-  scale=10                        !Optimize?
+-  open(19,file='met8.21',status='old')
+-
+-  do i=0,255
+-     read(19,*) x00,x0,x1
+-     mettab(i,0)=nint(scale*(x0-bias))
+-     mettab(i,1)=nint(scale*(x1-bias))    !### Check range, etc.  ###
+-  enddo
+-  close(19)
+-
+-  nbits=72
+-  ndelta=17
+-  limit=1000
+-  do i=1,206
+-     i4=-10
+-     if(t2(i).eq.1) i4=10
+-     i4=i4+128
+-     t2(i)=i1
+-  enddo
+-  
+-  call fano232(t2,nbits+31,mettab,ndelta,limit,t1,ncycles,metric,ierr,   &amp;
+-       maxmetric,maxnp)
+-
+-  nbytes=(nbits+7)/8
+-  do i=1,nbytes
+-     n=t1(i)
+-     t4(i)=iand(n,255)
+-  enddo
+-  call unpackbits(t4,nbytes,8,tmp)
+-  call packbits(tmp,12,6,t4)
+-  do i=1,12
+-     if(t4(i).lt.128) t1(i)=t4(i)
+-     if(t4(i).ge.128) t1(i)=t4(i)-256
+-  enddo
+-  do i=1,12
+-     t4(i)=t1(i)
+-  enddo
+-  print*,'z0',d0(1:12)-t4(1:12)
+-
+   return
+ end subroutine genjt9
+
+Modified: branches/wsjtx/libm65/jt9sim.f90
+===================================================================
+--- branches/wsjtx/libm65/jt9sim.f90	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/libm65/jt9sim.f90	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -6,8 +6,27 @@
+   integer ihdr(11)
+   integer*2 iwave                     !Generated waveform (no noise)
+   real*8 f0,f,dt,twopi,phi,dphi,baud,fspan
+-  character msg0*22,message*22,msgsent*22,arg*8,fname*11
++  character msg*22,msg0*22,message*22,msgsent*22,arg*8,fname*11
+   integer*4 d6(85)
++
++  integer*4 mettab(0:255,0:1)
++  integer*4 t0(13)              !72-bit message as 6-bit words
++  integer*1 t1(13)              !72 bits and zero tail as 8-bit bytes
++  integer*1 t2(207)             !Encoded information-carrying bits
++  integer*1 t3(207)             !Bits from t4, after interleaving
++  integer*4 t4(69)              !Symbols from t5, values 0-7
++  integer*4 t5(69)              !Gray-coded symbols, values 0-7
++  integer*4 t6(85)              !Channel symbols including sync, values 0-8
++  integer*1 tmp(72)
++  integer*1 i1
++  equivalence (i1,i4)
++  integer isync(85)             !Sync vector
++  data isync/                                    &amp;
++       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,  &amp;
++       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,  &amp;
++       0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,  &amp;
++       0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,  &amp;
++       1,0,0,0,1/
+   common/acom/dat(NMAX),iwave(NMAX)
+ 
+   nargs=iargc()
+@@ -51,6 +70,18 @@
+   
+   open(12,file='msgs.txt',status='old')
+ 
++! Get the metric table
++  bias=0.37
++  scale=10                        !Optimize?
++  open(19,file='met8.21',status='old')
++
++  do i=0,255
++     read(19,*) x00,x0,x1
++     mettab(i,0)=nint(scale*(x0-bias))
++     mettab(i,1)=nint(scale*(x1-bias))    !### Check range, etc.  ###
++  enddo
++  close(19)
++
+   write(*,1000)
+ 1000 format('File  N    freq      S/N  Message'/    &amp;
+             '---------------------------------------------------')
+@@ -113,6 +144,49 @@
+ 
+      write(10) ihdr,iwave(1:npts)
+      close(10)
++
++! We're done!  Now decode the data in d6, as a test.
++     j=0
++     do i=1,85
++        if(isync(i).eq.1) cycle
++        j=j+1
++        t5(j)=d6(i)-1
++     enddo
++
++     call graycode(t5,69,-1,t4)
++     call unpackbits(t4,69,3,t3)
++     call interleave9(t3,-1,t2)
++
++     nbits=72
++     ndelta=17
++     limit=1000
++     do i=1,206
++        i4=-10
++        if(t2(i).eq.1) i4=10
++        i4=i4+128
++        t2(i)=i1
++     enddo
++  
++     call fano232(t2,nbits+31,mettab,ndelta,limit,t1,ncycles,metric,ierr,   &amp;
++          maxmetric,maxnp)
++
++     nbytes=(nbits+7)/8
++     do i=1,nbytes
++        n=t1(i)
++        t4(i)=iand(n,255)
++     enddo
++     call unpackbits(t4,nbytes,8,tmp)
++     call packbits(tmp,12,6,t4)
++     do i=1,12
++        if(t4(i).lt.128) t1(i)=t4(i)
++        if(t4(i).ge.128) t1(i)=t4(i)-256
++     enddo
++     do i=1,12
++        t4(i)=t1(i)
++     enddo
++     call unpackmsg(t4,msg)         !Unpack decoded msg
++     if(msg.ne.msg0) print*,'Decode error: ',msg0,' ',msg
++
+   enddo
+ 
+ 999 end program jt9sim
+
+Modified: branches/wsjtx/libm65/symspecx.f90
+===================================================================
+--- branches/wsjtx/libm65/symspecx.f90	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/libm65/symspecx.f90	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -12,7 +12,7 @@
+ !  nzap     number of samples zero'ed by noise blanker
+ 
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NSMAX=4400)             !Max length of saved spectra
++  parameter (NSMAX=15750)             !Max length of saved spectra
+   parameter (MAXFFT=262144)          !Max length of FFTs
+   integer*2 id2
+   real*8 ts,hsym
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/mainwindow.cpp	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -1307,7 +1307,7 @@
+ {
+   m_mode=&quot;JT8-1&quot;;
+   m_TRperiod=60;
+-  m_nsps=7168;
++  m_nsps=6912;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1320,7 +1320,7 @@
+ {
+   m_mode=&quot;JT8-2&quot;;
+   m_TRperiod=120;
+-  m_nsps=16000;
++  m_nsps=15360;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1333,7 +1333,7 @@
+ {
+   m_mode=&quot;JT8-5&quot;;
+   m_TRperiod=300;
+-  m_nsps=42336;
++  m_nsps=40960;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1346,7 +1346,7 @@
+ {
+   m_mode=&quot;JT8-10&quot;;
+   m_TRperiod=600;
+-  m_nsps=86400;
++  m_nsps=82944;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1359,7 +1359,7 @@
+ {
+   m_mode=&quot;JT8-30&quot;;
+   m_TRperiod=1800;
+-  m_nsps=262144;
++  m_nsps=250880;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/plotter.cpp	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -32,7 +32,7 @@
+   m_fQSO = 125;
+   m_line = 0;
+   m_fSample = 12000;
+-  m_nsps=7168;
++  m_nsps=6912;
+   m_paintAllZoom = false;
+ }
+ 
+@@ -62,7 +62,7 @@
+     m_WaterfallPixmap.fill(Qt::black);
+     m_ZoomWaterfallPixmap.fill(Qt::black);
+     m_2DPixmap.fill(Qt::black);
+-    memset(m_zwf,0,32768*h);
++    memset(m_zwf,0,NSMAX*h);
+     m_ScalePixmap = QPixmap(w,30);
+     m_ZoomScalePixmap = QPixmap(w,30);    //(no change on resize...)
+     m_ScalePixmap.fill(Qt::white);
+@@ -97,9 +97,11 @@
+   QRect source(0,0,w,30);
+   painter.drawPixmap(target,m_ZoomScalePixmap,source);
+ 
+-  float df=m_fSample/32768.0;
+-  int x0=16384 + (0.001*(m_ZoomStartFreq+m_fCal)+m_fQSO-m_nkhz+1.27046) * \
+-      1000.0/df + 0.5;
++//  float df=m_fSample/32768.0;
++//  int x0=16384 + (0.001*(m_ZoomStartFreq+m_fCal)+m_fQSO-m_nkhz+1.27046) * \
++//      1000.0/df + 0.5;
++  float df=12000.0/m_nsps;
++  int x0=0;                         //### TEMP ###
+ 
+   QPainter painter2(&amp;m_ZoomWaterfallPixmap);
+   for(int i=0; i&lt;w; i++) {                      //Paint the top row
+@@ -136,7 +138,7 @@
+   m_paintEventBusy=false;
+ }
+ 
+-void CPlotter::draw(float s[], int i0, float splot[])                 //draw()
++void CPlotter::draw(float swide[], int i0, float splot[])                 //draw()
+ {
+   int i,j,w,h;
+   float y;
+@@ -169,15 +171,15 @@
+ 
+   for(i=0; i&lt;w; i++) {
+     strong=false;
+-    if(s[i]&lt;0) {
++    if(swide[i]&lt;0) {
+       strong=true;
+-      s[i]=-s[i];
++      swide[i]=-swide[i];
+     }
+-    y = 10.0*log10(s[i]);
++    y = 10.0*log10(swide[i]);
+     int y1 = 5.0*gain*(y + 29 -m_plotZero);
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+-    if (s[i]&gt;1.e29) y1=255;
++    if (swide[i]&gt;1.e29) y1=255;
+     m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+@@ -185,7 +187,7 @@
+       int y2 = gain*(y + 34 -m_plotZero);
+       if (y2&lt;0) y2=0;
+       if (y2&gt;254) y2=254;
+-      if (s[i]&gt;1.e29) y2=255;
++      if (swide[i]&gt;1.e29) y2=255;
+       if(strong != strong0 or i==w-1) {
+         painter2D.drawPolyline(LineBuf,j);
+         j=0;
+@@ -199,9 +201,9 @@
+     }
+   }
+ 
+-  for(i=0; i&lt;32768; i++) {
++  for(i=0; i&lt;NSMAX; i++) {
+     y = 10.0*log10(splot[i]);
+-    int y1 = 5.0*gain*(y + 30 - m_plotZero);
++    int y1 = 5.0*gain*(y + 29 -m_plotZero);
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+     if (splot[i]&gt;1.e29) y1=255;
+@@ -209,7 +211,7 @@
+     m_zwf[i]=y1;
+   }
+ 
+-  if(s[0]&gt;1.0e29) m_line=0;
++  if(swide[0]&gt;1.0e29) m_line=0;
+   m_line++;
+   if(m_line == 13) {
+     UTCstr();
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/soundin.cpp	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -2,13 +2,14 @@
+ #include &lt;stdexcept&gt;
+ 
+ #define FRAMES_PER_BUFFER 1024
++#define NSMAX 15750
+ 
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+   short int d2[1800*12000];         //This is &quot;common/jt8com/...&quot; in fortran
+-  float ss[184*4400];
+-  float savg[4400];
++  float ss[184*NSMAX];
++  float savg[NSMAX];
+   double fcenter;                   //USB dial freq (kHz)
+   int nutc;                         //UTC as integer, HHMM
+   int ntrperiod;                    //TR period (seconds)
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-09-28 22:00:49 UTC (rev 2607)
++++ branches/wsjtx/widegraph.cpp	2012-09-28 23:59:50 UTC (rev 2608)
+@@ -1,7 +1,7 @@
+ #include &quot;widegraph.h&quot;
+ #include &quot;ui_widegraph.h&quot;
+ 
+-#define NSMAX 4400
++#define NSMAX 15750
+ 
+ WideGraph::WideGraph(QWidget *parent) :
+   QDialog(parent),
+@@ -89,6 +89,7 @@
+   }
+ 
+   //Average spectra over specified number, m_waterfallAvg
++//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; ihsym &lt;&lt; NSMAX &lt;&lt; df &lt;&lt; nbpp;
+   if (n==0) {
+     for (int i=0; i&lt;NSMAX; i++)
+       splot[i]=s[i];
+@@ -108,20 +109,30 @@
+ //    if(sf != ui-&gt;widePlot-&gt;startFreq()) ui-&gt;widePlot-&gt;SetStartFreq(sf);
+ //    int i0=16384.0+(ui-&gt;widePlot-&gt;startFreq()-nkhz+1.27046+0.001*m_fCal) *
+ //        1000.0/df + 0.5;
++
+     int i0=0;                            //###
+     nbpp=1;                          //###
++
+     int i=i0;
+     for (int j=0; j&lt;2048; j++) {
+-        smax=0;
+-        for (int k=0; k&lt;nbpp; k++) {
+-            i++;
+-            if(splot[i]&gt;smax) smax=splot[i];
+-        }
+-        swide[j]=smax;
+-        if(lstrong[1 + i/32]!=0) swide[j]=-smax;   //Tag strong signals
++      smax=0;
++      for (int k=0; k&lt;nbpp; k++) {
++        if(splot[i]&gt;smax) smax=splot[i];
++        i++;
++      }
++      swide[j]=smax;
++/*
++      float sum=0;
++      for (int k=0; k&lt;nbpp; k++) {
++        i++;
++        sum += splot[i];
++      }
++        swide[j]=sum;
++*/
++      if(lstrong[1 + i/32]!=0) swide[j]=-smax;   //Tag strong signals
+     }
+ 
+-//    qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; ihsym &lt;&lt; smax &lt;&lt; s[100];
++//    qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; ihsym &lt;&lt; swide[1000] &lt;&lt; splot[1000];
+ // Time according to this computer
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int ntr = (ms/1000) % m_TRperiod;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002299.html">[WSJT-SVN] r2607 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002301.html">[WSJT-SVN] r2609 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2300">[ date ]</a>
+              <a href="thread.html#2300">[ thread ]</a>
+              <a href="subject.html#2300">[ subject ]</a>
+              <a href="author.html#2300">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

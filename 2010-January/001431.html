@@ -1,0 +1,240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1739 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1739%20-%20branches/wsjt8a&In-Reply-To=%3C201001071742.o07HgFEu008159%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001430.html">
+   <LINK REL="Next"  HREF="001432.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1739 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1739%20-%20branches/wsjt8a&In-Reply-To=%3C201001071742.o07HgFEu008159%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1739 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jan  7 18:42:15 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001430.html">[WSJT-SVN] r1738 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001432.html">[WSJT-SVN] r1740 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1431">[ date ]</a>
+              <a href="thread.html#1431">[ thread ]</a>
+              <a href="subject.html#1431">[ subject ]</a>
+              <a href="author.html#1431">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-01-07 18:42:11 +0100 (Thu, 07 Jan 2010)
+New Revision: 1739
+
+Modified:
+   branches/wsjt8a/decode3.F90
+   branches/wsjt8a/gcom2.f90
+   branches/wsjt8a/wsjt.py
+   branches/wsjt8a/wsjt1.f90
+Log:
+Implement intentional signal degradation, for tests.
+
+
+Modified: branches/wsjt8a/decode3.F90
+===================================================================
+--- branches/wsjt8a/decode3.F90	2010-01-07 16:47:47 UTC (rev 1738)
++++ branches/wsjt8a/decode3.F90	2010-01-07 17:42:11 UTC (rev 1739)
+@@ -39,17 +39,6 @@
+   endif
+ 
+   open(23,file=appdir(:lenappdir)//'/CALL3.TXT',status='unknown')
+-  if(nadd5.eq.1) then
+-!  Insert 5 s of zeroes at start of data.
+-     nzero=5*12000
+-     do i=jz,nzero+1,-1
+-        d2d(i)=d2d(i-nzero)
+-     enddo
+-     do i=1,nzero
+-        d2d(i)=0
+-     enddo
+-     jz=min(60*12000,jz+nzero)
+-  endif
+   call wsjt1(d2d,jz,istart,FileID,ndepth,                         &amp;
+        MinSigdB,DFTolerance,MouseButton,NClearAve,nforce,         &amp;
+        mode,NFreeze,NAFC,NZap,mode64,mode4,idf,ntdecode,          &amp;
+
+Modified: branches/wsjt8a/gcom2.f90
+===================================================================
+--- branches/wsjt8a/gcom2.f90	2010-01-07 16:47:47 UTC (rev 1738)
++++ branches/wsjt8a/gcom2.f90	2010-01-07 17:42:11 UTC (rev 1739)
+@@ -24,7 +24,6 @@
+ integer nmsg           !Length of Tx message                    SoundIn
+ integer nbitsent       !User bits in Tx message                 SoundIn
+ integer nsave          !Which files to save?                    GUI
+-integer nadd5          !Prepend 5 sec of 0's before decoding?   GUI 
+ integer dftolerance    !DF tolerance (Hz)                       GUI
+ logical LDecoded       !Was a message decoded?                  Decoder
+ logical rxdone         !Has the Rx sequence finished?      SoundIn,Decoder
+@@ -97,7 +96,7 @@
+      green(500),ngreen,dgain,iyr,imo,ida,                             &amp;
+      ndecoding,ndecoding0,mousebutton,nhighpri,                       &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nbitsent,  &amp;
+-     nsave,nadd5,dftolerance,LDecoded,rxdone,monitoring,              &amp;
++     nsave,dftolerance,LDecoded,rxdone,monitoring,                    &amp;
+      nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
+      mode4,ndebug,nport,mousedf,nsked,                                &amp;
+      naggressive,nslim2,nagain,nsavelast,ntxdf,nxa,nxb,               &amp;
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2010-01-07 16:47:47 UTC (rev 1738)
++++ branches/wsjt8a/wsjt.py	2010-01-07 17:42:11 UTC (rev 1739)
+@@ -884,16 +884,6 @@
+     ldsec.configure(text='Dsec  '+str(0.1*idsec),bg=bg)
+     Audio.gcom1.ndsec=idsec
+ 
+-#------------------------------------------------------ toggle_shift
+-def toggle_shift(event):
+-    Audio.gcom2.nadd5=1-Audio.gcom2.nadd5
+-    if Audio.gcom2.nadd5:
+-        bg='red'
+-        lshift.configure(text='Shift 5.0',bg=bg)
+-    else:
+-        bg='white'
+-        lshift.configure(text='Shift 0.0',bg=bg)
+-
+ #------------------------------------------------------ inctrperiod
+ def inctrperiod(event):
+     global ncwtrperiod
+@@ -1025,7 +1015,6 @@
+                     Audio.gcom2.ndecoding=4           #Decode from recorded file
+                 elif Audio.gcom2.ndecoding0==1:
+                     Audio.gcom2.ndecoding=5        #Decode data in main screen
+-    nopen=0
+ 
+ #------------------------------------------------------ double-click_g1
+ def double_click_g1(event):
+@@ -1035,6 +1024,7 @@
+     
+ #------------------------------------------------------ mouse_up_g1
+ def mouse_up_g1(event):
++    global nopen
+     if mode.get()=='ISCAT':
+         if abs(event.x-nxa)&gt;10:
+             nxb=min(event.x,500)
+@@ -1042,7 +1032,9 @@
+             Audio.gcom2.nxb=nxb
+             decode()
+         else:
+-            Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*5.859)
++            if not nopen:
++                Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*5.859)
++    nopen=0
+ 
+ #------------------------------------------------------ right_arrow
+ def right_arrow(event=NONE):
+@@ -1379,7 +1371,7 @@
+     msg1.configure(text=&quot;%6.4f %6.4f&quot; % (samfac_in,samfac_out))
+     msg2.configure(text=mode.get())
+     t=&quot;Freeze DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+-    if abs(int(Audio.gcom2.mousedf))&gt;600:
++    if abs(int(Audio.gcom2.mousedf))&gt;400:
+         msg3.configure(text=t,fg='black',bg='red')
+     else:
+         msg3.configure(text=t,fg='black',bg='gray85')    
+@@ -1394,6 +1386,10 @@
+                        bg='gray85')
+     t=&quot;%d&quot; % (int(Audio.gcom2.nbitsent),)
+     msg6.configure(text=t)
++    if isync&gt;=0:
++        lsync.configure(bg='white')
++    else:
++        lsync.configure(bg='red')
+ 
+     tx1.configure(bg='white')
+     tx2.configure(bg='white')
+@@ -1925,11 +1921,8 @@
+ Widget.bind(ltol,'&lt;Button-3&gt;',dectol)
+ ldsec=Label(f5b, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+ ldsec.grid(column=0,row=4,ipadx=3,padx=2,pady=5,sticky='EW')
+-lshift=Label(f5b, bg='white', fg='black', text='Shift 0.0', width=8, relief=RIDGE)
+-lshift.grid(column=1,row=4,ipadx=3,padx=2,pady=5,sticky='EW')
+ Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+ Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
+-Widget.bind(lshift,'&lt;Button-1&gt;',toggle_shift)
+ 
+ f5b.pack(side=LEFT,expand=0,fill=BOTH)
+ 
+
+Modified: branches/wsjt8a/wsjt1.f90
+===================================================================
+--- branches/wsjt8a/wsjt1.f90	2010-01-07 16:47:47 UTC (rev 1738)
++++ branches/wsjt8a/wsjt1.f90	2010-01-07 17:42:11 UTC (rev 1739)
+@@ -80,20 +80,20 @@
+      dat(j)=dat(j)-ave
+   enddo
+ 
+-!        if(ndiag.ne.0 .and. nclip.lt.0) then
+-!  Intentionally degrade SNR by -nclip dB.
+-!           sq=0.
+-!           do i=1,jz
+-!              sq=sq + dat(i)**2
+-!           enddo
+-!           p0=sq/jz
+-!           p1=p0*10.0**(-0.1*nclip)
+-!           dnoise=sqrt(4*(p1-p0))
+-!           idum=-1
+-!           do i=1,jz
+-!              dat(i)=dat(i) + dnoise*gran(idum)
+-!           enddo
+-!        endif
++  if(ndiag.ne.0 .and. minsigdb.lt.0) then
++!  Intentionally degrade SNR by minsigdb dB.
++     sq=0.
++     do i=1,jz
++        sq=sq + dat(i)**2
++     enddo
++     p0=sq/jz
++     p1=p0*10.0**(-0.1*minsigdb)
++     dnoise=sqrt(4*(p1-p0))
++     idum=-1
++     do i=1,jz
++        dat(i)=dat(i) + dnoise*gran(idum)
++     enddo
++  endif
+ 
+   if(mode(1:4).ne.'JT64' .and. nzap.ne.0) then
+      nfrz=NFreeze
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001430.html">[WSJT-SVN] r1738 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001432.html">[WSJT-SVN] r1740 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1431">[ date ]</a>
+              <a href="thread.html#1431">[ thread ]</a>
+              <a href="subject.html#1431">[ subject ]</a>
+              <a href="author.html#1431">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

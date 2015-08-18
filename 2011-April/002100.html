@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2408 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2408%20-%20trunk&In-Reply-To=%3C20110421201852.E223048144E%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002099.html">
+   <LINK REL="Next"  HREF="002101.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2408 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2408%20-%20trunk&In-Reply-To=%3C20110421201852.E223048144E%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2408 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 21 22:18:52 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002099.html">[WSJT-SVN] r2407 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002101.html">[WSJT-SVN] r2409 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2100">[ date ]</a>
+              <a href="thread.html#2100">[ thread ]</a>
+              <a href="subject.html#2100">[ subject ]</a>
+              <a href="author.html#2100">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-21 22:18:52 +0200 (Thu, 21 Apr 2011)
+New Revision: 2408
+
+Modified:
+   trunk/syncdiana.f90
+   trunk/wsjt.py
+Log:
+Fic ccalf of ccfred.
+
+
+Modified: trunk/syncdiana.f90
+===================================================================
+--- trunk/syncdiana.f90	2011-04-21 19:21:52 UTC (rev 2407)
++++ trunk/syncdiana.f90	2011-04-21 20:18:52 UTC (rev 2408)
+@@ -5,7 +5,6 @@
+   real s0(1024,NSZ)
+   real fs0(1024,96)                       !Folded-for-sync spectra
+   real ccfblue(-5:540)
+-  real ccfred0(-224:224)
+   real ccfred(-224:224)
+   character msg*28,msgbest*28
+   integer dftolerance
+@@ -36,11 +35,11 @@
+         fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
+      enddo
+ 
+-     ia=-600.0/df
+-     ib=600.0/df
++     ia=nint(-600.0/df)
++     ib=nint(600.0/df)
+      if(nfreeze.eq.1) then
+-        ia=(mousedf-dftolerance)/df
+-        ib=(mousedf+dftolerance)/df
++        ia=nint((mousedf-dftolerance)/df)
++        ib=nint((mousedf+dftolerance)/df)
+      endif
+ 
+      smax=0.
+@@ -57,14 +56,13 @@
+               sm1=ss
+               jpk1=j+1
+            endif
+-           if(abs(i).le.224) ccfred(i)=sm1
++!           if(abs(i).le.224) ccfred(i)=sm1
+         enddo
+         if(sm1.gt.smax) then
+            smax=sm1
+            ipk=i0+i                   !Frequency offset, DF
+            jpk=jpk1
+            idfpk=idf
+-           ccfred0=ccfred
+         endif
+      enddo
+ 
+@@ -96,13 +94,8 @@
+      enddo
+      msglen=(ipk2-ipk)/2
+ 
+-!###
+      call decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
+-!     write(*,3001) xsync,worst,avg,msglen,msg
+-!3001 format(3f6.2,i3,1x,a28)
+-!###
+ 
+-!     if(xsync.ge.xsyncbest) then
+      if(worst.gt.bigworst) then
+         bigworst=worst
+         bigavg=avg
+@@ -151,8 +144,24 @@
+      fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
+   enddo
+ 
+-! Recover and scale ccfred
+-  ccfred=0.5*ccfred0/ref - 1.0
++! Compute ccfred
++  do i=ia,ib                          !Search over DF range
++     sm1=0.
++     do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
++        ss=0.
++        do n=1,4                      !Sum the four sync tones
++           k=j+4*n-3
++           if(k.gt.4*nblk) k=k-4*nblk
++           ss=ss + fs0(i0+i+2*isync(n),k)
++        enddo
++        if(ss.gt.sm1) then
++           sm1=ss
++           jpk1=j+1
++        endif
++        if(abs(i).le.224) ccfred(i)=sm1
++     enddo
++  enddo
++  ccfred=0.5*ccfred/ref - 1.0
+ 
+ ! Compute ccfblue using idfpk and ipk
+   do j=0,4*nblk-1
+@@ -164,7 +173,11 @@
+      enddo
+      jj=mod(j+80,96) - 5
+      ccfblue(jj)=0.5*(ss/ref - 1.0)
++!     write(41,3001) j,jj,ccfblue(jj)
++!3001 format(2i6,f10.3)
+   enddo
++!  call flush(41)
++!  rewind 41
+ 
+   return
+ end subroutine syncdiana
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-21 19:21:52 UTC (rev 2407)
++++ trunk/wsjt.py	2011-04-21 20:18:52 UTC (rev 2408)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002099.html">[WSJT-SVN] r2407 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002101.html">[WSJT-SVN] r2409 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2100">[ date ]</a>
+              <a href="thread.html#2100">[ thread ]</a>
+              <a href="subject.html#2100">[ subject ]</a>
+              <a href="author.html#2100">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

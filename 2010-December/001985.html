@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2293 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2293%20-%20branches/wspr&In-Reply-To=%3C20101216170515.6B602480F31%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001984.html">
+   <LINK REL="Next"  HREF="001986.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2293 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2293%20-%20branches/wspr&In-Reply-To=%3C20101216170515.6B602480F31%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2293 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Dec 16 18:05:15 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001984.html">[WSJT-SVN] r2292 - in branches/wspr: . DEB/DEBIAN
+</A></li>
+        <LI>Next message: <A HREF="001986.html">[WSJT-SVN] r2294 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1985">[ date ]</a>
+              <a href="thread.html#1985">[ thread ]</a>
+              <a href="subject.html#1985">[ subject ]</a>
+              <a href="author.html#1985">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-16 18:05:14 +0100 (Thu, 16 Dec 2010)
+New Revision: 2293
+
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/playsound.c
+   branches/wspr/wspr.py
+   branches/wspr/wspr0.f90
+   branches/wspr/wspr0_rx.f90
+   branches/wspr/wspr0_tx.f90
+Log:
+Correct Makefile.MinGW.
+Change pa_sleep() to msleep().
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/Makefile.MinGW	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -19,7 +19,7 @@
+ 
+ all:    WSPR.EXE fmt.exe fmtave.exe fcal.exe fmeasure.exe wspr0.exe
+ 
+-OBJS1 = wspr0.o wspr0_tx.o playsound.o ptt_unix.o gmtime2.o wfile5.o \
++OBJS1 = wspr0.o wspr0_tx.o playsound.o ptt.o gmtime2.o wfile5.o \
+ 	cs_stubs.o genmept.o wqencode.o wqdecode.o inter_mept.o \
+ 	encode232.o gran.o packcall.o packgrid.o pack50.o packpfx.o \
+ 	hash.o unpackcall.o unpackgrid.o unpackpfx.o unpack50.o \
+@@ -97,7 +97,8 @@
+ 	$(FC) -o fmeasure.exe fmeasure.f90
+ 
+ wspr0.exe: $(OBJS1)
+-	$(FC) -o wspr0 $(FFLAGS) $(OBJS1) -lportaudio -lfftw3f
++	$(FC) -o wspr0 $(FFLAGS) $(OBJS1) libportaudio.a \
++	   c:\MinGW\lib\libwinmm.a libfftw3f_win.a
+ 
+ sound.o: sound.c
+ 	$(CC) -c sound.c
+
+Modified: branches/wspr/playsound.c
+===================================================================
+--- branches/wspr/playsound.c	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/playsound.c	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -170,9 +170,7 @@
+   return err;
+ }
+ 
+-extern void pa_sleep_(int *nsleep)
++void msleep_(int *msec0)
+ {
+-  int n;
+-  n=*nsleep;
+-  Pa_Sleep(n);
++  Pa_Sleep(*msec0);
+ }
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/wspr.py	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -1,4 +1,4 @@
+-#------------------------------------------------------------------- WSPR
++#------------------------------------------------------------------ WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wspr/wspr0.f90
+===================================================================
+--- branches/wspr/wspr0.f90	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/wspr0.f90	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -84,7 +84,7 @@
+      else
+         call wspr0_rx(nargs,ntr)
+      endif
+-     call pa_sleep(100)
++     call msleep(100)
+      go to 20
+   else
+ ! Illegal set of command parameters
+
+Modified: branches/wspr/wspr0_rx.f90
+===================================================================
+--- branches/wspr/wspr0_rx.f90	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/wspr0_rx.f90	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -80,7 +80,7 @@
+         call mept162(cfile6,f0,iwave,npts,rms)
+         if(ntr.ne.0) go to 999
+      endif
+-30   call pa_sleep(100)
++30   call msleep(100)
+      go to 20
+   endif
+       
+
+Modified: branches/wspr/wspr0_tx.f90
+===================================================================
+--- branches/wspr/wspr0_tx.f90	2010-12-16 16:46:23 UTC (rev 2292)
++++ branches/wspr/wspr0_tx.f90	2010-12-16 17:05:14 UTC (rev 2293)
+@@ -80,7 +80,7 @@
+            if(nport.gt.0) ierr=ptt(nport,junk,0,iptt)
+            if(ntr.ne.0) go to 999
+         endif
+-30      call pa_sleep(100)
++30      call msleep(100)
+         go to 20
+      endif
+      if(nfiles.eq.9999) go to 999
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001984.html">[WSJT-SVN] r2292 - in branches/wspr: . DEB/DEBIAN
+</A></li>
+	<LI>Next message: <A HREF="001986.html">[WSJT-SVN] r2294 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1985">[ date ]</a>
+              <a href="thread.html#1985">[ thread ]</a>
+              <a href="subject.html#1985">[ subject ]</a>
+              <a href="author.html#1985">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

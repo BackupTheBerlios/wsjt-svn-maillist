@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2454 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2454%20-%20branches/map65&In-Reply-To=%3C20110929190054.932D54813D1%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002145.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2454 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2454%20-%20branches/map65&In-Reply-To=%3C20110929190054.932D54813D1%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2454 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 29 21:00:54 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002145.html">[WSJT-SVN] r2453 - branches/map65
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2146">[ date ]</a>
+              <a href="thread.html#2146">[ thread ]</a>
+              <a href="subject.html#2146">[ subject ]</a>
+              <a href="author.html#2146">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-09-29 21:00:54 +0200 (Thu, 29 Sep 2011)
+New Revision: 2454
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/recvpkt.F90
+Log:
+Remove the &quot;Floating point data&quot; menu item; instead, determine whether
+i*2 or r*4 data from sign of parameter userx_no send from Linrad.
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2011-09-29 17:46:21 UTC (rev 2453)
++++ branches/map65/gcom2.f90	2011-09-29 19:00:54 UTC (rev 2454)
+@@ -20,7 +20,7 @@
+ integer mousebutton    !Which button was clicked?               GUI
+ integer multicast      !1 for multicast data, 0 for unicast     GUI
+ integer ndecdone       !Is decoder finished?                 GUI,Decoder
+-integer nfloat         !Floating-point data from Linrad?        GUI
++integer nfloat         !Floating-point data from Linrad?      recvpkt
+ integer ierr           !Error opening *.tf2 file                GUI
+ integer lauto          !Are we in Auto mode?                    GUI
+ integer mantx          !Manual transmission requested?       GUI,SoundIn
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2011-09-29 17:46:21 UTC (rev 2453)
++++ branches/map65/map65.py	2011-09-29 19:00:54 UTC (rev 2454)
+@@ -59,8 +59,6 @@
+ bm2_geom=&quot;&quot;
+ cmap0=&quot;Linrad&quot;
+ fileopened=&quot;&quot;
+-floatpt=IntVar()
+-floatpt.set(0)
+ font1='Helvetica'
+ fqso0=125
+ hiscall=&quot;&quot;
+@@ -1002,7 +1000,8 @@
+         t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+         Audio.gcom2.utcdate=t[:12]
+         ldate.configure(text=t)
+-        t=&quot;Rx: %.1f dB  %.1f %%&quot; % (Audio.gcom2.rxnoise,Audio.gcom2.pctblank)
++        t=&quot;Rx: %.1f dB  %.1f %% %d&quot; % (Audio.gcom2.rxnoise, \
++                        Audio.gcom2.pctblank,Audio.gcom2.nfloat)
+         msg4.configure(text=t)
+         t=&quot;Drop: %.2f %%&quot; % Audio.gcom2.pctlost
+         msg5.configure(text=t)
+@@ -1315,7 +1314,6 @@
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+     Audio.gcom2.multicast=multicast.get()
+-    Audio.gcom2.nfloat=floatpt.get()
+     Audio.gcom2.nxant=options.xant.get()
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+@@ -1414,8 +1412,6 @@
+ setupmenu.add_radiobutton(label = 'Input data unicast', variable=multicast, \
+             value=0)
+ setupmenu.add_separator()
+-setupmenu.add_checkbutton(label = 'Floating point data', variable=floatpt)
+-setupmenu.add_separator()
+ setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
+ setupmenu.add_checkbutton(label = 'Verbose diagnostics',variable=ndebug2)
+ 
+@@ -1890,7 +1886,6 @@
+         elif key == 'Multicast': multicast.set(value)
+         elif key == 'Debug': ndebug.set(value)
+         elif key == 'Debug2': ndebug2.set(value)
+-        elif key == 'FloatPt': floatpt.set(value)
+         elif key == 'HisCall':
+             Audio.gcom2.hiscall=(value+'            ')[:12]
+             ToRadio.delete(0,99)
+@@ -1988,7 +1983,6 @@
+ f.write(&quot;Multicast &quot; + str(multicast.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug2 &quot; + str(ndebug2.get()) + &quot;\n&quot;)
+-f.write(&quot;FloatPt &quot; + str(floatpt.get()) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+ if g.astro_geom[:7]==&quot;200x200&quot;: g.astro_geom=&quot;316x373&quot; + g.astro_geom[7:]
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2011-09-29 17:46:21 UTC (rev 2453)
++++ branches/map65/recvpkt.F90	2011-09-29 19:00:54 UTC (rev 2454)
+@@ -40,6 +40,12 @@
+ 10 if(multicast.ne.multicast0) go to 1
+   call recv_pkt(center_freq)
+ 
++  if(userx_no.lt.0) then
++     nfloat=1
++  else
++     nfloat=0
++  endif
++
+   iz=174
+   if(nfloat.ne.0) iz=87
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002145.html">[WSJT-SVN] r2453 - branches/map65
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2146">[ date ]</a>
+              <a href="thread.html#2146">[ thread ]</a>
+              <a href="subject.html#2146">[ subject ]</a>
+              <a href="author.html#2146">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

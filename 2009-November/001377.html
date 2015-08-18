@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1686 - in branches/wspr: . DEB/DEBIAN
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1686%20-%20in%20branches/wspr%3A%20.%20DEB/DEBIAN&In-Reply-To=%3C200911151628.nAFGSgDB019488%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001376.html">
+   <LINK REL="Next"  HREF="001378.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1686 - in branches/wspr: . DEB/DEBIAN</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1686%20-%20in%20branches/wspr%3A%20.%20DEB/DEBIAN&In-Reply-To=%3C200911151628.nAFGSgDB019488%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1686 - in branches/wspr: . DEB/DEBIAN">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Nov 15 17:28:42 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001376.html">[WSJT-SVN] r1685 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001378.html">[WSJT-SVN] r1687 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1377">[ date ]</a>
+              <a href="thread.html#1377">[ thread ]</a>
+              <a href="subject.html#1377">[ subject ]</a>
+              <a href="author.html#1377">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-15 17:28:40 +0100 (Sun, 15 Nov 2009)
+New Revision: 1686
+
+Added:
+   branches/wspr/fcal.dat
+   branches/wspr/fcal.f90
+Modified:
+   branches/wspr/DEB/DEBIAN/control
+Log:
+Added simple program for computing calibration constants.
+
+
+Modified: branches/wspr/DEB/DEBIAN/control
+===================================================================
+--- branches/wspr/DEB/DEBIAN/control	2009-11-15 14:17:21 UTC (rev 1685)
++++ branches/wspr/DEB/DEBIAN/control	2009-11-15 16:28:40 UTC (rev 1686)
+@@ -1,5 +1,5 @@
+ Package: WSPR
+-Version: 2.00r1677
++Version: 2.00r1682
+ Section: unknown
+ Priority: optional
+ Architecture: i386
+
+Added: branches/wspr/fcal.dat
+===================================================================
+--- branches/wspr/fcal.dat	2009-11-15 14:17:21 UTC (rev 1685)
++++ branches/wspr/fcal.dat	2009-11-15 16:28:40 UTC (rev 1686)
+@@ -0,0 +1,11 @@
++   Freq    DF   Callsign
++  (MHz)   (Hz)
++------------------------
++  2.500   5.49    WWV
++  3.330   6.41    CHU
++  5.000   8.61    WWV
++  7.850  12.27    CHU
++ 10.000  15.01    WWV
++ 14.670  21.06    CHU
++ 15.000  21.42    WWV
++ 20.000  28.02    WWV
+
+Added: branches/wspr/fcal.f90
+===================================================================
+--- branches/wspr/fcal.f90	2009-11-15 14:17:21 UTC (rev 1685)
++++ branches/wspr/fcal.f90	2009-11-15 16:28:40 UTC (rev 1686)
+@@ -0,0 +1,75 @@
++program fcal
++
++  parameter(NZ=1000)
++  implicit real*8 (a-h,o-z)
++  real*8 fd(NZ),deltaf(NZ),r(NZ)
++  character cjunk*4
++
++  open(10,file='fcal.dat',status='old',err=997)
++  read(10,*,err=998) cjunk
++  read(10,*,err=998) cjunk
++  read(10,*,err=998) cjunk
++  do i=1,9999
++     read(10,*,end=10) fd(i),deltaf(i)
++     r(i)=0.d0
++  enddo
++
++10 iz=i-1
++  call fit(fd,deltaf,r,iz,a,b,sigmaa,sigmab,rms)
++
++  write(*,1002) 
++1002 format('    Freq     DF     Meas Freq    Resid'/        &amp;
++            '   (MHz)    (Hz)      (MHz)       (Hz)'/        &amp;
++            '--------------------------------------')       
++  do i=1,iz
++     fm=fd(i) + 1.d-6*deltaf(i)
++     calfac=1.d0 + 1.d-6*deltaf(i)/fd(i)
++     write(*,1010) fd(i),deltaf(i),fm,r(i)
++1010 format(f8.3,f8.2,f14.9,f8.2)
++  enddo
++  calfac=1.d0 + 1.d-6*b
++  err=1.d-6*sigmab
++
++  write(*,1100) a,b,rms
++1100 format(/'A:',f8.2,' Hz    B:',f9.6,' ppm    StdDev:',f6.2,' Hz')
++  if(iz.gt.2) write(*,1110) sigmaa,sigmab
++1110 format('err:',f6.2,9x,f9.6,23x,f13.9)
++
++  go to 999
++
++997 print*,'Cannot open file fcal.dat'
++  go to 999
++998 print*,'Must have 3 header lines and at least 2 valid'
++  print*,'data lines in fcal.dat'
++
++999 end program fcal
++
++subroutine fit(x,y,r,iz,a,b,sigmaa,sigmab,rms)
++  implicit real*8 (a-h,o-z)
++  real*8 x(iz),y(iz),r(iz)
++
++  sx=0.d0
++  sy=0.d0
++  sxy=0.d0
++  sx2=0.d0
++  do i=1,iz
++     sx=sx + x(i)
++     sy=sy + y(i)
++     sxy=sxy + x(i)*y(i)
++     sx2=sx2 + x(i)*x(i)
++  enddo
++  delta=iz*sx2 - sx*sx
++  a=(sx2*sy - sx*sxy)/delta
++  b=(iz*sxy - sx*sy)/delta
++
++  sq=0.d0
++  do i=1,iz
++     r(i)=y(i) - (a + b*x(i))
++     sq=sq + r(i)**2
++  enddo
++  rms=sqrt(sq/(iz-2))
++  sigmaa=sqrt(rms*rms*sx2/delta)
++  sigmab=iz*rms*rms/delta
++
++  return
++end subroutine fit
+
+
+Property changes on: branches/wspr/fcal.f90
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001376.html">[WSJT-SVN] r1685 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001378.html">[WSJT-SVN] r1687 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1377">[ date ]</a>
+              <a href="thread.html#1377">[ thread ]</a>
+              <a href="subject.html#1377">[ subject ]</a>
+              <a href="author.html#1377">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

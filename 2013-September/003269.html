@@ -1,0 +1,293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3576 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3576%20-%20branches/wsjtx&In-Reply-To=%3C20130927010624.36FD755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003268.html">
+   <LINK REL="Next"  HREF="003270.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3576 - branches/wsjtx</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3576%20-%20branches/wsjtx&In-Reply-To=%3C20130927010624.36FD755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3576 - branches/wsjtx">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Fri Sep 27 03:06:24 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003268.html">[WSJT-SVN] r3575 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003270.html">[WSJT-SVN] r3577 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3269">[ date ]</a>
+              <a href="thread.html#3269">[ thread ]</a>
+              <a href="subject.html#3269">[ subject ]</a>
+              <a href="author.html#3269">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-09-27 03:06:23 +0200 (Fri, 27 Sep 2013)
+New Revision: 3576
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/rigclass.cpp
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+Log:
+Added tuning parameters for audio subsystem.
+
+By adding the following section to the initialisation file the audio buffer
+sizes and audio thread priority may be adjusted.
+
+[Tune]
+Audio\InputBufferFrames=1200
+Audio\OutputBufferMs=1000
+Audio\ThreadPriority=4
+
+The values above are the program defaults that will be used if the
+initialisation parameters are omitted.
+
+Thread prioritis are the QThread::Priority enumumeration values.
+
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-09-26 14:47:46 UTC (rev 3575)
++++ branches/wsjtx/mainwindow.cpp	2013-09-27 01:06:23 UTC (rev 3576)
+@@ -54,7 +54,10 @@
+   m_modulator (TX_SAMPLE_RATE, NTMAX / 2),
+   m_audioOutputDevice (QAudioDeviceInfo::defaultOutputDevice ()), // start with default
+   m_soundOutput (&amp;m_modulator),
+-  psk_Reporter (new PSK_Reporter (this))
++  psk_Reporter (new PSK_Reporter (this)),
++  m_msAudioOutputBuffered (0u),
++  m_framesAudioInputBuffered (RX_SAMPLE_RATE / 10),
++  m_audioThreadPriority (QThread::HighPriority)
+ {
+   ui-&gt;setupUi(this);
+ 
+@@ -73,7 +76,7 @@
+   connect (&amp;m_audioThread, &amp;QThread::finished, &amp;m_audioThread, &amp;QThread::deleteLater); // disposal
+ 
+   // hook up sound output stream slots &amp; signals
+-  connect (this, SIGNAL (startAudioOutputStream (QAudioDeviceInfo const&amp;, unsigned)), &amp;m_soundOutput, SLOT (startStream (QAudioDeviceInfo const&amp;, unsigned)));
++  connect (this, SIGNAL (startAudioOutputStream (QAudioDeviceInfo const&amp;, unsigned, unsigned)), &amp;m_soundOutput, SLOT (startStream (QAudioDeviceInfo const&amp;, unsigned, unsigned)));
+   connect (this, SIGNAL (stopAudioOutputStream ()), &amp;m_soundOutput, SLOT (stopStream ()));
+   connect (&amp;m_soundOutput, &amp;SoundOutput::error, this, &amp;MainWindow::showSoundOutError);
+   // connect (&amp;m_soundOutput, &amp;SoundOutput::status, this, &amp;MainWindow::showStatusMessage);
+@@ -102,10 +105,6 @@
+ 
+   connect(&amp;m_detector, SIGNAL (framesWritten (qint64)), this, SLOT (dataSink (qint64)));
+ 
+-  // start the audio thread
+-  m_audioThread.start (QThread::HighPriority);
+-
+-
+   // setup the waterfall
+   connect(m_wideGraph.data (), SIGNAL(freezeDecode2(int)),this,
+ 	  SLOT(freezeDecode(int)));
+@@ -287,6 +286,9 @@
+   //Band Settings
+   readSettings();		         //Restore user's setup params
+ 
++  // start the audio thread
++  m_audioThread.start (m_audioThreadPriority);
++
+ #ifdef WIN32
+   if(!m_bMultipleOK) {
+     while(true) {
+@@ -379,7 +381,7 @@
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
+   Q_EMIT startDetector (m_audioInputChannel);
+-  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
+ 
+   Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+   Q_EMIT muteAudioOutput (false);
+@@ -662,6 +664,14 @@
+ 	ui-&gt;cbPlus2kHz-&gt;setChecked(m_plus2kHz);
+   m_settings-&gt;endGroup();
+ 
++  // use these initialisation settings to tune the audio o/p bufefr
++  // size and audio thread priority
++  m_settings-&gt;beginGroup (&quot;Tune&quot;);
++  m_msAudioOutputBuffered = m_settings-&gt;value (&quot;Audio/OutputBufferMs&quot;).toInt ();
++  m_framesAudioInputBuffered = m_settings-&gt;value (&quot;Audio/InputBufferFrames&quot;, RX_SAMPLE_RATE / 10).toInt ();
++  m_audioThreadPriority = static_cast&lt;QThread::Priority&gt; (m_settings-&gt;value (&quot;Audio/ThreadPriority&quot;, QThread::HighPriority).toInt () % 8);
++  m_settings-&gt;endGroup ();
++
+   if(m_ndepth==1) ui-&gt;actionQuickDecode-&gt;setChecked(true);
+   if(m_ndepth==2) ui-&gt;actionMediumDecode-&gt;setChecked(true);
+   if(m_ndepth==3) ui-&gt;actionDeepestDecode-&gt;setChecked(true);
+@@ -832,12 +842,12 @@
+       Q_EMIT stopAudioInputStream ();
+       Q_EMIT detectorClose ();
+       Q_EMIT startDetector (m_audioInputChannel);
+-      Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++      Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
+     }
+ 
+     if(dlg.m_restartSoundOut) {
+       Q_EMIT stopAudioOutputStream ();
+-      Q_EMIT startAudioOutputStream (m_audioOutputDevice, AudioDevice::Mono == m_audioOutputChannel ? 1 : 2);
++      Q_EMIT startAudioOutputStream (m_audioOutputDevice, AudioDevice::Mono == m_audioOutputChannel ? 1 : 2, m_msAudioOutputBuffered);
+     }
+   }
+   m_catEnabled=dlg.m_catEnabled;
+@@ -869,7 +879,7 @@
+ {
+   m_monitoring=true;
+   Q_EMIT detectorSetMonitoring (true);
+-  //  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++  //  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
+   m_diskData=false;
+ }
+ 
+@@ -3067,7 +3077,7 @@
+     {
+       Q_EMIT sendMessage (NUM_JT9_SYMBOLS, m_nsps, m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0), m_audioOutputChannel, true, snr);
+     }
+-  Q_EMIT startAudioOutputStream (m_audioOutputDevice, AudioDevice::Mono == m_audioOutputChannel ? 1 : 2);
++  Q_EMIT startAudioOutputStream (m_audioOutputDevice, AudioDevice::Mono == m_audioOutputChannel ? 1 : 2, m_msAudioOutputBuffered);
+ }
+ 
+ void MainWindow::on_outAttenuation_valueChanged (int a)
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-09-26 14:47:46 UTC (rev 3575)
++++ branches/wsjtx/mainwindow.h	2013-09-27 01:06:23 UTC (rev 3576)
+@@ -181,7 +181,7 @@
+   void on_outAttenuation_valueChanged (int);
+ 
+  private:
+-  Q_SIGNAL void startAudioOutputStream (QAudioDeviceInfo, unsigned channels);
++  Q_SIGNAL void startAudioOutputStream (QAudioDeviceInfo, unsigned channels, unsigned msBuffered);
+   Q_SIGNAL void stopAudioOutputStream ();
+ 
+   Q_SIGNAL void startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
+@@ -389,6 +389,9 @@
+     SignalMeter *signalMeter;
+     LogBook m_logBook;
+     DecodedText m_QSOText;
++    unsigned m_msAudioOutputBuffered;
++    unsigned m_framesAudioInputBuffered;
++    QThread::Priority m_audioThreadPriority;
+ 
+ 
+ //---------------------------------------------------- private functions
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-09-26 14:47:46 UTC (rev 3575)
++++ branches/wsjtx/rigclass.cpp	2013-09-27 01:06:23 UTC (rev 3576)
+@@ -68,14 +68,17 @@
+ 
+     theRig = rig_init(rig_model);
+     if (!theRig)
++      {
+         initOk = false;
++      }
+     else
++      {
+         initOk = true;
++	caps = theRig-&gt;caps;
++	theRig-&gt;callbacks.freq_event = &amp;hamlibpp_freq_event;
++	theRig-&gt;state.obj = (rig_ptr_t)this;
++      }
+ 
+-    caps = theRig-&gt;caps;
+-    theRig-&gt;callbacks.freq_event = &amp;hamlibpp_freq_event;
+-    theRig-&gt;state.obj = (rig_ptr_t)this;
+-
+     return initOk;
+ }
+ 
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-09-26 14:47:46 UTC (rev 3575)
++++ branches/wsjtx/soundout.cpp	2013-09-27 01:06:23 UTC (rev 3576)
+@@ -7,9 +7,9 @@
+ #include &lt;QDebug&gt;
+ 
+ #if defined (WIN32)
+-# define MS_BUFFERED 1000
++# define MS_BUFFERED 1000u
+ #else
+-# define MS_BUFFERED 2000
++# define MS_BUFFERED 2000u
+ #endif
+ 
+ bool SoundOutput::audioError () const
+@@ -53,7 +53,7 @@
+   Q_ASSERT (source);
+ }
+ 
+-void SoundOutput::startStream (QAudioDeviceInfo const&amp; device, unsigned channels)
++void SoundOutput::startStream (QAudioDeviceInfo const&amp; device, unsigned channels, unsigned msBuffered)
+ {
+   Q_ASSERT (0 &lt; channels &amp;&amp; channels &lt; 3);
+ 
+@@ -97,7 +97,7 @@
+   // we have to set this before every start on the stream because the
+   // Windows implementation seems to forget the buffer size after a
+   // stop.
+-  m_stream-&gt;setBufferSize (m_stream-&gt;format ().bytesForDuration (MS_BUFFERED * 1000));
++  m_stream-&gt;setBufferSize (m_stream-&gt;format ().bytesForDuration ((msBuffered ? msBuffered : MS_BUFFERED) * 1000));
+   m_stream-&gt;start (m_source);
+   audioError ();
+ }
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2013-09-26 14:47:46 UTC (rev 3575)
++++ branches/wsjtx/soundout.h	2013-09-27 01:06:23 UTC (rev 3576)
+@@ -33,7 +33,7 @@
+   /* private because we expect to run in a thread and don't want direct
+      C++ calls made, instead they must be invoked via the Qt
+      signal/slot mechanism which is thread safe */
+-  void startStream (QAudioDeviceInfo const&amp; device, unsigned channels);
++  void startStream (QAudioDeviceInfo const&amp; device, unsigned channels, unsigned msBuffered = 0u);
+   void suspend ();
+   void resume ();
+   void stopStream ();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003268.html">[WSJT-SVN] r3575 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003270.html">[WSJT-SVN] r3577 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3269">[ date ]</a>
+              <a href="thread.html#3269">[ thread ]</a>
+              <a href="subject.html#3269">[ subject ]</a>
+              <a href="author.html#3269">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

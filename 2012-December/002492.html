@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2800 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2800%20-%20branches/wsprx&In-Reply-To=%3C20121212211056.ED98B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002491.html">
+   <LINK REL="Next"  HREF="002493.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2800 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2800%20-%20branches/wsprx&In-Reply-To=%3C20121212211056.ED98B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2800 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Dec 12 22:10:56 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002491.html">[WSJT-SVN] r2799 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002493.html">[WSJT-SVN] r2801 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2492">[ date ]</a>
+              <a href="thread.html#2492">[ thread ]</a>
+              <a href="subject.html#2492">[ subject ]</a>
+              <a href="author.html#2492">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-12 22:10:56 +0100 (Wed, 12 Dec 2012)
+New Revision: 2800
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.ui
+Log:
+It actually works now, in WSPR-2 mode.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-12 19:59:39 UTC (rev 2799)
++++ branches/wsprx/mainwindow.cpp	2012-12-12 21:10:56 UTC (rev 2800)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -146,7 +146,8 @@
+   lockFile.open(QIODevice::ReadWrite);
+   QFile quitFile(m_appDir + &quot;/.lock&quot;);
+   quitFile.remove();
+-  proc_jt9.start(QDir::toNativeSeparators('&quot;' + m_appDir + '&quot;' + &quot;/jt9 -s&quot;));
++//  proc_jt9.start(QDir::toNativeSeparators('&quot;' + m_appDir + '&quot;' +
++//      &quot;/save/wspr0 Rx 0.4742 save/121212_0014.wav&quot; ));
+ 
+   m_pbdecoding_style1=&quot;QPushButton{background-color: cyan; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+@@ -374,7 +375,7 @@
+     jt9com_.nzhsym=m_hsymStop;
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+-    decode();                                                //Start decoder
++//    decode();                                                //Start decoder
+     if(!m_diskData) {                        //Always save; may delete later
+       int ihr=t.time().toString(&quot;hh&quot;).toInt();
+       int imin=t.time().toString(&quot;mm&quot;).toInt();
+@@ -386,6 +387,9 @@
+       *future2 = QtConcurrent::run(savewav, m_fname, m_TRperiod);
+       watcher2-&gt;setFuture(*future2);
+     }
++//    decode();                                                //Start decoder
++    proc_jt9.start(QDir::toNativeSeparators('&quot;' + m_appDir + '&quot;' +
++           &quot;/wspr0 Rx 10.1387 &quot; + m_fname + '&quot;' ));
+   }
+   soundInThread.m_dataSinkBusy=false;
+ }
+@@ -795,7 +799,7 @@
+ void MainWindow::jt9_error()                                     //jt9_error
+ {
+   if(!m_killAll) {
+-    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/jt9 -s&quot;);
++    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wspr0&quot;);
+     exit(1);
+   }
+ }
+@@ -810,25 +814,7 @@
+ {
+   while(proc_jt9.canReadLine()) {
+     QByteArray t=proc_jt9.readLine();
+-    if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
+-      m_bsynced = (t.mid(19,1).toInt()==1);
+-      m_bdecoded = (t.mid(23,1).toInt()==1);
+-      bool keepFile=m_saveAll or (m_saveSynced and m_bsynced) or
+-          (m_saveDecoded and m_bdecoded);
+-      if(!keepFile) {
+-        QFile savedFile(m_fname);
+-        savedFile.remove();
+-      }
+-      jt9com_.nagain=0;
+-      jt9com_.ndiskdat=0;
+-      QFile lockFile(m_appDir + &quot;/.lock&quot;);
+-      lockFile.open(QIODevice::ReadWrite);
+-//      ui-&gt;DecodeButton-&gt;setStyleSheet(&quot;&quot;);
+-      decodeBusy(false);
+-      m_RxLog=0;
+-      m_startAnother=m_loopall;
+-      return;
+-    } else {
++    if(t.indexOf(&quot; UTC &quot;) != 0 and t.indexOf(&quot;-----&quot;) != 0) {
+       int n=t.length();
+       QString bg=&quot;white&quot;;
+       if(t.indexOf(&quot; CQ &quot;)&gt;0) bg=&quot;#66ff66&quot;;                //Light green
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2012-12-12 19:59:39 UTC (rev 2799)
++++ branches/wsprx/mainwindow.ui	2012-12-12 21:10:56 UTC (rev 2800)
+@@ -19,7 +19,7 @@
+   &lt;property name=&quot;minimumSize&quot;&gt;
+    &lt;size&gt;
+     &lt;width&gt;0&lt;/width&gt;
+-    &lt;height&gt;435&lt;/height&gt;
++    &lt;height&gt;340&lt;/height&gt;
+    &lt;/size&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+@@ -49,7 +49,7 @@
+         &lt;property name=&quot;minimumSize&quot;&gt;
+          &lt;size&gt;
+           &lt;width&gt;453&lt;/width&gt;
+-          &lt;height&gt;170&lt;/height&gt;
++          &lt;height&gt;100&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;maximumSize&quot;&gt;
+@@ -79,7 +79,7 @@
+            &lt;property name=&quot;maximumSize&quot;&gt;
+             &lt;size&gt;
+              &lt;width&gt;610&lt;/width&gt;
+-             &lt;height&gt;400&lt;/height&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
+             &lt;/size&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;font&quot;&gt;
+@@ -872,6 +872,9 @@
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;WSPR-15&lt;/string&gt;
+    &lt;/property&gt;
+@@ -880,6 +883,9 @@
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;WSPR-30&lt;/string&gt;
+    &lt;/property&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002491.html">[WSJT-SVN] r2799 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002493.html">[WSJT-SVN] r2801 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2492">[ date ]</a>
+              <a href="thread.html#2492">[ thread ]</a>
+              <a href="subject.html#2492">[ subject ]</a>
+              <a href="author.html#2492">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

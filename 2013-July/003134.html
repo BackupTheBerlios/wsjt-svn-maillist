@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3442 - branches/wsjtx_k1jt_p1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3442%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130701185948.ECE3B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003133.html">
+   <LINK REL="Next"  HREF="003135.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3442 - branches/wsjtx_k1jt_p1</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3442%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130701185948.ECE3B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3442 - branches/wsjtx_k1jt_p1">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jul  1 20:59:48 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003133.html">[WSJT-SVN] r3441 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003135.html">[WSJT-SVN] r3443 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3134">[ date ]</a>
+              <a href="thread.html#3134">[ thread ]</a>
+              <a href="subject.html#3134">[ subject ]</a>
+              <a href="author.html#3134">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-01 20:59:48 +0200 (Mon, 01 Jul 2013)
+New Revision: 3442
+
+Modified:
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/rigclass.cpp
+   branches/wsjtx_k1jt_p1/rigclass.h
+Log:
+CAT control of frequencies now working through calls to Commander.
+
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-07-01 15:40:49 UTC (rev 3441)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-07-01 18:59:48 UTC (rev 3442)
+@@ -33,6 +33,7 @@
+ LogQSO* logDlg = NULL;
+ Rig* rig = NULL;
+ QTextEdit* pShortcuts;
++QTcpSocket* socket = new QTcpSocket(0);
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSJT-X   v1.1, r&quot; + rev.mid(6,4) +
+
+Modified: branches/wsjtx_k1jt_p1/rigclass.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/rigclass.cpp	2013-07-01 15:40:49 UTC (rev 3441)
++++ branches/wsjtx_k1jt_p1/rigclass.cpp	2013-07-01 18:59:48 UTC (rev 3442)
+@@ -101,20 +101,25 @@
+     }
+   }
+   if(n==9998) {
+-    socket = new QTcpSocket(0);
+     socket-&gt;connectToHost(QHostAddress::LocalHost, 52002);
+     if(!socket-&gt;waitForConnected(1000)) {
+       return -1;
+     }
+-    qDebug() &lt;&lt; &quot;Connected to Commander&quot;;
+-    qint32 nkHz=14076;
+     QString t;
+-    t.sprintf(&quot;&lt;command:10&gt;CmdSetFreq&lt;parameters:17&gt;&lt;xcvrfreq:5&gt;%5d&quot;,nkHz);
++//    qint32 nkHz=14076;
++//    t.sprintf(&quot;&lt;command:10&gt;CmdSetFreq&lt;parameters:17&gt;&lt;xcvrfreq:5&gt;%5d&quot;,nkHz);
++    t=&quot;&lt;command:10&gt;CmdGetFreq&lt;parameters:0&gt;&quot;;
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+     socket-&gt;write(buf);
+-    socket-&gt;flush();
+-    return 0;
++    socket-&gt;waitForReadyRead(1000);
++    QByteArray reply=socket-&gt;read(128);
++    if(reply.indexOf(&quot;&lt;CmdFreq:10&gt;&quot;)==0) {
++//      qDebug() &lt;&lt; &quot;Freq:&quot; &lt;&lt; reply;
++//      qDebug() &lt;&lt; &quot;Connected to Commander&quot;;
++      m_cmndr=true;
++      return 0;
++    }
+   }
+ #endif
+   return -1;
+@@ -152,9 +157,18 @@
+     } else {
+       return -1;
+     }
++  } else if(m_cmndr) {
++    QString t;
++    qint32 nkHz=int(0.001*freq);
++    t.sprintf(&quot;&lt;command:10&gt;CmdSetFreq&lt;parameters:17&gt;&lt;xcvrfreq:5&gt;%5d&quot;,nkHz);
++    QByteArray ba = t.toLocal8Bit();
++    const char* buf=ba.data();
++    socket-&gt;write(buf);
++    socket-&gt;waitForBytesWritten(1000);
++    return 0;
+   } else
+ #endif
+-    {
++  {
+     return rig_set_freq(theRig, vfo, freq);
+   }
+ }
+@@ -169,17 +183,43 @@
+   return rig_set_vfo(theRig, vfo);
+ }
+ 
+- vfo_t Rig::getVFO()
+- {
+-   vfo_t vfo;
+-   rig_get_vfo(theRig, &amp;vfo);
+-   return vfo;
+- }
++vfo_t Rig::getVFO()
++{
++  vfo_t vfo;
++  rig_get_vfo(theRig, &amp;vfo);
++  return vfo;
++}
+ 
+- int Rig::setSplitFreq(freq_t tx_freq, vfo_t vfo)
+- {
+-   return rig_set_split_freq(theRig, vfo, tx_freq);
+- }
++int Rig::setSplitFreq(freq_t tx_freq, vfo_t vfo) {
++#ifdef WIN32	// Ham Radio Deluxe only on Windows
++  if(m_hrd) {
++    QString t;
++    int nhz=(int)tx_freq;
++    t=m_context + &quot;Set Frequency-Hz &quot; + QString::number(nhz);
++    const wchar_t* cmnd = (const wchar_t*) t.utf16();
++    const wchar_t* result=HRDInterfaceSendMessage(cmnd);
++    QString t2=QString::fromWCharArray (result,-1);
++    HRDInterfaceFreeString(result);
++    if(t2==&quot;OK&quot;) {
++      return 0;
++    } else {
++      return -1;
++    }
++  } else if(m_cmndr) {
++    QString t;
++    qint32 nkHz=int(0.001*tx_freq);
++    t.sprintf(&quot;&lt;command:12&gt;CmdSetTxFreq&lt;parameters:17&gt;&lt;xcvrfreq:5&gt;%5d&quot;,nkHz);
++    QByteArray ba = t.toLocal8Bit();
++    const char* buf=ba.data();
++    socket-&gt;write(buf);
++    socket-&gt;waitForBytesWritten(1000);
++    return 0;
++  } else
++#endif
++  {
++    return rig_set_split_freq(theRig, vfo, tx_freq);
++  }
++}
+ 
+ freq_t Rig::getFreq(vfo_t vfo)
+ {
+@@ -192,6 +232,22 @@
+     HRDInterfaceFreeString(freqString);
+     freq=t2.toDouble();
+     return freq;
++  } else if(m_cmndr) {
++    QString t;
++    t=&quot;&lt;command:10&gt;CmdGetFreq&lt;parameters:0&gt;&quot;;
++    QByteArray ba = t.toLocal8Bit();
++    const char* buf=ba.data();
++    socket-&gt;write(buf);
++    socket-&gt;waitForReadyRead(1000);
++    QByteArray reply=socket-&gt;read(128);
++    QString t2(reply);
++    if(t2.indexOf(&quot;&lt;CmdFreq:10&gt;&quot;)==0) {
++      t2=t2.mid(12).replace(&quot;,&quot;,&quot;&quot;);
++      freq=1000.0*t2.toDouble();
++      return freq;
++    } else {
++      return -1.0;
++    }
+   } else
+ #endif
+   {
+
+Modified: branches/wsjtx_k1jt_p1/rigclass.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/rigclass.h	2013-07-01 15:40:49 UTC (rev 3441)
++++ branches/wsjtx_k1jt_p1/rigclass.h	2013-07-01 18:59:48 UTC (rev 3442)
+@@ -27,13 +27,14 @@
+ #include &lt;QString&gt;
+ #include &lt;QTcpSocket&gt;
+ 
++extern QTcpSocket* socket;
++
+ class BACKEND_IMPEXP Rig {
+ private:
+   RIG* theRig;  // Global ref. to the rig
+   bool m_hrd;
+   bool m_cmndr;
+   QString m_context;
+-  QTcpSocket* socket;
+ 
+ 
+ protected:
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003133.html">[WSJT-SVN] r3441 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003135.html">[WSJT-SVN] r3443 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3134">[ date ]</a>
+              <a href="thread.html#3134">[ thread ]</a>
+              <a href="subject.html#3134">[ subject ]</a>
+              <a href="author.html#3134">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

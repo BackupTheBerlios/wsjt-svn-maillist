@@ -1,0 +1,347 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2937 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2937%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130114171747.A4A3955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002628.html">
+   <LINK REL="Next"  HREF="002630.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2937 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2937%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130114171747.A4A3955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2937 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jan 14 18:17:47 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002628.html">[WSJT-SVN] r2936 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002630.html">[WSJT-SVN] r2938 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2629">[ date ]</a>
+              <a href="thread.html#2629">[ thread ]</a>
+              <a href="subject.html#2629">[ subject ]</a>
+              <a href="author.html#2629">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-14 18:17:47 +0100 (Mon, 14 Jan 2013)
+New Revision: 2937
+
+Added:
+   branches/wsprx/lib/fil3c.f90
+   branches/wsprx/lib/mixlpf.f90
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/savec2.f90
+   branches/wsprx/lib/symspec.f90
+   branches/wsprx/lib/wsprd.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+User-selectable Rx BFO frequency is now implemented, more or less.
+Needs testing!
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/lib/Makefile	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -23,12 +23,13 @@
+ all:    libwspr.a wsprd.exe WSPRcode.exe
+ 
+ OBJS1 = ccf2.o db.o decode162.o deg2grid.o encode232.o fano232.o \
+-	fchisq.o fil3.o flat3.o four2a.o genwsprx.o grid2deg.o \
++	fchisq.o fil3c.o flat3.o four2a.o genwsprx.o grid2deg.o \
+ 	hash.o inter_mept.o mept162a.o mix162.o mix162a.o \
+ 	nchar.o nhash.o pack50.o packcall.o packgrid.o packpfx.o \
+ 	pctile.o ps162.o ptt.o savec2.o set.o sort.o ssort.o symspec.o \
+ 	sync162.o timf2.o twkfreq.o unpack50.o unpackcall.o \
+-	unpackgrid.o unpackpfx.o wqdecode.o wqencode.o xfft.o 
++	unpackgrid.o unpackpfx.o wqdecode.o wqencode.o xfft.o \
++	mixlpf.o
+ 
+ libwspr.a: $(OBJS1)
+ 	ar cr libwspr.a $(OBJS1) 
+
+Added: branches/wsprx/lib/fil3c.f90
+===================================================================
+--- branches/wsprx/lib/fil3c.f90	                        (rev 0)
++++ branches/wsprx/lib/fil3c.f90	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -0,0 +1,72 @@
++subroutine fil3c(c1,n1,c2,n2)
++
++! FIR complex-to-complex low-pass filter designed with ScopeFIR
++!
++!-----------------------------------------------
++! fsample    (Hz)  12000      Input sample rate
++! Ntaps            113        Number of filter taps
++! fc         (Hz)  500        Cutoff frequency
++! fstop      (Hz)  750        Lower limit of stopband
++! Ripple     (dB)  0.2        Ripple in passband
++! Stop Atten (dB)  50         Stopband attenuation
++! fout       (Hz)  1500       Output sample rate
++
++! Suggest calling with n1 = 8*n2 + 105, where n2 is the desired number
++! of 1500 Hz output samples.
++
++  parameter (NTAPS=113)
++  parameter (NH=NTAPS/2)
++  parameter (NDOWN=8)                !Downsample ratio = 1/8
++  complex c1(n1)
++  complex c2(n1/NDOWN)
++  complex z
++
++! Filter coefficients:
++  real a(-NH:NH)
++  data a/                                                               &amp;
++      -0.001818142144,-0.000939132050,-0.001044063556,-0.001042685542,  &amp;
++      -0.000908957610,-0.000628132309,-0.000202701465, 0.000346307629,  &amp;
++       0.000978154552, 0.001634336295, 0.002243121592, 0.002726064379,  &amp;
++       0.003006201675, 0.003018055983, 0.002717699575, 0.002091546534,  &amp;
++       0.001162489032,-0.000007904811,-0.001321554806,-0.002649908053,  &amp;
++      -0.003843608784,-0.004747338068,-0.005218967042,-0.005148229529,  &amp;
++      -0.004470167307,-0.003177923811,-0.001335998901, 0.000915924193,  &amp;
++       0.003386100636, 0.005818719744, 0.007939147967, 0.009465071347,  &amp;
++       0.010145641899, 0.009787447819, 0.008285915754, 0.005645995244,  &amp;
++       0.001995842303,-0.002410369720,-0.007202515555,-0.011916811719,  &amp;
++      -0.016028350845,-0.018993391440,-0.020297455955,-0.019503792208,  &amp;
++      -0.016298136197,-0.010526834635,-0.002223837363, 0.008378305829,  &amp;
++       0.020854478160, 0.034608532659, 0.048909701463, 0.062944127288,  &amp;
++       0.075874892030, 0.086903764340, 0.095332017649, 0.100619428175,  &amp;
++       0.102420526192, 0.100619428175, 0.095332017649, 0.086903764340,  &amp;
++       0.075874892030, 0.062944127288, 0.048909701463, 0.034608532659,  &amp;
++       0.020854478160, 0.008378305829,-0.002223837363,-0.010526834635,  &amp;
++      -0.016298136197,-0.019503792208,-0.020297455955,-0.018993391440,  &amp;
++      -0.016028350845,-0.011916811719,-0.007202515555,-0.002410369720,  &amp;
++       0.001995842303, 0.005645995244, 0.008285915754, 0.009787447819,  &amp;
++       0.010145641899, 0.009465071347, 0.007939147967, 0.005818719744,  &amp;
++       0.003386100636, 0.000915924193,-0.001335998901,-0.003177923811,  &amp;
++      -0.004470167307,-0.005148229529,-0.005218967042,-0.004747338068,  &amp;
++      -0.003843608784,-0.002649908053,-0.001321554806,-0.000007904811,  &amp;
++       0.001162489032, 0.002091546534, 0.002717699575, 0.003018055983,  &amp;
++       0.003006201675, 0.002726064379, 0.002243121592, 0.001634336295,  &amp;
++       0.000978154552, 0.000346307629,-0.000202701465,-0.000628132309,  &amp;
++      -0.000908957610,-0.001042685542,-0.001044063556,-0.000939132050,  &amp;
++      -0.001818142144/
++  save a
++
++  n2=(n1-NTAPS+NDOWN)/NDOWN
++  k0=NH-NDOWN+1
++
++! Loop over all output samples
++  do i=1,n2
++     z=0.
++     k=k0 + NDOWN*i
++     do j=-NH,NH
++        z=z + c1(j+k)*a(j)
++     enddo
++     c2(i)=z
++  enddo
++
++  return
++end subroutine fil3c
+
+Added: branches/wsprx/lib/mixlpf.f90
+===================================================================
+--- branches/wsprx/lib/mixlpf.f90	                        (rev 0)
++++ branches/wsprx/lib/mixlpf.f90	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -0,0 +1,26 @@
++subroutine mixlpf(x1,nbfo,c0)
++
++  real*4 x1(512)
++  real*4 x2(105+512)
++  real*8 twopi,phi,dphi
++  complex c1(512),c2(105+512)
++  complex c0(64)
++  data phi/0.d0/
++  save
++
++  twopi=8.d0*atan(1.d0)
++  dphi=twopi*nbfo/12000.d0
++  
++  do i=1,512
++     phi=phi+dphi
++     if(phi.gt.twopi) phi=phi-twopi
++     xphi=phi
++     c1(i)=x1(i)*cmplx(cos(xphi),-sin(xphi))
++  enddo
++  c2(106:105+512)=c1
++  
++  call fil3(c2,105+512,c0,n2)
++  c2(1:105)=c1(512-104:512)                       !Save 105 trailing samples
++
++  return
++end subroutine mixlpf
+
+Modified: branches/wsprx/lib/savec2.f90
+===================================================================
+--- branches/wsprx/lib/savec2.f90	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/lib/savec2.f90	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -1,4 +1,4 @@
+-subroutine savec2(c2name,ntrseconds,dialFreq)
++subroutine savec2(c2name,ntrseconds,f0m1500)
+ 
+ ! Array c0() has complex samples at 1500 Hz sample rate.
+ ! WSPR-2:  downsample by 1/4 to produce c2(45000), centered at 1500 Hz
+@@ -11,7 +11,7 @@
+ 
+   character*(*) c2name
+   character*14 outfile
+-  real*8 dialFreq
++  real*8 f0m1500
+   integer*2 id2
+   complex c0
+   complex c1(0:MAXFFT-1)
+@@ -48,7 +48,7 @@
+   i1=index(c2name,'.c2')
+   outfile=c2name(i1-11:i1+2)
+   open(18,file=c2name,status='unknown',access='stream')
+-  write(18) outfile,ntrminutes,dialFreq,c2(0:45000-1)
++  write(18) outfile,ntrminutes,f0m1500,c2(0:45000-1)
+   close(18)
+ 
+   return
+
+Modified: branches/wsprx/lib/symspec.f90
+===================================================================
+--- branches/wsprx/lib/symspec.f90	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/lib/symspec.f90	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,nsps,ingain,pxdb,s,df3,ihsym)
++subroutine symspec(k,nsps,nbfo,ingain,pxdb,s,df3,ihsym)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -82,10 +82,8 @@
+      call timf2(x0,k,NFFT1,nwindow,nb,peaklimit,x1,   &amp;
+           slimit,lstrong,px,nzap)
+ 
+-! Mix at 1500 Hz, lowpass at +/-750 Hz, and downsample to 1500 Hz complex.
+-     x2(106:105+kstep1)=x1(1:kstep1)
+-     call fil3(x2,kstep1+105,c0(k8+1),n2)
+-     x2(1:105)=x1(kstep1-104:kstep1)   !Save 105 trailing samples
++! Mix at nbfo Hz, lowpass at +/-750 Hz, and downsample to 1500 Hz complex.
++     call mixlpf(x1,nbfo,c0(k8+1))
+      k1=k1+kstep1
+      k8=k8+kstep1/8
+   enddo
+
+Modified: branches/wsprx/lib/wsprd.f90
+===================================================================
+--- branches/wsprx/lib/wsprd.f90	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/lib/wsprd.f90	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -3,7 +3,7 @@
+   parameter (NMAX=900*12000)                          !Max length of waveform
+   parameter (N15=32768)
+   integer*2 id(NMAX)
+-  real*8 f0,dialFreq
++  real*8 f0,f0m1500
+   real*4 ps(-256:256)
+   character*80 infile
+   logical lc2
+@@ -47,8 +47,8 @@
+   enddo
+ 
+ 10 if(lc2) then
+-     read(18) c2file,ntrmin,dialFreq,c2(1:45000)
+-     f0=dialFreq
++     read(18) c2file,ntrmin,f0m1500,c2(1:45000)
++     f0=f0m1500
+      ntrminutes=ntrmin
+      npts=60*ntrminutes*12000
+      call mix162a(c2,ps)
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/mainwindow.cpp	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -316,6 +316,8 @@
+   ui-&gt;inGain-&gt;setValue(m_inGain);
+   m_uploadSpots=settings.value(&quot;UploadSpots&quot;,false).toBool();
+   ui-&gt;cbUpload-&gt;setChecked(m_uploadSpots);
++  if(!m_uploadSpots) ui-&gt;cbUpload-&gt;setStyleSheet(
++              &quot;QCheckBox{background-color: yellow}&quot;);
+   m_TxOK=settings.value(&quot;TxEnable&quot;,false).toBool();
+   ui-&gt;cbTxEnable-&gt;setChecked(m_TxOK);
+   ui-&gt;TuneButton-&gt;setEnabled(m_TxOK);
+@@ -353,7 +355,7 @@
+   }
+ 
+ // Get power, spectrum, and ihsym
+-  symspec_(&amp;k, &amp;m_nsps, &amp;m_inGain, &amp;px, s, &amp;df3, &amp;ihsym);
++  symspec_(&amp;k, &amp;m_nsps, &amp;m_BFO, &amp;m_inGain, &amp;px, s, &amp;df3, &amp;ihsym);
+   if(ihsym &lt;=0) return;
+   QString t;
+   t.sprintf(&quot; Receiving: %5.1f dB &quot;,px);
+@@ -383,7 +385,8 @@
+       int len1=m_c2name.length();
+       char c2name[80];
+       strcpy(c2name,m_c2name.toAscii());
+-      savec2_(c2name,&amp;m_TRseconds,&amp;m_dialFreq,len1);
++      double f0m1500=m_dialFreq + m_BFO - 1500;
++      savec2_(c2name,&amp;m_TRseconds,&amp;f0m1500,len1);
+     }
+ 
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+@@ -392,7 +395,7 @@
+     loggit(&quot;Start Decoder&quot;);
+     QString cmnd;
+     if(m_diskData) {
+-      t2.sprintf(&quot; -f %.6f &quot;,m_dialFreq);
++      t2.sprintf(&quot; -f %.6f &quot;,m_dialFreq+m_BFO);
+ 
+       cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path + '&quot;';
+       if(m_TRseconds==900) cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd -m 15&quot; + t2 +
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-13 15:31:21 UTC (rev 2936)
++++ branches/wsprx/mainwindow.h	2013-01-14 17:17:47 UTC (rev 2937)
+@@ -213,8 +213,8 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* nsps, int* ingain, float* px, float s[],
+-              float* df3, int* nhsym);
++void symspec_(int* k, int* nsps, int* nbfo, int* ingain, float* px,
++              float s[], float* df3, int* nhsym);
+ void genwsprx_(char* msg, int itone[], int len1);
+ void savec2_(char* fname, int* m_TRseconds, double* m_dialFreq, int len1);
+ }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002628.html">[WSJT-SVN] r2936 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002630.html">[WSJT-SVN] r2938 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2629">[ date ]</a>
+              <a href="thread.html#2629">[ thread ]</a>
+              <a href="subject.html#2629">[ subject ]</a>
+              <a href="author.html#2629">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

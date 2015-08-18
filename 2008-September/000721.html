@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1030 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1030%20-%20branches/map65&In-Reply-To=%3C200809191726.m8JHQ5m4008370%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000720.html">
+   <LINK REL="Next"  HREF="000722.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1030 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1030%20-%20branches/map65&In-Reply-To=%3C200809191726.m8JHQ5m4008370%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1030 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 19 19:26:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000720.html">[WSJT-SVN] r1029 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000722.html">[WSJT-SVN] r1031 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#721">[ date ]</a>
+              <a href="thread.html#721">[ thread ]</a>
+              <a href="subject.html#721">[ subject ]</a>
+              <a href="author.html#721">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-09-19 19:25:58 +0200 (Fri, 19 Sep 2008)
+New Revision: 1030
+
+Modified:
+   branches/map65/getfile2.F90
+   branches/map65/map65.py
+Log:
+Handle nonstandard tf2 filenames correctly.
+For contesting: flag &quot;needed calls&quot; with &quot;*&quot; in band map, and do 
+&quot;dupe checking&quot; when double-clicking on a callsign or entering
+a QSO in WSJT.LOG.
+
+
+Modified: branches/map65/getfile2.F90
+===================================================================
+--- branches/map65/getfile2.F90	2008-09-18 19:50:02 UTC (rev 1029)
++++ branches/map65/getfile2.F90	2008-09-19 17:25:58 UTC (rev 1030)
+@@ -48,8 +48,11 @@
+   enddo
+   sqave=174*sq/(kb-ka+1)
+   rxnoise=10.0*log10(sqave) - 48.0
+-  read(filename(8:11),*) nutc
+-  ndiskdat=1
++  read(filename(8:11),*,err=20,end=20) nutc
++  go to 30
++20 nutc=0
++
++30 ndiskdat=1
+   mousebutton=0
+ 
+ 999 return
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2008-09-18 19:50:02 UTC (rev 1029)
++++ branches/map65/map65.py	2008-09-19 17:25:58 UTC (rev 1030)
+@@ -95,6 +95,7 @@
+ tx6alt=&quot;&quot;
+ txsnrdb=99.
+ TxFirst=IntVar()
++worked={}
+ green=zeros(500,'f')
+ im=Image.new('P',(500,120))
+ im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+@@ -218,7 +219,7 @@
+     bm2.geometry(bm2_geom)
+     if g.Win32: bm2.iconbitmap(&quot;wsjt.ico&quot;)
+     iframe_bm2 = Frame(bm2, bd=1, relief=SUNKEN)
+-    bmtext=Text(iframe_bm2, height=24, width=36, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
++    bmtext=Text(iframe_bm2, height=24, width=39, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+     bmtext.bind('&lt;Double-Button-1&gt;',dbl_click_bmtext)
+     bmtext.pack(side=LEFT, fill=X, padx=1, pady=3)
+     bmtext.tag_configure('age0',foreground='red')
+@@ -233,6 +234,8 @@
+ #    t=t+&quot;,&quot;+hiscall+&quot;,&quot;+hisgrid+&quot;,&quot;+str(g.nfreq)+&quot;,&quot;+g.mode+&quot;\n&quot;
+     t=t+&quot;,&quot;+ToRadio.get()+&quot;,&quot;+HisGrid.get()+&quot;,&quot;+str(g.nfreq)+&quot;,&quot;+g.mode+&quot;\n&quot;
+     t2=&quot;Please confirm making the following entry in MAP65.LOG:\n\n&quot; + t
++    if worked.has_key(hiscall.strip()):
++        t2=t2 + &quot;\n\n*** Dupe: &quot; + hiscall + &quot;is already in LOG ***&quot;
+     msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t2)
+     msg.geometry(msgpos())
+     if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
+@@ -242,6 +245,7 @@
+         f=open(appdir+'/WSJT.LOG','a')
+         f.write(t)
+         f.close()
++        worked[hiscall.strip()]=1
+     
+ #------------------------------------------------------ monitor
+ def monitor(event=NONE):
+@@ -290,36 +294,46 @@
+     i1=t1.rfind(' ')+1              #index of preceding space
+     i2=i1+t[i1:].find(' ')          #index of next space
+     hiscall=t[i1:i2]                #selected word, assumed as callsign
+-    ToRadio.delete(0,END)
+-    ToRadio.insert(0,hiscall)
+-    i3=t1.rfind('\n')+1             #start of selected line
+-    if i&gt;=4 and i2&gt;i1:
+-        nsec=0
+-        try:
+-            nsec=3600*int(t1[i3+13:i3+15]) + 60*int(t1[i3+15:i3+17])
+-        except:
+-            pass
+-        if setseq.get() and nbox!=3:
+-            TxFirst.set((nsec/int(Audio.gcom1.trperiod))%2)
+-        lookup()
+-        GenStdMsgs()
+-        if rpt &lt;&gt; &quot;OOO&quot;:
+-            n=tx1.get().rfind(&quot; &quot;)
+-            t2=tx1.get()[0:n+1]
+-            tx2.delete(0,END)
+-            tx2.insert(0,t2+rpt)
+-            tx3.delete(0,END)
+-            tx3.insert(0,t2+&quot;R&quot;+rpt)
+-            tx4.delete(0,END)
+-            tx4.insert(0,t2+&quot;RRR&quot;)
+-            tx5.delete(0,END)
+-            tx5.insert(0,t2+&quot;73&quot;)
+-        i3=t[:i1].strip().rfind(' ')+1
+-        if t[i3:i1].strip() == 'CQ' or nbox &gt;= 2:
+-            ntx.set(1)
+-        else:
+-            ntx.set(2)
+-        if event.num==3 and not lauto: toggleauto()
++    if hiscall[:1]=='*': hiscall=hiscall[1:]
++    if worked.has_key(hiscall.strip()):
++#        MsgBox(&quot;Possible dupe: &quot; + hiscall)
++        t=&quot;Possible dupe: &quot; + hiscall
++        msg=Pmw.MessageDialog(root,buttons=('OK','Cancel'),message_text=t)
++        msg.geometry(msgpos())
++        if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
++        msg.focus_set()
++        result=msg.activate()
++        if result == 'OK':
++            ToRadio.delete(0,END)
++            ToRadio.insert(0,hiscall)
++            i3=t1.rfind('\n')+1             #start of selected line
++            if i&gt;=4 and i2&gt;i1:
++                nsec=0
++                try:
++                    nsec=3600*int(t1[i3+13:i3+15]) + 60*int(t1[i3+15:i3+17])
++                except:
++                    pass
++                if setseq.get() and nbox!=3:
++                    TxFirst.set((nsec/int(Audio.gcom1.trperiod))%2)
++                lookup()
++                GenStdMsgs()
++                if rpt &lt;&gt; &quot;OOO&quot;:
++                    n=tx1.get().rfind(&quot; &quot;)
++                    t2=tx1.get()[0:n+1]
++                    tx2.delete(0,END)
++                    tx2.insert(0,t2+rpt)
++                    tx3.delete(0,END)
++                    tx3.insert(0,t2+&quot;R&quot;+rpt)
++                    tx4.delete(0,END)
++                    tx4.insert(0,t2+&quot;RRR&quot;)
++                    tx5.delete(0,END)
++                    tx5.insert(0,t2+&quot;73&quot;)
++                i3=t[:i1].strip().rfind(' ')+1
++                if t[i3:i1].strip() == 'CQ' or nbox &gt;= 2:
++                    ntx.set(1)
++                else:
++                    ntx.set(2)
++                if event.num==3 and not lauto: toggleauto()
+ 
+ def textkey(event=NONE):
+     text.configure(state=DISABLED)
+@@ -958,7 +972,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen,kxp0, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom,bm2_geom,hisgrid0,fqso0,isec00
++           bm_geom,bm2_geom,hisgrid0,fqso0,isec00,worked
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -1195,6 +1209,7 @@
+                 msgtext.insert(END,lines[i],attr)
+             msgtext.see(END)
+ 
++# Display Band Map information:
+             try:
+                 f=open(appdir+'/bandmap.txt',mode='r')
+                 lines=f.readlines()
+@@ -1214,12 +1229,21 @@
+                     except:
+                         nage=0
+                     t=t[:11]+' '
+-                    if j==2: t=t+'\n'
++                    t2=&quot;&quot;
++                    if t[0]!=' ':
++                        fqso=t[:3]
++                        tcall=t[4:10]
++                        cstar=' *'
++                        if worked.has_key(tcall.strip()): cstar='  '
++                        t2=fqso + cstar + tcall + '  '
++                    if j==2:
++                        t=t+'\n'
++                        t2=t2+'\n'
+                     if nage==0: attr='age0'
+                     if nage==1: attr='age1'
+                     if nage==2: attr='age2'
+                     if nage&gt;=3: attr='age3'
+-                    bmtext.insert(END,t,attr)
++                    bmtext.insert(END,t2,attr)
+                     t=t[:12]
+                     if t!=&quot;            &quot;:
+                         try:
+@@ -1717,6 +1741,20 @@
+ msg8.pack(side=RIGHT, fill=X, padx=1)
+ iframe6.pack(expand=1, fill=X, padx=4)
+ frame.pack()
++
++# Create &quot;worked&quot;, a dictionary of all calls in WSJT.LOG
++try:
++    f=open(appdir+'/WSJT.LOG','r')
++    s=f.readlines()
++except:
++    print 'Error opening WSJT.LOG'
++    s=&quot;&quot;
++f.close()
++tcall=&quot;&quot;
++for i in range(len(s)):
++    tcall=s[i].split(',',3)[2]
++    worked[tcall]=1
++
+ ldate.after(100,update)
+ lauto=0
+ isync=1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000720.html">[WSJT-SVN] r1029 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000722.html">[WSJT-SVN] r1031 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#721">[ date ]</a>
+              <a href="thread.html#721">[ thread ]</a>
+              <a href="subject.html#721">[ subject ]</a>
+              <a href="author.html#721">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

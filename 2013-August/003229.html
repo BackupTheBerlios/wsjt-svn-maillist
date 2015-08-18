@@ -1,0 +1,461 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3538 - in branches/wsjtx: . logbook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3538%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130808235154.6D0C055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003228.html">
+   <LINK REL="Next"  HREF="003230.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3538 - in branches/wsjtx: . logbook</H1>
+    <B>vk3acf at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3538%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130808235154.6D0C055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3538 - in branches/wsjtx: . logbook">vk3acf at scm.berlios.de
+       </A><BR>
+    <I>Fri Aug  9 01:51:54 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003228.html">[WSJT-SVN] r3537 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003230.html">[WSJT-SVN] r3539 - in branches/wsjtx: . logbook
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3229">[ date ]</a>
+              <a href="thread.html#3229">[ thread ]</a>
+              <a href="subject.html#3229">[ subject ]</a>
+              <a href="author.html#3229">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: vk3acf
+Date: 2013-08-09 01:51:53 +0200 (Fri, 09 Aug 2013)
+New Revision: 3538
+
+Modified:
+   branches/wsjtx/logbook/adif.cpp
+   branches/wsjtx/logbook/adif.h
+   branches/wsjtx/logbook/countriesworked.h
+   branches/wsjtx/logbook/countrydat.cpp
+   branches/wsjtx/logbook/countrydat.h
+   branches/wsjtx/logbook/logbook.cpp
+   branches/wsjtx/logbook/logbook.h
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+Log:
+Logbook: 
+  -changed log to hash table for faster lookup
+  -improved ADIF compatibility
+mainwindow.ui
+  -fixed typo in menu entry
+
+
+
+Modified: branches/wsjtx/logbook/adif.cpp
+===================================================================
+--- branches/wsjtx/logbook/adif.cpp	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/adif.cpp	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -6,6 +6,7 @@
+ /*
+ &lt;CALL:4&gt;W1XT&lt;BAND:3&gt;20m&lt;FREQ:6&gt;14.076&lt;GRIDSQUARE:4&gt;DM33&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-21&lt;RST_SENT:3&gt;-14&lt;QSO_DATE:8&gt;20110422&lt;TIME_ON:4&gt;0417&lt;TIME_OFF:4&gt;0424&lt;TX_PWR:1&gt;4&lt;COMMENT:34&gt;1st JT65A QSO.   Him: mag loop 20W&lt;STATION_CALLSIGN:6&gt;VK3ACF&lt;MY_GRIDSQUARE:6&gt;qf22lb&lt;eor&gt;
+ &lt;CALL:6&gt;IK1SOW&lt;BAND:3&gt;20m&lt;FREQ:6&gt;14.076&lt;GRIDSQUARE:4&gt;JN35&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-19&lt;RST_SENT:3&gt;-11&lt;QSO_DATE:8&gt;20110422&lt;TIME_ON:4&gt;0525&lt;TIME_OFF:4&gt;0533&lt;TX_PWR:1&gt;3&lt;STATION_CALLSIGN:6&gt;VK3ACF&lt;MY_GRIDSQUARE:6&gt;qf22lb&lt;eor&gt;
++&lt;CALL:6:S&gt;W4ABC&gt; ...
+ */
+ 
+ void ADIF::init(QString filename)
+@@ -14,25 +15,36 @@
+     _data.clear(); 
+ }
+ 
++
+ QString ADIF::_extractField(const QString line, const QString fieldName)
+ {
+-    int s1 = line.indexOf(fieldName,0,Qt::CaseInsensitive);
+-    if (s1 &gt;=0)
++    int fieldNameIndex = line.indexOf(fieldName,0,Qt::CaseInsensitive);
++    if (fieldNameIndex &gt;=0)
+     {
+-      int s2 = line.indexOf('&gt;',s1);
+-      if (s2 &gt;= 0)
+-      {
+-          int flsi = s1+fieldName.length();
+-          int flsl = s2-flsi;
+-          if (flsl&gt;0)
+-          {
+-              QString fieldLengthString = line.mid(flsi,flsl);
+-              int fieldLength = fieldLengthString.toInt();
+-              QString field = line.mid(s2+1,fieldLength);
++        int closingBracketIndex = line.indexOf('&gt;',fieldNameIndex);
++        int fieldLengthIndex = line.indexOf(':',fieldNameIndex);  // find the size delimiter
++        int dataTypeIndex = -1;
++        if (fieldLengthIndex &gt;= 0)
++        {
++          dataTypeIndex = line.indexOf(':',fieldLengthIndex+1);  // check for a second : indicating there is a data type
++          if (dataTypeIndex &gt; closingBracketIndex)
++            dataTypeIndex = -1; // second : was found but it was beyond the closing &gt;
++        }
++
++        if ((closingBracketIndex &gt; fieldNameIndex) &amp;&amp; (fieldLengthIndex &gt; fieldNameIndex) &amp;&amp; (fieldLengthIndex&lt; closingBracketIndex))
++        {
++            int fieldLengthCharCount = closingBracketIndex - fieldLengthIndex -1;
++            if (dataTypeIndex &gt;= 0)
++              fieldLengthCharCount -= 2; // data type indicator is always a colon followed by a single character
++            QString fieldLengthString = line.mid(fieldLengthIndex+1,fieldLengthCharCount);
++            int fieldLength = fieldLengthString.toInt();
++            if (fieldLength &gt; 0)
++            {
++              QString field = line.mid(closingBracketIndex+1,fieldLength);
+               return field;
+-          }
++            }
+        }
+-    }     
++    }
+     return &quot;&quot;;
+ }
+ 
+@@ -44,20 +56,20 @@
+     QFile inputFile(_filename);
+     if (inputFile.open(QIODevice::ReadOnly))
+     {
+-       QTextStream in(&amp;inputFile);
+-       while ( !in.atEnd() )
+-       {
+-          QString line = in.readLine();
+-		  QSO q;
+-		  q.call = _extractField(line,&quot;CALL:&quot;);
+-		  q.band = _extractField(line,&quot;BAND:&quot;);
+-		  q.mode = _extractField(line,&quot;MODE:&quot;);
+-		  q.date = _extractField(line,&quot;QSO_DATE:&quot;);
+-		  if (q.call != &quot;&quot;)
+-			_data &lt;&lt; q;
+-		}	
+-		inputFile.close();
+-	}
++        QTextStream in(&amp;inputFile);
++        while ( !in.atEnd() )
++        {
++            QString line = in.readLine();
++            QSO q;
++            q.call = _extractField(line,&quot;CALL:&quot;);
++            q.band = _extractField(line,&quot;BAND:&quot;);
++            q.mode = _extractField(line,&quot;MODE:&quot;);
++            q.date = _extractField(line,&quot;QSO_DATE:&quot;);
++            if (q.call != &quot;&quot;)
++            _data.insert(q.call,q);
++        }
++        inputFile.close();
++    }
+ }
+ 
+ 
+@@ -68,45 +80,52 @@
+     q.band = &quot;&quot;;     //TODO
+     q.mode = &quot;JT9&quot;;  //TODO
+     q.date = &quot;&quot;;     //TODO
+-    _data &lt;&lt; q;
++    _data.insert(q.call,q);
+ }
+ 
+ // return true if in the log same band and mode (where JT65 == JT9)
+ bool ADIF::match(const QString call, const QString band, const QString mode)
+ {
+-	QSO q;
+-	foreach(q,_data)
+-	{
+-      if (call.compare(q.call) == 0)   //TODO handle multiple log entries from same call, should this be a hash table rather than a list?
+-      {
+-		if ((band.compare(q.band) == 0) || (band==&quot;&quot;) || (q.band==&quot;&quot;))
+-		{
+-			if ( 
+-			     (
+-			       ((mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
+-			       &amp;&amp;
+-			       ((q.mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (q.mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
+-			     )
+-			     || (mode.compare(q.mode)==0)
+-			    ) 
+-            return true;
+-         }
+-       }
+-     }     
++    QList&lt;QSO&gt; qsos = _data.values(call);
++    if (qsos.size()&gt;0)
++    {
++        QSO q;
++        foreach(q,qsos)
++        {
++            if (     (band.compare(q.band) == 0)
++                  || (band==&quot;&quot;)
++                  || (q.band==&quot;&quot;))
++            {
++                if (
++                     (
++                       ((mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
++                       &amp;&amp;
++                       ((q.mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (q.mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
++                     )
++                        || (mode.compare(q.mode)==0)
++                        || (mode==&quot;&quot;)
++                    )
++                return true;
++            }
++        }
++    }
+     return false;
+ }    
+ 
+ QList&lt;QString&gt; ADIF::getCallList()
+ {
+     QList&lt;QString&gt; p;
+-    QSO q;
+-    foreach(q,_data)
+-      p &lt;&lt; q.call;
++    QMultiHash&lt;QString,QSO&gt;::const_iterator i = _data.constBegin();
++     while (i != _data.constEnd())
++     {
++         p &lt;&lt; i.key();
++         ++i;
++     }
+     return p;
+ }   
+     
+ int ADIF::getCount()
+ {
+-    return _data.length();
++    return _data.size();
+ }   
+     
+
+Modified: branches/wsjtx/logbook/adif.h
+===================================================================
+--- branches/wsjtx/logbook/adif.h	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/adif.h	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -11,6 +11,7 @@
+ #if defined (QT5)
+ #include &lt;QList&gt;
+ #include &lt;QString&gt;
++#include &lt;QMultiHash&gt;
+ #else
+ #include &lt;QtGui&gt;
+ #endif
+@@ -33,7 +34,7 @@
+ 		  QString call,band,mode,date;
+ 		};		  
+ 
+-		QList&lt;QSO&gt; _data;
++        QMultiHash&lt;QString, QSO&gt; _data;
+ 		QString _filename;
+ 		
+         QString _extractField(const QString line, const QString fieldName);
+
+Modified: branches/wsjtx/logbook/countriesworked.h
+===================================================================
+--- branches/wsjtx/logbook/countriesworked.h	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/countriesworked.h	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -6,7 +6,10 @@
+ #ifndef __COUNTRIESWORKDED_H
+ #define __COUNTRIESWORKDED_H
+ 
+-#include &lt;QtGui&gt;
++#include &lt;QList&gt;
++#include &lt;QString&gt;
++#include &lt;QStringList&gt;
++#include &lt;QHash&gt;
+ 
+ 
+ class CountriesWorked
+
+Modified: branches/wsjtx/logbook/countrydat.cpp
+===================================================================
+--- branches/wsjtx/logbook/countrydat.cpp	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/countrydat.cpp	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -29,8 +29,12 @@
+ QString CountryDat::_extractName(const QString line)
+ {
+     int s1 = line.indexOf(':');
+-    QString name = line.mid(0,s1);
+-    return name;
++    if (s1&gt;=0)
++    {
++        QString name = line.mid(0,s1);
++        return name;
++    }
++    return &quot;&quot;;
+ }
+ 
+ void CountryDat::_removeBrackets(QString &amp;line, const QString a, const QString b)
+@@ -71,7 +75,7 @@
+ 
+ void CountryDat::load()
+ {
+-    _data.clear(); //dictionary was = {}
++    _data.clear();
+     _countryNames.clear(); //used by countriesWorked
+   
+     QFile inputFile(_filename);
+@@ -86,23 +90,26 @@
+             QString line2 = in.readLine();
+               
+             QString name = _extractName(line1);
+-            _countryNames &lt;&lt; name; 
+-            bool more = true;
+-			QStringList prefixs;
+-			while (more)
+-			{
+-			  QStringList p = _extractPrefix(line2,more);
+-			  prefixs += p;
+-			  if (more)
+-				line2 = in.readLine();
+-             }
+-			
+-			QString p;	
+-			foreach(p,prefixs)
++            if (name.length()&gt;0)
+             {
+-                if (p.length() &gt; 0)
+-                    _data.insert(p,name);
+-			}  
++                _countryNames &lt;&lt; name;
++                bool more = true;
++                QStringList prefixs;
++                while (more)
++                {
++                    QStringList p = _extractPrefix(line2,more);
++                    prefixs += p;
++                    if (more)
++                        line2 = in.readLine();
++                }
++
++                QString p;
++                foreach(p,prefixs)
++                {
++                    if (p.length() &gt; 0)
++                        _data.insert(p,name);
++                }
++            }
+           }
+        }
+     inputFile.close();
+
+Modified: branches/wsjtx/logbook/countrydat.h
+===================================================================
+--- branches/wsjtx/logbook/countrydat.h	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/countrydat.h	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -8,9 +8,12 @@
+ #ifndef __COUNTRYDAT_H
+ #define __COUNTRYDAT_H
+ 
+-#include &lt;QtGui&gt;
+ 
++#include &lt;QString&gt;
++#include &lt;QStringList&gt;
++#include &lt;QHash&gt;
+ 
++
+ class CountryDat
+ {
+ 	public:
+
+Modified: branches/wsjtx/logbook/logbook.cpp
+===================================================================
+--- branches/wsjtx/logbook/logbook.cpp	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/logbook.cpp	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -1,6 +1,6 @@
+ #include &quot;logbook.h&quot;
++#include &lt;QDebug&gt;
+ 
+-
+ void LogBook::init()
+ {
+     const QString logFilename = &quot;wsjtx_log.adi&quot;;    //TODO get from user
+@@ -58,7 +58,7 @@
+           countryWorkedBefore = false;
+         }
+     }
+-    qDebug() &lt;&lt; &quot;Logbook:&quot; &lt;&lt; call &lt;&lt; &quot;:&quot; &lt;&lt; countryName &lt;&lt; &quot;Cty B4:&quot; &lt;&lt; countryWorkedBefore &lt;&lt; &quot;call B4:&quot; &lt;&lt; callWorkedBefore;
++    //qDebug() &lt;&lt; &quot;Logbook:&quot; &lt;&lt; call &lt;&lt; &quot;:&quot; &lt;&lt; countryName &lt;&lt; &quot;Cty B4:&quot; &lt;&lt; countryWorkedBefore &lt;&lt; &quot;call B4:&quot; &lt;&lt; callWorkedBefore;
+ }
+ 
+ void LogBook::addAsWorked(const QString call)
+
+Modified: branches/wsjtx/logbook/logbook.h
+===================================================================
+--- branches/wsjtx/logbook/logbook.h	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/logbook/logbook.h	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -7,7 +7,7 @@
+ #define LOGBOOK_H
+ 
+ 
+-#include &lt;QtGui&gt;
++#include &lt;QString&gt;
+ 
+ #include &quot;countrydat.h&quot;
+ #include &quot;countriesworked.h&quot;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/mainwindow.cpp	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-08-08 18:59:27 UTC (rev 3537)
++++ branches/wsjtx/mainwindow.ui	2013-08-08 23:51:53 UTC (rev 3538)
+@@ -2223,7 +2223,7 @@
+      &lt;x&gt;0&lt;/x&gt;
+      &lt;y&gt;0&lt;/y&gt;
+      &lt;width&gt;760&lt;/width&gt;
+-     &lt;height&gt;21&lt;/height&gt;
++     &lt;height&gt;20&lt;/height&gt;
+     &lt;/rect&gt;
+    &lt;/property&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuFile&quot;&gt;
+@@ -2615,7 +2615,7 @@
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Show DXCC entity and B4 status&lt;/string&gt;
++    &lt;string&gt;Show DXCC entity and worked B4 status&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+  &lt;/widget&gt;
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003228.html">[WSJT-SVN] r3537 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003230.html">[WSJT-SVN] r3539 - in branches/wsjtx: . logbook
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3229">[ date ]</a>
+              <a href="thread.html#3229">[ thread ]</a>
+              <a href="subject.html#3229">[ subject ]</a>
+              <a href="author.html#3229">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

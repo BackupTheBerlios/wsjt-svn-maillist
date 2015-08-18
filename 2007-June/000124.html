@@ -1,0 +1,455 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r439 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r439%20-%20branches/map65&In-Reply-To=%3C200706291834.l5TIYV4U032280%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000123.html">
+   <LINK REL="Next"  HREF="000125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r439 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r439%20-%20branches/map65&In-Reply-To=%3C200706291834.l5TIYV4U032280%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r439 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 29 20:34:31 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000123.html">[WSJT-SVN] r438 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000125.html">[WSJT-SVN] r440 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-29 20:34:26 +0200 (Fri, 29 Jun 2007)
+New Revision: 439
+
+Modified:
+   branches/map65/datcom.f90
+   branches/map65/decode1.F90
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+   branches/map65/symspec.f90
+Log:
+OK with multicasting data, FFTs starting at t=52 s.
+
+
+Modified: branches/map65/datcom.f90
+===================================================================
+--- branches/map65/datcom.f90	2007-06-29 14:45:15 UTC (rev 438)
++++ branches/map65/datcom.f90	2007-06-29 18:34:26 UTC (rev 439)
+@@ -2,4 +2,4 @@
+ integer*2 id                        !46 MB: raw data from Linrad timf2
+ character*80 fname80
+ common/datcom/id(4,NSMAX,2),nutc,newdat2,kbuf,kk,kkdone,nlost,   &amp;
+-     nlen,fname80
++     t00,nlen,fname80
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-06-29 14:45:15 UTC (rev 438)
++++ branches/map65/decode1.F90	2007-06-29 18:34:26 UTC (rev 439)
+@@ -28,12 +28,11 @@
+      newdat2=0
+      kbuf=1
+      kk=NSMAX
+-     kkdone=0
++     kkdone=-1
+      newdat=1
+   endif
+ 
+-  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise,     &amp;
+-       newspec,newdat,ndecoding)
++  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,nutc,t00,newdat)
+ 
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-29 14:45:15 UTC (rev 438)
++++ branches/map65/map65a.f90	2007-06-29 18:34:26 UTC (rev 439)
+@@ -23,6 +23,7 @@
+   data nfile/0/,nutc0/-999/,nid/0/,ip000/1/,ip001/1/
+   save
+ 
++  print*,'C ',secnds(t00),nutc,kk,kbuf,kkdone
+   pctlost=nlost/331.03
+   if(nlost.ne.0) write(*,1001) nutc,nlost,pctlost
+ 1001 format('UTC:',i5.4,'   Lost packets:',i6,', or',f6.1,' %')
+@@ -33,9 +34,6 @@
+   if(nutc.ne.nutc0) nfile=nfile+1
+   nutc0=nutc
+   nutcdata=nutc
+-  write(utcdata,1002) nutc
+-1002 format(i4.4)
+-  utcdata=utcdata(1:2)//':'//utcdata(3:4)
+   open(23,file='CALL3.TXT',status='old')
+ 
+   fselect=mousefqso + 1.6
+@@ -57,8 +55,8 @@
+         ib=nint((fb+23000.0)/df + 1.0)
+      endif
+ 
+-     kk=0
+-     nkk=1
++     km=0
++     nkm=1
+      nz=n/8
+ 
+      do i=1,NFFT
+@@ -117,32 +115,32 @@
+ 
+ !  Keep only the best candidate within ftol.
+                     if(fshort-fshort0.le.ftol .and. sync2.gt.sync20    &amp;
+-                         .and. nkk.eq.2) kk=kk-1
++                         .and. nkm.eq.2) km=km-1
+                     if(fshort-fshort0.gt.ftol .or.                     &amp;
+                          sync2.gt.sync20) then
+-                       kk=kk+1
+-                       sig(kk,1)=nfile
+-                       sig(kk,2)=nutc
+-                       sig(kk,3)=fshort
+-                       sig(kk,4)=syncshort
+-                       sig(kk,5)=dt2
+-                       sig(kk,6)=45*(ipol2-1)/57.2957795
+-                       sig(kk,7)=0
+-                       sig(kk,8)=snr2
+-                       sig(kk,9)=0
+-                       sig(kk,10)=0
+-!                           sig(kk,11)=rms0
+-                       sig(kk,12)=savg(ipol2,i)
+-                       sig(kk,13)=0
+-                       sig(kk,14)=0
+-                       sig(kk,15)=0
+-                       sig(kk,16)=0
+-!                           sig(kk,17)=0
+-                       sig(kk,18)=0
+-                       msg(kk)=shmsg0(j)
++                       km=km+1
++                       sig(km,1)=nfile
++                       sig(km,2)=nutc
++                       sig(km,3)=fshort
++                       sig(km,4)=syncshort
++                       sig(km,5)=dt2
++                       sig(km,6)=45*(ipol2-1)/57.2957795
++                       sig(km,7)=0
++                       sig(km,8)=snr2
++                       sig(km,9)=0
++                       sig(km,10)=0
++!                           sig(km,11)=rms0
++                       sig(km,12)=savg(ipol2,i)
++                       sig(km,13)=0
++                       sig(km,14)=0
++                       sig(km,15)=0
++                       sig(km,16)=0
++!                           sig(km,17)=0
++                       sig(km,18)=0
++                       msg(km)=shmsg0(j)
+                        fshort0=fshort
+                        sync20=sync2
+-                       nkk=2
++                       nkm=2
+                     endif
+                  endif
+               enddo
+@@ -155,42 +153,42 @@
+ !  (Am I deleting any good decodes by doing this?  Any harm in omitting
+ !  these statements??)
+               if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.         &amp;
+-                   nkk.eq.1 .and.nqd.eq.0) kk=kk-1
++                   nkm.eq.1 .and.nqd.eq.0) km=km-1
+ 
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .and. nqd.eq.0) then
+                  nflip=nint(flipk)
+                  call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,dphi,  &amp;
+                       ipol,sync2,a,dt,pol,nkv,nhist,qual,decoded)
+-                 kk=kk+1
+-                 sig(kk,1)=nfile
+-                 sig(kk,2)=nutc
+-                 sig(kk,3)=freq
+-                 sig(kk,4)=sync1
+-                 sig(kk,5)=dt
+-                 sig(kk,6)=pol
+-                 sig(kk,7)=flipk
+-                 sig(kk,8)=sync2
+-                 sig(kk,9)=nkv
+-                 sig(kk,10)=qual
+-!                     sig(kk,11)=rms0                  
+-                 sig(kk,12)=savg(ipol,i)
+-                 sig(kk,13)=a(1)
+-                 sig(kk,14)=a(2)
+-                 sig(kk,15)=a(3)
+-                 sig(kk,16)=a(4)
+-!                     sig(kk,17)=a(5)
+-                 sig(kk,18)=nhist
+-                 msg(kk)=decoded
++                 km=km+1
++                 sig(km,1)=nfile
++                 sig(km,2)=nutc
++                 sig(km,3)=freq
++                 sig(km,4)=sync1
++                 sig(km,5)=dt
++                 sig(km,6)=pol
++                 sig(km,7)=flipk
++                 sig(km,8)=sync2
++                 sig(km,9)=nkv
++                 sig(km,10)=qual
++!                     sig(km,11)=rms0                  
++                 sig(km,12)=savg(ipol,i)
++                 sig(km,13)=a(1)
++                 sig(km,14)=a(2)
++                 sig(km,15)=a(3)
++                 sig(km,16)=a(4)
++!                     sig(km,17)=a(5)
++                 sig(km,18)=nhist
++                 msg(km)=decoded
+                  freq0=freq
+                  sync10=sync1
+-                 nkk=1
++                 nkm=1
+               endif
+            endif
+         endif
+      enddo
+      if(nqd.eq.1) then
+         nwrite=0
+-        do k=1,kk
++        do k=1,km
+            decoded=msg(k)
+            if(decoded.ne.'                      ') then
+               nutc=sig(k,2)
+@@ -229,6 +227,7 @@
+    
+         write(11,*) '$EOF'
+         call flushqqq(11)
++        print*,'D ',secnds(t00),nutc,kk,kbuf,kkdone
+         ndecdone=1
+      endif
+      if(nagain.eq.1) go to 999
+@@ -236,9 +235,9 @@
+ 
+ !  Trim the list and produce a sorted index and sizes of groups.
+ !  (Should trimlist remove all but best SNR for given UTC and message content?)
+-  call trimlist(sig,kk,indx,nsiz,nz)
++  call trimlist(sig,km,indx,nsiz,nz)
+ 
+-  do i=1,kk
++  do i=1,km
+      done(i)=.false.
+   enddo
+   j=0
+@@ -307,5 +306,9 @@
+     
+ 999 nagain=0
+   close(23)
++  if(kbuf.eq.1) kkdone=60*96000
++  if(kbuf.eq.2) kkdone=0
++  kk=kkdone
++  print*,'E ',secnds(t00),nutc,kk,kbuf,kkdone
+   return
+ end subroutine map65a
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-29 14:45:15 UTC (rev 438)
++++ branches/map65/recvpkt.F90	2007-06-29 18:34:26 UTC (rev 439)
+@@ -4,9 +4,9 @@
+ ! Receive timf2 packets from Linrad, stuff data into id().
+ ! This routine runs in a background thread and will never return.
+ 
+-#ifdef Win32
+-  use dflib
+-#endif
++!#ifdef Win32
++!  use dflib
++!#endif
+ 
+   parameter (NSZ=2*60*96000)
+   real*8 d8(NSZ)
+@@ -15,7 +15,6 @@
+   logical first
+   real*8 center_freq,buf8
+   common/plrscom/center_freq,msec,fqso,iptr,nblock,userx_no,iusb,buf8(174)
+-!                     8        4     4      4    2       1       1    1392
+   include 'datcom.f90'
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+@@ -36,9 +35,8 @@
+      nblock0=nblock
+ 
+      if(lost.ne.0 .and. .not.first) then
+-!        print*,'Lost packets?',nblock,nblock0,lost,rxnoise,mode
+-!  Fill in zeros for the lost data.
+-        nlost=nlost + lost
++!        print*,'Lost packets:',nblock,nblock0,lost
++        nlost=nlost + lost               ! Insert zeros for the lost data.
+         do i=1,174*lost
+            k=k+1
+            d8(k)=0
+@@ -55,7 +53,6 @@
+         k=0
+         if(kb.eq.2) k=NSMAX
+         nlost=0
+-        kbuf=kb
+      endif
+ 
+      if(kb.eq.1 .and. (k+174).gt.NSMAX) go to 20
+@@ -104,24 +101,25 @@
+         mutcm=mod(nsec/60,60)
+         mutc=100*mutch + mutcm
+         ns=mod(nsec,60)
+-!     write(*,1010) mutc,ns,0.001*msec,k,rxnoise
+-!1010 format('UTC:',i5.4,'   ns:',i3,'   t:',f10.3,'   k:',i8)
+         nsec0=nsec
+         ntx=ntx+transmitting
+-
+-        nutc=mutc
+-!        if(mod(nsec,60).eq.43) kk=k           !### ??? ###
+-        if(mod(nsec,60).eq.52) then
+-           kk=k
++!###
++!        kk=k
++!        kbuf=kb
++!###
++!        if(ns.eq.42) then
++!           nutc=mutc
++!           kbuf=kb
++!           kk=k
++!           t00=secnds(0.0)
++!        endif
++        if(ns.eq.52) then
++           nutc=mutc
+            kbuf=kb
+-           klost=nlost
+-!           if(ntx.lt.20) then
+-!              newdat=1
+-!              ndecoding=1
+-!           endif
+-!           ntx=0
++           kk=k
++           t00=secnds(0.0)
++           print*,'A ',0.0,nutc,kk,kbuf,kkdone
+         endif
+-        print*,ns,nutc,kbuf,kk,kkdone
+      endif
+ 
+   endif
+
+Modified: branches/map65/symspec.f90
+===================================================================
+--- branches/map65/symspec.f90	2007-06-29 14:45:15 UTC (rev 438)
++++ branches/map65/symspec.f90	2007-06-29 18:34:26 UTC (rev 439)
+@@ -1,28 +1,34 @@
+-subroutine symspec(id,kbuf,kk,kkdone,rxnoise,newspec,newdat,ndecoding)
++subroutine symspec(id,kbuf,kk,kkdone,nutc,t00,newdat)
+ 
+ !  Compute spectra at four polarizations, using half-symbol steps.
+ 
+   parameter (NSMAX=60*96000)
+-  integer*2 id(4,NSMAX)
++  integer*2 id(4,NSMAX,2)
+   complex z
+   real*8 ts,hsym
+   include 'spcom.f90'
++  include 'gcom2.f90'
+   complex cx(NFFT),cy(NFFT)               !  pad to 32k with zeros
++  data kbuf0/-999/
++  save
+ 
++  print*,'B ',secnds(t00),0,kk,kbuf,kkdone
+   fac=0.0002 * 10.0**(0.05*(-rxnoise))
+   hsym=2048.d0*96000.d0/11025.d0          !Samples per half symbol
+   npts=hsym                               !Integral samples per half symbol
+   ntot=322                               !Half symbols per transmission
+ !  ntot=279                                !Half symbols in 51.8 sec
+ 
+-  if(kkdone.eq.0) then
++  if(kbuf.ne.kbuf0 .or. kkdone.eq.-1) then
++     kkdone=0
++     kbuf0=kbuf
++     ts=1.d0 - hsym
++     n=0
+      do ip=1,4
+         do i=1,NFFT
+            szavg(ip,i)=0.
+         enddo
+      enddo
+-     ts=1.d0 - hsym
+-     n=0
+   endif
+ 
+   do nn=1,ntot
+@@ -31,11 +37,11 @@
+      i1=ts+2*hsym                         !Next starting sample pointer
+      ts=ts+hsym                         !OK, update the exact sample pointer
+      do i=1,npts                        !Copy data to FFT arrays
+-        xr=fac*id(1,i0+i)
+-        xi=fac*id(2,i0+i)
++        xr=fac*id(1,i0+i,kbuf)
++        xi=fac*id(2,i0+i,kbuf)
+         cx(i)=cmplx(xr,xi)
+-        yr=fac*id(3,i0+i)
+-        yi=fac*id(4,i0+i)
++        yr=fac*id(3,i0+i,kbuf)
++        yi=fac*id(4,i0+i,kbuf)
+         cy(i)=cmplx(yr,yi)
+      enddo
+ 
+@@ -86,12 +92,15 @@
+ !         if(n.eq.ntot) then
+      if(n.ge.279) then
+         call move(ssz5,ss5,322*NFFT)
++        write(utcdata,1002) nutc
++1002    format(i4.4)
++        utcdata=utcdata(1:2)//':'//utcdata(3:4)
+         newspec=1
+         call move(ssz,ss,4*322*NFFT)
+         call move(szavg,savg,4*NFFT)
+         newdat=1
+         ndecoding=1
+-        go to 999
++        return
+      endif
+      kkdone=i1-1
+      nhsym=n
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000123.html">[WSJT-SVN] r438 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000125.html">[WSJT-SVN] r440 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

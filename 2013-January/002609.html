@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2917 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2917%20-%20branches/wsprx&In-Reply-To=%3C20130110163203.7A11855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002608.html">
+   <LINK REL="Next"  HREF="002610.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2917 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2917%20-%20branches/wsprx&In-Reply-To=%3C20130110163203.7A11855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2917 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 10 17:32:03 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002608.html">[WSJT-SVN] r2916 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002610.html">[WSJT-SVN] r2918 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2609">[ date ]</a>
+              <a href="thread.html#2609">[ thread ]</a>
+              <a href="subject.html#2609">[ subject ]</a>
+              <a href="author.html#2609">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-10 17:32:03 +0100 (Thu, 10 Jan 2013)
+New Revision: 2917
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+Log:
+Add band-selection comboBox.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-10 15:42:39 UTC (rev 2916)
++++ branches/wsprx/mainwindow.cpp	2013-01-10 16:32:03 UTC (rev 2917)
+@@ -13,6 +13,9 @@
+ bool btxok;                           //True if OK to transmit
+ bool btxMute;
+ double outputLatency;                 //Latency in seconds
++double dFreq[]={0.136,0.4742,1.8366,3.5926,5.2872,7.0386,10.1387,14.0956,
++           18.1046,21.0946,24.9246,28.1246,50.293,70.091,144.489,0.0};
++
+ WideGraph* g_pWideGraph = NULL;
+ 
+ QString ver=&quot;0.5&quot;;
+@@ -141,6 +144,7 @@
+   m_txnext=false;
+   m_uploading=false;
+   m_grid6=false;
++  m_band=6;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -154,6 +158,14 @@
+     ui-&gt;dBmComboBox-&gt;addItem(t);
+   }
+ 
++  int band[] ={2200,630,160,80,60,40,30,20,17,15,12,10,6,4,2};
++  for(int i=0; i&lt;15; i++) {
++    QString t;
++    t.sprintf(&quot;%4d m&quot;,band[i]);
++    ui-&gt;bandComboBox-&gt;addItem(t);
++  }
++  ui-&gt;bandComboBox-&gt;addItem(&quot;Other&quot;);
++
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+@@ -258,6 +270,7 @@
+   settings.setValue(&quot;PctTx&quot;,m_pctx);
+   settings.setValue(&quot;dBm&quot;,m_dBm);
+   settings.setValue(&quot;Grid6&quot;,m_grid6);
++  settings.setValue(&quot;Iband&quot;,m_band);
+   settings.endGroup();
+ }
+ 
+@@ -315,6 +328,8 @@
+   ui-&gt;sbPctTx-&gt;setValue(m_pctx);
+   m_dBm=settings.value(&quot;dBm&quot;,37).toInt();
+   ui-&gt;dBmComboBox-&gt;setCurrentIndex(int(0.3*(m_dBm + 30.0)+0.2));
++  m_band=settings.value(&quot;Iband&quot;,6).toInt();
++  ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   m_grid6=settings.value(&quot;Grid6&quot;,false).toBool();
+   settings.endGroup();
+ 
+@@ -1120,3 +1135,14 @@
+   int i1=arg1.indexOf(&quot; &quot;);
+   m_dBm=arg1.mid(0,i1).toInt();
+ }
++
++void MainWindow::on_bandComboBox_currentIndexChanged(int n)
++{
++  m_band=n;
++  m_dialFreq=dFreq[n];
++  QString t;
++  t.sprintf(&quot;%.6f &quot;,m_dialFreq);
++  ui-&gt;dialFreqLineEdit-&gt;setText(t);
++  t.sprintf(&quot;%.6f&quot;,m_dialFreq+0.000001*m_txFreq);
++  ui-&gt;txFreqLineEdit-&gt;setText(t);
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-10 15:42:39 UTC (rev 2916)
++++ branches/wsprx/mainwindow.h	2013-01-10 16:32:03 UTC (rev 2917)
+@@ -79,6 +79,7 @@
+   void on_TuneButton_clicked();
+   void on_txFreqLineEdit_editingFinished();
+   void on_dBmComboBox_currentIndexChanged(const QString &amp;arg1);
++  void on_bandComboBox_currentIndexChanged(int n);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -115,6 +116,7 @@
+     qint32  m_iptt;
+     qint32  m_txFreq0;
+     qint32  m_dBm;
++    qint32  m_band;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-10 15:42:39 UTC (rev 2916)
++++ branches/wsprx/mainwindow.ui	2013-01-10 16:32:03 UTC (rev 2917)
+@@ -402,7 +402,7 @@
+         &lt;/item&gt;
+         &lt;item&gt;
+          &lt;layout class=&quot;QGridLayout&quot; name=&quot;gridLayout&quot;&gt;
+-          &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++          &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;lab1&quot;&gt;
+             &lt;property name=&quot;maximumSize&quot;&gt;
+              &lt;size&gt;
+@@ -415,7 +415,7 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+-          &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
++          &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
+            &lt;widget class=&quot;QLineEdit&quot; name=&quot;dialFreqLineEdit&quot;&gt;
+             &lt;property name=&quot;sizePolicy&quot;&gt;
+              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -434,7 +434,7 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+-          &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
++          &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;lab2&quot;&gt;
+             &lt;property name=&quot;maximumSize&quot;&gt;
+              &lt;size&gt;
+@@ -447,7 +447,7 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+-          &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
++          &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
+            &lt;widget class=&quot;QLineEdit&quot; name=&quot;txFreqLineEdit&quot;&gt;
+             &lt;property name=&quot;sizePolicy&quot;&gt;
+              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -466,7 +466,7 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+-          &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
++          &lt;item row=&quot;3&quot; column=&quot;0&quot;&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
+             &lt;property name=&quot;maximumSize&quot;&gt;
+              &lt;size&gt;
+@@ -479,13 +479,23 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+-          &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
++          &lt;item row=&quot;3&quot; column=&quot;1&quot;&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;lab11&quot;&gt;
+             &lt;property name=&quot;text&quot;&gt;
+              &lt;string&gt;  1500&lt;/string&gt;
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
++          &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
++           &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;/&gt;
++          &lt;/item&gt;
++          &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++           &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;Band:&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
+          &lt;/layout&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
+@@ -654,36 +664,11 @@
+     &lt;addaction name=&quot;actionWSPR_2&quot;/&gt;
+     &lt;addaction name=&quot;actionWSPR_15&quot;/&gt;
+    &lt;/widget&gt;
+-   &lt;widget class=&quot;QMenu&quot; name=&quot;menuBand&quot;&gt;
+-    &lt;property name=&quot;enabled&quot;&gt;
+-     &lt;bool&gt;false&lt;/bool&gt;
+-    &lt;/property&gt;
+-    &lt;property name=&quot;title&quot;&gt;
+-     &lt;string&gt;Band&lt;/string&gt;
+-    &lt;/property&gt;
+-    &lt;addaction name=&quot;action2200_m&quot;/&gt;
+-    &lt;addaction name=&quot;action630_m&quot;/&gt;
+-    &lt;addaction name=&quot;action160_m&quot;/&gt;
+-    &lt;addaction name=&quot;action80_m&quot;/&gt;
+-    &lt;addaction name=&quot;action60_m&quot;/&gt;
+-    &lt;addaction name=&quot;action40_m&quot;/&gt;
+-    &lt;addaction name=&quot;action30_m&quot;/&gt;
+-    &lt;addaction name=&quot;action20_m&quot;/&gt;
+-    &lt;addaction name=&quot;action17_m&quot;/&gt;
+-    &lt;addaction name=&quot;action15_m&quot;/&gt;
+-    &lt;addaction name=&quot;action12_m&quot;/&gt;
+-    &lt;addaction name=&quot;action10_m&quot;/&gt;
+-    &lt;addaction name=&quot;action6_m&quot;/&gt;
+-    &lt;addaction name=&quot;action4_m&quot;/&gt;
+-    &lt;addaction name=&quot;action2_m&quot;/&gt;
+-    &lt;addaction name=&quot;actionOther&quot;/&gt;
+-   &lt;/widget&gt;
+    &lt;addaction name=&quot;menuFile&quot;/&gt;
+    &lt;addaction name=&quot;menuSetup&quot;/&gt;
+    &lt;addaction name=&quot;menuView&quot;/&gt;
+    &lt;addaction name=&quot;menuMode&quot;/&gt;
+    &lt;addaction name=&quot;menuSave&quot;/&gt;
+-   &lt;addaction name=&quot;menuBand&quot;/&gt;
+    &lt;addaction name=&quot;menuHelp&quot;/&gt;
+   &lt;/widget&gt;
+   &lt;widget class=&quot;QToolBar&quot; name=&quot;mainToolBar&quot;&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002608.html">[WSJT-SVN] r2916 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002610.html">[WSJT-SVN] r2918 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2609">[ date ]</a>
+              <a href="thread.html#2609">[ thread ]</a>
+              <a href="subject.html#2609">[ subject ]</a>
+              <a href="author.html#2609">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

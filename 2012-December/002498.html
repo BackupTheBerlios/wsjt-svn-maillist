@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2806 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2806%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20121213174317.B65F655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002496.html">
+   <LINK REL="Next"  HREF="002499.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2806 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2806%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20121213174317.B65F655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2806 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Dec 13 18:43:17 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002496.html">[WSJT-SVN] r2805 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002499.html">[WSJT-SVN] r2807 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2498">[ date ]</a>
+              <a href="thread.html#2498">[ thread ]</a>
+              <a href="subject.html#2498">[ subject ]</a>
+              <a href="author.html#2498">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-13 18:43:17 +0100 (Thu, 13 Dec 2012)
+New Revision: 2806
+
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/flat3.f
+   branches/wsprx/lib/sync162.f
+   branches/wsprx/lib/wqdecode.f90
+   branches/wsprx/lib/wspr0.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/widegraph.cpp
+   branches/wsprx/wsprx.pro
+Log:
+Can now compile and run wspr0.exe.
+Mode code cleanup in GUI.
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/lib/Makefile	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -1,12 +1,13 @@
+-# Makefile for MinGW on Windows
++# Makefile for WSPRX, using MinGW on Windows
+ # Windows re-direct:
+ #   C&gt; make &gt; junk1 2&gt;&amp;1
+ 
+ CC = gcc
+ FC = g95
+ 
+-FFLAGS = -O2 -fbounds-check -Wall -Wno-precision-loss -fno-second-underscore
+-CFLAGS = -I. -fbounds-check -mno-stack-arg-probe
++FFLAGS = -O2 -fbounds-check -Wall -Wno-precision-loss -ftrace=frame
++#CFLAGS = -I. -fbounds-check -mno-stack-arg-probe
++CFLAGS = -I. -fbounds-check 
+ 
+ # Default rules
+ %.o: %.c
+@@ -50,4 +51,4 @@
+ .PHONY : clean
+ 
+ clean:
+-	rm -f *.o libwspr.a 
++	rm -f *.o libwspr.a wspr0.exe
+
+Modified: branches/wsprx/lib/flat3.f
+===================================================================
+--- branches/wsprx/lib/flat3.f	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/lib/flat3.f	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -4,7 +4,6 @@
+       real ss0(NZ)
+       real ss(NZ)
+       real ref(NZ)
+-      real tmp(NZ)
+ 
+       call move(ss0,ss(129),128)
+       call move(ss0(129),ss,128)
+@@ -14,7 +13,7 @@
+       ia=nsmo+1
+       ib=n-nsmo-1
+       do i=ia,ib
+-         call pctile(ss(i-nsmo),tmp,2*nsmo+1,35,ref(i))
++         call pctile(ss(i-nsmo),2*nsmo+1,35,ref(i))
+       enddo
+       do i=ia,ib
+          ss(i)=base*ss(i)/ref(i)
+
+Modified: branches/wsprx/lib/sync162.f
+===================================================================
+--- branches/wsprx/lib/sync162.f	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/lib/sync162.f	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -20,7 +20,6 @@
+       integer keep(-NH:NH)
+       real a(5)
+       real sstf(5,275)
+-      real tmp(275)
+       integer npr3(162)
+       real pr3(162)
+       data npr3/
+@@ -55,7 +54,7 @@
+       enddo
+ 
+ ! Normalize and subtract baseline from psavg.
+-      call pctile(psavg(-136),tmp,273,35,base)
++      call pctile(psavg(-136),273,35,base)
+       psavg=psavg/base - 1.0
+       base=base/351.0
+       s2=s2/base - 1.0
+
+Modified: branches/wsprx/lib/wqdecode.f90
+===================================================================
+--- branches/wsprx/lib/wqdecode.f90	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/lib/wqdecode.f90	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -5,7 +5,7 @@
+   character*22 message
+   character*12 callsign
+   character*3 cdbm
+-  character grid4*4,grid6*6
++  character grid4*4,grid6*6,psfx*4
+   logical first
+   character*12 dcall(0:N15-1)
+   data first/.true./
+@@ -22,7 +22,7 @@
+ 
+   message='                      '
+   call unpack50(data0,n1,n2)
+-  call unpackcall(n1,callsign)
++  call unpackcall(n1,callsign,iv2,psfx)
+   i1=index(callsign,' ')
+   call unpackgrid(n2/128,grid4)
+   ntype=iand(n2,127) -64
+
+Modified: branches/wsprx/lib/wspr0.f90
+===================================================================
+--- branches/wsprx/lib/wspr0.f90	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/lib/wspr0.f90	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -55,6 +55,7 @@
+ 1026    format(' UTC  dB   DT    Freq       Message'/54('-'))
+         write(14,1028)
+ 1028    format(' Date   UTC Sync dB   DT    Freq       Message'/50('-'))
++        print*,'a',nargs,ntr
+      call wspr0_rx(nargs,ntr)
+   else if(arg(1:3).eq.'T/R'.or. arg(1:3).eq.'t/r') then
+ ! Transmit and receive, choosing sequences randomly
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/mainwindow.cpp	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -84,7 +84,6 @@
+   btxok=false;
+   m_restart=false;
+   m_transmitting=false;
+-  m_killAll=false;
+   m_widebandDecode=false;
+   m_ntx=1;
+   m_myCall=&quot;K1JT&quot;;
+@@ -111,15 +110,6 @@
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+-#ifdef WIN32
+-  while(true) {
+-      int iret=killbyname(&quot;wspr0.exe&quot;);
+-      if(iret == 603) break;
+-      if(iret != 0) msgBox(&quot;KillByName return code: &quot; +
+-                           QString::number(iret));
+-  }
+-#endif
+-
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+@@ -518,7 +508,6 @@
+ void MainWindow::OnExit()
+ {
+   g_pWideGraph-&gt;saveSettings();
+-  m_killAll=true;
+   qApp-&gt;exit(0);                                      // Exit the event loop
+ }
+ 
+@@ -740,10 +729,8 @@
+ 
+ void MainWindow::jt9_error()                                     //jt9_error
+ {
+-  if(!m_killAll) {
+-    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wspr0&quot;);
+-    exit(1);
+-  }
++  msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wspr0&quot;);
++//  exit(1);
+ }
+ 
+ void MainWindow::readFromStderr()                             //readFromStderr
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/mainwindow.h	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -123,7 +123,6 @@
+     bool    m_NB;
+     bool    m_call3Modified;
+     bool    m_dataAvailable;
+-    bool    m_killAll;
+     bool    m_bsynced;
+     bool    m_bdecoded;
+     bool    m_monitorStartOFF;
+
+Modified: branches/wsprx/widegraph.cpp
+===================================================================
+--- branches/wsprx/widegraph.cpp	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/widegraph.cpp	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -22,7 +22,7 @@
+ 
+   //Restore user's settings
+   QString inifile(QApplication::applicationDirPath());
+-  inifile += &quot;/wsjtx.ini&quot;;
++  inifile += &quot;/wsprx.ini&quot;;
+   QSettings settings(inifile, QSettings::IniFormat);
+ 
+   settings.beginGroup(&quot;WideGraph&quot;);
+
+Modified: branches/wsprx/wsprx.pro
+===================================================================
+--- branches/wsprx/wsprx.pro	2012-12-13 15:37:41 UTC (rev 2805)
++++ branches/wsprx/wsprx.pro	2012-12-13 17:43:17 UTC (rev 2806)
+@@ -38,7 +38,7 @@
+     displaytext.cpp getdev.cpp
+ 
+ win32 {
+-SOURCES += killbyname.cpp
++SOURCES +=
+ }
+ 
+ HEADERS  += mainwindow.h plotter.h soundin.h soundout.h \
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002496.html">[WSJT-SVN] r2805 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002499.html">[WSJT-SVN] r2807 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2498">[ date ]</a>
+              <a href="thread.html#2498">[ thread ]</a>
+              <a href="subject.html#2498">[ subject ]</a>
+              <a href="author.html#2498">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

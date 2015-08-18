@@ -1,0 +1,802 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2602 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2602%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120927191015.A3F2055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002293.html">
+   <LINK REL="Next"  HREF="002295.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2602 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2602%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120927191015.A3F2055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2602 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Sep 27 21:10:15 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002293.html">[WSJT-SVN] r2601 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002295.html">[WSJT-SVN] r2603 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2294">[ date ]</a>
+              <a href="thread.html#2294">[ thread ]</a>
+              <a href="subject.html#2294">[ subject ]</a>
+              <a href="author.html#2294">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-27 21:10:15 +0200 (Thu, 27 Sep 2012)
+New Revision: 2602
+
+Added:
+   branches/wsjtx/jt9.txt
+   branches/wsjtx/libm65/genjt9.f90
+   branches/wsjtx/libm65/gran.c
+   branches/wsjtx/libm65/jt9sim.f90
+   branches/wsjtx/libm65/noisegen.f90
+   branches/wsjtx/libm65/packbits.f90
+   branches/wsjtx/libm65/ss.bat
+   branches/wsjtx/libm65/tab.c
+   branches/wsjtx/libm65/unpackbits.f90
+   branches/wsjtx/libm65/vit216.c
+Modified:
+   branches/wsjtx/libm65/Makefile.MinGW
+Log:
+Moving from JT8 to JT9, and working toward program jt9sim.
+
+
+Added: branches/wsjtx/jt9.txt
+===================================================================
+--- branches/wsjtx/jt9.txt	                        (rev 0)
++++ branches/wsjtx/jt9.txt	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,65 @@
++JT9 is a mode designed for amateur QSOs and beacon-like transmissions
++at MF and LF.  The mode uses the same 72-bit user messages as JT65,
++augmented by a 12-bit cyclic redundancy check (CRC).  Error-control
++coding uses a convolutional code with constraint length K=16, rate
++r=1/2, and a zero tail, leading to an encoded message length of
++(72+12+15)*2 = 198 bits.  Modulation is 9-FSK -- 8 tones for data, and
++one for a synchronization vector.  With 15 symbol intervals used for
++synchronization, a transmission requires a total of 198/3 + 15 = 81
++channel symbols.  Tone spacing df of the 9-FSK modulation is equal to
++the keying rate; symbol duration tsym = 1/df, and the total occupied
++bandwidth is 9*df.  Transmission length is slightly less than the T/R
++sequence time, to allow for message decoding at time Tdec, a time 
++Tfree seconds before the next transmission starts.
++
++Parameters of the five JT9 sub-modes are summarized in the following
++table, along with S/N thresholds measured by simulation on an AWGN
++(additive white Gaussian noise) channel.  Parameter nsps1 is the number
++of samples per symbol at sample rate 12000 Hz; nsps is the same 
++quantity at 750 Hz.
++
++------------------------------------------------------------------------
++Mode    nsps1  nsps   df    tsym  BW    S/N*   Tdec  Tfree   Factors 
++        12000   750  (Hz)   (s)  (Hz)   (dB)   (s)    (s)    of nsps
++------------------------------------------------------------------------
++JT9-1    7168   448  1.674  0.60 15.1  -26.9   51.9   8.1   2^10 7
++JT9-2   16000  1000  0.750  1.33  6.8  -30.2  111.5   8.5   2^7 5^3
++JT9-5   42336  2646  0.283  3.53  2.5  -34.4  289.4  10.6   2^5 3^3 7^2
++JT9-10  86400  5400  0.139  7.20  1.3  -37.5  586.7  13.3   2^7 3^3 5^2
++JT9-30 262144 16384  0.046 21.85  0.4  -42.3 1773.4  26.6   2^18
++------------------------------------------------------------------------
++* Noise power measured in a 2500 Hz bandwidth.
++
++
++Transmitting
++------------
++1. Source encode the structured message to 72 bits
++2. Add 12-bit CRC
++3. Convolutionally encode (K=16, r=1/2) to (72+12+15)*2 = 198 bits
++4. Interleave to scramble the bit order
++5. Assemble 3-bit groups to make 198/3 = 66 symbols
++6. Apply Gray code to the symbol values
++7. Insert 15 sync symbols ==&gt; 66+15=81 channel symbols with values 0-8
++
++
++Receiving
++---------
++1.  Apply noise blanking with the timf2 method
++2.  Filter to 500 Hz bandwidth, downsample (1/16) to 750 Hz complex
++    using FIR filter with 61 taps.  Data in array c0(1800*750) (1.35M)
++3.  Compute symbol-length spectra at half-symbol steps.  Use for
++    waterfalls s(16384) and save in ss(180,16384), savg(16384)
++4.  At time Tdec, look for sync vectors in ss() to get  estimates of DF, DT
++5.  Do full-length FFTs of length NFFT1=96*nsps
++6.  For each candidate JT9 signal, do inverse FFT of length 1536.  This 
++    gives 16 complex samples per symbol, sync tone should be close to f=0.
++7.  Use afc65b method to get improved values of DF, DT.
++8.  Tweak freq and time offset to 0.
++9.  Compute 8-bin spectra of 66 data symbols: s2(8,66).  Re-order the
++    bins by removing Gray code.
++10. Compute soft symbols for 198 bits
++11. Re-order the bits by removing interleaving.
++12. Pack bits into bytes, send to Viterbi decoder ==&gt; 72-bit message, 
++    12-bit CRC, and metric.
++13. Declare erasure if CRC check fails
++14. If CRC is good, remove source encoding and display user message.
+
+Modified: branches/wsjtx/libm65/Makefile.MinGW
+===================================================================
+--- branches/wsjtx/libm65/Makefile.MinGW	2012-09-26 18:45:10 UTC (rev 2601)
++++ branches/wsjtx/libm65/Makefile.MinGW	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -3,7 +3,7 @@
+ FC = g95
+ 
+ FFLAGS = -O2 -fbounds-check -Wall -Wno-precision-loss -fno-second-underscore
+-CFLAGS = -I. -fbounds-check
++CFLAGS = -I. -fbounds-check -mno-stack-arg-probe
+ 
+ # Default rules
+ %.o: %.c
+@@ -17,7 +17,7 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libm65.a msk.exe 
++all:    libm65.a jt9sim.exe
+ 
+ OBJS1 = trimlist.o display.o getdphi.o pctile.o ccf65.o \
+ 	decode1a.o sort.o filbig.o fil6521.o afc65b.o \
+@@ -30,19 +30,20 @@
+ 	four2a.o rfile3a.o grid2deg.o pfxdump.o dpol.o \
+ 	astro.o tm2.o sun.o moondop.o coord.o tmoonsub.o \
+ 	geocentric.o moon2.o toxyz.o dot.o dcoord.o f77_wisdom.o \
+-	gen65.o chkmsg.o ptt.o astrosub.o astro0.o recvpkt.o symspec.o \
++	gen65.o chkmsg.o ptt.o astrosub.o astro0.o recvpkt.o symspecx.o \
+ 	iqcal.o iqfix.o timf2.o s3avg.o genjtms3.o analytic.o \
+ 	db.o specjtms.o genmsk.o mskdf.o tweak1.o syncmsk.o \
+ 	lenmsk.o decodemsk.o ping.o makepings.o alignmsg.o match.o \
+-	rtping.o jtmsk.o hipass.o setupmsk.o foldmsk.o 
++	rtping.o jtmsk.o hipass.o setupmsk.o foldmsk.o genjt9.o \
++	packbits.o unpackbits.o vit216.o tab.o
+ 
+ libm65.a: $(OBJS1)
+ 	ar cr libm65.a $(OBJS1) 
+ 	ranlib libm65.a
+ 
+-OBJS3 = msk.o 
+-msk.exe: $(OBJS3) libm65.a
+-	$(FC) -o msk.exe $(OBJS3) libm65.a ../libfftw3f_win.a 
++OBJS3 = jt9sim.o noisegen.o gran.o tab.o
++jt9sim.exe: $(OBJS3) libm65.a
++	$(FC) -o jt9sim.exe $(OBJS3) libm65.a
+ 
+ OBJS2 = JT65code.o
+ JT65code.exe: $(OBJS2) libm65.a
+
+Added: branches/wsjtx/libm65/genjt9.f90
+===================================================================
+--- branches/wsjtx/libm65/genjt9.f90	                        (rev 0)
++++ branches/wsjtx/libm65/genjt9.f90	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,87 @@
++subroutine genjt9(message,minutes,lwave,msgsent,d7,iwave,nwave)
++
++! Encodes a &quot;JT9-minutes&quot; message and returns array d7(81) of tone
++! values in the range 0-8.  If lwave is true, also returns a generated
++! waveform in iwave(nwave), at 12000 samples per second.
++
++  parameter (NMAX=1800*12000)   !Max length of wave file
++  character*22 message          !Message to be generated
++  character*22 msgsent          !Message as it will be received
++  character*3 cok
++  real*8 dt,phi,f,f0,dfgen,dphi,twopi
++  integer*2 iwave(NMAX)         !Generated wave file
++  integer   d0(14)              !72-bit message + 12-bit CRC, as 6-bit bytes
++  integer*1 d1(84)              !72+12 = 84 single bits 
++  integer   d2(11)              !72+12 bits, as 8-bit words
++  integer*1 d3(11)              !72+12 bits, as 8-bit bytes
++  integer*1 d4(198)             !Encoded information-carrying bits
++  integer*1 d5(198)             !Bits from d4, after interleaving
++  integer*1 d6(66)              !Symbols from d5, values 0-7
++  integer*1 d7(66)              !Gray-coded symbols, values 0-7
++  integer*1 d8(81)              !Channel symbols including sync, values 0-8
++
++  logical lwave
++  integer isync(15)
++  data isync/1,6,11,16,21,26,31,39,45,51,57,63,69,75,81/
++  data twopi/6.283185307179586476d0/
++  save
++
++  call chkmsg(message,cok,nspecial,flip)
++  call packmsg(message,d0)            !Pack message into 12 6-bit bytes
++  d0(11)=0                            !### Temporary CRC=0 ###
++  d0(12)=0
++  call unpackbits(d0,14,6,d1)         !Unpack into 84 bits
++  nbits=84
++  call packbits(d1,nbits,8,d2)        !Pack into 11 8-bit words
++  nbytes=(nbits+7)/8
++  do i=1,nbytes
++     if(d2(i).lt.128) d3(i)=d2(i)
++     if(d2(i).ge.128) d3(i)=d2(i)-256
++  enddo
++
++  call enc216(d3,nbits,d4,nsym2,16,2)   !Convolutional code, K=16, r=1/2
++! NB: Should give nsym2 = (72+12+15)*2 = 198
++
++!  call interleavejt9(d4,1,d5)
++  d5=d4                             !### TEMP ###
++
++  call packbits(d5,nsym2,3,d6)
++!  call graycode(d6,nsym2,1,d7)
++
++! Now insert sync symbols and add 1 to the tone numbers.
++
++  nwave=0
++
++  if(lwave) then
++     nsps1=0
++     if(minutes.eq.1)  nsps1=7168
++     if(minutes.eq.2)  nsps1=16000
++     if(minutes.eq.5)  nsps1=42336
++     if(minutes.eq.10) nsps1=86400
++     if(minutes.eq.30) nsps1=262144
++     if(nsps1.eq.0) stop 'Bad value for minutes in genjt9.'
++
++! Set up necessary constants
++     dt=1.d0/12000.d0
++     f0=1500.d0
++     dfgen=12000.d0/nsps1
++     phi=0.d0
++     i=0
++     k=0
++     do j=1,81
++        f=f0 +d7(j)*dfgen
++        dphi=twopi*dt*f
++        do i=1,nsps1
++           phi=phi+dphi
++           if(phi.gt.twopi) phi=phi-twopi
++           xphi=phi
++           k=k+1
++           iwave(k)=32767.0*sin(xphi)
++        enddo
++     enddo
++     nwave=81*nsps1
++  endif
++  call unpackmsg(dgen,msgsent)
++
++  return
++end subroutine genjt9
+
+Added: branches/wsjtx/libm65/gran.c
+===================================================================
+--- branches/wsjtx/libm65/gran.c	                        (rev 0)
++++ branches/wsjtx/libm65/gran.c	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,28 @@
++#include &lt;stdlib.h&gt;
++#include &lt;math.h&gt;
++
++/* Generate gaussian random float with mean=0 and std_dev=1 */
++float gran_()
++{
++  float fac,rsq,v1,v2;
++  static float gset;
++  static int iset;
++
++  if(iset){
++    /* Already got one */
++    iset = 0;
++    return gset;
++  }
++  /* Generate two evenly distributed numbers between -1 and +1
++   * that are inside the unit circle
++   */
++  do {
++    v1 = 2.0 * (float)rand() / RAND_MAX - 1;
++    v2 = 2.0 * (float)rand() / RAND_MAX - 1;
++    rsq = v1*v1 + v2*v2;
++  } while(rsq &gt;= 1.0 || rsq == 0.0);
++  fac = sqrt(-2.0*log(rsq)/rsq);
++  gset = v1*fac;
++  iset++;
++  return v2*fac;
++}
+
+Added: branches/wsjtx/libm65/jt9sim.f90
+===================================================================
+--- branches/wsjtx/libm65/jt9sim.f90	                        (rev 0)
++++ branches/wsjtx/libm65/jt9sim.f90	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,117 @@
++program jt9sim
++
++! Generate simulated data for testing of MAP65
++
++  parameter (NMAX=1800*12000)
++  real*4 d4(NMAX)                     !Floating-point data
++  integer ihdr(11)
++  integer*2 id2(NMAX)                 !i*2 data
++  integer*2 iwave(NMAX)               !Generated waveform (no noise)
++  real*8 f0,f,dt,twopi,phi,dphi,baud
++  character msg0*22,message*22,msgsent*22,arg*8,fname*11
++  logical lwave
++  integer*1 d7(81)
++
++  nargs=iargc()
++  if(nargs.ne.9) then
++     print*,'Usage: jt9sim &quot;message&quot; fspan nsigs minutes SNR nfiles'
++     print*,'Example:  &quot;CQ K1ABC FN42&quot; 200  20      2    -28    1'
++     print*,' '
++     print*,'Enter message = &quot;&quot; to use entries in msgs.txt.'
++     print*,'Enter SNR = 0 to generate a range of SNRs.'
++     go to 999
++  endif
++
++  call getarg(1,msg0)
++  message=msg0                       !Transmitted message
++  call getarg(2,arg)
++  read(arg,*) fspan                  !Total freq range (Hz)
++  call getarg(3,arg)
++  read(arg,*) nsigs                  !Number of signals in each file
++  call getarg(4,arg)
++  read(arg,*) minutes                !Length of file (1 2 5 10 30 minutes)
++  call getarg(5,arg)
++  read(arg,*) snrdb                  !S/N in dB (2500 hz reference BW)
++  call getarg(6,arg)
++  read(arg,*) nfiles                 !Number of files
++
++  rmsdb=25.
++  rms=10.0**(0.05*rmsdb)
++  f0=1500.d0                         !Center frequency (MHz)
++  fsample=12000.d0                   !Sample rate (Hz)
++  dt=1.d0/fsample                    !Sample interval (s)
++  twopi=8.d0*atan(1.d0)
++  rad=360.0/twopi
++  npts=12000*(60*minutes-6)
++  lwave=.false.
++  nsps1=0
++  if(minutes.eq.1)  nsps1=7168
++  if(minutes.eq.2)  nsps1=16000
++  if(minutes.eq.5)  nsps1=42336
++  if(minutes.eq.10) nsps1=86400
++  if(minutes.eq.30) nsps1=262144
++  if(nsps1.eq.0) stop 'Bad value for minutes.'
++  
++  open(12,file='msgs.txt',status='old')
++
++  write(*,1000)
++1000 format('File  N   freq     S/N  Message'/    &amp;
++            '---------------------------------------------------')
++
++  do ifile=1,nfiles
++     nmin=(ifile-1)*minutes
++     ihr=nmin/60
++     imin=mod(nmin,60)
++     write(fname,1002) ihr,imin                !Create the output filenames
++1002 format('000000_',2i2.2)
++     open(10,file=fname//'.wav',access='stream',status='unknown')
++
++     call noisegen(d4,npts)                      !Generate Gaussian noise
++
++     if(msg0.ne.'                      ') then
++        call genjt9(message,minutes,lwave,msgsent,d7,iwave,nwave)
++     endif
++
++     rewind 12
++     do isig=1,nsigs
++
++        if(msg0.eq.'                      ') then
++           read(12,1004) message
++1004       format(a22)
++           call genjt9(message,minutes,lwave,msgsent,d7,iwave,nwave)
++        endif
++           
++        f=1500.d0
++        if(nsigs.gt.1) f=1500.0 - 0.5* fspan + fspan*(isig-1.0)/(nsigs-1.0)
++        snrdbx=snrdb
++        if(snrdb.ge.-1.0) snrdbx=-15.0 - 15.0*(isig-1.0)/nsigs
++        sig=sqrt(2.2*2500.0/96000.0) * 10.0**(0.05*snrdbx)
++        write(*,1020) ifile,isig,0.001*f,snrdbx,msgsent
++1020    format(i3,i4,f8.3,f7.1,2x,a22)
++
++        phi=0.
++        baud=12000.0/nsps1
++        k=12000                             !Start at t = 1 s
++        do isym=1,81
++           freq=f + d7(isym)*baud
++           dphi=twopi*freq*dt + 0.5*twopi
++           do i=1,nsps1
++              phi=phi + dphi
++              if(phi.lt.-twopi) phi=phi+twopi
++              if(phi.gt.twopi) phi=phi-twopi
++              xphi=phi
++              k=k+1
++              d4(k)=d4(k) + sin(phi)
++           enddo
++        enddo
++     enddo
++
++     do i=1,npts
++        id2(i)=nint(rms*d4(i))
++     enddo
++
++     write(10) ihdr,id2(1:npts)
++     close(10)
++  enddo
++
++999 end program jt9sim
+
+Added: branches/wsjtx/libm65/noisegen.f90
+===================================================================
+--- branches/wsjtx/libm65/noisegen.f90	                        (rev 0)
++++ branches/wsjtx/libm65/noisegen.f90	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,13 @@
++subroutine noisegen(d4,nmax)
++
++  real*4 d4(4,nmax)
++
++  do i=1,nmax
++     d4(1,i)=gran()
++     d4(2,i)=gran()
++     d4(3,i)=gran()
++     d4(4,i)=gran()
++  enddo
++
++  return
++end subroutine noisegen
+
+Added: branches/wsjtx/libm65/packbits.f90
+===================================================================
+--- branches/wsjtx/libm65/packbits.f90	                        (rev 0)
++++ branches/wsjtx/libm65/packbits.f90	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,21 @@
++subroutine packbits(dbits,nsymd,m0,sym)
++
++! Pack 0s and 1s from dbits() into sym() with m0 bits per word.
++! NB: nsymd is the number of packed output words.
++
++  integer sym(nsymd)
++  integer*1 dbits(*)
++
++  k=0
++  do i=1,nsymd
++     n=0
++     do j=1,m0
++        k=k+1
++        m=dbits(k)
++        n=ior(ishft(n,1),m)
++     enddo
++     sym(i)=n
++  enddo
++
++  return
++end subroutine packbits
+
+Added: branches/wsjtx/libm65/ss.bat
+===================================================================
+--- branches/wsjtx/libm65/ss.bat	                        (rev 0)
++++ branches/wsjtx/libm65/ss.bat	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1 @@
++svn status | grep -v '?'
+
+Added: branches/wsjtx/libm65/tab.c
+===================================================================
+--- branches/wsjtx/libm65/tab.c	                        (rev 0)
++++ branches/wsjtx/libm65/tab.c	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,36 @@
++/* 8-bit parity lookup table, generated by partab.c */
++unsigned char Partab[] = {
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 0, 1, 1, 0, 1, 0, 0, 1,
++ 1, 0, 0, 1, 0, 1, 1, 0,
++};
++
+
+Added: branches/wsjtx/libm65/unpackbits.f90
+===================================================================
+--- branches/wsjtx/libm65/unpackbits.f90	                        (rev 0)
++++ branches/wsjtx/libm65/unpackbits.f90	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,24 @@
++subroutine unpackbits(sym,nsymd,m0,dbits)
++
++! Unpack bits from sym() into dbits(), one bit per byte.
++! NB: nsymd is the number of input words, and m0 their length.
++! there will be m0*nsymd output bytes, each 0 or 1.
++
++  integer sym(nsymd)
++  integer*1 dbits(*)
++  integer*1 n1
++  equivalence (n,n1)
++
++  k=0
++  do i=1,nsymd
++     mask=ishft(1,m0-1)
++     do j=1,m0
++        k=k+1
++        dbits(k)=0
++        if(iand(mask,sym(i)).ne.0) dbits(k)=1
++        mask=ishft(mask,-1)
++     enddo
++  enddo
++
++  return
++end subroutine unpackbits
+
+Added: branches/wsjtx/libm65/vit216.c
+===================================================================
+--- branches/wsjtx/libm65/vit216.c	                        (rev 0)
++++ branches/wsjtx/libm65/vit216.c	2012-09-27 19:10:15 UTC (rev 2602)
+@@ -0,0 +1,219 @@
++/* Viterbi decoder for arbitrary convolutional code
++ * viterbi27 and viterbi37 for the r=1/2 and r=1/3 K=7 codes are faster
++ * Copyright 1999 Phil Karn, KA9Q
++ * May be used under the terms of the GNU Public License
++ */
++
++/* Select code here */
++
++#define V216
++
++
++#ifdef V216
++#define	K 16			/* Constraint length */
++#define N 2			/* Number of symbols per data bit */
++#define Polys	Poly216		/* Select polynomials here */
++#endif
++
++/* Rate 1/2 codes */
++unsigned int Poly216[] = {0126723, 0152711};	/* k = 16  */
++
++#include &lt;memory.h&gt;
++#define NULL ((void *)0)
++
++#define LONGBITS 32
++#define LOGLONGBITS 5
++
++#undef max
++#define max(x,y) ((x) &gt; (y) ? (x) : (y))
++#define D       (1 &lt;&lt; max(0,K-LOGLONGBITS-1))
++#define MAXNBITS 200            /* Maximum frame size (user bits) */
++
++extern unsigned char Partab[];	/* Parity lookup table */
++
++int Syms[1 &lt;&lt; K];
++int VDInit = 0;
++
++int parity(int x)
++{
++  x ^= (x &gt;&gt; 16);
++  x ^= (x &gt;&gt; 8);
++  return Partab[x &amp; 0xff];
++}
++
++// Wrapper for calling &quot;encode&quot; from Fortran:
++//void __stdcall ENCODE(
++void enc216_(
++unsigned char data[],           // User data, 8 bits per byte
++int *nbits,                     // Number of user bits
++unsigned char symbols[],        // Encoded one-bit symbols, 8 per byte
++int *nsymbols,                  // Number of symbols
++int *kk,                        // K
++int *nn)                        // N
++{
++  int nbytes;
++  nbytes=(*nbits+7)/8;          // Always encode multiple of 8 information bits
++  enc216(symbols,data,nbytes,0,0); // Do the encoding
++  *nsymbols=(*nbits+K-1)*N;        // Return number of encoded symbols
++  *kk=K;
++  *nn=N;
++}
++
++/* Convolutionally encode data into binary symbols */
++  enc216(unsigned char symbols[], unsigned char data[],
++       unsigned int nbytes, unsigned int startstate,
++       unsigned int endstate)
++{
++  int i,j,k,n=-1;
++  unsigned int encstate = startstate;
++
++  for(k=0; k&lt;nbytes; k++) {
++    for(i=7;i&gt;=0;i--){
++      encstate = (encstate + encstate) + ((data[k] &gt;&gt; i) &amp; 1);
++      for(j=0;j&lt;N;j++) {
++	n=n+1;
++	symbols[n] = parity(encstate &amp; Polys[j]);
++      }
++    }
++  }
++  // Flush out with zero tail.  (No need, if tail-biting code.)
++  for(i=0; i&lt;K-1;i++){
++    encstate = (encstate &lt;&lt; 1) | ((endstate &gt;&gt; i) &amp; 1);
++    for(j=0;j&lt;N;j++) {
++      n=n+1;
++      symbols[n] = parity(encstate &amp; Polys[j]);
++    }
++  }
++  return 0;
++}
++
++// Wrapper for calling &quot;viterbi&quot; from Fortran:
++//void __stdcall VITERBI(
++void vit216_(
++unsigned char symbols[],  /* Raw deinterleaved input symbols */
++unsigned int *Nbits,	  /* Number of decoded information bits */
++int mettab[2][256],	  /* Metric table, [sent sym][rx symbol] */
++unsigned char ddec[],	  /* Decoded output data */
++long *Metric              /* Final path metric (bigger is better) */
++){
++  long metric;
++  vit216(&amp;metric,ddec,symbols,*Nbits,mettab,0,0);
++  *Metric=metric;
++}
++
++/* Viterbi decoder */
++int vit216(
++long *metric,           /* Final path metric (returned value) */
++unsigned char *data,	/* Decoded output data */
++unsigned char *symbols,	/* Raw deinterleaved input symbols */
++unsigned int nbits,	/* Number of output bits */
++int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
++unsigned int startstate,         /* Encoder starting state */
++unsigned int endstate            /* Encoder ending state */
++){
++  int bitcnt = -(K-1);
++  long m0,m1;
++  int i,j,sym,ipp;
++  int mets[1 &lt;&lt; N];
++  unsigned long paths[(MAXNBITS+K-1)*D];
++  unsigned long *pp,mask;
++  long cmetric[1 &lt;&lt; (K-1)],nmetric[1 &lt;&lt; (K-1)];
++  
++  memset(paths,0,sizeof(paths));
++
++  // Initialize on first time through:
++  if(!VDInit){
++    for(i=0;i&lt;(1&lt;&lt;K);i++){
++      sym = 0;
++      for(j=0;j&lt;N;j++)
++	sym = (sym &lt;&lt; 1) + parity(i &amp; Polys[j]);
++      Syms[i] = sym;
++    }
++    VDInit++;
++  }
++
++  // Keep only lower K-1 bits of specified startstate and endstate
++  startstate &amp;= ~((1&lt;&lt;(K-1)) - 1);
++  endstate &amp;=   ~((1&lt;&lt;(K-1)) - 1);
++
++  /* Initialize starting metrics */
++  for(i=0;i&lt; 1&lt;&lt;(K-1);i++)
++    cmetric[i] = -999999;
++  cmetric[startstate] = 0;
++
++  pp = paths;
++  ipp=0;
++  for(;;){ /* For each data bit */
++    /* Read input symbols and compute branch metrics */
++    for(i=0;i&lt; 1&lt;&lt;N;i++){
++      mets[i] = 0;
++      for(j=0;j&lt;N;j++){
++	mets[i] += mettab[(i &gt;&gt; (N-j-1)) &amp; 1][symbols[j]];
++      }
++    }
++    symbols += N;
++    /* Run the add-compare-select operations */
++    mask = 1;
++    for(i=0;i&lt; 1 &lt;&lt; (K-1);i+=2){
++      int b1,b2;
++      
++      b1 = mets[Syms[i]];
++      nmetric[i] = m0 = cmetric[i/2] + b1; 
++      b2 = mets[Syms[i+1]];
++      b1 -= b2;
++      m1 = cmetric[(i/2) + (1&lt;&lt;(K-2))] + b2;
++
++      if(m1 &gt; m0){
++	nmetric[i] = m1;
++	*pp |= mask;
++      }
++
++      m0 -= b1;
++      nmetric[i+1] = m0;
++      m1 += b1;
++
++      if(m1 &gt; m0){
++	nmetric[i+1] = m1;
++	*pp |= mask &lt;&lt; 1;
++      }
++
++      mask &lt;&lt;= 2;
++      if(mask == 0){
++	mask = 1;
++	pp++;
++	ipp++;
++      }
++    }
++    if(mask != 1){
++      pp++;
++      ipp++;
++    }
++    if(++bitcnt == nbits){
++      *metric = nmetric[endstate];
++      break;
++    }
++    memcpy(cmetric,nmetric,sizeof(cmetric));
++  }
++
++  /* Chain back from terminal state to produce decoded data */
++  if(data == NULL)
++    return 0;/* Discard output */
++  memset(data,0,(nbits+7)/8); /* round up in case nbits % 8 != 0 */
++
++  for(i=nbits-1;i &gt;= 0;i--){
++    //    int a0,a1;
++    pp -= D;
++    ipp -= D;
++    m0=endstate &gt;&gt; LOGLONGBITS;
++    m1=1L &lt;&lt; (endstate &amp; (LONGBITS-1));
++    if(pp[m0] &amp; m1) {
++      //      a0=nmetric[endstate];
++      endstate |= (1 &lt;&lt; (K-1));
++      //      a1=nmetric[endstate];
++      data[i&gt;&gt;3] |= 0x80 &gt;&gt; (i&amp;7);
++      //      printf(&quot;B  %d  %d  %d  %d\n&quot;,*metric,i,a0,a1);
++    }
++    endstate &gt;&gt;= 1;
++  }
++  return 0;
++}
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002293.html">[WSJT-SVN] r2601 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002295.html">[WSJT-SVN] r2603 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2294">[ date ]</a>
+              <a href="thread.html#2294">[ thread ]</a>
+              <a href="subject.html#2294">[ subject ]</a>
+              <a href="author.html#2294">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2998 - trunk/jt4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2998%20-%20trunk/jt4&In-Reply-To=%3C20130220140733.EE27C55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002689.html">
+   <LINK REL="Next"  HREF="002691.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2998 - trunk/jt4</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2998%20-%20trunk/jt4&In-Reply-To=%3C20130220140733.EE27C55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2998 - trunk/jt4">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Feb 20 15:07:33 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002689.html">[WSJT-SVN] r2997 - trunk/jt4
+</A></li>
+        <LI>Next message: <A HREF="002691.html">[WSJT-SVN] r2999 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2690">[ date ]</a>
+              <a href="thread.html#2690">[ thread ]</a>
+              <a href="subject.html#2690">[ subject ]</a>
+              <a href="author.html#2690">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-20 15:07:33 +0100 (Wed, 20 Feb 2013)
+New Revision: 2998
+
+Modified:
+   trunk/jt4/getmu.f90
+   trunk/jt4/pdfChisq.f90
+   trunk/jt4/simjt4.f90
+Log:
+Working well with computed chisq probabilities.
+
+
+Modified: trunk/jt4/getmu.f90
+===================================================================
+--- trunk/jt4/getmu.f90	2013-02-20 13:55:51 UTC (rev 2997)
++++ trunk/jt4/getmu.f90	2013-02-20 14:07:33 UTC (rev 2998)
+@@ -1,15 +1,15 @@
+-subroutine getmu(s0,s1,n,sig,mu0,mu1)
++subroutine getmu(s0,s1,n,amp,mu0,mu1)
+ 
+   parameter (NMAX=100)
+-!  real*8 pdfChisq
++  real*8 pdfChisq
+   real log2
+   common/pspncom/ps(0:NMAX),pn(0:NMAX),scale
+   log2(x)=log(x)/log(2.0)
+ 
+-  ps0=pdfChisq(n*s0,n,sig)
++  ps0=pdfChisq(n*s0,n,amp)
+   pn1=pdfChisq(n*s1,n,0.0)
+ 
+-  ps1=pdfChisq(n*s1,n,sig)
++  ps1=pdfChisq(n*s1,n,amp)
+   pn0=pdfChisq(n*s0,n,0.0)
+ 
+   p0=ps0*pn1/(ps0+pn1)
+
+Modified: trunk/jt4/pdfChisq.f90
+===================================================================
+--- trunk/jt4/pdfChisq.f90	2013-02-20 13:55:51 UTC (rev 2997)
++++ trunk/jt4/pdfChisq.f90	2013-02-20 14:07:33 UTC (rev 2998)
+@@ -1,11 +1,11 @@
+-real*4 function pdfChisq(y,n,s)
++real*8 function pdfChisq(y,n,s)
+ 
+ ! Compute differential probability of measuring power y from a chi-squared
+ ! distribution with n degrees of freedom.  Noise level is assumed normalized
+ ! to 1.0; signal level is s.  (s=0 means a central chisq distribution; 
+ ! nonzero s means a noncentral distribution.)
+ 
+-  real*8 bess,bessi,bessi0,bessi1,x8
++  real*8 bess,bessi,bessi0,bessi1,x8,p0log,p1log
+   save a1,n0
+   data n0/-99/
+ 
+@@ -16,7 +16,7 @@
+ 
+   if(s.eq.0.0) then
+      p0log=a1 + (n/2-1)*log(y) -0.5*y
+-     pdfChisq=exp(max(p0log,-40.0))
++     pdfChisq=exp(max(p0log,-40.d0))
+   else
+      x8=sqrt(y)*s
+      bess=1.d0
+@@ -24,7 +24,7 @@
+      if(n/2-1.eq.1) bess=bessi1(x8)
+      if(n/2-1.gt.1) bess=bessi(n/2-1,x8)
+      p1log=-log(2.0) + 0.25*(n-2)*log(y/s**2) -0.5*(s**2+y) + log(bess)
+-     pdfChisq=exp(max(p1log,-40.0))
++     pdfChisq=exp(max(p1log,-40.d0))
+   endif
+ 
+   return
+
+Modified: trunk/jt4/simjt4.f90
+===================================================================
+--- trunk/jt4/simjt4.f90	2013-02-20 13:55:51 UTC (rev 2997)
++++ trunk/jt4/simjt4.f90	2013-02-20 14:07:33 UTC (rev 2998)
+@@ -72,7 +72,7 @@
+   nbits=72+31
+   maxlim=0
+ 
+-  idb1=10
++  idb1=10 - nint(1.62*int(log(float(nadd))/log(2.0)))
+   idb2=-20
+   if(snrdb.ne.0.0) idb2=idb1
+   do idb=idb1,idb2,-1
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002689.html">[WSJT-SVN] r2997 - trunk/jt4
+</A></li>
+	<LI>Next message: <A HREF="002691.html">[WSJT-SVN] r2999 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2690">[ date ]</a>
+              <a href="thread.html#2690">[ thread ]</a>
+              <a href="subject.html#2690">[ subject ]</a>
+              <a href="author.html#2690">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

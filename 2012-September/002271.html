@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2579 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2579%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120913184203.4E7EB55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002270.html">
+   <LINK REL="Next"  HREF="002272.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2579 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2579%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120913184203.4E7EB55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2579 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Sep 13 20:42:03 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002270.html">[WSJT-SVN] r2578 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="002272.html">[WSJT-SVN] r2580 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2271">[ date ]</a>
+              <a href="thread.html#2271">[ thread ]</a>
+              <a href="subject.html#2271">[ subject ]</a>
+              <a href="author.html#2271">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-13 20:42:02 +0200 (Thu, 13 Sep 2012)
+New Revision: 2579
+
+Modified:
+   branches/map65/libm65/symspec.f90
+   branches/map65/soundin.cpp
+   branches/map65/soundin.h
+Log:
+Correct several operational bugs in the fast (B2, C2) sub-modes.
+
+
+Modified: branches/map65/libm65/symspec.f90
+===================================================================
+--- branches/map65/libm65/symspec.f90	2012-09-13 12:37:17 UTC (rev 2578)
++++ branches/map65/libm65/symspec.f90	2012-09-13 18:42:02 UTC (rev 2579)
+@@ -174,7 +174,7 @@
+         if(iqapply.ne.0) call iqfix(cy,NFFT,gainy,phasey)
+      endif
+ 
+-     n=ihsym
++     n=min(322,ihsym)
+      do i=1,NFFT
+         sx=real(cx(i))**2 + aimag(cx(i))**2  
+         ss(1,n,i)=sx                    ! Pol = 0
+
+Modified: branches/map65/soundin.cpp
+===================================================================
+--- branches/map65/soundin.cpp	2012-09-13 12:37:17 UTC (rev 2578)
++++ branches/map65/soundin.cpp	2012-09-13 18:42:02 UTC (rev 2579)
+@@ -187,7 +187,7 @@
+ //  const PaStreamInfo* p=Pa_GetStreamInfo(inStream);
+ 
+   bool qe = quitExecution;
+-  int ntrz=99;
++  int ntr0=99;
+   int k=0;
+   int nsec;
+   int ntr;
+@@ -203,9 +203,10 @@
+     ntr = nsec % m_TRperiod;
+ 
+ // Reset buffer pointer and symbol number at start of minute
+-    if(ntr &lt; ntrz or !m_monitoring) {
++    if(ntr &lt; ntr0 or !m_monitoring or m_TRperiod!=m_TRperiod0) {
+       nhsym0=0;
+       udata.bzero=true;
++      m_TRperiod0=m_TRperiod;
+     }
+     k=udata.kin;
+     udata.iqswap=m_IQswap;
+@@ -228,7 +229,7 @@
+       }
+     }
+     msleep(100);
+-    ntrz=ntr;
++    ntr0=ntr;
+   }
+   Pa_StopStream(inStream);
+   Pa_CloseStream(inStream);
+@@ -346,7 +347,7 @@
+     double d8[174];
+   } b;
+ 
+-  int ntrz=99;
++  int ntr0=99;
+   int k=0;
+   int nsec;
+   int ntr;
+@@ -369,11 +370,12 @@
+       ntr = nsec % m_TRperiod;
+ 
+ // Reset buffer pointer and symbol number at start of minute
+-      if(ntr &lt; ntrz) {
++      if(ntr &lt; ntr0 or !m_monitoring or m_TRperiod!=m_TRperiod0) {
+         k=0;
+         nhsym0=0;
++        m_TRperiod0=m_TRperiod;
+       }
+-      ntrz=ntr;
++      ntr0=ntr;
+ 
+       if(m_monitoring) {
+         m_nrx=b.nrx;
+
+Modified: branches/map65/soundin.h
+===================================================================
+--- branches/map65/soundin.h	2012-09-13 12:37:17 UTC (rev 2578)
++++ branches/map65/soundin.h	2012-09-13 18:42:02 UTC (rev 2579)
+@@ -75,6 +75,7 @@
+   qint32 m_nDevIn;
+   qint32 m_udpPort;
+   qint32 m_TRperiod;
++  qint32 m_TRperiod0;
+ 
+   QUdpSocket *udpSocket;
+ };
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002270.html">[WSJT-SVN] r2578 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="002272.html">[WSJT-SVN] r2580 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2271">[ date ]</a>
+              <a href="thread.html#2271">[ thread ]</a>
+              <a href="subject.html#2271">[ subject ]</a>
+              <a href="author.html#2271">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

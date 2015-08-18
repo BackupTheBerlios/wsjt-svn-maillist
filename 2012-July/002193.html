@@ -1,0 +1,595 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2501 - branches/jtms3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2501%20-%20branches/jtms3&In-Reply-To=%3C20120707181040.5030E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002192.html">
+   <LINK REL="Next"  HREF="002194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2501 - branches/jtms3</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2501%20-%20branches/jtms3&In-Reply-To=%3C20120707181040.5030E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2501 - branches/jtms3">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jul  7 20:10:40 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002192.html">[WSJT-SVN] r2500 - branches/jtms3
+</A></li>
+        <LI>Next message: <A HREF="002194.html">[WSJT-SVN] r2502 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2193">[ date ]</a>
+              <a href="thread.html#2193">[ thread ]</a>
+              <a href="subject.html#2193">[ subject ]</a>
+              <a href="author.html#2193">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-07 20:10:39 +0200 (Sat, 07 Jul 2012)
+New Revision: 2501
+
+Modified:
+   branches/jtms3/commons.h
+   branches/jtms3/getfile.cpp
+   branches/jtms3/mainwindow.cpp
+   branches/jtms3/mainwindow.h
+   branches/jtms3/plotter.cpp
+   branches/jtms3/plotter.h
+   branches/jtms3/soundin.cpp
+   branches/jtms3/widegraph.cpp
+   branches/jtms3/widegraph.h
+Log:
+We are now plotting a green line.  (Needs more work, though.)
+
+
+Modified: branches/jtms3/commons.h
+===================================================================
+--- branches/jtms3/commons.h	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/commons.h	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -5,11 +5,11 @@
+ 
+ extern &quot;C&quot; {
+ 
+-extern struct {                     //This is &quot;common/datcom/...&quot; in Fortran
++extern struct {                     //This is &quot;common/mscom/...&quot; in Fortran
+   short int d2[30*48000];           //Raw data
+   int kin;
+   int ndiskdat;
+-} datcom_;
++} mscom_;
+ }
+ 
+ #endif // COMMONS_H
+
+Modified: branches/jtms3/getfile.cpp
+===================================================================
+--- branches/jtms3/getfile.cpp	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/getfile.cpp	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -12,12 +12,12 @@
+   FILE* fp=fopen(name,&quot;rb&quot;);
+ 
+   int npts=30*48000;
+-  memset(datcom_.d2,0,2*npts);
++  memset(mscom_.d2,0,2*npts);
+ 
+   if(fp != NULL) {
+ // Read (and ignore) a 44-byte WAV header; then read data
+-    fread(datcom_.d2,1,44,fp);
+-    int nrd=fread(datcom_.d2,2,npts,fp);
++    fread(mscom_.d2,1,44,fp);
++    int nrd=fread(mscom_.d2,2,npts,fp);
+     qDebug() &lt;&lt; &quot;Getfile&quot; &lt;&lt; npts &lt;&lt; nrd;
+     fclose(fp);
+   }
+@@ -76,9 +76,9 @@
+     hdr.ndata=2*npts;
+ 
+     fwrite(&amp;hdr,sizeof(hdr),1,fp);
+-//    memcpy(datcom_.d2,buf,2*npts);
++//    memcpy(mscom_.d2,buf,2*npts);
+ //    fwrite(buf,2,npts,fp);
+-    fwrite(datcom_.d2,2,npts,fp);
++    fwrite(mscom_.d2,2,npts,fp);
+     fclose(fp);
+   }
+ //  free(buf);
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/mainwindow.cpp	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -140,13 +140,13 @@
+ #endif
+ /*
+   if(!mem_m65.attach()) {
+-    if (!mem_m65.create(sizeof(datcom_))) {
++    if (!mem_m65.create(sizeof(mscom_))) {
+       msgBox(&quot;Unable to create shared memory segment.&quot;);
+     }
+   }
+   char *to = (char*)mem_m65.data();
+-  int size=sizeof(datcom_);
+-  if(datcom_.newdat==0) {
++  int size=sizeof(mscom_);
++  if(mscom_.newdat==0) {
+     int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
+     to += noffset;
+     size -= noffset;
+@@ -392,43 +392,34 @@
+   static int nwrite=0;
+   static int k0=99999999;
+   static float px=0.0;
+-  static float sq0=0.0;
+-  static float sqave=1000.0;
++  static float green[704];
++  static int ig=0;
+ 
+   if(k &lt; k0) {
+     nwrite=0;
++    ig=0;
+   }
+ 
+   if(m_diskData) {
+     ndiskdat=1;
+-    datcom_.ndiskdat=1;
++    mscom_.ndiskdat=1;
+   } else {
+     ndiskdat=0;
+-    datcom_.ndiskdat=0;
++    mscom_.ndiskdat=0;
+   }
+ 
+-  float sq=0.0;
+-  float x;
+-  float fac=1.0/30.0;
+-  for(int i=0; i&lt;6192; i++) {
+-    x=fac*datcom_.d2[k-6192+i];
+-    sq += x*x;
+-  }
+-  sqave=0.5*(sq+sq0);
+-  sq0=sq;
+-  px = 10.0*log10(sqave/6192.0);
+-  if(px&gt;60.0) px=60.0;
+-  if(px&lt;0.0) px=0.0;
++  specjtms_(&amp;k,&amp;px);
+   QString t;
+   t.sprintf(&quot; Rx noise: %5.1f &quot;,px);
+   lab2-&gt;setText(t);
+-  ui-&gt;xThermo-&gt;setValue((double)px);   //Update the bargraphs
++  ui-&gt;xThermo-&gt;setValue((double)px);                      //Update the Thermo
+ 
+-  /*
+   if(m_monitoring || m_diskData) {
+-    g_pWideGraph-&gt;dataSink2(s,nkhz,ihsym,m_diskData,lstrong);
++    green[ig++]=px;
++    g_pWideGraph-&gt;dataSink2(green,ig-1);
+   }
+ 
++  /*
+   //Average over specified number of spectra
+   if (n==0) {
+     for (int i=0; i&lt;NFFT; i++)
+@@ -449,7 +440,7 @@
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int n300 = (ms/100) % 300;
+ 
+-  qDebug() &lt;&lt; &quot;dataSink&quot; &lt;&lt; k &lt;&lt; ms % 60000;
++//  qDebug() &lt;&lt; k/2048 &lt;&lt; 0.001*(ms % 60000);
+   if(n300 &gt;= 295 and nwrite==0) {
+     nwrite=1;
+     if(m_saveAll) {
+@@ -933,8 +924,8 @@
+   int n=m_sec0%60;
+   if(m_monitoring and n&gt;47 and (n&lt;52 or m_decoderBusy)) return;
+   if(!m_decoderBusy) {
+-    datcom_.newdat=0;
+-    datcom_.nagain=1;
++    mscom_.newdat=0;
++    mscom_.nagain=1;
+     decode();
+   }
+   */
+@@ -945,15 +936,15 @@
+   /*
+   if(n==2) {
+     ui-&gt;tolSpinBox-&gt;setValue(5);
+-    datcom_.ntol=m_tol;
+-    datcom_.mousedf=0;
++    mscom_.ntol=m_tol;
++    mscom_.mousedf=0;
+   } else {
+     ui-&gt;tolSpinBox-&gt;setValue(3);
+-    datcom_.ntol=m_tol;
++    mscom_.ntol=m_tol;
+   }
+   if(!m_decoderBusy) {
+-    datcom_.nagain=1;
+-    datcom_.newdat=0;
++    mscom_.nagain=1;
++    mscom_.newdat=0;
+     decode();
+   }
+   */
+@@ -963,75 +954,75 @@
+ {
+ /*
+   ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+-  if(datcom_.nagain==0 &amp;&amp; (!m_diskData)) {
++  if(mscom_.nagain==0 &amp;&amp; (!m_diskData)) {
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int imin=ms/60000;
+     int ihr=imin/60;
+     imin=imin % 60;
+-    datcom_.nutc=100*ihr + imin;
++    mscom_.nutc=100*ihr + imin;
+   }
+ 
+-  datcom_.idphi=m_dPhi;
+-  datcom_.mousedf=g_pWideGraph-&gt;DF();
+-  datcom_.mousefqso=g_pWideGraph-&gt;QSOfreq();
+-  datcom_.ndepth=m_ndepth;
+-  datcom_.ndiskdat=0;
+-  if(m_diskData) datcom_.ndiskdat=1;
+-  datcom_.neme=0;
+-  if(ui-&gt;actionOnly_EME_calls-&gt;isChecked()) datcom_.neme=1;
++  mscom_.idphi=m_dPhi;
++  mscom_.mousedf=g_pWideGraph-&gt;DF();
++  mscom_.mousefqso=g_pWideGraph-&gt;QSOfreq();
++  mscom_.ndepth=m_ndepth;
++  mscom_.ndiskdat=0;
++  if(m_diskData) mscom_.ndiskdat=1;
++  mscom_.neme=0;
++  if(ui-&gt;actionOnly_EME_calls-&gt;isChecked()) mscom_.neme=1;
+ 
+   int ispan=int(g_pWideGraph-&gt;fSpan());
+   if(ispan%2 == 1) ispan++;
+-  int ifc=int(1000.0*(datcom_.fcenter - int(datcom_.fcenter))+0.5);
++  int ifc=int(1000.0*(mscom_.fcenter - int(mscom_.fcenter))+0.5);
+   int nfa=g_pWideGraph-&gt;nStartFreq();
+   int nfb=nfa+ispan;
+   int nfshift=nfa + ispan/2 - ifc;
+ 
+-  datcom_.nfa=nfa;
+-  datcom_.nfb=nfb;
+-  datcom_.nfcal=m_fCal;
+-  datcom_.nfshift=nfshift;
+-  datcom_.mcall3=0;
+-  if(m_call3Modified) datcom_.mcall3=1;
+-  datcom_.ntimeout=m_timeout;
+-  datcom_.ntol=m_tol;
+-  datcom_.nxant=0;
+-  if(m_xpolx) datcom_.nxant=1;
+-  if(datcom_.nutc &lt; m_nutc0) m_jtms3RxLog |= 1;  //Date and Time to all65.txt
+-  m_nutc0=datcom_.nutc;
+-//  datcom_.jtms3RxLog=m_jtms3RxLog;
+-  datcom_.nfsample=96000;
+-  if(!m_fs96000) datcom_.nfsample=95238;
+-  datcom_.nxpol=0;
+-  if(m_xpol) datcom_.nxpol=1;
+-  datcom_.mode65=m_mode65;
++  mscom_.nfa=nfa;
++  mscom_.nfb=nfb;
++  mscom_.nfcal=m_fCal;
++  mscom_.nfshift=nfshift;
++  mscom_.mcall3=0;
++  if(m_call3Modified) mscom_.mcall3=1;
++  mscom_.ntimeout=m_timeout;
++  mscom_.ntol=m_tol;
++  mscom_.nxant=0;
++  if(m_xpolx) mscom_.nxant=1;
++  if(mscom_.nutc &lt; m_nutc0) m_jtms3RxLog |= 1;  //Date and Time to all65.txt
++  m_nutc0=mscom_.nutc;
++//  mscom_.jtms3RxLog=m_jtms3RxLog;
++  mscom_.nfsample=96000;
++  if(!m_fs96000) mscom_.nfsample=95238;
++  mscom_.nxpol=0;
++  if(m_xpol) mscom_.nxpol=1;
++  mscom_.mode65=m_mode65;
+ 
+   QString mcall=(m_myCall+&quot;            &quot;).mid(0,12);
+   QString mgrid=(m_myGrid+&quot;            &quot;).mid(0,6);
+   QString hcall=(ui-&gt;dxCallEntry-&gt;text()+&quot;            &quot;).mid(0,12);
+   QString hgrid=(ui-&gt;dxGridEntry-&gt;text()+&quot;      &quot;).mid(0,6);
+ 
+-  strncpy(datcom_.mycall, mcall.toAscii(), 12);
+-  strncpy(datcom_.mygrid, mgrid.toAscii(), 6);
+-  strncpy(datcom_.hiscall, hcall.toAscii(), 12);
+-  strncpy(datcom_.hisgrid, hgrid.toAscii(), 6);
+-  strncpy(datcom_.datetime, m_dateTime.toAscii(), 20);
++  strncpy(mscom_.mycall, mcall.toAscii(), 12);
++  strncpy(mscom_.mygrid, mgrid.toAscii(), 6);
++  strncpy(mscom_.hiscall, hcall.toAscii(), 12);
++  strncpy(mscom_.hisgrid, hgrid.toAscii(), 6);
++  strncpy(mscom_.datetime, m_dateTime.toAscii(), 20);
+ 
+   //newdat=1  ==&gt; this is new data, must do the big FFT
+   //nagain=1  ==&gt; decode only at fQSO +/- Tol
+ 
+   char *to = (char*)mem_m65.data();
+-  char *from = (char*) datcom_.d4;
+-  int size=sizeof(datcom_);
+-  if(datcom_.newdat==0) {
++  char *from = (char*) mscom_.d4;
++  int size=sizeof(mscom_);
++  if(mscom_.newdat==0) {
+     int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
+     to += noffset;
+     from += noffset;
+     size -= noffset;
+   }
+   memcpy(to, from, qMin(mem_m65.size(), size));
+-  datcom_.nagain=0;
+-  datcom_.ndiskdat=0;
++  mscom_.nagain=0;
++  mscom_.ndiskdat=0;
+   m_call3Modified=false;
+ 
+   QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow m65 to start
+
+Modified: branches/jtms3/mainwindow.h
+===================================================================
+--- branches/jtms3/mainwindow.h	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/mainwindow.h	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -235,12 +235,7 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-  void symspec_(int* k, int* nxpol, int* ndiskdat, int* nb, int* m_NBslider,
+-                int* idphi, int* nfsample, float* fgreen, int* iqadjust,
+-                int* iqapply, float* gainx, float* gainy, float* phasex,
+-                float* phasey, float* rejectx, float* rejecty, float* px,
+-                float* py, float s[], int* nkhz, int* nhsym, int* nzap,
+-                float* slimit, uchar lstrong[]);
++  void specjtms_(int* k, float* px);
+ 
+   void genjtms3_(char* message, char* msgsent, short iwave[],
+                  int* nwave, int len1, int len2);
+
+Modified: branches/jtms3/plotter.cpp
+===================================================================
+--- branches/jtms3/plotter.cpp	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/plotter.cpp	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -77,8 +77,9 @@
+   int h = (m_Size.height()-60)/2;
+   painter.drawPixmap(0,0,m_ScalePixmap);
+   painter.drawPixmap(0,30,m_WaterfallPixmap);
++  m_2Dspec=true;
+   if(m_2Dspec) {
+-    painter.drawPixmap(0,h+30,m_ScalePixmap);
++//    painter.drawPixmap(0,h+30,m_ScalePixmap);
+     painter.drawPixmap(0,h+60,m_2DPixmap);
+     m_paintEventBusy=false;
+     return;
+@@ -106,12 +107,11 @@
+   m_paintEventBusy=false;
+ }
+ 
+-void CPlotter::draw(float s[], int i0, float splot[])                       //draw()
++void CPlotter::draw(float green[], int ig)                       //draw()
+ {
+   int i,j,w,h;
+   float y;
+ 
+-  m_i0=i0;
+   w = m_WaterfallPixmap.width();
+   h = m_WaterfallPixmap.height();
+   double gain = pow(10.0,0.05*(m_plotGain+7));
+@@ -124,63 +124,24 @@
+   QPainter painter1(&amp;m_WaterfallPixmap);
+   QPainter painter2D(&amp;m_2DPixmap);
+ 
+-  for(i=0; i&lt;256; i++) {                     //Zero the histograms
+-    m_hist1[i]=0;
+-    m_hist2[i]=0;
+-  }
+-
+   painter2D.setPen(Qt::green);
+   QRect tmp(0,0,w,h);
+   painter2D.fillRect(tmp,Qt::black);
+   QPoint LineBuf[MAX_SCREENSIZE];
+   j=0;
+-  bool strong0=false;
+-  bool strong=false;
+ 
+-  for(i=0; i&lt;w; i++) {
+-    strong=false;
+-    if(s[i]&lt;0) {
+-      strong=true;
+-      s[i]=-s[i];
+-    }
+-    y = 10.0*log10(s[i]);
+-    int y1 = 5.0*gain*(y + 29 -m_plotZero);
+-    if (y1&lt;0) y1=0;
+-    if (y1&gt;254) y1=254;
+-    if (s[i]&gt;1.e29) y1=255;
+-    m_hist1[y1]++;
+-    painter1.setPen(m_ColorTbl[y1]);
++  painter2D.setPen(Qt::green);
++  for(i=0; i&lt;ig; i++) {
++    y = green[i];
+     painter1.drawPoint(i,0);
+-    if(m_2Dspec) {
+-      int y2 = gain*(y + 34 -m_plotZero);
+-      if (y2&lt;0) y2=0;
+-      if (y2&gt;254) y2=254;
+-      if (s[i]&gt;1.e29) y2=255;
+-      if(strong != strong0 or i==w-1) {
+-        painter2D.drawPolyline(LineBuf,j);
+-        j=0;
+-        strong0=strong;
+-        if(strong0) painter2D.setPen(Qt::red);
+-        if(!strong0) painter2D.setPen(Qt::green);
+-      }
+-      LineBuf[j].setX(i);
+-      LineBuf[j].setY(h-y2);
+-      j++;
+-    }
++    int y2 = 7*(y-m_plotZero);
++    if (y2&lt;0) y2=0;
++    if (y2&gt;254) y2=254;
++    LineBuf[j].setX(i);
++    LineBuf[j].setY(h-y2);
++    j++;
+   }
+-
+-  for(i=0; i&lt;32768; i++) {
+-    y = 10.0*log10(splot[i]);
+-    int y1 = 5.0*gain*(y + 30 - m_plotZero);
+-    if (y1&lt;0) y1=0;
+-    if (y1&gt;254) y1=254;
+-    if (splot[i]&gt;1.e29) y1=255;
+-    m_hist2[y1]++;
+-    m_zwf[i]=y1;
+-  }
+-
+-  if(s[0]&gt;1.0e29) m_line=0;
+-  m_line++;
++  painter2D.drawPolyline(LineBuf,ig);
+   update();                              //trigger a new paintEvent
+ }
+ 
+
+Modified: branches/jtms3/plotter.h
+===================================================================
+--- branches/jtms3/plotter.h	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/plotter.h	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -31,19 +31,17 @@
+   qint32  m_DF;
+   qint32  m_tol;
+ 
+-  void draw(float sw[], int i0, float splot[]);		//Update the waterfalls
++  void draw(float green[], int ig);	       //Update the graphics
+   void SetRunningState(bool running);
+   void setPlotZero(int plotZero);
+   int  getPlotZero();
+   void setPlotGain(int plotGain);
+   int  getPlotGain();
+   int  plotWidth();
+-  void setNSpan(int n);
+   void UpdateOverlay();
+   void setDataFromDisk(bool b);
+   void setTol(int n);
+   void DrawOverlay();
+-  int  fQSO();
+   int  DF();
+   int  autoZero();
+   void setPalette(QString palette);
+
+Modified: branches/jtms3/soundin.cpp
+===================================================================
+--- branches/jtms3/soundin.cpp	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/soundin.cpp	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -7,9 +7,9 @@
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+-  short int d2[30*48000];             //This is &quot;common/datcom/...&quot; in fortran
++  short int d2[30*48000];             //This is &quot;common/mscom/...&quot; in fortran
+   int kin;
+-} datcom_;
++} mscom_;
+ }
+ 
+ typedef struct
+@@ -48,9 +48,9 @@
+ 
+   nbytes=2*framesToProcess;        //Bytes per frame
+   k=udata-&gt;kin;
+-  memcpy(&amp;datcom_.d2[k],inputBuffer,nbytes);          //Copy all samples to d2
++  memcpy(&amp;mscom_.d2[k],inputBuffer,nbytes);          //Copy all samples to d2
+   udata-&gt;kin += framesToProcess;
+-  datcom_.kin=udata-&gt;kin;
++  mscom_.kin=udata-&gt;kin;
+ 
+   return paContinue;
+ }
+@@ -118,19 +118,18 @@
+     }
+     k=udata.kin;
+     if(m_monitoring) {
+-      m_step=k/(2*6192);
++      m_step=k/2048;
+       if(m_step != nstep0) {
+         if(m_dataSinkBusy) {
+           nBusy++;
+         } else {
+ //          m_dataSinkBusy=true;
+-//          qDebug() &lt;&lt; &quot;Calling dataSink&quot; &lt;&lt; k;
+           emit readyForFFT(k);         //Signal to compute new FFTs
+         }
+         nstep0=m_step;
+       }
+     }
+-    msleep(100);
++    msleep(10);
+     n30z=n30;
+   }
+   Pa_StopStream(inStream);
+
+Modified: branches/jtms3/widegraph.cpp
+===================================================================
+--- branches/jtms3/widegraph.cpp	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/widegraph.cpp	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -62,9 +62,9 @@
+   settings.endGroup();
+ }
+ 
+-void WideGraph::dataSink2(float s[], int nkhz, int ihsym, int ndiskdata,
+-                          uchar lstrong[])
++void WideGraph::dataSink2(float green[], int ig)
+ {
++  ui-&gt;widePlot-&gt;draw(green,ig);
+   /*
+   static float splot[NFFT];
+   float swide[2048];
+
+Modified: branches/jtms3/widegraph.h
+===================================================================
+--- branches/jtms3/widegraph.h	2012-07-07 15:56:31 UTC (rev 2500)
++++ branches/jtms3/widegraph.h	2012-07-07 18:10:39 UTC (rev 2501)
+@@ -19,8 +19,7 @@
+   double m_dForceCenterFreq;
+   double m_cal570;
+ 
+-  void   dataSink2(float s[], int nkhz, int ihsym, int ndiskdata,
+-                   uchar lstrong[]);
++  void   dataSink2(float green[], int ig);
+   int    QSOfreq();
+   int    nSpan();
+   int    nStartFreq();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002192.html">[WSJT-SVN] r2500 - branches/jtms3
+</A></li>
+	<LI>Next message: <A HREF="002194.html">[WSJT-SVN] r2502 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2193">[ date ]</a>
+              <a href="thread.html#2193">[ thread ]</a>
+              <a href="subject.html#2193">[ subject ]</a>
+              <a href="author.html#2193">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

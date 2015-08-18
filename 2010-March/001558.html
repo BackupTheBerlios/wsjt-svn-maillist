@@ -1,0 +1,300 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1866 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1866%20-%20branches/wspr&In-Reply-To=%3C201003301230.o2UCU7uj006682%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001557.html">
+   <LINK REL="Next"  HREF="001559.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1866 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1866%20-%20branches/wspr&In-Reply-To=%3C201003301230.o2UCU7uj006682%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1866 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 30 14:30:07 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001557.html">[WSJT-SVN] r1865 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001559.html">[WSJT-SVN] r1867 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1558">[ date ]</a>
+              <a href="thread.html#1558">[ thread ]</a>
+              <a href="subject.html#1558">[ subject ]</a>
+              <a href="author.html#1558">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-30 14:30:02 +0200 (Tue, 30 Mar 2010)
+New Revision: 1866
+
+Modified:
+   branches/wspr/decode.F90
+   branches/wspr/genwspr.F90
+   branches/wspr/sound.c
+   branches/wspr/tx.F90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.F90
+Log:
+Tweak and add some cs_lock/cs_unlock placements.
+
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/decode.F90	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -29,12 +29,14 @@
+            fpeak=i*df
+         endif
+      enddo
++
+      call cs_lock('decode')
+      write(*,1002) fpeak
+ 1002 format('Measured audio frequency:',f10.2,' Hz')
+      ncal=0
+      ndecoding=0
+      call cs_unlock
++
+      go to 900
+   else
+      minsync=1
+
+Modified: branches/wspr/genwspr.F90
+===================================================================
+--- branches/wspr/genwspr.F90	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/genwspr.F90	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -48,6 +48,7 @@
+   call wqdecode(data0,msg2,ntype2)
+ 
+   if(ntune.eq.0) then
++
+      call cs_lock('genwspr')
+      alltxt=appdir(:nappdir)//'/ALL_WSPR.TXT'
+ #ifdef CVF
+@@ -60,6 +61,7 @@
+ 1010 format(a75)
+      close(13)
+      call cs_unlock
++
+   endif
+ 
+ ! Set up necessary constants
+
+Modified: branches/wspr/sound.c
+===================================================================
+--- branches/wspr/sound.c	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/sound.c	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -1,6 +1,6 @@
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+-#include &lt;portaudio.h&gt;
++#include &quot;portaudio.h&quot;
+ 
+ #define SAMPLE_RATE  (48000)
+ #define FRAMES_PER_BUFFER (4096)
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/tx.F90	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -42,6 +42,7 @@
+ ! Example rigctl command:
+ ! rigctl -m 1608 -r /dev/ttyUSB0 -s 57600 -C data_bits=8 -C stop_bits=1 \
+ !   -C serial_handshake=Hardware T 1
++
+ #ifdef CVF
+      iret=runqq('rigctl.exe',cmnd(8:))
+ #else
+@@ -57,12 +58,13 @@
+ 
+   write(cdbm,'(i3)'),ndbm
+   call cs_unlock
++
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-
+   ntx=1-ntx
+   i1=index(call1,' ')
+   i2=index(call1,'/')
++
+   if(i2.gt.0 .or. igrid6.ne.0) then
+ ! WSPR_2 message, in two parts
+      if(i2.le.0) then
+@@ -73,25 +75,29 @@
+      msg0='&lt;'//call1(:i1-1)//'&gt; '//grid6//' '//cdbm
+      if(ntx.eq.1) message=msg1
+      if(ntx.eq.0) message=msg0
++
+   else
+ ! Normal WSPR message
+      message=call1(1:i1)//grid//' '//cdbm
+   endif
++
+   ntxdf=nint(1.e6*(ftx-f0)) - 1500
+   ctxmsg=message
+   snr=99.0
+-  
+   snrfile=appdir(:nappdir)//'/test.snr'
++
++  call cs_lock('tx')
+   open(18,file=snrfile,status='old',err=10)
+   read(18,*,err=10,end=10) snr
+   close(18)
++  call cs_unlock
+ 
+ 10 continue
+   call gmtime2(nt,tsec1)
+-!  print*,'A',tsec1-tsec0
+   call genwspr(message,ntxdf,ntune,snr,appdir,nappdir,sending,jwave)
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
++
+   if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint) then
+ !  Generate and insert the CW ID.
+      wpm=25.
+@@ -127,6 +133,7 @@
+      cmnd='rigctl '//'-m'//crig//' -r'//catport//' -s'//cbaud//           &amp;
+           ' -C data_bits='//cdata//' -C stop_bits='//cstop//              &amp;
+           ' -C serial_handshake='//chs//' T 0'
++
+      call cs_lock('tx')
+ #ifdef CVF
+      iret=runqq('rigctl.exe',cmnd(8:))
+@@ -138,6 +145,7 @@
+         print*,cmnd
+      endif
+      call cs_unlock
++
+   else
+      if(nport.gt.0 .or. pttport(1:4).eq.'/dev') ierr=ptt(nport,pttport,0,iptt)
+   endif
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/wspr.py	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- WSPR
++#--------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2010-03-29 23:23:27 UTC (rev 1865)
++++ branches/wspr/wspr2.F90	2010-03-30 12:30:02 UTC (rev 1866)
+@@ -24,6 +24,7 @@
+ 
+   call cs_init
+   dectxt=appdir(:nappdir)//'/decoded.txt'
++
+   call cs_lock('wspr2')
+ #ifdef CVF
+   open(14,file=dectxt,status='unknown',share='denynone')
+@@ -49,12 +50,14 @@
+   call cs_unlock
+ 
+   if(nrxdone.gt.0) then
++
+      call cs_lock('wspr2')
+      receiving=.false.
+      nrxdone=0
+      ndecoding=1
+      thisfile=outfile
+      call cs_unlock
++
+      if((nrxnormal.eq.1 .and. ncal.eq.0) .or.                          &amp;
+         (nrxnormal.eq.0 .and. ncal.eq.2) .or.                          &amp;
+         ndiskdat.eq.1) then
+@@ -68,7 +71,6 @@
+      ntxdone=0
+      ntr=0
+   endif
+-
+   if(ns120.ge.114 .and. ntune.eq.0) then
+      transmitting=.false.
+      receiving=.false.
+@@ -79,23 +81,27 @@
+ 
+   if (ntune.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
+        (.not.receiving) .and. pctx.ge.1.0) then
++
+ ! Test transmission of length pctx seconds.
+      call cs_lock('wspr2')
+      nsectx=mod(nsec,86400)
+      ntune2=ntune
+      transmitting=.true.
+      call cs_unlock
++
+      call starttx
+   endif
+ 
+   if (ncal.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
+        (.not.receiving)) then
++
+ ! Execute one receive sequence
+      call cs_lock('wspr2')
+      receiving=.true.
+      rxtime=utctime(1:4)
++     nrxnormal=0
+      call cs_unlock
+-     nrxnormal=0
++
+      call startrx
+   endif
+ 
+@@ -108,7 +114,9 @@
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+   if(pctx.eq.0.0) nrx=1
++
+   if(nrx.eq.0 .and. ntr.ne.-1) then
++
+      call cs_lock('wspr2')
+      transmitting=.true.
+      call random_number(x)
+@@ -127,6 +135,7 @@
+      nsectx=mod(nsec,86400)
+      ntxdone=0
+      call cs_unlock
++
+      call gmtime2(nt,tsec0)
+      if(ndevsok.eq.1) call starttx
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001557.html">[WSJT-SVN] r1865 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001559.html">[WSJT-SVN] r1867 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1558">[ date ]</a>
+              <a href="thread.html#1558">[ thread ]</a>
+              <a href="subject.html#1558">[ subject ]</a>
+              <a href="author.html#1558">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

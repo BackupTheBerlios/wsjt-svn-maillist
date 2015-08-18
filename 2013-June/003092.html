@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3400 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3400%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130626144839.76E2CBF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003091.html">
+   <LINK REL="Next"  HREF="003093.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3400 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3400%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130626144839.76E2CBF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3400 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jun 26 16:48:39 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003091.html">[WSJT-SVN] r3399 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003093.html">[WSJT-SVN] r3401 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3092">[ date ]</a>
+              <a href="thread.html#3092">[ thread ]</a>
+              <a href="subject.html#3092">[ subject ]</a>
+              <a href="author.html#3092">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-26 16:48:38 +0200 (Wed, 26 Jun 2013)
+New Revision: 3400
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/gen65.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/mainwindow.h
+Log:
+Finish implementing RxFreqSpinBox.
+Save/restore user's rxFreq setting.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/gen65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/gen65.f90	2013-06-26 14:17:06 UTC (rev 3399)
++++ branches/wsjtx_k1jt_p1/lib/gen65.f90	2013-06-26 14:48:38 UTC (rev 3400)
+@@ -43,7 +43,6 @@
+      call unpackmsg(dgen,msgsent)        !Unpack to get message sent
+      if(ichk.ne.0) go to 999             !Return if checking only
+ 
+-     nsendingsh=0
+      call rs_encode(dgen,sent)           !Apply Reed-Solomon code
+      call interleave63(sent,1)           !Apply interleaving
+      call graycode65(sent,63,1)          !Apply Gray code
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-26 14:17:06 UTC (rev 3399)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-26 14:48:38 UTC (rev 3400)
+@@ -1,4 +1,4 @@
+-//---------------------------------------------------------------- MainWindow
++//----------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -149,6 +149,7 @@
+   m_myGrid=&quot;FN20qi&quot;;
+   m_appDir = QApplication::applicationDirPath();
+   m_saveDir=&quot;/users/joe/wsjtx/install/save&quot;;
++  m_rxFreq=1500;
+   m_txFreq=1500;
+   m_setftx=0;
+   m_loopall=false;
+@@ -184,6 +185,7 @@
+   m_secBandChanged=0;
+   m_bMultipleOK=false;
+   m_dontReadFreq=false;
++  m_lockTxFreq=false;
+   ui-&gt;readFreq-&gt;setEnabled(false);
+   m_QSOmsg=&quot;&quot;;
+   decodeBusy(false);
+@@ -236,6 +238,7 @@
+ 
+   genStdMsgs(m_rpt);
+   on_actionWide_Waterfall_triggered();                   //###
++  g_pWideGraph-&gt;setRxFreq(m_rxFreq);
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+   g_pWideGraph-&gt;setLockTxFreq(m_lockTxFreq);
+   g_pWideGraph-&gt;setFmin(m_fMin);
+@@ -385,6 +388,7 @@
+   settings.setValue(&quot;KB8RQ&quot;,m_kb8rq);
+   settings.setValue(&quot;MonitorOFF&quot;,m_monitorStartOFF);
+   settings.setValue(&quot;DialFreq&quot;,m_dialFreq);
++  settings.setValue(&quot;RxFreq&quot;,m_rxFreq);
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
+   settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.setValue(&quot;PSKReporter&quot;,m_pskReporter);
+@@ -491,6 +495,8 @@
+                                          &quot;SaveDecoded&quot;,false).toBool());
+   ui-&gt;actionSave_all-&gt;setChecked(settings.value(&quot;SaveAll&quot;,false).toBool());
+   m_dialFreq=settings.value(&quot;DialFreq&quot;,14.078).toDouble();
++  m_rxFreq=settings.value(&quot;RxFreq&quot;,1500).toInt();
++  ui-&gt;RxFreqSpinBox-&gt;setValue(m_rxFreq);
+   m_txFreq=settings.value(&quot;TxFreq&quot;,1500).toInt();
+   ui-&gt;TxFreqSpinBox-&gt;setValue(m_txFreq);
+   soundOutThread.setTxFreq(m_txFreq);
+@@ -2485,12 +2491,14 @@
+ {
+   m_txFreq=n;
+   if(g_pWideGraph!=NULL) g_pWideGraph-&gt;setTxFreq(n);
++  if(m_lockTxFreq) ui-&gt;RxFreqSpinBox-&gt;setValue(n);
+   soundOutThread.setTxFreq(n);
+ }
+ 
+ void MainWindow::on_RxFreqSpinBox_valueChanged(int n)
+ {
+-//  m_
++  m_rxFreq=n;
++  if(m_lockTxFreq) ui-&gt;TxFreqSpinBox-&gt;setValue(n);
+ }
+ 
+ void MainWindow::on_actionQuickDecode_triggered()
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-26 14:17:06 UTC (rev 3399)
++++ branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-26 14:48:38 UTC (rev 3400)
+@@ -178,7 +178,6 @@
+     qint32  m_pttPort;
+     qint32  m_timeout;
+     qint32  m_rxFreq;
+-    qint32  m_rxFreq0;
+     qint32  m_txFreq;
+     qint32  m_setftx;
+     qint32  m_ndepth;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003091.html">[WSJT-SVN] r3399 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003093.html">[WSJT-SVN] r3401 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3092">[ date ]</a>
+              <a href="thread.html#3092">[ thread ]</a>
+              <a href="subject.html#3092">[ subject ]</a>
+              <a href="author.html#3092">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

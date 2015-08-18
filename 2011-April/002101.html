@@ -1,0 +1,253 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2409 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2409%20-%20trunk&In-Reply-To=%3C20110422150302.43B5E48134B%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002100.html">
+   <LINK REL="Next"  HREF="002102.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2409 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2409%20-%20trunk&In-Reply-To=%3C20110422150302.43B5E48134B%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2409 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 22 17:03:02 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002100.html">[WSJT-SVN] r2408 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002102.html">[WSJT-SVN] r2410 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2101">[ date ]</a>
+              <a href="thread.html#2101">[ thread ]</a>
+              <a href="subject.html#2101">[ subject ]</a>
+              <a href="author.html#2101">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-22 17:03:01 +0200 (Fri, 22 Apr 2011)
+New Revision: 2409
+
+Modified:
+   trunk/diana.f90
+   trunk/syncdiana.f90
+Log:
+Timer optimizations in Diana mode.
+
+
+Modified: trunk/diana.f90
+===================================================================
+--- trunk/diana.f90	2011-04-21 20:18:52 UTC (rev 2408)
++++ trunk/diana.f90	2011-04-22 15:03:01 UTC (rev 2409)
+@@ -12,8 +12,11 @@
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   integer dftolerance
++  common/tracer/ limtrace,lu
+   data nsps/2048/,nsync/4/,nlen/2/,ndat/18/
+ 
++  lu=99
++  call timer('diana   ',0)
+   nsym=npts/nsps                      !Total symbol intervals in file
+   nblk=nsync+nlen+ndat                !Frame size
+   nfft=4096
+@@ -22,11 +25,15 @@
+   kstep=nsps/4
+ 
+ ! Get symbol spectra, fold for sync
++  call timer('specdian',0)
+   call specdiana(dat,npts,s0,jsym)
++  call timer('specdian',1)
+ 
+ ! Get sync: DF, DT, msglen
++  call timer('syncdian',0)
+   call syncdiana(s0,jsym,kstep,nfreeze,mousedf,dftolerance,nafc,xsync,   &amp;
+      ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,ccfblue,ccfred)
++  call timer('syncdian',1)
+ 
+   jdf=nint(dfx)
+   nfdot=nint(idfpk*df)
+@@ -39,5 +46,9 @@
+ 1020 format(a6,i3,i5,f5.1,i5,i4,7x,a28,i5,2i3)
+   call cs_unlock
+ 
++  call timer('diana   ',1)
++  call timer('diana   ',101)
++  call flush(99)
++
+   return
+ end subroutine diana
+
+Modified: trunk/syncdiana.f90
+===================================================================
+--- trunk/syncdiana.f90	2011-04-21 20:18:52 UTC (rev 2408)
++++ trunk/syncdiana.f90	2011-04-22 15:03:01 UTC (rev 2409)
+@@ -4,6 +4,7 @@
+   parameter (NSZ=646)                     !Quarter-symbols in 30 s
+   real s0(1024,NSZ)
+   real fs0(1024,96)                       !Folded-for-sync spectra
++  real fs00(1024,96)
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   character msg*28,msgbest*28
+@@ -24,9 +25,11 @@
+ 
+   idfmax=0
+   if(nafc.eq.1) idfmax=10
++  call timer('idf loop',0)
+   do idf=-idfmax,idfmax,2
+ 
+      fs0=0.
++     call timer('fs0     ',0)
+      do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
+         k=mod(j-1,4*nblk)+1
+         ii=nint(idf*float(j-jb/2)/float(jb))
+@@ -34,6 +37,7 @@
+         i2=min(nq,nq-ii)
+         fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
+      enddo
++     call timer('fs0     ',1)
+ 
+      ia=nint(-600.0/df)
+      ib=nint(600.0/df)
+@@ -43,8 +47,10 @@
+      endif
+ 
+      smax=0.
++     call timer('ipk loop',0)
+      do i=ia,ib                          !Search over DF range
+         sm1=0.
++        call timer('jpk loop',0)
+         do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
+            ss=0.
+            do n=1,4                      !Sum the four sync tones
+@@ -56,8 +62,8 @@
+               sm1=ss
+               jpk1=j+1
+            endif
+-!           if(abs(i).le.224) ccfred(i)=sm1
+         enddo
++        call timer('jpk loop',1)
+         if(sm1.gt.smax) then
+            smax=sm1
+            ipk=i0+i                   !Frequency offset, DF
+@@ -65,6 +71,7 @@
+            idfpk=idf
+         endif
+      enddo
++     call timer('ipk loop',1)
+ 
+      ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)
+      j=jpk+4
+@@ -94,7 +101,9 @@
+      enddo
+      msglen=(ipk2-ipk)/2
+ 
++     call timer('decdiana',0)
+      call decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
++     call timer('decdiana',1)
+ 
+      if(worst.gt.bigworst) then
+         bigworst=worst
+@@ -106,9 +115,11 @@
+         msglenbest=msglen
+         msgbest=msg
+         snrbest=snrx
++        fs00=fs0
+      endif
+ 
+   enddo
++  call timer('idf loop',1)
+ 
+   worst=bigworst
+   avg=bigavg
+@@ -134,16 +145,7 @@
+   if(navg.gt.10) navg=10
+   if(navg.le.0) msg=' '
+ 
+-! Final computation of fs0, using idfpk
+-  fs0=0.
+-  do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
+-     k=mod(j-1,4*nblk)+1
+-     ii=nint(idfpk*float(j-jb/2)/float(jb))
+-     i1=max(1,1-ii)
+-     i2=min(nq,nq-ii)
+-     fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
+-  enddo
+-
++  call timer('ccfred  ',0)
+ ! Compute ccfred
+   do i=ia,ib                          !Search over DF range
+      sm1=0.
+@@ -152,7 +154,7 @@
+         do n=1,4                      !Sum the four sync tones
+            k=j+4*n-3
+            if(k.gt.4*nblk) k=k-4*nblk
+-           ss=ss + fs0(i0+i+2*isync(n),k)
++           ss=ss + fs00(i0+i+2*isync(n),k)
+         enddo
+         if(ss.gt.sm1) then
+            sm1=ss
+@@ -162,22 +164,21 @@
+      enddo
+   enddo
+   ccfred=0.5*ccfred/ref - 1.0
++  call timer('ccfred  ',1)
+ 
++  call timer('ccfblue ',0)
+ ! Compute ccfblue using idfpk and ipk
+   do j=0,4*nblk-1
+      ss=0.
+      do n=1,4
+         k=j+4*n-3
+         if(k.gt.4*nblk) k=k-4*nblk
+-        ss=ss + fs0(ipk+2*isync(n),k)
++        ss=ss + fs00(ipk+2*isync(n),k)
+      enddo
+      jj=mod(j+80,96) - 5
+      ccfblue(jj)=0.5*(ss/ref - 1.0)
+-!     write(41,3001) j,jj,ccfblue(jj)
+-!3001 format(2i6,f10.3)
+   enddo
+-!  call flush(41)
+-!  rewind 41
++  call timer('ccfblue ',1)
+ 
+   return
+ end subroutine syncdiana
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002100.html">[WSJT-SVN] r2408 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002102.html">[WSJT-SVN] r2410 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2101">[ date ]</a>
+              <a href="thread.html#2101">[ thread ]</a>
+              <a href="subject.html#2101">[ subject ]</a>
+              <a href="author.html#2101">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

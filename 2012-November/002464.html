@@ -1,0 +1,464 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2772 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2772%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121125203441.BAF9855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002463.html">
+   <LINK REL="Next"  HREF="002465.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2772 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2772%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121125203441.BAF9855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2772 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Nov 25 21:34:41 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002463.html">[WSJT-SVN] r2771 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002465.html">[WSJT-SVN] r2773 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2464">[ date ]</a>
+              <a href="thread.html#2464">[ thread ]</a>
+              <a href="subject.html#2464">[ subject ]</a>
+              <a href="author.html#2464">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-25 21:34:41 +0100 (Sun, 25 Nov 2012)
+New Revision: 2772
+
+Added:
+   branches/wsjtx/lib/test9.f90
+Modified:
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/jt9test.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Working on a better way to get DT, f0, f1, f2, ...
+
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-11-24 17:03:54 UTC (rev 2771)
++++ branches/wsjtx/lib/jt9sim.f90	2012-11-25 20:34:41 UTC (rev 2772)
+@@ -5,7 +5,7 @@
+   parameter (NMAX=1800*12000)
+   integer ihdr(11)
+   integer*2 iwave                  !Generated waveform (no noise)
+-  real*8 f0,f,dt,twopi,phi,dphi,baud,fspan
++  real*8 f0,f,dt,twopi,phi,dphi,baud,fspan,fsample,freq
+   character msg*22,msg0*22,message*22,msgsent*22,arg*8,fname*11
+ 
+   integer*4 i4tone(85)             !Channel symbols (values 0-8)
+@@ -106,7 +106,7 @@
+ 1020    format(i3,i4,f10.3,f7.1,2x,a22)
+ 
+         phi=0.
+-        baud=12000.0/nsps
++        baud=12000.d0/nsps
+         k=12000                             !Start audio at t = 1.0 s
+         do isym=1,85
+            freq=f + i4tone(isym)*baud
+
+Modified: branches/wsjtx/lib/jt9test.f90
+===================================================================
+--- branches/wsjtx/lib/jt9test.f90	2012-11-24 17:03:54 UTC (rev 2771)
++++ branches/wsjtx/lib/jt9test.f90	2012-11-25 20:34:41 UTC (rev 2772)
+@@ -1,120 +1,181 @@
+ program jt9test
+ 
+-! Decoder for JT9.
++! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
++! or as the back end of wsjt-x, with data placed in a shared memory region.
+ 
++! NB: For unknown reason, ***MUST*** be compiled by g95 with -O0 !!!
++
++  character*80 arg,infile
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+   parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+   parameter (NSMAX=22000)            !Max length of saved spectra
++  integer*4 ihdr(11)
++  real*4 s(NSMAX)
++  real*4 ccfred(NSMAX)
++  logical*1 lstrong(0:1023)
++  integer*1 i1SoftSymbols(207)
+   character*22 msg
+   character*33 line
+-  character*80 fmt,fmt14
+-  real*4 ccfred(NSMAX)
+-  integer*1 i1SoftSymbols(207)
+-  integer ii(1)
+-  complex c0(NDMAX)
+-!  common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
+-!       ntr,nfqso,newdat,npts80,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+-!  common/jt9comB/ss(184,NSMAX),c0
++  integer*2 id2
++  complex c0
++  complex c1(0:2700000)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat,  &amp;
++       ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+   common/tracer/limtrace,lu
+ 
++  nargs=iargc()
++  if(nargs.lt.1) then
++     print*,'Usage: jt9 TRperiod file1 [file2 ...]'
++     print*,'       Reads data from *.wav files.'
++     print*,''
++     print*,'       jt9 -s'
++     print*,'       Gets data from shared memory region.'
++     go to 999
++  endif
++  call getarg(1,arg)
++  if(arg(1:2).eq.'-s') then
++!     call jt9a
++!    call ftnquit
++     go to 999
++  endif
++  read(arg,*) ntrperiod
++
++  ifile1=2
++
+   limtrace=0
+   lu=12
+-  open(12,file='timer.out',status='unknown')
+-  open(13,file='decoded.txt',status='unknown')
+-  open(14,file='wsjtx_rx.log',status='unknown',position='append')
+-  call timer('decoder ',0)
++  nfa=1000
++  nfb=2000
++  ntol=500
++  nfqso=1500
++  newdat=1
++  nb=0
++  nbslider=100
++  limit=20000
++  ndiskdat=1
+ 
+-1 read(61,end=999) ipk,ia,ib,ccfred(ia:ib),nsps,npts8,c0(1:npts8)
+-  print*,ipk,ia,ib,nsps,npts8
+-  ntrMinutes=1
++  do ifile=ifile1,nargs
++     call getarg(ifile,infile)
++     open(10,file=infile,access='stream',status='old',err=998)
++     read(10) ihdr
++     i1=index(infile,'.wav')
++     read(infile(i1-4:i1-1),*,err=1) nutc0
++     go to 2
++1    nutc0=0
++2    nsps=0
++     if(ntrperiod.eq.1)  then
++        nsps=6912
++        nzhsym=181
++     else if(ntrperiod.eq.2)  then
++        nsps=15360
++        nzhsym=178
++     else if(ntrperiod.eq.5)  then
++        nsps=40960
++        nzhsym=172
++     else if(ntrperiod.eq.10) then
++        nsps=82944
++        nzhsym=171
++     else if(ntrperiod.eq.30) then
++        nsps=252000
++        nzhsym=167
++     endif
++     if(nsps.eq.0) stop 'Error: bad TRperiod'
+ 
+-  nsynced=0
+-  ndecoded=0
+-  limit=200
+-  if(ndepth.ge.2) limit=2000
+-  if(ndepth.ge.3) limit=20000
++     kstep=nsps/2
++     tstep=kstep/12000.0
++     k=0
++     nhsym0=-999
++     npts=(60*ntrperiod-6)*12000
++     if(ifile.eq.ifile1) then
++        open(12,file='timer.out',status='unknown')
++        call timer('jt9     ',0)
++     endif
+ 
+-  nsps=0
+-  if(ntrMinutes.eq.1) then
+-     nsps=6912
+-     df3=1500.0/2048.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.0,f6.1,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.0,f6.1,i8,3x,a22)'
+-  else if(ntrMinutes.eq.2) then
+-     nsps=15360
+-     df3=1500.0/2048.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.1,f6.2,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.1,f6.2,i8,3x,a22)'
+-  else if(ntrMinutes.eq.5) then
+-     nsps=40960
+-     df3=1500.0/6144.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.1,f6.2,3x,a22)' 
+-     fmt14='(i4.4,i4,i5,f6.1,f8.1,f6.2,i8,3x,a22)'
+- else if(ntrMinutes.eq.10) then
+-     nsps=82944
+-     df3=1500.0/12288.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.2,f6.2,i8,3x,a22)'
+-  else if(ntrMinutes.eq.30) then
+-     nsps=252000
+-     df3=1500.0/32768.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.2,f6.2,i8,3x,a22)'
+-  endif
+-  if(nsps.eq.0) stop 'Error: bad TRperiod'    !Better: return an error code###
++!     do i=1,npts
++!        id2(i)=100.0*sin(6.283185307*1600.0*i/12000.0)
++!     enddo
+ 
+-  fgood=0.
+-  df8=1500.0/(nsps/8)
+-  sbest=0.
++     do iblk=1,npts/kstep
++        k=iblk*kstep
++        call timer('read_wav',0)
++        read(10,end=10) id2(k-kstep+1:k)
++        call timer('read_wav',1)
+ 
+-10 ii=maxloc(ccfred(ia:ib))
+-  i=ii(1) + ia - 1
+-  f=(i-1)*df3
+-  if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. abs(f-fgood).gt.10.0*df8) then
+-     call timer('spec9   ',0)
+-     call spec9(c0,npts8,nsps,f,fpk,xdt,snr,i1SoftSymbols)
+-     call timer('spec9   ',1)
++        nhsym=(k-2048)/kstep
++        if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
++! Emit signal readyForFFT
++           ingain=0
++           call timer('symspec ',0)
++           call symspec(k,ntrperiod,nsps,ingain,nb,nbslider,pxdb,   &amp;
++                s,ccfred,df3,ihsym,nzap,slimit,lstrong,npts8)
++           call timer('symspec ',1)
++           nhsym0=nhsym
++           if(ihsym.ge.184) go to 10
++        endif
++     enddo
++10   close(10)
+ 
+-     call timer('decode9 ',0)
+-     call decode9(i1SoftSymbols,limit,nlim,msg)
+-     call timer('decode9 ',1)
+- 
+-     sync=ccfred(i) - 2.0
+-     if(sync.lt.0.0) sync=0.0
+-     nsync=sync
+-     if(nsync.gt.10) nsync=10
+-     nsnr=nint(snr)
+-     drift=0.0
++     nsps8=nsps/8
++     c1(0:npts8-1)=conjg(c0(1:npts8))
++     call test9(c1,npts8,nsps8)
+ 
+-     if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
+-        sbest=ccfred(i)
+-        write(line,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift
+-        if(nsync.gt.0) nsynced=1
+-     endif
++     iz=1000.0/df3
++     nutc=nutc0
+ 
+-     if(msg.ne.'                      ') then
+-        write(13,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,msg
+-        write(14,fmt14) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,nlim,msg
+-        fgood=f
+-        nsynced=1
+-        ndecoded=1
+-        ccfred(max(ia,i):min(ib,i+8))=0.
++     call timer('sync9   ',0)
++     call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk) !Get sync, freq
++     call timer('sync9   ',1)
++
++     fgood=0.
++     df8=1500.0/(nsps/8)
++     sbest=0.
++     do i=ia,ib
++        f=(i-1)*df3
++        if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
++           call timer('spec9   ',0)
++           call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
++           call timer('spec9   ',1)
++
++           call timer('decode9 ',0)
++           call decode9(i1SoftSymbols,limit,nlim,msg)
++           call timer('decode9 ',1)
++           snr=snrdb
++           sync=ccfred(i) - 2.0
++           if(sync.lt.0.0) sync=0.0
++           nsync=sync
++           if(nsync.gt.10) nsync=10
++           nsnr=nint(snr)
++           width=0.0
++
++           if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
++              sbest=ccfred(i)
++              write(line,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width
++              if(nsync.gt.0) nsynced=1
++           endif
++
++           if(msg.ne.'                      ') then
++              write(*,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++1010          format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
++              fgood=f
++              nsynced=1
++              ndecoded=1
++           endif
++        endif
++     enddo
++
++     if(fgood.eq.0.0) then
++        write(*,1020) line
++1020    format(a33)
+      endif
+-  endif
+-  ccfred(i)=0.
+-  if(maxval(ccfred(ia:ib)).gt.3.0) go to 10
+ 
+-  if(fgood.eq.0.0) then
+-     write(13,1020) line
+-     write(14,1020) line
+-1020 format(a33)
+-  endif
++  enddo
+ 
+-  call flush(13)
+-  call flush(14)
+-  go to 1
++  call timer('jt9     ',1)
++  call timer('jt9     ',101)
++!  call ftnquit
++  go to 999
+ 
+-999 call timer('decoder ',1)
+-  call timer('decoder ',101)
++998 print*,'Cannot open file:'
++  print*,infile
+ 
+-end program jt9test
++999 end program jt9test
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-11-24 17:03:54 UTC (rev 2771)
++++ branches/wsjtx/lib/spec9.f90	2012-11-25 20:34:41 UTC (rev 2772)
+@@ -99,7 +99,6 @@
+   snrdb=db(t) - db(2500.0/df8) - 5.0
+      
+   m0=3
+-  ntones=8
+   k=0
+   do j=1,69
+         smax=0.
+
+Added: branches/wsjtx/lib/test9.f90
+===================================================================
+--- branches/wsjtx/lib/test9.f90	                        (rev 0)
++++ branches/wsjtx/lib/test9.f90	2012-11-25 20:34:41 UTC (rev 2772)
+@@ -0,0 +1,53 @@
++subroutine test9(c0,npts8,nsps8)
++
++  parameter (NMAX=128*864)
++  complex c0(0:npts8-1)
++  complex c1(0:NMAX-1)
++  complex c2(0:4096-1)
++  complex z
++  real p(0:3300)
++  include 'jt9sync.f90'
++
++  c1(0:npts8-1)=c0                         !Copy c0 into c1
++  c1(npts8:)=0.                            !Zero the rest of c1
++  nfft1=NMAX                               !Forward FFT length
++  call four2a(c1,nfft1,1,-1,1)             !Forward FFT
++  
++  ndown=54                                 !Downsample factor
++  nfft2=nfft1/ndown                        !Backward FFT length
++  nh2=nfft2/2
++  fac=1.e-5
++  c2(0:nh2)=fac*c1(0:nh2)
++  c2(nh2+1:nh2+nh2-1)=fac*c1(nfft1-nh2+1:nfft1-1)
++  call four2a(c2,nfft2,1,1,1)              !Backward FFT
++
++  nspsd=nsps8/ndown
++  nz=npts8/ndown
++  p=0.
++  i0=5*nspsd
++  do i=0,nz-1
++     z=sum(c2(max(i-(nspsd-1),0):i))       !Integrate
++     p(i0+i)=real(z)**2 + aimag(z)**2      !Symbol power at freq=0
++!     write(51,3001) i,p(i)
++  enddo
++
++  iz=85*nspsd
++  fac0=1.0/69.0
++  fac1=1.0/16.0
++  lagmax=13*nspsd
++  do lag=0,lagmax                          
++     ss=0.
++     do i=0,iz-1
++        if(isync(1+i/nspsd).eq.1) then
++           ss=ss + fac1*p(i+lag)           !Add the sync powers
++        else
++           ss=ss - fac0*p(i+lag)           !Subtract the non-sync powers
++        endif
++     enddo
++     write(52,3001) lag,ss
++3001 format(i5,f12.3)
++  enddo
++
++  return
++end subroutine test9
++  
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-24 17:03:54 UTC (rev 2771)
++++ branches/wsjtx/mainwindow.cpp	2012-11-25 20:34:41 UTC (rev 2772)
+@@ -1,4 +1,4 @@
+-//---------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002463.html">[WSJT-SVN] r2771 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002465.html">[WSJT-SVN] r2773 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2464">[ date ]</a>
+              <a href="thread.html#2464">[ thread ]</a>
+              <a href="subject.html#2464">[ subject ]</a>
+              <a href="author.html#2464">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

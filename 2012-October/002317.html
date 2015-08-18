@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2625 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2625%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121001203705.9A8EE55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002316.html">
+   <LINK REL="Next"  HREF="002318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2625 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2625%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121001203705.9A8EE55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2625 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Oct  1 22:37:05 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002316.html">[WSJT-SVN] r2624 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002318.html">[WSJT-SVN] r2626 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-01 22:37:05 +0200 (Mon, 01 Oct 2012)
+New Revision: 2625
+
+Added:
+   branches/wsjtx/libm65/sync9.f90
+Modified:
+   branches/wsjtx/jt9.txt
+   branches/wsjtx/libm65/Makefile.MinGW
+   branches/wsjtx/libm65/jt9.f90
+   branches/wsjtx/libm65/symspec.f90
+Log:
+Sync9 function works.
+
+
+Modified: branches/wsjtx/jt9.txt
+===================================================================
+--- branches/wsjtx/jt9.txt	2012-10-01 19:40:23 UTC (rev 2624)
++++ branches/wsjtx/jt9.txt	2012-10-01 20:37:05 UTC (rev 2625)
+@@ -44,7 +44,7 @@
+ ---------
+ 1.  Apply noise blanking with the timf2 method
+ 2.  Filter to 1000 Hz bandwidth and downsample (1/8) to 1500 Hz, saving
+-    complex data to array c0(1350000).  (FIR?  FFT2?)
++    complex data to array c0(1350000).  (use FIR?  NFFT2/NFFT2A?)
+ 3.  Compute symbol-length spectra at half-symbol steps.  Use for
+     waterfall display s(22000) and save in ss(184,22000) and 
+     savg(22000), for detecting sync vectors.
+
+Modified: branches/wsjtx/libm65/Makefile.MinGW
+===================================================================
+--- branches/wsjtx/libm65/Makefile.MinGW	2012-10-01 19:40:23 UTC (rev 2624)
++++ branches/wsjtx/libm65/Makefile.MinGW	2012-10-01 20:37:05 UTC (rev 2625)
+@@ -47,7 +47,7 @@
+ jt9sim.exe: $(OBJS3) libm65.a
+ 	$(FC) -o jt9sim.exe $(OBJS3) libm65.a
+ 
+-OBJS2 = jt9.o symspec.o timf2x.o timer.o
++OBJS2 = jt9.o symspec.o timf2x.o timer.o sync9.o
+ jt9.exe: $(OBJS2) libm65.a
+ 	$(FC) -o jt9.exe $(OBJS2) libm65.a ../libfftw3f_win.a 
+ 
+
+Modified: branches/wsjtx/libm65/jt9.f90
+===================================================================
+--- branches/wsjtx/libm65/jt9.f90	2012-10-01 19:40:23 UTC (rev 2624)
++++ branches/wsjtx/libm65/jt9.f90	2012-10-01 20:37:05 UTC (rev 2625)
+@@ -82,7 +82,7 @@
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+            call timer('symspec ',0)
+-           call symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,    &amp;
++           call symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,df3,  &amp;
+                 ihsym,nzap,slimit,lstrong)
+            call timer('symspec ',1)
+            nhsym0=nhsym
+@@ -94,6 +94,7 @@
+ 
+      nutc=nutc0
+      nstandalone=1
++     call sync9(ss,df3)
+ !     call decode0(dd,ss,savg,nstandalone,nfsample)
+   enddo
+ 
+
+Modified: branches/wsjtx/libm65/symspec.f90
+===================================================================
+--- branches/wsjtx/libm65/symspec.f90	2012-10-01 19:40:23 UTC (rev 2624)
++++ branches/wsjtx/libm65/symspec.f90	2012-10-01 20:37:05 UTC (rev 2625)
+@@ -1,5 +1,5 @@
+-subroutine symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,ihsym,   &amp;
+-     nzap,slimit,lstrong)
++subroutine symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,df3,    &amp;
++     ihsym,nzap,slimit,lstrong)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -141,9 +141,16 @@
+ 
+   if(ihsym.eq.168) then
+      do i=1,iz
+-        write(71,3001) i*df3,savg(i),10.0*log10(savg(i))
+-3001    format(f12.6,e12.3,f12.3)
++        write(71,3001) i,i*df3,savg(i),10.0*log10(savg(i))
++3001    format(i8,3f12.3)
+      enddo
++
++     i0=673
++     do j=1,ihsym
++        write(72,3002) j,(ss(j,i),i=i0,i0+8)
++3002    format(i3,9f8.3)
++     enddo
++
+   endif
+ 
+ 999 return
+
+Added: branches/wsjtx/libm65/sync9.f90
+===================================================================
+--- branches/wsjtx/libm65/sync9.f90	                        (rev 0)
++++ branches/wsjtx/libm65/sync9.f90	2012-10-01 20:37:05 UTC (rev 2625)
+@@ -0,0 +1,55 @@
++subroutine sync9(ss,df3)
++
++  parameter (NSMAX=22000)            !Max length of saved spectra
++  real ss(184,NSMAX)
++
++  integer ii(16)
++  integer isync(85)             !Sync vector
++  data isync/                                    &amp;
++       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,  &amp;
++       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,  &amp;
++       0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,  &amp;
++       0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,  &amp;
++       1,0,0,0,1/
++  
++  ii=0
++  k=0
++  do i=1,85
++     if(isync(i).eq.1) then
++        k=k+1
++        ii(k)=2*i-1
++     endif
++  enddo
++
++  nz=1000.0/df3
++
++  smax=0.
++  lagmax=10
++  do n=1,nz
++     do lag=-lagmax,lagmax
++        sum=0.
++        do i=1,16
++           k=ii(i) + lag
++           if(k.ge.1) sum=sum + ss(k,n)
++        enddo
++        if(sum.gt.smax) then
++           smax=sum
++           npk=n
++        endif
++     enddo
++  enddo
++
++  print*,'npk:',npk
++  n=npk
++  do lag=-lagmax,lagmax
++     sum=0.
++     do i=1,16
++        k=ii(i) + lag
++        if(k.ge.1) sum=sum + ss(k,n)
++     enddo
++     write(*,3000) lag,sum
++3000 format(i3,f12.3)
++  enddo
++
++  return
++end subroutine sync9
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002316.html">[WSJT-SVN] r2624 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002318.html">[WSJT-SVN] r2626 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

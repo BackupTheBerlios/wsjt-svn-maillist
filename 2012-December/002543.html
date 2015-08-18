@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2851 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2851%20-%20branches/wspr&In-Reply-To=%3C20121222205128.0D91155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002542.html">
+   <LINK REL="Next"  HREF="002544.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2851 - branches/wspr</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2851%20-%20branches/wspr&In-Reply-To=%3C20121222205128.0D91155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2851 - branches/wspr">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Dec 22 21:51:27 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002542.html">[WSJT-SVN] r2850 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002544.html">[WSJT-SVN] r2852 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2543">[ date ]</a>
+              <a href="thread.html#2543">[ thread ]</a>
+              <a href="subject.html#2543">[ subject ]</a>
+              <a href="author.html#2543">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-22 21:51:27 +0100 (Sat, 22 Dec 2012)
+New Revision: 2851
+
+Added:
+   branches/wspr/getrms.f90
+Removed:
+   branches/wspr/getrms.f
+Modified:
+   branches/wspr/mept162.f90
+   branches/wspr/mix162.f90
+   branches/wspr/wspr.py
+Log:
+Correct a flaw in getrms, and change it to .f90.
+Move band center up by 112.5 Hz in WSPR-15 mode.
+
+
+Deleted: branches/wspr/getrms.f
+===================================================================
+--- branches/wspr/getrms.f	2012-12-22 17:02:36 UTC (rev 2850)
++++ branches/wspr/getrms.f	2012-12-22 20:51:27 UTC (rev 2851)
+@@ -1,32 +0,0 @@
+-      subroutine getrms(iwave,npts,ave,rms)
+-
+-      parameter (NMAX=120*12000)
+-      integer*2 iwave(NMAX)
+-      real*8 sq
+-
+-      s=0.
+-      do i=1,npts
+-         s=s + iwave(i)
+-      enddo
+-      ave=s/npts
+-      sq=0.
+-      do i=1,npts
+-         sq=sq + (iwave(i)-ave)**2
+-      enddo
+-      rms=sqrt(sq/npts)
+-      fac=3000.0/rms
+-      do i=1,npts
+-         n=nint(fac*(iwave(i)-ave))
+-         if(n.gt.32767) n=32767
+-         if(n.lt.-32767) n=-32767
+-         iwave(i)=n
+-      enddo
+-
+-      if(npts.lt.NMAX) then
+-         do i=npts+1,NMAX
+-            iwave(i)=0
+-         enddo
+-      endif
+-
+-      return
+-      end
+
+Copied: branches/wspr/getrms.f90 (from rev 2844, branches/wspr/getrms.f)
+===================================================================
+--- branches/wspr/getrms.f90	                        (rev 0)
++++ branches/wspr/getrms.f90	2012-12-22 20:51:27 UTC (rev 2851)
+@@ -0,0 +1,25 @@
++subroutine getrms(iwave,npts,ave,rms)
++
++  integer*2 iwave(npts)
++  real*8 sq
++
++  s=0.
++  do i=1,npts
++     s=s + iwave(i)
++  enddo
++  ave=s/npts
++  sq=0.
++  do i=1,npts
++     sq=sq + (iwave(i)-ave)**2
++  enddo
++  rms=sqrt(sq/npts)
++  fac=3000.0/rms
++  do i=1,npts
++     n=nint(fac*(iwave(i)-ave))
++     if(n.gt.32767) n=32767
++     if(n.lt.-32767) n=-32767
++     iwave(i)=n
++  enddo
++
++  return
++end subroutine getrms
+
+Modified: branches/wspr/mept162.f90
+===================================================================
+--- branches/wspr/mept162.f90	2012-12-22 17:02:36 UTC (rev 2850)
++++ branches/wspr/mept162.f90	2012-12-22 20:51:27 UTC (rev 2851)
+@@ -15,9 +15,8 @@
+   complex c2(65536)
+   complex c3(45000),c4(45000)
+ 
+-! Mix from &quot;nbfo&quot; +/- 100 Hz to baseband, and downsample by 1/32 (WSPR-2)
+-! or by 1/256 (WSPR-15).
+-
++! WSPR-2: mix from nbfo +/- 100 Hz to baseband, downsample by 1/32
++! WSPR-15: mix from (nbfo+112.5) +/- 12.5 Hz to baseband, downsample by 1/256
+   call mix162(id,npts,nbfo,c2,jz,ps)
+ 
+   if(ncmdline.eq.0) then
+
+Modified: branches/wspr/mix162.f90
+===================================================================
+--- branches/wspr/mix162.f90	2012-12-22 17:02:36 UTC (rev 2850)
++++ branches/wspr/mix162.f90	2012-12-22 20:51:27 UTC (rev 2851)
+@@ -7,7 +7,7 @@
+   integer*2 id(npts)
+   real x(NFFT1MAX)
+   real ps(-256:256)
+-  real*8 df
++  real*8 df,fbfo
+   complex c(0:NH1MAX)
+   complex c2(0:65535)
+   equivalence (x,c)
+@@ -28,6 +28,8 @@
+   call xfft(x,nfft1)                         !Do the real-to-complex FFT
+ 
+   df=12000.d0/nfft1
++  fbfo=nbfo
++  if(npts.gt.120*12000) fbfo=nbfo + 112.5d0
+   i0=nint(nbfo/df)
+   ia=i0-NH2 + 1
+   ib=i0+NH2
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2012-12-22 17:02:36 UTC (rev 2850)
++++ branches/wspr/wspr.py	2012-12-22 20:51:27 UTC (rev 2851)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- WSPR
++#--------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ # WSPR (pronounced &quot;whisper&quot;) stands for &quot;Weak Signal
+@@ -1366,6 +1366,7 @@
+     t=str(options.rig.get().replace(&quot; &quot;,&quot;#&quot;))
+     f.write(&quot;Rig &quot; + str(t.replace(&quot;\t&quot;,&quot;#&quot;))[:46] + &quot;\n&quot;)
+     f.write(&quot;Nsave &quot; + str(nsave.get()) + &quot;\n&quot;)
++    f.write(&quot;TRminutes &quot; + str(ntrminutes.get()) + &quot;\n&quot;)
+     f.write(&quot;PctTx &quot; + str(ipctx.get()) + &quot;\n&quot;)
+     f.write(&quot;DGain &quot; + str(ndgain.get()) + &quot;\n&quot;)
+     f.write(&quot;Upload &quot; + str(upload.get()) + &quot;\n&quot;)
+@@ -1778,6 +1779,7 @@
+                 options.rig.set(t)
+                 options.rignum.set(int(t[:4]))
+             elif key == 'Nsave': nsave.set(value)
++            elif key == 'TRminutes': ntrminutes.set(value)
+             elif key == 'Upload': upload.set(value)
+             elif key == 'Idle': idle.set(value)
+             elif key == 'Debug': ndebug.set(value)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002542.html">[WSJT-SVN] r2850 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002544.html">[WSJT-SVN] r2852 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2543">[ date ]</a>
+              <a href="thread.html#2543">[ thread ]</a>
+              <a href="subject.html#2543">[ subject ]</a>
+              <a href="author.html#2543">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r773 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r773%20-%20branches/wspr&In-Reply-To=%3C200805201722.m4KHMQhp017103%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000459.html">
+   <LINK REL="Next"  HREF="000461.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r773 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r773%20-%20branches/wspr&In-Reply-To=%3C200805201722.m4KHMQhp017103%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r773 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue May 20 19:22:26 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000459.html">[WSJT-SVN] r772 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000461.html">[WSJT-SVN] r774 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-20 19:22:23 +0200 (Tue, 20 May 2008)
+New Revision: 773
+
+Modified:
+   branches/wspr/decode162.f
+   branches/wspr/rxtest.f90
+Log:
+Clean up code in rxtest.f90 and decode162.f
+
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-05-20 15:21:13 UTC (rev 772)
++++ branches/wspr/decode162.f	2008-05-20 17:22:23 UTC (rev 773)
+@@ -4,8 +4,9 @@
+ 
+       complex c4(npts)
+       character*22 message
+-      real*8 dt,df,phi,f0,dphi,twopi,f1,phi1,dphi1
++      real*8 dt,df,twopi,f0,f1,dphi0,dphi1
+       complex*16 cz,cz1,c0,c1
++      complex*16 w0,w1,ws0,ws1
+       integer*1 i1,symbol(162)
+       integer*1 data1(11)
+       integer amp
+@@ -90,31 +91,27 @@
+ 
+ C  Should amp be adjusted according to signal strength?
+ C  Compute soft symbols
+-      c0=0.
+       k=0
+       nsps=256
+       fac2=0.001
+-      phi=0.d0
+-      phi1=0.d0
++      w0=1.0
++      w1=1.0
++
+       do j=1,nsym
+          f0=(npr3(j)-1.5)*df
+          f1=(2+npr3(j)-1.5)*df
+-         dphi=twopi*dt*f0
++         dphi0=twopi*dt*f0
+          dphi1=twopi*dt*f1
++         ws0=dcmplx(cos(dphi0),-sin(dphi0))
++         ws1=dcmplx(cos(dphi1),-sin(dphi1))
+          c0=0.
+          c1=0.
+          do i=1,nsps
+             k=k+1
+-            phi=phi+dphi
+-            phi1=phi1+dphi1
+-            if(phi.gt.twopi) phi=phi-twopi
+-            if(phi1.gt.twopi) phi1=phi1-twopi
+-            cz=dcmplx(cos(phi),-sin(phi))
+-            cz1=dcmplx(cos(phi1),-sin(phi1))
+-            if(k.le.npts) then
+-               c0=c0 + c4(k)*cz
+-               c1=c1 + c4(k)*cz1
+-            endif
++            w0=w0*ws0
++            w1=w1*ws1
++            c0=c0 + w0*c4(k)
++            c1=c1 + w1*c4(k)
+          enddo
+ 
+          sq0=fac2*(real(c0)**2 + aimag(c0)**2)
+@@ -127,9 +124,7 @@
+          symbol(j)=i1
+       enddo
+ 
+-!      ndelta=100
+       ndelta=50
+-!      limit=100000
+       limit=20000
+       nbits=50+31
+       call inter_mept(symbol,-1)                      !Remove interleaving
+
+Modified: branches/wspr/rxtest.f90
+===================================================================
+--- branches/wspr/rxtest.f90	2008-05-20 15:21:13 UTC (rev 772)
++++ branches/wspr/rxtest.f90	2008-05-20 17:22:23 UTC (rev 773)
+@@ -48,15 +48,12 @@
+            c4(-i1:)=c3(:i2)
+         endif
+         call decode162(c4,jz,message,ncycles,metric,nerr)
+-        if(message(1:6).ne.'      ') go to 23
++        if(message(1:6).ne.'      ') then
++           write(*,1012) ifile,nsnrx,dtx,freq,nf1,message,ii
++1012       format(i4.4,i4,f5.1,f11.6,i3,2x,a22,i6)
++           go to 24
++        endif
+      enddo
+-     go to 24
+-23   continue
+-!     call rect(c3,dtx,0.0,message,dfx2,width,pmax)
+-
+-     write(*,1012) ifile,nsnrx,dtx,freq,nf1,message,ii
+-1012 format(i4.4,i4,f5.1,f11.6,i3,2x,a22,i6)
+-     i1=index(message,' ')
+ 24   continue
+   enddo
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000459.html">[WSJT-SVN] r772 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000461.html">[WSJT-SVN] r774 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2145 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2145%20-%20wsjt7a&In-Reply-To=%3C20100914150745.4F08D480E9C%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001836.html">
+   <LINK REL="Next"  HREF="001838.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2145 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2145%20-%20wsjt7a&In-Reply-To=%3C20100914150745.4F08D480E9C%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2145 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 14 17:07:45 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001836.html">[WSJT-SVN] r2144 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001838.html">[WSJT-SVN] r2146 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1837">[ date ]</a>
+              <a href="thread.html#1837">[ thread ]</a>
+              <a href="subject.html#1837">[ subject ]</a>
+              <a href="author.html#1837">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-14 17:07:44 +0200 (Tue, 14 Sep 2010)
+New Revision: 2145
+
+Modified:
+   wsjt7a/iscat.f90
+   wsjt7a/packgrid.f
+   wsjt7a/packmsg.f
+   wsjt7a/wsjt.py
+Log:
+Allow negative singls-digit reports in JT4/JT65 modes.
+Set 400 Hz DF range in ISCAT mode, when Freeze is OFF.
+
+
+Modified: wsjt7a/iscat.f90
+===================================================================
+--- wsjt7a/iscat.f90	2010-09-13 19:58:27 UTC (rev 2144)
++++ wsjt7a/iscat.f90	2010-09-14 15:07:44 UTC (rev 2145)
+@@ -80,12 +80,14 @@
+   smax=0.
+   ipk=9999
+   jpk=9999
+-  ia=-10
+-  ib=10
++  ia=-400/df
++  ib=400/df
+   if(nfreeze.eq.1) then
+      ia=(mousedf-dftolerance)/df
+      ib=(mousedf+dftolerance)/df
+   endif
++  if(i0+ia.lt.1) ia=1-i0
++  if(i0+ib+3.gt.128) ib=128-3-i0
+ 
+   do j=0,4*nblk-1                            !Find sync pattern, lags 0-95
+      do i=ia,ib
+
+Modified: wsjt7a/packgrid.f
+===================================================================
+--- wsjt7a/packgrid.f	2010-09-13 19:58:27 UTC (rev 2144)
++++ wsjt7a/packgrid.f	2010-09-14 15:07:44 UTC (rev 2145)
+@@ -9,11 +9,19 @@
+ 
+ C  Test for numerical signal report, etc.
+       if(grid(1:1).eq.'-') then
+-         n=10*(ichar(grid(2:2))-48) + ichar(grid(3:3)) - 48
++         if(grid(3:3).ne.' ') then
++            n=10*(ichar(grid(2:2))-48) + ichar(grid(3:3)) - 48
++         else
++            n=ichar(grid(2:2))-48
++         endif
+          ng=NGBASE+1+n
+          go to 100
+       else if(grid(1:2).eq.'R-') then
+-         n=10*(ichar(grid(3:3))-48) + ichar(grid(4:4)) - 48
++         if(grid(4:4).ne.' ') then
++            n=10*(ichar(grid(3:3))-48) + ichar(grid(4:4)) - 48
++         else
++            n=ichar(grid(3:3))-48
++         endif
+          if(n.eq.0) go to 90
+          ng=NGBASE+31+n
+          go to 100
+
+Modified: wsjt7a/packmsg.f
+===================================================================
+--- wsjt7a/packmsg.f	2010-09-13 19:58:27 UTC (rev 2144)
++++ wsjt7a/packmsg.f	2010-09-14 15:07:44 UTC (rev 2145)
+@@ -58,7 +58,7 @@
+       k=max(k1,k2)
+       if(k.gt.0) then
+          call k2grid(k,grid6)
+-         c3=grid6(1:4) !XXX explicitly truncate this -db
++         c3=grid6(1:4)                     !Explicitly truncate to 4 chars
+       endif
+       call packgrid(c3,ng,text3)
+       if((.not.text1) .and. (.not.text2) .and. (.not.text3)) go to 20
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-09-13 19:58:27 UTC (rev 2144)
++++ wsjt7a/wsjt.py	2010-09-14 15:07:44 UTC (rev 2145)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -26,7 +26,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;9.0 r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;9.01 r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;WSJT Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -2721,7 +2721,7 @@
+ else:
+     stopmon()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSJT 9.0     by K1JT')
++root.title('  WSJT 9.01     by K1JT')
+ from WsjtMod import astro
+ from WsjtMod import specjt
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001836.html">[WSJT-SVN] r2144 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001838.html">[WSJT-SVN] r2146 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1837">[ date ]</a>
+              <a href="thread.html#1837">[ thread ]</a>
+              <a href="subject.html#1837">[ subject ]</a>
+              <a href="author.html#1837">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,467 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2878 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2878%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130102192425.4412255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002569.html">
+   <LINK REL="Next"  HREF="002571.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2878 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2878%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130102192425.4412255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2878 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 20:24:25 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002569.html">[WSJT-SVN] r2877 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002571.html">[WSJT-SVN] r2879 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2570">[ date ]</a>
+              <a href="thread.html#2570">[ thread ]</a>
+              <a href="subject.html#2570">[ subject ]</a>
+              <a href="author.html#2570">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-02 20:24:24 +0100 (Wed, 02 Jan 2013)
+New Revision: 2878
+
+Modified:
+   branches/wsprx/getfile.cpp
+   branches/wsprx/lib/mept162.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Uploading of spots now working, using curl.exe.
+
+
+Modified: branches/wsprx/getfile.cpp
+===================================================================
+--- branches/wsprx/getfile.cpp	2013-01-02 14:19:15 UTC (rev 2877)
++++ branches/wsprx/getfile.cpp	2013-01-02 19:24:24 UTC (rev 2878)
+@@ -92,8 +92,6 @@
+ //  free(buf);
+ }
+ 
+-//#define	MAX_RANDOM	0x7fffffff
+-
+ /* Generate gaussian random float with mean=0 and std_dev=1 */
+ float gran()
+ {
+
+Modified: branches/wsprx/lib/mept162.f90
+===================================================================
+--- branches/wsprx/lib/mept162.f90	2013-01-02 14:19:15 UTC (rev 2877)
++++ branches/wsprx/lib/mept162.f90	2013-01-02 19:24:24 UTC (rev 2878)
+@@ -94,6 +94,9 @@
+              ncycles/81,ii
+ 1010    format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
+         call flush(14)
++        open(17,file='wspr0.out',status='unknown',position='append')
++        write(17,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,ncycles/81,ii
++        close(17)
+         i1=index(message,' ')
+ 
+      endif
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-02 14:19:15 UTC (rev 2877)
++++ branches/wsprx/mainwindow.cpp	2013-01-02 19:24:24 UTC (rev 2878)
+@@ -80,24 +80,32 @@
+   createStatusBar();
+ 
+   connect(&amp;p1, SIGNAL(readyReadStandardOutput()),
+-                    this, SLOT(readFromStdout()));
+-
++                    this, SLOT(p1ReadFromStdout()));
++  connect(&amp;p1, SIGNAL(readyReadStandardError()),
++          this, SLOT(p1ReadFromStderr()));
+   connect(&amp;p1, SIGNAL(error(QProcess::ProcessError)),
+-          this, SLOT(jt9_error()));
++          this, SLOT(p1Error()));
+ 
+-  connect(&amp;p1, SIGNAL(readyReadStandardError()),
+-          this, SLOT(readFromStderr()));
++  connect(&amp;p2, SIGNAL(readyReadStandardOutput()),
++                    this, SLOT(p2ReadFromStdout()));
++  connect(&amp;p2, SIGNAL(readyReadStandardError()),
++          this, SLOT(p2ReadFromStderr()));
++  connect(&amp;p2, SIGNAL(error(QProcess::ProcessError)),
++          this, SLOT(p2Error()));
+ 
+   mNetworkManager = new QNetworkAccessManager(this);
+   QObject::connect(mNetworkManager, SIGNAL(finished(QNetworkReply*)),
+                    this, SLOT(onNetworkReply(QNetworkReply*)));
+ 
+   QTimer *guiTimer = new QTimer(this);
+-//  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+-  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate2()));
++  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
+   pttTimer = new QTimer(this);
+ 
++  uploadTimer = new QTimer(this);
++  uploadTimer-&gt;setSingleShot(true);
++  connect(uploadTimer, SIGNAL(timeout()), this, SLOT(p2Start()));
++
+   m_auto=false;
+   m_waterfallAvg = 1;
+   btxMute=false;
+@@ -149,6 +157,10 @@
+   watcher2 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
++  future3 = new QFuture&lt;void&gt;;
++  watcher3 = new QFutureWatcher&lt;void&gt;;
++  connect(watcher3, SIGNAL(finished()),this,SLOT(uploadFinished()));
++
+   soundInThread.setInputDevice(m_paInDevice);
+   soundInThread.start(QThread::HighestPriority);
+   soundOutThread.setOutputDevice(m_paOutDevice);
+@@ -599,42 +611,16 @@
+   ui-&gt;actionSave_all-&gt;setChecked(true);
+ }
+ 
+-void MainWindow::jt9_error()                                     //jt9_error
++void MainWindow::p1ReadFromStdout()                        //p1readFromStdout
+ {
+-  msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wspr0&quot;);
+-//  exit(1);
+-}
+-
+-void MainWindow::readFromStderr()                             //readFromStderr
+-{
+-  QByteArray t=p1.readAllStandardError();
+-  msgBox(t);
+-}
+-
+-void MainWindow::readFromStdout()                             //readFromStdout
+-{
+   QString t1;
+   while(p1.canReadLine()) {
+     QString t(p1.readLine());
+     if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
+       loggit(&quot;Decoder Finished&quot;);
+-      for(int i=0; i&lt;m_decodedList.size(); i++) {
+-        t1=m_decodedList.at(i).toAscii();
+-        QStringList s=t1.split(&quot; &quot;,QString::SkipEmptyParts);
+-        int iutc=s.at(0).toInt();
+-        int sig=s.at(1).toInt();
+-        float dt=s.at(2).toFloat();
+-        double rqrg=s.at(3).toDouble();
+-        int drift=s.at(4).toInt();
+-        QString rcall=s.at(5).toAscii();
+-        QString rgrid=s.at(6).toAscii();
+-        int dbm=s.at(6).toInt();
+-//        loggit(&quot;Upload to WSPRnet&quot;);
+-//        qDebug() &lt;&lt; i &lt;&lt; iutc &lt;&lt; sig &lt;&lt; dt &lt;&lt; rqrg &lt;&lt; drift &lt;&lt; rcall &lt;&lt; rgrid &lt;&lt; dbm;
+-        // Upload to WSPRnet here ...  Use a &quot;future&quot; call, and don't
+-        // forget to include a randomized wait period
+-      }
+-      m_decodedList.clear();
++      float x=rand()/((double)RAND_MAX + 1);
++      int msdelay=20000*x;
++      uploadTimer-&gt;start(msdelay);                         //Sequencer delay
+ 
+ //      m_bdecoded = (t.mid(23,1).toInt()==1);
+       bool keepFile=m_saveAll or (m_saveDecoded and m_bdecoded);
+@@ -648,7 +634,7 @@
+       m_startAnother=m_loopall;
+       return;
+     } else {
+-      m_decodedList += t;
++//      m_decodedList += t;
+       int n=t.length();
+       t=t.mid(0,n-2) + &quot;                                                  &quot;;
+       ui-&gt;decodedTextBrowser-&gt;append(t);
+@@ -656,6 +642,53 @@
+   }
+ }
+ 
++void MainWindow::p1ReadFromStderr()                        //p1readFromStderr
++{
++  QByteArray t=p1.readAllStandardError();
++  msgBox(t);
++}
++
++void MainWindow::p1Error()                                     //p1Error
++{
++  msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wspr0&quot;);
++}
++
++void MainWindow::p2Start()
++{
++  QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/curl -s -S -F allmept=@&quot; + m_appDir +
++      &quot;/wspr0.out -F call=&quot; + m_myCall + &quot; -F grid=&quot; + m_myGrid;
++  cmnd=QDir::toNativeSeparators(cmnd) + &quot; <A HREF="http://wsprnet.org/meptspots.php">http://wsprnet.org/meptspots.php</A>&quot;;
++  loggit(&quot;Start curl&quot;);
++  p2.start(cmnd);
++}
++
++void MainWindow::p2ReadFromStdout()                        //p2readFromStdout
++{
++  while(p2.canReadLine()) {
++    QString t(p2.readLine());
++    if(t.indexOf(&quot;spot(s) added&quot;) &gt; 0) {
++      QFile f(&quot;wspr0.out&quot;);
++      f.remove();
++    }
++  }
++}
++
++void MainWindow::p2ReadFromStderr()                        //p2readFromStderr
++{
++  QByteArray t=p2.readAllStandardError();
++  if(t.length()&gt;0) msgBox(t);
++}
++
++void MainWindow::p2Error()                                     //p2rror
++{
++  msgBox(&quot;Error attempting to start curl.&quot;);
++}
++
++void MainWindow::uploadFinished()                             //uploadFinished
++{
++  qDebug() &lt;&lt; &quot;Upload Finished&quot;;
++}
++
+ void MainWindow::on_EraseButton_clicked()                          //Erase
+ {
+   ui-&gt;decodedTextBrowser-&gt;clear();
+@@ -732,145 +765,6 @@
+   reply-&gt;deleteLater();
+ }
+ 
+-/*
+-//------------------------------------------------------------- //guiUpdate()
+-void MainWindow::guiUpdate()
+-{
+-  static int iptt0=0;
+-  static int iptt=0;
+-  static bool btxok0=false;
+-  static int nc0=1;
+-  static int nc1=1;
+-  static char message[29];
+-  static char msgsent[29];
+-  static int nsendingsh=0;
+-  int khsym=0;
+-
+-  double tx1=0.0;
+-//  double tx2=m_TRseconds;
+-  double tx2=1.0 + 85.0*m_nsps/12000.0;
+-
+-  qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+-  int nsec=ms/1000;
+-  double tsec=0.001*ms;
+-  double t2p=fmod(tsec,2*m_TRseconds);
+-  bool bTxTime = (t2p &gt;= tx1) &amp;&amp; (t2p &lt; tx2);
+-
+-  if(m_auto) {
+-
+-    QFile f(&quot;txboth&quot;);
+-    if(f.exists() and fmod(tsec,m_TRseconds)&lt;1.0 + 85.0*m_nsps/12000.0)
+-      bTxTime=true;
+-
+-    if(bTxTime and iptt==0 and !btxMute) {
+-      int itx=1;
+-      ptt(m_pttPort,itx,&amp;iptt);       // Raise PTT
+-      if(!soundOutThread.isRunning()) {
+-        double snr=99.0;
+-        soundOutThread.setTxSNR(snr);
+-        soundOutThread.start(QThread::HighPriority);
+-      }
+-    }
+-    if(!bTxTime || btxMute) {
+-      btxok=false;
+-    }
+-  }
+-
+-// Calculate Tx waveform when needed
+-  if((iptt==1 &amp;&amp; iptt0==0) || m_restart) {
+-    QByteArray ba;
+-
+-//    ba2msg(ba,message);
+-//    ba2msg(ba,msgsent);
+-//    int len1=22;
+-//    genjt9_(message,&amp;ichk,msgsent,itone,&amp;itext,len1,len1);
+-    msgsent[22]=0;
+-    lab5-&gt;setText(&quot;Last Tx:  &quot; + QString::fromAscii(msgsent));
+-    if(m_restart) {
+-      QFile f(&quot;wsprx_tx.log&quot;);
+-      f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+-      QTextStream out(&amp;f);
+-      out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+-          &lt;&lt; &quot;  Tx message:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
+-      f.close();
+-
+-    }
+-
+-    m_restart=false;
+-  }
+-
+-// If PTT was just raised, start a countdown for raising TxOK:
+-  if(iptt==1 &amp;&amp; iptt0==0) nc1=-9;    // TxDelay = 0.8 s
+-  if(nc1 &lt;= 0) nc1++;
+-  if(nc1 == 0) {
+-    ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
+-    m_receiving=false;
+-    soundInThread.setReceiving(false);
+-    btxok=true;
+-    m_transmitting=true;
+-
+-    QFile f(&quot;wsprx_tx.log&quot;);
+-    f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+-    QTextStream out(&amp;f);
+-    out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+-        &lt;&lt; &quot;  Tx message:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
+-    f.close();
+-  }
+-
+-// If btxok was just lowered, start a countdown for lowering PTT
+-  if(!btxok &amp;&amp; btxok0 &amp;&amp; iptt==1) nc0=-11;  //RxDelay = 1.0 s
+-  if(nc0 &lt;= 0) {
+-    nc0++;
+-  }
+-  if(nc0 == 0) {
+-    int itx=0;
+-    ptt(m_pttPort,itx,&amp;iptt);       // Lower PTT
+-    if(!btxMute) soundOutThread.quitExecution=true;
+-    m_transmitting=false;
+-    if(m_auto) {
+-      m_receiving=true;
+-      soundInThread.setReceiving(m_receiving);
+-    }
+-  }
+-
+-  if(iptt == 0 &amp;&amp; !btxok) {
+-    // sending=&quot;&quot;
+-    // nsendingsh=0
+-  }
+-
+-  if(m_receiving) {
+-//    ui-&gt;monitorButton-&gt;setStyleSheet(m_pbmonitor_style);
+-  } else {
+-//    ui-&gt;monitorButton-&gt;setStyleSheet(&quot;&quot;);
+-  }
+-
+-  if(m_startAnother) {
+-    m_startAnother=false;
+-    on_actionOpen_next_in_directory_triggered();
+-  }
+-
+-  if(nsec != m_sec0) {                                     //Once per second
+-    oneSec();
+-    if(m_transmitting) {
+-      lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff33}&quot;);
+-      char s[37];
+-      sprintf(s,&quot;Tx: %s&quot;,msgsent);
+-      lab1-&gt;setText(s);
+-    } else if(m_receiving) {
+-      lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #00ff00}&quot;);
+-  //      lab1-&gt;setText(&quot;Receiving &quot;);
+-    } else if (!m_diskData) {
+-      lab1-&gt;setStyleSheet(&quot;&quot;);
+-      lab1-&gt;setText(&quot;&quot;);
+-    }
+-    m_hsym0=khsym;
+-    m_sec0=nsec;
+-  }
+-  iptt0=iptt;
+-  btxok0=btxok;
+-}
+-*/
+-
+ void MainWindow::oneSec() {
+   QDateTime t = QDateTime::currentDateTimeUtc();
+   m_setftx=0;
+@@ -883,8 +777,8 @@
+   }
+ }
+ 
+-//------------------------------------------------------------- //guiUpdate2()
+-void MainWindow::guiUpdate2()
++//------------------------------------------------------------- //guiUpdate()
++void MainWindow::guiUpdate()
+ {
+   int nsec=int(tsec());
+   m_nseq = nsec % m_TRseconds;
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-02 14:19:15 UTC (rev 2877)
++++ branches/wsprx/mainwindow.h	2013-01-02 19:24:24 UTC (rev 2878)
+@@ -28,11 +28,14 @@
+   void dataSink(int k);
+   void diskDat();
+   void diskWriteFinished();
+-//  void guiUpdate();
+-  void guiUpdate2();
+-  void readFromStdout();
+-  void readFromStderr();
+-  void jt9_error();
++  void uploadFinished();
++  void guiUpdate();
++  void p1ReadFromStdout();
++  void p1ReadFromStderr();
++  void p1Error();
++  void p2ReadFromStdout();
++  void p2ReadFromStderr();
++  void p2Error();
+ 
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
+@@ -68,6 +71,7 @@
+   void on_cbTxMute_toggled(bool b);
+   void startTx2();
+   void loggit(QString t);
++  void p2Start();
+ 
+   void on_dialFreqLineEdit_editingFinished();
+ 
+@@ -149,6 +153,7 @@
+     QStringList m_decodedList;
+ 
+     QTimer* pttTimer;
++    QTimer* uploadTimer;
+ 
+     QString m_path;
+     QString m_myCall;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002569.html">[WSJT-SVN] r2877 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002571.html">[WSJT-SVN] r2879 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2570">[ date ]</a>
+              <a href="thread.html#2570">[ thread ]</a>
+              <a href="subject.html#2570">[ subject ]</a>
+              <a href="author.html#2570">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

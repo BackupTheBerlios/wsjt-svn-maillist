@@ -1,0 +1,418 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1271 - in branches/wsjt8: . threads
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1271%20-%20in%20branches/wsjt8%3A%20.%20threads&In-Reply-To=%3C200907091543.n69Fhef9012051%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000964.html">
+   <LINK REL="Next"  HREF="000966.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1271 - in branches/wsjt8: . threads</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1271%20-%20in%20branches/wsjt8%3A%20.%20threads&In-Reply-To=%3C200907091543.n69Fhef9012051%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1271 - in branches/wsjt8: . threads">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul  9 17:43:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000964.html">[WSJT-SVN] r1270 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000966.html">[WSJT-SVN] r1272 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#965">[ date ]</a>
+              <a href="thread.html#965">[ thread ]</a>
+              <a href="subject.html#965">[ subject ]</a>
+              <a href="author.html#965">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-09 17:43:35 +0200 (Thu, 09 Jul 2009)
+New Revision: 1271
+
+Added:
+   branches/wsjt8/threads/
+   branches/wsjt8/threads/fthread.c
+   branches/wsjt8/threads/gf
+   branches/wsjt8/threads/go95
+   branches/wsjt8/threads/test_threads.f90
+Modified:
+   branches/wsjt8/Makefile.in
+   branches/wsjt8/fivehz.F90
+   branches/wsjt8/wsjt.py
+   branches/wsjt8/wsjtgen.F90
+Log:
+Added simple program for testing multi-threading in Fortran.
+Somw updates to wsjt8.
+
+
+Modified: branches/wsjt8/Makefile.in
+===================================================================
+--- branches/wsjt8/Makefile.in	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/Makefile.in	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -78,7 +78,8 @@
+ 	ftpeak65.f fil651.f fil652.f fil653.f symsync65.f \
+ 	rfile2.f encode232.f inter_mept.f pack50.f unpack50.f \
+ 	filbig2.F mept162a.f twkfreq.f sync162.f decode162.f \
+-	ps162.f fchisq.f fano232.f ccf2.f wsjt64.f sync64.f 
++	ps162.f fchisq.f fano232.f ccf2.f wsjt64.f sync64.f \
++	echogen.f
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+
+Modified: branches/wsjt8/fivehz.F90
+===================================================================
+--- branches/wsjt8/fivehz.F90	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/fivehz.F90	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -1,7 +1,7 @@
+ subroutine fivehz
+ 
+ !  Called at interrupt level from the PortAudio callback routine.
+-!  For nspb=2048 the callback rate is nfsample/nspb = 5.38 Hz.
++!  For nspb=2048 the callback rate is nfsample/nspb = 5.859 Hz.
+ !  Thus, we should be able to control the timing of T/R sequence events
+ !  here to within about 0.2 s.
+ 
+@@ -22,7 +22,7 @@
+   real*8 fs,fsample,tt,u
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+-  data first/.true./,nc0/1/,nc1/1/,nsec0/-99/
++  data first/.true./,nc0/1/,nc1/1/,nsec0/-99/,nfsample/12000/
+   save
+ 
+   n1=time()
+@@ -31,8 +31,8 @@
+ 
+   if(first) then
+      rxdelay=0.2
+-     txdelay=0.4
+-     tlatency=1.0
++     txdelay=0.2                    !### was 0.4
++     tlatency=0.2                   !### was 1.0
+      first=.false.
+      iptt=0
+      ntr0=-99
+@@ -75,10 +75,10 @@
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or.                   &amp;
+        mode(1:3).eq.'JT4' .or. mode(1:4).eq.'JT64') then
+      if(nwave.lt.126*4096) nwave=126*4096
+-     tx2=txdelay + nwave/11025.0
++     tx2=txdelay + float(nwave)/nfsample
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   else if(mode(1:4).eq.'WSPR') then
+-     tx2=txdelay + nwave/11025.0
++     tx2=txdelay + float(nwave)/nfsample
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   endif
+ 
+@@ -134,14 +134,14 @@
+   endif
+ 
+ ! If PTT was just raised, start a countdown for raising TxOK:
+-  nc1a=txdelay/0.18576
++  nc1a=txdelay*nfsample/2048.0
+   if(nc1a.lt.2) nc1a=2
+   if(iptt.eq.1 .and. iptt0.eq.0) nc1=-nc1a-1
+   if(nc1.le.0) nc1=nc1+1
+   if(nc1.eq.0) TxOK=1                               ! We are transmitting
+ 
+ ! If TxOK was just lowered, start a countdown for lowering PTT:
+-  nc0a=(tlatency+txdelay)/0.18576
++  nc0a=(tlatency+txdelay)*nfsample/2048.0
+   if(nc0a.lt.5) nc0a=5
+   if(TxOK.eq.0 .and. TxOKz.eq.1 .and. iptt.eq.1) nc0=-nc0a-1
+   if(nc0.le.0) nc0=nc0+1
+@@ -155,7 +155,7 @@
+   nbufs=i1+i2+i3                             !Silence g95 warning
+   nbufs=ibuf-ibuf0
+   if(nbufs.lt.0) nbufs=nbufs+1024
+-  tdata=nbufs*2048.0/11025.0
++  tdata=nbufs*2048.0/nfsample
+ 
+   if((mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4' &amp;
+        .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR' .or.               &amp;
+
+Added: branches/wsjt8/threads/fthread.c
+===================================================================
+--- branches/wsjt8/threads/fthread.c	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/threads/fthread.c	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -0,0 +1,67 @@
++/*
++* fthread.c
++*
++* pthread library interface to Fortran, for OSs supporting pthreads
++*
++* Adapted from code by V. Ganesh
++*/
++#include &lt;stdio.h&gt;
++#include &lt;pthread.h&gt;
++
++// Create a new fortran thread through a subroutine.
++void fthread_create_(void *(*thread_func)(void *), pthread_t *theThread) 
++{
++  pthread_create(theThread, NULL, thread_func, NULL);
++} 
++
++// Yield control to other threads
++void fthread_yield_() 
++{
++  pthread_yield();
++} 
++
++// Return my own thread ID
++pthread_t fthread_self_() 
++{
++  return pthread_self();
++} 
++
++// Lock the execution of all threads until we have the mutex
++void fthread_mutex_lock_(pthread_mutex_t **theMutex) 
++{
++  pthread_mutex_lock(*theMutex);
++}
++
++// Unlock the execution of all threads that were stopped by this mutex
++void fthread_mutex_unlock_(pthread_mutex_t **theMutex) 
++{
++  pthread_mutex_unlock(*theMutex);
++}
++
++// Get a new mutex object
++void fthread_mutex_init_(pthread_mutex_t **theMutex) 
++{
++  *theMutex = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t));
++  pthread_mutex_init(*theMutex, NULL);
++}
++
++// Release a mutex object
++void fthread_mutex_destroy_(pthread_mutex_t **theMutex) 
++{
++  pthread_mutex_destroy(*theMutex);
++  free(*theMutex);
++}
++
++// Waits for thread ID to join
++void fthread_join(pthread_t *theThread) 
++{
++  int value = 0;
++  pthread_join(*theThread, (void **)&amp;value);
++}
++
++// Exit from a thread
++void fthread_exit_(void *status) 
++{
++  pthread_exit(status);
++}
++
+
+Added: branches/wsjt8/threads/gf
+===================================================================
+--- branches/wsjt8/threads/gf	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/threads/gf	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -0,0 +1,2 @@
++gcc -c fthread.c
++gfortran --no-second-underscore -o test_gf test_threads.f90 fthread.o -lpthread
+
+
+Property changes on: branches/wsjt8/threads/gf
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: branches/wsjt8/threads/go95
+===================================================================
+--- branches/wsjt8/threads/go95	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/threads/go95	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -0,0 +1,2 @@
++gcc -c fthread.c
++g95 --no-second-underscore -o test_g95 test_threads.f90 fthread.o -lpthread
+
+
+Property changes on: branches/wsjt8/threads/go95
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: branches/wsjt8/threads/test_threads.f90
+===================================================================
+--- branches/wsjt8/threads/test_threads.f90	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/threads/test_threads.f90	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -0,0 +1,106 @@
++program test_threads
++
++  character arg*12
++  external sub1,sub2,sub3,sub4
++  common/acom/ iters,ndone(4),mtx,ltx,nsum
++
++  if(iargc().ne.2) then
++     print*,'Usage:    test_threads &lt;iters&gt; &lt;ltx&gt;'
++     print*,'Examples: test_threads 100 0'
++     print*,'          test_threads 10000 1'
++     print*,'   ltx=0: no mutexes'
++     print*,'   ltx=1: use mutex locks'
++     go to 999
++  endif
++
++  call getarg(1,arg)
++  read(arg,*) iters
++  call getarg(2,arg)
++  read(arg,*) ltx
++
++  ndone=0
++  nsum=0
++  if(ltx.ne.0) then
++     print*,'Using mutex lockouts.'
++     call fthread_mutex_init(mtx)
++  else
++     print*,'No mutex lockouts.'
++  endif
++
++  call fthread_create(sub1,id1)
++  call fthread_create(sub2,id2)
++  call fthread_create(sub3,id3)
++  call fthread_create(sub4,id4)
++
++10 if(sum(ndone).eq.4) go to 900
++  call sleep(1)
++  go to 10
++
++900 write(*,1900) nsum
++1900 format('nsum:',i10)
++  if(ltx.ne.0) call fthread_mutex_destroy(mtx)
++999 end program test_threads
++
++!------------------------------------------------- sub1
++subroutine sub1
++  character*80 ctemp
++  common/acom/ iters,ndone(4),mtx,ltx,nsum
++  n=1
++  do i=1,iters
++     if(ltx.ne.0) call fthread_mutex_lock(mtx)
++     nsum=nsum+1
++     write(10,1000) n,i
++1000 format(2i10)
++     if(ltx.ne.0) call fthread_mutex_unlock(mtx)
++  enddo
++  ndone(n)=1
++  return
++end subroutine sub1
++
++!------------------------------------------------- sub2
++subroutine sub2
++  character*80 ctemp
++  common/acom/ iters,ndone(4),mtx,ltx,nsum
++  n=2
++  do i=1,iters
++     if(ltx.ne.0) call fthread_mutex_lock(mtx)
++     nsum=nsum+1
++     write(10,1000) n,i
++1000 format(2i10)
++     if(ltx.ne.0) call fthread_mutex_unlock(mtx)
++  enddo
++  ndone(n)=1
++  return
++end subroutine sub2
++
++!------------------------------------------------- sub3
++subroutine sub3
++  character*80 ctemp
++  common/acom/ iters,ndone(4),mtx,ltx,nsum
++  n=3
++  do i=1,iters
++     if(ltx.ne.0) call fthread_mutex_lock(mtx) 
++     nsum=nsum+1
++     write(10,1000) n,i
++1000 format(2i10)
++     if(ltx.ne.0) call fthread_mutex_unlock(mtx)
++  enddo
++  ndone(n)=1
++  return
++end subroutine sub3
++
++!------------------------------------------------- sub4
++subroutine sub4
++  character*80 ctemp
++  common/acom/ iters,ndone(4),mtx,ltx,nsum
++  n=4
++  do i=1,iters
++     if(ltx.ne.0) call fthread_mutex_lock(mtx)
++     nsum=nsum+1
++     write(10,1000) n,i
++1000 format(2i10)
++     if(ltx.ne.0) call fthread_mutex_unlock(mtx)
++  enddo
++  ndone(n)=1
++  return
++end subroutine sub4
+
+Modified: branches/wsjt8/wsjt.py
+===================================================================
+--- branches/wsjt8/wsjt.py	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/wsjt.py	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------ WSJT
++#----------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wsjt8/wsjtgen.F90
+===================================================================
+--- branches/wsjt8/wsjtgen.F90	2009-07-08 17:21:46 UTC (rev 1270)
++++ branches/wsjt8/wsjtgen.F90	2009-07-09 15:43:35 UTC (rev 1271)
+@@ -169,17 +169,8 @@
+ !  endif
+ 
+   if(mode(1:4).eq.'JT6M') then
+-!  We're in JT6M mode.
+-     call gen6m(msg,samfacout,iwave,nwave)
+-     goto 900
+-  endif
++     call gen6m(msg,samfacout,iwave,nwave)     !JT6M mode
+ 
+-  if(mode(1:2).eq.'CW') then
+-!  We're in CW mode
+-!     wpm=15.
+-     wpm=17.
+-     freqcw=800.
+-     call gencw(msg,wpm,freqcw,samfacout,iwave,nwave)
+      goto 900
+   endif
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000964.html">[WSJT-SVN] r1270 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000966.html">[WSJT-SVN] r1272 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#965">[ date ]</a>
+              <a href="thread.html#965">[ thread ]</a>
+              <a href="subject.html#965">[ subject ]</a>
+              <a href="author.html#965">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

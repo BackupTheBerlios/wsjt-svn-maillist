@@ -1,0 +1,488 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2194 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2194%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100929171506.6EC00481033%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001885.html">
+   <LINK REL="Next"  HREF="001887.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2194 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2194%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100929171506.6EC00481033%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2194 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 29 19:15:06 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001885.html">[WSJT-SVN] r2193 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001887.html">[WSJT-SVN] r2195 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1886">[ date ]</a>
+              <a href="thread.html#1886">[ thread ]</a>
+              <a href="subject.html#1886">[ subject ]</a>
+              <a href="author.html#1886">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-29 19:15:06 +0200 (Wed, 29 Sep 2010)
+New Revision: 2194
+
+Modified:
+   branches/wspr/WsprMod/iq.py
+   branches/wspr/acom1.f90
+   branches/wspr/iqdemod.f90
+   branches/wspr/rx.f90
+   branches/wspr/speciq.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Implemented Rx phasing corrections
+
+Modified: branches/wspr/WsprMod/iq.py
+===================================================================
+--- branches/wspr/WsprMod/iq.py	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/WsprMod/iq.py	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -24,6 +24,8 @@
+ iqrx=IntVar()
+ iqtx=IntVar()
+ fiq=IntVar()
++iqrxapp=IntVar()
++iqrxadj=IntVar()
+ 
+ isc1=IntVar()
+ isc1.set(0)
+@@ -50,49 +52,56 @@
+ biqmode=Checkbutton(g1.interior(),text='Enable I/Q mode',variable=iqmode)
+ biqmode.pack(anchor=W,padx=5,pady=2)
+ 
++biqtx=Checkbutton(g1.interior(),text='Reverse Tx I,Q',variable=iqtx)
++biqtx.pack(anchor=W,padx=5,pady=2)
++
+ biqrx=Checkbutton(g1.interior(),text='Reverse Rx I,Q',variable=iqrx)
+ biqrx.pack(anchor=W,padx=5,pady=2)
+ 
+-biqtx=Checkbutton(g1.interior(),text='Reverse Tx I,Q',variable=iqtx)
+-biqtx.pack(anchor=W,padx=5,pady=2)
++biqrxapp=Checkbutton(g1.interior(),text='Apply phasing corrections', \
++        variable=iqrxapp)
++biqrxapp.pack(anchor=W,padx=5,pady=2)
+ 
++biqrxadj=Checkbutton(g1.interior(),text='Adjust phasing', \
++        variable=iqrxadj)
++biqrxadj.pack(anchor=W,padx=5,pady=2)
++
++lab1=Label(g1.interior(),text='',justify=LEFT)
++lab1.pack(anchor=W,padx=5,pady=4)
++
+ fiq_entry=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Fiq (Hz):         ',
+         value='12000',entry_textvariable=fiq,entry_width=10,
+         validate={'validator':'integer','min':-24000,'max':24000,
+         'minstrict':0,'maxstrict':0})
+-fiq_entry.pack(fill=X,padx=2,pady=2)
++fiq_entry.pack(fill=X,padx=2,pady=4)
+ 
+ ##t='Tx dB  Tx amp  Tx Pha'
+ ##lab1=Label(g1.interior(),text=t,justify=LEFT)
+ ##lab1.pack(fill=X,expand=1,padx=5,pady=0)
+ 
+ sc1=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
+-               to=0,variable=isc1,label='Tx dB')
++        to=0,variable=isc1,label='Tx dB',relief=SOLID,bg='#FFC0CB')
+ sc1.pack(side=TOP,padx=4,pady=2)
+ 
+ sc2=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
+-               to=30,variable=isc2,label='Tx I/Q Balance (0.1 dB)')
++        to=30,variable=isc2,label='Tx I/Q Balance (0.1 dB)', \
++        relief=SOLID,bg='#EEDD82')
+ sc2.pack(side=TOP,padx=4,pady=2)
++
+ sc2a=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-               to=100,variable=isc2a,label='Tx I/Q Balance (0.002 dB)')
++        to=100,variable=isc2a,label='Tx I/Q Balance (0.002 dB)', \
++        relief=SOLID,bg='#EEDD82')
+ sc2a.pack(side=TOP,padx=4,pady=2)
+ 
+ sc3=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-20, \
+-               to=20,variable=isc3,label='Tx Phase (deg)')
++        to=20,variable=isc3,label='Tx Phase (deg)', \
++        relief=SOLID,bg='#AFeeee')
+ sc3.pack(side=TOP,padx=4,pady=2)
+ sc3a=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-               to=100,variable=isc3a,label='Tx Phase (0.02 deg)')
++        to=100,variable=isc3a,label='Tx Phase (0.02 deg)', \
++        relief=SOLID,bg='#AFeeee')
+ sc3a.pack(side=TOP,padx=4,pady=2)
+ 
+-##sc4=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-##               to=100,variable=isc4,label='Rx I/Q Balance')
+-##sc4.pack(side=TOP,padx=4,pady=2)
+-##
+-##sc5=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-##               to=100,variable=isc5,label='Rx Phase')
+-##sc5.pack(side=TOP,padx=4,pady=2)
+-##balloon.bind(sc1,&quot;Select desired fraction of sequences to transmit&quot;)
+-
+ f1=Frame(g1.interior(),width=100,height=10)
+ f1.pack()
+ g1.pack(side=LEFT,fill=BOTH,expand=1,padx=4,pady=4)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/acom1.f90	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -11,8 +11,8 @@
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+-       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
+-       ntxdb,txbal,txpha,iwrite,newdat,                                &amp;
++       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,iqrxapp,           &amp;
++       ntxdb,txbal,txpha,iwrite,newdat,iqrxadj,gain,phase,reject,      &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+        pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+
+Modified: branches/wspr/iqdemod.f90
+===================================================================
+--- branches/wspr/iqdemod.f90	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/iqdemod.f90	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -1,4 +1,4 @@
+-subroutine iqdemod(kwave,npts,nfiq,iqrx,iwave)
++subroutine iqdemod(kwave,npts,nfiq,iqrx,iqrxapp,gain,phase,iwave)
+ 
+   parameter (NFFT =5760000)
+   parameter (NFFT4=1440000)
+@@ -7,6 +7,7 @@
+   real*8 twopi,df,f0,sq
+   real x1(NFFT4)
+   complex c,c1
++  complex h,u,v
+   common/fftcom/ c(0:NFFT-1),c1(0:NFFT4-1)
+   equivalence (x1,c1)
+ 
+@@ -31,12 +32,30 @@
+   ib=nint((f0+3000.d0)/df)
+   j=-1
+   fac=1.0/NFFT
+-  do i=ia,ib
+-     j=j+1
+-     c1(j)=fac*c(i)
+-  enddo
++
++  h=gain*cmplx(cos(phase),sin(phase))
++  if(iqrxapp.eq.0) then
++     do i=ia,ib
++        j=j+1
++        c1(j)=fac*c(i)
++     enddo
++  else
++     do i=ia,ib
++        j=j+1
++        u=fac*c(i)
++        v=fac*c(nfft-i)
++        x=real(u)  + real(v)  - (aimag(u) + aimag(v))*aimag(h) +         &amp;
++             (real(u) - real(v))*real(h)
++        y=aimag(u) - aimag(v) + (aimag(u) + aimag(v))*real(h)  +         &amp;
++             (real(u) - real(v))*aimag(h)
++        c1(j)=cmplx(x,y)
++     enddo
++  endif
++
+   c1(j+1:)=0.
+   c1(0)=0.
++
++
+   call four2a(c1,NFFT4,1,1,-1)
+ 
+   sq=0.
+
+Modified: branches/wspr/rx.f90
+===================================================================
+--- branches/wspr/rx.f90	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/rx.f90	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -17,7 +17,7 @@
+      stop
+   endif
+   if(iqmode.eq.1) then
+-     call iqdemod(kwave,4*npts,nfiq,iqrx,iwave)
++     call iqdemod(kwave,4*npts,nfiq,iqrx,iqrxapp,gain,phase,iwave)
+   else
+      call fil1(kwave,4*npts,iwave,n2)         !Filter and downsample
+      npts=n2
+
+Modified: branches/wspr/speciq.f90
+===================================================================
+--- branches/wspr/speciq.f90	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/speciq.f90	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -1,26 +1,29 @@
+-subroutine speciq(kwave,npts,iwrite,iqrx,nfiq)
++subroutine speciq(kwave,npts,iwrite,iqrx,nfiq,ireset,gain,phase,reject)
+ 
+   parameter (NFFT=32768)
+   parameter (NH=NFFT/2)
+   integer*2 kwave(2,npts)
+-  logical first
+   real s(-NH+1:NH)
+   complex c,z,zsum,zave
+-  common/fftcom2/c(0:NFFT-1),ss(-NH+1:NH)
+-  data first/.true./
+-  save first,nn
++  complex c0,z1,z2,w,wstep
++  complex h,u,v
++  common/fftcom2/c(0:NFFT-1),c0(0:NFFT-1)
++  data iw0/-999/
++  save
+ 
+-  if(first) then
+-     df=48000.0/NFFT
+-     ss=0.
+-     first=.false.
++  if(ireset.eq.1) then
+      nn=0
+      zsum=0.
+-     rewind 50
++     ireset=0
++     rsum=0.
+   endif
+ 
+-  if(iwrite.lt.nfft) go to 900
++  df=48000.0/NFFT
++  twopi=8.0*atan(1.0)
++  dt=1.0/48000.0
+ 
++  if(iwrite.lt.nfft .or. iwrite.eq.iw0) go to 900
++  iw0=iwrite
+   nn=nn+1
+   fac=10.0**(-4.3)
+   j=iwrite-nfft
+@@ -35,48 +38,59 @@
+      endif
+      c(i)=fac*cmplx(x,y)
+   enddo
++  c0=c
+ 
+-  call four2a(c,NFFT,1,-1,1)
++  call four2a(c,NFFT,1,-1,1)              ! 1d, forward, complex
+ 
++  smax=0.
++  ia=(nfiq+500)/df
++  ib=(nfiq+2500)/df
++  ipk=0
+   do i=0,nfft-1
+      j=i
+      if(j.gt.NH) j=j-nfft
+      s(j)=real(c(i))**2 + aimag(c(i))**2
+-  enddo
+-
+-  do i=-NH+1,NH
+-     u=1.0 - exp(-(0.2*s(i)))
+-     ss(i)=(1.0-u)*ss(i) + u*s(i)
+-  enddo
+-
+-  call cs_lock('speciq')
+-!  do i=-NH+1,NH
+-!     write(50,3001) i*df,db(s(i)),db(ss(i))
+-!3001 format(3f12.3)
+-!  enddo
+-
+-  ia=(nfiq+1000)/df
+-  ib=(nfiq+2000)/df
+-  smax=0.
+-  do i=ia,ib
+-     if(s(i).gt.smax) then
+-        smax=s(i)
++     if(i.ge.ia .and. i.le.ib .and. s(j).gt.smax) then
++        smax=s(j)
+         ipk=i
+      endif
+   enddo
++  
++  if(ipk.eq.0) then
++     print*,'b',ia,ib,ipk,iwrite
++     go to 900
++  endif
++
+   p=s(ipk) + s(-ipk)
+   z=c(ipk)*c(nfft-ipk)/p
+   zsum=zsum+z
+   zave=zsum/nn
+   tmp=sqrt(1.0 - (2.0*real(zave))**2)
+-  pha=asin(2.0*aimag(zave)/tmp)
++  phase=asin(2.0*aimag(zave)/tmp)
+   gain=tmp/(1.0-2.0*real(zave))
+-  write(*,3002)  nn,ipk*df,zave,gain,pha,db(s(ipk)),db(s(-ipk))
+-  write(50,3002) nn,ipk*df,zave,gain,pha,db(s(ipk)),db(s(-ipk))
+-3002 format(i5,f7.0,4f10.6,2f8.1)
++  h=gain*cmplx(cos(phase),sin(phase))
+ 
+-  call flush(50)
+-  call cs_unlock
++  u=c(ipk)
++  v=c(nfft-ipk)
++  x=real(u)  + real(v)  - (aimag(u) + aimag(v))*aimag(h) +              &amp;
++       (real(u) - real(v))*real(h)
++  y=aimag(u) - aimag(v) + (aimag(u) + aimag(v))*real(h)  +              &amp;
++       (real(u) - real(v))*aimag(h)
++  p1=x*x + y*y
+ 
++  u=c(nfft-ipk)
++  v=c(ipk)
++  x=real(u)  + real(v)  - (aimag(u) + aimag(v))*aimag(h) +              &amp;
++       (real(u) - real(v))*real(h)
++  y=aimag(u) - aimag(v) + (aimag(u) + aimag(v))*real(h)  +              &amp;
++       (real(u) - real(v))*aimag(h)
++  p2=x*x + y*y
++
++  r=db(p1/p2)
++  if(nn.ge.2) then
++     rsum=rsum+r
++     reject=rsum/(nn-1)
++  endif
++
+ 900 return
+ end subroutine speciq
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/wspr.py	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -101,6 +101,9 @@
+ start_idle=IntVar()
+ t0=&quot;&quot;
+ txmsg=StringVar()
++nreject=0
++gain=1.0
++phdeg=0.0
+ 
+ a=array.array('h')
+ im=Image.new('P',(NX,NY))
+@@ -707,6 +710,8 @@
+     w.acom1.igrid6=advanced.igrid6.get()
+     w.acom1.iqmode=iq.iqmode.get()
+     w.acom1.iqrx=iq.iqrx.get()
++    w.acom1.iqrxapp=iq.iqrxapp.get()
++    w.acom1.iqrxadj=iq.iqrxadj.get()
+     w.acom1.iqtx=iq.iqtx.get()
+     w.acom1.ntxdb=iq.isc1.get()
+     bal=iq.isc2.get() + 0.02*iq.isc2a.get()
+@@ -738,7 +743,7 @@
+     global root_geom,isec0,im,pim,ndbm0,nsec0,a,ftx0,nin0,nout0, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+         modpixmap0,tw,s0,c0,fmid,fmid0,loopall,ntr0,txmsg,iband0, \
+-        bandmap,bm,t0
++        bandmap,bm,t0,nreject,gain,phdeg
+ 
+     tsec=time.time()
+     utc=time.gmtime(tsec)
+@@ -833,6 +838,12 @@
+         if t=='': r=FLAT
+         msg1.configure(text=t,bg=bg,relief=r)
+ 
++        gain=w.acom1.gain
++        phdeg=57.2957795*w.acom1.phase
++        nreject=int(w.acom1.reject)
++        t='Bal: %6.4f  Pha: %6.1f      &gt;%3d dB' % (gain,phdeg,nreject)
++        iq.lab1.configure(text=t)
++
+ # If T/R status has changed, get new info
+     ntr=int(w.acom1.ntr)
+     if ntr!=ntr0:
+@@ -1103,6 +1114,10 @@
+     f.write(&quot;iband &quot; + str(iband.get()) + &quot;\n&quot;)
+     f.write(&quot;StartIdle &quot; + str(start_idle.get()) + &quot;\n&quot;)
+     f.write(&quot;NoBeep &quot; + str(no_beep.get()) + &quot;\n&quot;)
++    f.write(&quot;Ygain &quot; + str(gain) + &quot;\n&quot;)
++    f.write(&quot;Phdeg &quot; + str(phdeg) + &quot;\n&quot;)
++    f.write(&quot;Reject &quot; + str(nreject) + &quot;\n&quot;)
++    f.write(&quot;RxApply &quot; + str(iq.iqrxapp.get()) + &quot;\n&quot;)
+     f.close()
+ 
+ #------------------------------------------------------ Top level frame
+@@ -1473,6 +1488,12 @@
+             elif key == 'iband': iband.set(value)
+             elif key == 'StartIdle': start_idle.set(value)
+             elif key == 'NoBeep': no_beep.set(value)
++
++            elif key == 'Ygain': w.acom1.gain=float(value)
++            elif key == 'Phdeg': w.acom1.phase=float(value)/57.2957795
++            elif key == 'Reject': w.acom1.reject=float(value)
++            elif key == 'RxApply': iq.iqrxapp.set(value)
++
+             elif key == 'MRUdir':
+                 mrudir=value.replace(&quot;#&quot;,&quot; &quot;)
+             nparam=i
+@@ -1481,6 +1502,9 @@
+         badlist.append(i)
+         nparam=i
+ 
++w.acom1.gain=1.0
++w.acom1.phase=0.0
++w.acom1.reject=0.
+ while nparam &lt; len(params)-1:
+     readinit()
+ 
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-09-28 21:04:49 UTC (rev 2193)
++++ branches/wspr/wspr2.f90	2010-09-29 17:15:06 UTC (rev 2194)
+@@ -16,7 +16,8 @@
+   common/acom2/ntune2,linetx
+   common/patience/npatience
+   data receiving/.false./,transmitting/.false./
+-  data nrxnormal/0/
++  data nrxnormal/0/,ireset/1/
++  save ireset
+ 
+   call cs_init
+   dectxt=appdir(:nappdir)//'/decoded.txt'
+@@ -101,7 +102,11 @@
+        (idle.eq.0)) go to 30
+   if(receiving) then
+      call chklevel(kwave,iqmode+1,NZ/2,nsec1,xdb1,xdb2,iwrite)
+-!     if(iqmode.eq.1) call speciq(kwave,NZ/2,iwrite,iqrx,nfiq)
++     if(iqmode.eq.1 .and. iqrxadj.eq.1) then
++        call speciq(kwave,NZ/2,iwrite,iqrx,nfiq,ireset,gain,phase,reject)
++     else
++        ireset=1
++     endif
+   endif
+ !  call msleep(200)
+   call msleep(700)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001885.html">[WSJT-SVN] r2193 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001887.html">[WSJT-SVN] r2195 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1886">[ date ]</a>
+              <a href="thread.html#1886">[ thread ]</a>
+              <a href="subject.html#1886">[ subject ]</a>
+              <a href="author.html#1886">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

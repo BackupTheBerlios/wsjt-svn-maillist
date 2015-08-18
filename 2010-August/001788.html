@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2096 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2096%20-%20wsjt7a&In-Reply-To=%3C20100807183940.5D4C2480F18%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001787.html">
+   <LINK REL="Next"  HREF="001789.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2096 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2096%20-%20wsjt7a&In-Reply-To=%3C20100807183940.5D4C2480F18%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2096 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug  7 20:39:40 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001787.html">[WSJT-SVN] r2095 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001789.html">[WSJT-SVN] r2097 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1788">[ date ]</a>
+              <a href="thread.html#1788">[ thread ]</a>
+              <a href="subject.html#1788">[ subject ]</a>
+              <a href="author.html#1788">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-07 20:39:40 +0200 (Sat, 07 Aug 2010)
+New Revision: 2096
+
+Added:
+   wsjt7a/techo.f90
+Modified:
+   wsjt7a/Makefile.MinGW
+Log:
+Echo test program, for waveform=1.  Not yet working right...
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-08-07 14:37:42 UTC (rev 2095)
++++ wsjt7a/Makefile.MinGW	2010-08-07 18:39:40 UTC (rev 2096)
+@@ -39,6 +39,11 @@
+ t74:	$(OBJS4)
+ 	$(FC) -o t74 $(OBJS4) libfftw3f_win.a
+ 
++OBJS5	= techo.o analytic.o four2b.o db.o
++
++techo.exe: $(OBJS5)
++	$(FC) -o techo.exe $(OBJS5) libfftw3f_win.a
++
+ F2PYONLY = ftn_init ftn_quit audio_init spec getfile azdist0 astro0 chkt0
+ 
+ SRCS2F90 = wsjt1.f90 a2d.f90 abc441.f90 astro0.f90 audio_init.f90 azdist0.f90 \
+
+Added: wsjt7a/techo.f90
+===================================================================
+--- wsjt7a/techo.f90	                        (rev 0)
++++ wsjt7a/techo.f90	2010-08-07 18:39:40 UTC (rev 2096)
+@@ -0,0 +1,96 @@
++program techo
++
++  parameter (NMAX=44100)            !Length of wave file, 4.0 seconds
++  parameter (NDZ=28672)
++  parameter (NSYNC=24030)
++  parameter (LAGMAX=NDZ-NSYNC)
++
++  real d(28672)
++  complex cd(32768)
++  complex c(32768)
++  complex csync(24030)
++  real s(0:16384)
++  real s2(32768)
++  character infile*40,arg*12
++  character*24 fname
++  integer ic27(27)
++  data ic27/1,3,7,15,2,5,11,23,18,8,17,6,13,27,26,24,20,12,25,22,   &amp;
++       16,4,9,19,10,21,14/
++
++  nargs=iargc()
++  if(nargs.ne.2) then
++     print*,'Usage: techo &lt;infile&gt; nrec'
++     go to 999
++  endif
++
++  call getarg(1,infile)
++  call getarg(2,arg)
++  read(arg,*) nrec
++
++  twopi=8*atan(1.d0)
++  dt=1.d0/11025.d0
++  df=11025.d0/890.d0
++
++  pha=0.d0
++  k=0
++  do j=1,27
++     f=1500.d0 + (ic27(j)-14)*df
++     dpha=twopi*f*dt
++     do i=1,890
++        pha=pha+dpha
++        k=k+1
++        csync(k)=cmplx(cos(pha),-sin(pha))
++     enddo
++  enddo
++
++  open(26,file=infile,form='unformatted',status='old')
++
++  npts=28672
++  nfft1=32768
++  df1=11025.0/nfft1
++
++
++  do irec=1,999
++     read(26,end=999) fname,ntime,dop0,doppler,d
++     if(irec.lt.nrec) cycle
++     if(irec.gt.nrec) go to 999
++     print*,fname,ntime,dop0,doppler,irec,nrec
++     call analytic(d,npts,nfft1,s,cd)
++
++     fac=1.e-4
++     sbest=0.
++     do lag=0,LAGMAX
++        do i=1,NSYNC
++           c(i)=fac*cd(i+lag)*csync(i)
++        enddo
++        c(i+1:)=0.
++        call four2a(c,nfft1,1,-1,1)
++        smax=0.
++        do i=1,nfft1
++           s2(i)=real(c(i))**2 + aimag(c(i))**2
++           if(s2(i).gt.smax) then
++              smax=s2(i)
++              ipk=i
++           endif
++        enddo
++        write(14,3002) lag,smax
++3002    format(i6,e15.3)
++        if(smax.gt.sbest) then
++           sbest=smax
++           ibest=ipk
++           lagbest=lag
++           rewind 13
++           do i=1,nfft1
++              f=(i-1)*df1
++              if(i.gt.nfft1/2) f=(i-nfft1-1)*df1
++              write(13,3001) f,s2(i),db(s2(i))
++3001          format(3f12.3)
++           enddo
++        endif
++     enddo
++  call flush(13)
++  call flush(14)
++  print*,lagbest,ibest,sbest
++  enddo
++
++999 end program techo
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001787.html">[WSJT-SVN] r2095 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001789.html">[WSJT-SVN] r2097 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1788">[ date ]</a>
+              <a href="thread.html#1788">[ thread ]</a>
+              <a href="subject.html#1788">[ subject ]</a>
+              <a href="author.html#1788">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

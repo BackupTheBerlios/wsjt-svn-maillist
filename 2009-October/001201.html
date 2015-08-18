@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1510 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1510%20-%20branches/wsjt8a&In-Reply-To=%3C200910071911.n97JBfA1000933%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001200.html">
+   <LINK REL="Next"  HREF="001202.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1510 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1510%20-%20branches/wsjt8a&In-Reply-To=%3C200910071911.n97JBfA1000933%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1510 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct  7 21:11:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001200.html">[WSJT-SVN] r1509 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001202.html">[WSJT-SVN] r1511 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1201">[ date ]</a>
+              <a href="thread.html#1201">[ thread ]</a>
+              <a href="subject.html#1201">[ subject ]</a>
+              <a href="author.html#1201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-07 21:11:37 +0200 (Wed, 07 Oct 2009)
+New Revision: 1510
+
+Modified:
+   branches/wsjt8a/decode2.f90
+   branches/wsjt8a/horizspec.f90
+   branches/wsjt8a/pix2d.f90
+   branches/wsjt8a/spec.f90
+Log:
+Clean up spectral displays in JTMS mode.
+
+
+Modified: branches/wsjt8a/decode2.f90
+===================================================================
+--- branches/wsjt8a/decode2.f90	2009-10-07 17:50:20 UTC (rev 1509)
++++ branches/wsjt8a/decode2.f90	2009-10-07 19:11:37 UTC (rev 1510)
+@@ -42,7 +42,8 @@
+         if(k.gt.NrxMax) k=k-NRxMax
+         d2b(i)=dgain*y1(k)
+      enddo
+-     call decode3(d2b,lenpick,istart,fnamex)
++     istart2=min(istart-7200,1)
++     call decode3(d2b,lenpick,istart2,fnamex)
+   else if(ndecoding.eq.3) then
+ 
+ !Mouse pick, bottom half of waterfall
+
+Modified: branches/wsjt8a/horizspec.f90
+===================================================================
+--- branches/wsjt8a/horizspec.f90	2009-10-07 17:50:20 UTC (rev 1509)
++++ branches/wsjt8a/horizspec.f90	2009-10-07 19:11:37 UTC (rev 1510)
+@@ -44,24 +44,6 @@
+         j=121-i
+         a(nx,j)=n
+      enddo
+-     if(nx.eq.7 .or. nx.eq.378 .or. nx.eq.750) then
+-! Put in yellow ticks at the standard tone frequencies for FSK441, or
+-! at the sync-tone frequency for JT65, JT6M.
+-        do i=nx-4,nx
+-           if(mode.eq.'FSK441') then
+-              do n=2,5
+-                 j=121-nint(n*441/df)
+-                 a(i,j)=254
+-              enddo
+-           else if(mode(1:4).eq.'JT65') then
+-              j=121-nint(1270.46/df)
+-              a(i,j)=254
+-           else if(mode.eq.'JT6M') then
+-              j=121-nint(1076.66/df)
+-              a(i,j)=254
+-           endif
+-        enddo
+-     endif
+ 
+      ng=140 - 30*log10(0.00033*p+0.001)
+      ng=min(ng,150)
+@@ -79,7 +61,7 @@
+         enddo
+         ng0=ng
+      endif
+-     i0=i0+441
++     i0=i0+480
+   enddo
+ 
+   return
+
+Modified: branches/wsjt8a/pix2d.f90
+===================================================================
+--- branches/wsjt8a/pix2d.f90	2009-10-07 17:50:20 UTC (rev 1509)
++++ branches/wsjt8a/pix2d.f90	2009-10-07 19:11:37 UTC (rev 1510)
+@@ -18,8 +18,9 @@
+   gain=100.
+   offset=0.0
+ 
+-  if(mousebutton.eq.0) then
+-     k=0
++  if(mousebutton.gt.0) then
++! This is a mouse-picked decode, so compute the &quot;zoomed&quot; region only.
++     k=50*500
+      do i=54,7,-1
+         do j=1,nz
+            k=k+1
+@@ -30,13 +31,9 @@
+         enddo
+         k=k+500-nz
+      enddo
+-     do i=k+1,60000
+-        b(i)=0
+-     enddo
+-
+   else
+-! This is a mouse-picked decode, so we compute the &quot;zoomed&quot; region.
+-     k=50*500
++     b=0
++     k=0
+      do i=54,7,-1
+         do j=1,nz
+            k=k+1
+@@ -47,9 +44,7 @@
+         enddo
+         k=k+500-nz
+      enddo
+-  endif
+ 
+-  if(mousebutton.eq.0) then
+ ! Compute the green curve
+      sum=0.
+      do i=1,jz
+
+Modified: branches/wsjt8a/spec.f90
+===================================================================
+--- branches/wsjt8a/spec.f90	2009-10-07 17:50:20 UTC (rev 1509)
++++ branches/wsjt8a/spec.f90	2009-10-07 19:11:37 UTC (rev 1510)
+@@ -31,7 +31,7 @@
+ 
+   call cs_lock('spec')
+   if(first) then
+-     istep=2205
++     istep=5*480
+      nfft=4096
+      nh=nfft/2
+      do i=1,nh
+@@ -52,16 +52,6 @@
+      rms=0.
+   endif
+ 
+-  nmode=1
+-  if(mode(1:4).eq.'JT65') nmode=2
+-  if(mode(1:4).eq.'Echo') nmode=3
+-  if(mode(1:4).eq.'JT6M') nmode=4
+-  if(mode(1:2).eq.'CW') nmode=5
+-  if(mode(1:3).eq.'JT2') nmode=6
+-  if(mode(1:3).eq.'JT4') nmode=7
+-  if(mode(1:4).eq.'WSPR') nmode=8
+-  if(mode(1:4).eq.'JT64') nmode=9
+-
+   nlines=0
+   newdat=0
+   npts=iwrite-iread
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001200.html">[WSJT-SVN] r1509 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001202.html">[WSJT-SVN] r1511 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1201">[ date ]</a>
+              <a href="thread.html#1201">[ thread ]</a>
+              <a href="subject.html#1201">[ subject ]</a>
+              <a href="author.html#1201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

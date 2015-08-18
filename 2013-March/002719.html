@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3027 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3027%20-%20trunk&In-Reply-To=%3C20130301172750.DE7B155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002718.html">
+   <LINK REL="Next"  HREF="002720.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3027 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3027%20-%20trunk&In-Reply-To=%3C20130301172750.DE7B155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3027 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Mar  1 18:27:50 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002718.html">[WSJT-SVN] r3026 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002720.html">[WSJT-SVN] r3028 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2719">[ date ]</a>
+              <a href="thread.html#2719">[ thread ]</a>
+              <a href="subject.html#2719">[ subject ]</a>
+              <a href="author.html#2719">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-01 18:27:50 +0100 (Fri, 01 Mar 2013)
+New Revision: 3027
+
+Modified:
+   trunk/sync4.f90
+   trunk/wsjt.py
+Log:
+Correct a flaw in setting ia, ib range in sync4.
+Save/restore the MinW setting in JT4 mode.
+
+
+Modified: trunk/sync4.f90
+===================================================================
+--- trunk/sync4.f90	2013-03-01 14:49:26 UTC (rev 3026)
++++ trunk/sync4.f90	2013-03-01 17:27:50 UTC (rev 3027)
+@@ -22,6 +22,7 @@
+   equivalence (ipk1,ipk1a)
+   data nch/1,2,4,9,18,36,72/
+   save
++  freq(i)=(i-i0 + 3*mode4)*df
+ 
+ ! Do FFTs of twice symbol length, stepped by half symbols.  Note that 
+ ! we have already downsampled the data by factor of 2.
+@@ -49,8 +50,8 @@
+   enddo
+ 
+ ! Set freq and lag ranges
+-  famin=200.
+-  fbmax=2700.
++  famin=200.0 + 3*mode4*df
++  fbmax=2700.0 - 3*mode4*df
+   fa=famin
+   fb=fbmax
+   if(NFreeze.eq.1) then
+@@ -60,25 +61,23 @@
+      fa=max(famin,1270.46+MouseDF-600)
+      fb=min(fbmax,1270.46+MouseDF+600)
+   endif
+-  ia=fa/df
+-  ib=fb/df
+-  if(mode.eq.7) then
+-     ia=ia - 3*mode4
+-     ib=ib - 3*mode4
+-  endif
++  ia=fa/df - 3*mode4                   !Index of lowest tone, bottom of range
++  ib=fb/df - 3*mode4                   !Index of lowest tone, top of range
+   i0=nint(1270.46/df)
++  irange=450
++  if(ia-i0.lt.-irange) ia=i0-irange
++  if(ib-i0.gt.irange)  ib=i0+irange
+   lag1=-5
+   lag2=59
+   syncbest=-1.e30
+   ccfred=0.
+-  if(ia-i0.lt.-450) ia=i0-450
+-  if(ib-i0.gt.450)  ib=i0450
+   jmax=-1000
+   jmin=1000
+ 
+   do ich=minwidth,7                       !Find best width
++     kz=nch(ich)/2
+      savered=.false.
+-     do i=ia,ib                           !Find best frequency channel for CCF
++     do i=ia+kz,ib-kz                     !Find best frequency channel for CCF
+         call xcor4(s2,i,nsteps,nsym,lag1,lag2,ich,mode4,ccfblue,ccf0,   &amp;
+              lagpk0,flip)
+         j=i-i0 + 3*mode4
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-03-01 14:49:26 UTC (rev 3026)
++++ trunk/wsjt.py	2013-03-01 17:27:50 UTC (rev 3027)
+@@ -2886,6 +2886,8 @@
+         elif key == 'LowBeacon': nlowbeacon.set(value)
+         elif key == 'JT4avg': jt4avg.set(value)
+         elif key == 'Monitor': nmonitor.set(value)
++        elif key == 'MinW': iMinW=int(value)
++        
+         elif key == 'HisCall':
+             Audio.gcom2.hiscall=(value+' '*12)[:12]
+             ToRadio.delete(0,99)
+@@ -2919,6 +2921,7 @@
+ #options.defaults()
+ 
+ lsync.configure(text=slabel+str(isync))
++lMinW.configure(text='MinW  ' + chr(ord('A')+iMinW-1))
+ Audio.gcom2.azeldir=(options.azeldir.get()+' '*80)[:80]
+ Audio.gcom2.ndepth=ndepth.get()
+ Audio.gcom2.nhighpri=options.HighPri.get()
+@@ -3004,6 +3007,7 @@
+ f.write(&quot;LowBeacon &quot; + str(nlowbeacon.get()) + &quot;\n&quot;)
+ f.write(&quot;JT4avg &quot; + str(jt4avg.get()) + &quot;\n&quot;)
+ f.write(&quot;Monitor &quot; + str(nmonitor.get()) + &quot;\n&quot;)
++f.write(&quot;MinW &quot; + str(iMinW) + &quot;\n&quot;)
+ #f.write(&quot;TRPeriod &quot; + str(Audio.gcom1.trperiod) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002718.html">[WSJT-SVN] r3026 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002720.html">[WSJT-SVN] r3028 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2719">[ date ]</a>
+              <a href="thread.html#2719">[ thread ]</a>
+              <a href="subject.html#2719">[ subject ]</a>
+              <a href="author.html#2719">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,421 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2835 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2835%20-%20branches/wsprx&In-Reply-To=%3C20121217213358.1E65555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002526.html">
+   <LINK REL="Next"  HREF="002528.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2835 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2835%20-%20branches/wsprx&In-Reply-To=%3C20121217213358.1E65555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2835 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Dec 17 22:33:57 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002526.html">[WSJT-SVN] r2834 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002528.html">[WSJT-SVN] r2836 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2527">[ date ]</a>
+              <a href="thread.html#2527">[ thread ]</a>
+              <a href="subject.html#2527">[ subject ]</a>
+              <a href="author.html#2527">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-17 22:33:57 +0100 (Mon, 17 Dec 2012)
+New Revision: 2835
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Basic scheduling now working (I think).  
+Need a new &quot;genwspr()&quot; to compute values of array itone[162].
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-17 18:39:21 UTC (rev 2834)
++++ branches/wsprx/mainwindow.cpp	2012-12-17 21:33:57 UTC (rev 2835)
+@@ -93,8 +93,11 @@
+                    this, SLOT(onNetworkReply(QNetworkReply*)));
+ 
+   QTimer *guiTimer = new QTimer(this);
+-  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
++//  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
++  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate2()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
++  pttTimer = new QTimer(this);
++
+   m_auto=false;
+   m_waterfallAvg = 1;
+   btxMute=false;
+@@ -119,6 +122,11 @@
+   m_TRperiod=120;
+   m_inGain=0;
+   m_hopping=false;
++  m_rxdone=false;
++  m_txdone=false;
++  m_ntune=0;
++  m_idle=false;
++  m_TxOK=false;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -145,6 +153,7 @@
+   soundInThread.start(QThread::HighestPriority);
+   soundOutThread.setOutputDevice(m_paOutDevice);
+   soundOutThread.setTxFreq(m_txFreq);
++  m_receiving=true;
+   soundInThread.setReceiving(m_receiving);
+   m_diskData=false;
+ 
+@@ -317,6 +326,7 @@
+     QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wspr0 D 0.474200 &quot; + m_fname + '&quot;';
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+     lab3-&gt;setText(&quot;Decoding&quot;);
++    m_rxdone=true;
+     proc_jt9.start(QDir::toNativeSeparators(cmnd));
+   }
+   soundInThread.m_dataSinkBusy=false;
+@@ -663,6 +673,7 @@
+   m_TRperiod=120;
+   m_nsps=15360;
+   m_hsymStop=178;
++  m_nseqdone=115;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -677,6 +688,7 @@
+   m_TRperiod=900;
+   m_nsps=82944;
+   m_hsymStop=171;
++  m_nseqdone=895;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -691,6 +703,7 @@
+   m_TRperiod=1800;
+   m_nsps=252000;
+   m_hsymStop=167;
++  m_nseqdone=1795;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -716,19 +729,19 @@
+ 
+ void MainWindow::onNetworkReply(QNetworkReply* reply)
+ {
+-  qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; reply-&gt;error();
++  qDebug() &lt;&lt; &quot;Network Reply:&quot; &lt;&lt; reply-&gt;error();
+   QString replyString;
+   if(reply-&gt;error() == QNetworkReply::NoError) {
+     int httpstatuscode = reply-&gt;attribute(
+           QNetworkRequest::HttpStatusCodeAttribute).toUInt();
+-    qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; httpstatuscode;
++    qDebug() &lt;&lt; &quot;http status code:&quot; &lt;&lt; httpstatuscode;
+     switch(httpstatuscode)
+     {
+     case 0:                                   //RESPONSE_OK:
+       if (reply-&gt;isReadable()) {
+   //Assuming this is a human readable file replyString now contains the file
+         replyString = QString::fromUtf8(reply-&gt;readAll().data());
+-        qDebug() &lt;&lt; &quot;D&quot; &lt;&lt; replyString;
++        qDebug() &lt;&lt; &quot;Network reply string:&quot; &lt;&lt; replyString;
+       }
+       break;
+     default:
+@@ -739,6 +752,7 @@
+   reply-&gt;deleteLater();
+ }
+ 
++/*
+ //------------------------------------------------------------- //guiUpdate()
+ void MainWindow::guiUpdate()
+ {
+@@ -875,6 +889,7 @@
+   iptt0=iptt;
+   btxok0=btxok;
+ }
++*/
+ 
+ void MainWindow::oneSec() {
+   QDateTime t = QDateTime::currentDateTimeUtc();
+@@ -883,20 +898,28 @@
+   QString utc = t.date().toString(&quot;yyyy MMM dd&quot;) + &quot; \n &quot; +
+           t.time().toString();
+   ui-&gt;labUTC-&gt;setText(utc);
++//  qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; m_receiving &lt;&lt; m_diskData &lt;&lt; t.time().toString();
+   if(!m_receiving and !m_diskData) {
+-    ui-&gt;xThermo-&gt;setValue(0.0);
++//    ui-&gt;xThermo-&gt;setValue(0.0);
+   }
+ }
+ 
+ //------------------------------------------------------------- //guiUpdate2()
+ void MainWindow::guiUpdate2()
+ {
+-  m_nseq=int(tsec()) % m_TRperiod;
++  int nsec=int(tsec());
++  m_nseq = nsec % m_TRperiod;
++  if(nsec != m_sec0) {
++    oneSec();
++    m_sec0=nsec;
++  }
+   m_rxavg=1.0;
+   if(m_pctx&gt;0) m_rxavg=100.0/m_pctx - 1.0;
+ 
+   if(m_rxdone) {
++    qDebug() &lt;&lt; &quot;RxDone&quot; &lt;&lt; nsec &lt;&lt; m_nseq;
+     m_receiving=false;
++    soundInThread.setReceiving(m_receiving);
+     m_rxdone=false;
+     //thisfile= yymmdd + m_rxtime + &quot;.wav&quot;
+     //if(m_diskData) thisfile=file2
+@@ -907,20 +930,29 @@
+   }
+ 
+   if(m_txdone) {
++    qDebug() &lt;&lt; &quot;TxDone&quot; &lt;&lt; nsec &lt;&lt; m_nseq;
+     m_transmitting=false;
+     m_txdone=false;
+     m_ntr=0;
+   }
+ 
+   if(m_nseq &gt;= m_nseqdone and m_ntune==0) {
++//    if(m_nseq==m_nseqdone) qDebug() &lt;&lt; &quot;Seq Done&quot; &lt;&lt; m_nseq &lt;&lt; m_nseqdone;
++    if(m_transmitting) {
++      stopTx();
++      m_txdone=true;
++    }
++    if(m_receiving) m_rxdone=true;
+     m_transmitting=false;
+     m_receiving=false;
++    soundInThread.setReceiving(m_receiving);
+     m_ntr=0;
+   }
+ 
+   if(m_pctx&lt;1) m_ntune=0;
+ 
+   if(m_ntune!=0 and !m_transmitting and !m_receiving and m_pctx&gt;=1) {
++    qDebug() &lt;&lt; &quot;Tune&quot; &lt;&lt; m_ntune &lt;&lt; m_pctx;
+     //Make a test transmission of duration pctx.
+     //m_nsectx=nsec
+     m_transmitting=true;
+@@ -928,33 +960,35 @@
+   }
+ 
+   if(m_ncal==1 and !m_transmitting and !m_receiving) {
++    qDebug() &lt;&lt; &quot;Cal&quot;;
+     //Execute one Rx sequence (length??)
+     m_receiving=true;
++    soundInThread.setReceiving(m_receiving);
+     //m_rxtime=hhmm
+     m_rxnormal=false;
+     m_diskData=0;
+-    //startrx()
++    startRx();
+   }
+ 
+   if(m_nseq!=0 or m_transmitting or m_receiving or m_idle) {
++//    qDebug() &lt;&lt; &quot;ChkLevel&quot;;
+     //chklevel()
+     //if(iqmode) ...
+     return;
+   }
+ 
+-  //outfile=...
++  //file2= yymmdd + hhmm + &quot;.wav&quot;
+   if(m_hopping) {
++    qDebug() &lt;&lt; &quot;Hopping&quot;;
+     //...
+   } else {
+     if(m_pctx==0) m_nrx=1;
+   }
+ 
+-  if(m_transmitting or m_receiving) return;
+-
+-  if(m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
++//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_pctx &lt;&lt; m_txnext &lt;&lt; m_nrx &lt;&lt; m_ntr;
++  if(m_TxOK and m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
+     m_transmitting=true;              //Start a normal Tx sequence
+-    float x=0.5;
+-//    x=ran();                                //###
++    float x=(float)rand()/RAND_MAX;
+     if(m_pctx&lt;50) {
+       m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
+     } else {
+@@ -964,16 +998,19 @@
+ //    message=MyCall + MyGrid + &quot;ndbm&quot;;
+     //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
+     m_ntr=-1;
++    qDebug() &lt;&lt; &quot;Start transmitting&quot; &lt;&lt; x &lt;&lt; m_rxavg &lt;&lt; m_nrx &lt;&lt; m_ntr;
+     //m_nsectx=nsec
+     m_txdone=false;
+     m_txnext=false;
+-    //starttx()
++    startTx();
+   } else {
+     m_receiving=true;                 //Start a normal Rx sequence
++    soundInThread.setReceiving(m_receiving);
+     //m_rxtime=hhmm
+     m_ntr=1;
+     m_rxnormal=true;
+-    //startrx()
++    qDebug() &lt;&lt; &quot;Start receiving&quot; &lt;&lt; m_ntr &lt;&lt; m_nrx;
++    startRx();
+     m_nrx=m_nrx-1;
+   }
+ }
+@@ -983,3 +1020,50 @@
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   return 0.001*ms;
+ }
++
++void MainWindow::on_sbPctTx_valueChanged(int arg1)
++{
++  m_pctx=ui-&gt;sbPctTx-&gt;value();
++}
++
++void MainWindow::startRx()
++{
++  qDebug() &lt;&lt; &quot;startRx&quot;;
++}
++
++void MainWindow::startTx()
++{
++  int itx=1;
++  ptt(m_pttPort,itx,&amp;m_iptt);                   // Raise PTT
++  if(!soundOutThread.isRunning()) {
++    double snr=99.0;
++    soundOutThread.setTxSNR(snr);
++    soundOutThread.start(QThread::HighPriority);
++  }
++
++  pttTimer-&gt;setSingleShot(true);
++  connect(pttTimer, SIGNAL(timeout()), this, SLOT(startTx2()));
++  qDebug() &lt;&lt; &quot;startTx&quot;;
++  pttTimer-&gt;start(200);                         //Sequencer delay
++}
++
++void MainWindow::startTx2()
++{
++  qDebug() &lt;&lt; &quot;startTx2&quot;;
++}
++
++void MainWindow::stopTx()
++{
++  qDebug() &lt;&lt; &quot;stopTx&quot;;
++}
++
++void MainWindow::on_cbIdle_toggled(bool b)
++{
++  m_idle=b;
++}
++
++void MainWindow::on_cbTxMute_toggled(bool b)
++{
++  m_TxOK=b;
++}
++
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2012-12-17 18:39:21 UTC (rev 2834)
++++ branches/wsprx/mainwindow.h	2012-12-17 21:33:57 UTC (rev 2835)
+@@ -28,7 +28,7 @@
+   void dataSink(int k);
+   void diskDat();
+   void diskWriteFinished();
+-  void guiUpdate();
++//  void guiUpdate();
+   void guiUpdate2();
+   void readFromStdout();
+   void readFromStderr();
+@@ -64,6 +64,10 @@
+   void on_inGain_valueChanged(int n);
+   void on_TxNextButton_clicked();
+   void onNetworkReply(QNetworkReply* reply);
++  void on_sbPctTx_valueChanged(int arg1);
++  void on_cbIdle_toggled(bool b);
++  void on_cbTxMute_toggled(bool b);
++  void startTx2();
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -95,6 +99,7 @@
+     qint32  m_nseqdone;
+     qint32  m_ntune;
+     qint32  m_pctx;
++    qint32  m_iptt;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+@@ -112,6 +117,7 @@
+     bool    m_txdone;
+     bool    m_txnext;
+     bool    m_hopping;
++    bool    m_TxOK;
+ 
+     char    m_decoded[80];
+ 
+@@ -138,6 +144,8 @@
+     QProcess proc_jt9;
+     QStringList m_decodedList;
+ 
++    QTimer* pttTimer;
++
+     QString m_path;
+     QString m_myCall;
+     QString m_myGrid;
+@@ -158,7 +166,11 @@
+     void updateStatusBar();
+     void msgBox(QString t);
+     void oneSec();
++    void startRx();
++    void startTx();
++    void stopTx();
+     double tsec();
++
+ };
+ 
+ extern void getfile(QString fname, int ntrperiod);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002526.html">[WSJT-SVN] r2834 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002528.html">[WSJT-SVN] r2836 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2527">[ date ]</a>
+              <a href="thread.html#2527">[ thread ]</a>
+              <a href="subject.html#2527">[ subject ]</a>
+              <a href="author.html#2527">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

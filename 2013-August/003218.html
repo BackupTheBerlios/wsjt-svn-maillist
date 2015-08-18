@@ -1,0 +1,547 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3526 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3526%20-%20branches/wsjtx&In-Reply-To=%3C20130805174113.5BD6355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003217.html">
+   <LINK REL="Next"  HREF="003219.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3526 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3526%20-%20branches/wsjtx&In-Reply-To=%3C20130805174113.5BD6355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3526 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Aug  5 19:41:13 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003217.html">[WSJT-SVN] r3525 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003219.html">[WSJT-SVN] r3527 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3218">[ date ]</a>
+              <a href="thread.html#3218">[ thread ]</a>
+              <a href="subject.html#3218">[ subject ]</a>
+              <a href="author.html#3218">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-08-05 19:41:12 +0200 (Mon, 05 Aug 2013)
+New Revision: 3526
+
+Added:
+   branches/wsjtx/Detector.cpp
+   branches/wsjtx/Detector.hpp
+   branches/wsjtx/Modulator.cpp
+   branches/wsjtx/Modulator.hpp
+Modified:
+   branches/wsjtx/mainwindow.cpp
+Log:
+Forgot to include four files.
+
+
+Added: branches/wsjtx/Detector.cpp
+===================================================================
+--- branches/wsjtx/Detector.cpp	                        (rev 0)
++++ branches/wsjtx/Detector.cpp	2013-08-05 17:41:12 UTC (rev 3526)
+@@ -0,0 +1,93 @@
++#include &quot;Detector.hpp&quot;
++
++#include &lt;algorithm&gt;
++
++#include &lt;QDateTime&gt;
++#include &lt;QDebug&gt;
++
++#include &quot;commons.h&quot;
++
++Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent)
++  : QIODevice (parent)
++  , m_frameRate (frameRate)
++  , m_period (periodLengthInSeconds)
++  , m_bytesPerSignal (bytesPerSignal)
++  , m_monitoring (false)
++  , m_starting (false)
++{
++  clear ();
++}
++
++bool Detector::reset ()
++{
++  clear ();
++  return QIODevice::reset ();
++}
++
++void Detector::clear ()
++{
++  // set index to roughly where we are in time (1s resolution)
++  jt9com_.kin = secondInPeriod () * m_frameRate;
++
++  // fill buffer with zeros
++  std::fill (jt9com_.d2, jt9com_.d2 + sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]), 0);
++}
++
++qint64 Detector::writeData (char const * data, qint64 maxSize)
++{
++  Q_ASSERT (!(maxSize % sizeof (jt9com_.d2[0]))); // no torn frames
++  Q_ASSERT (!(reinterpret_cast&lt;size_t&gt; (data) % __alignof__ (frame_t)));	  // data is aligned as frame_t would be
++
++  frame_t const * frames (reinterpret_cast&lt;frame_t const *&gt; (data));
++
++  qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
++  qint64 framesAccepted (std::min (maxSize / sizeof (jt9com_.d2[0]), framesAcceptable));
++  
++  if (framesAccepted &lt; maxSize / sizeof (jt9com_.d2[0]))
++    {
++      qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!\n&quot;;
++    }
++
++  std::copy (frames, frames + framesAccepted, &amp;jt9com_.d2[jt9com_.kin]);
++
++  unsigned lastSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
++  jt9com_.kin += framesAccepted;
++  unsigned currentSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
++
++  if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
++    {
++      Q_EMIT bytesWritten (currentSignalIndex * m_bytesPerSignal);
++    }
++
++  if (!secondInPeriod ())
++    {
++      if (!m_starting)
++	{
++	  // next samples will be in new period so wrap around to
++	  // start of buffer
++	  //
++	  // we don't bother calling reset () since we expect to fill
++	  // the whole buffer and don't need to waste cycles zeroing
++	  jt9com_.kin = 0;
++	  m_starting = true;
++	}
++    }
++  else if (m_starting)
++    {
++      m_starting = false;
++    }
++
++  return maxSize;		// we drop any data past the end of
++				// the buffer on the floor until the
++				// next period starts
++}
++
++unsigned Detector::secondInPeriod () const
++{
++  // we take the time of the data as the following assuming no latency
++  // delivering it to us (not true but close enough for us)
++  qint64 now (QDateTime::currentMSecsSinceEpoch ());
++
++  unsigned secondInToday ((now % 86400000LL) / 1000);
++  return secondInToday % m_period;
++}
+
+Added: branches/wsjtx/Detector.hpp
+===================================================================
+--- branches/wsjtx/Detector.hpp	                        (rev 0)
++++ branches/wsjtx/Detector.hpp	2013-08-05 17:41:12 UTC (rev 3526)
+@@ -0,0 +1,67 @@
++#ifndef DETECTOR_HPP__
++#define DETECTOR_HPP__
++
++#include &lt;inttypes.h&gt;
++
++#include &lt;QIODevice&gt;
++
++//
++// output device that distributes data in predefined chunks via a signal
++//
++// the underlying device for this abstraction is just the buffer that
++// stores samples throughout a receiving period
++//
++class Detector : public QIODevice
++{
++  Q_OBJECT;
++
++  Q_PROPERTY (bool monitoring READ isMonitoring WRITE setMonitoring);
++
++private:
++  Q_DISABLE_COPY (Detector);
++
++public:
++  //
++  // if the data buffer were not global storage and fixed size then we
++  // might want maximum size passed as constructor arguments
++  //
++  Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent = 0);
++
++  bool open ()
++  {
++    // we only support data consumption and want it as fast as possible
++    return QIODevice::open (QIODevice::WriteOnly | QIODevice::Unbuffered);
++  }
++
++  bool isSequential () const
++  {
++    return true;
++  }
++
++  bool isMonitoring () const {return m_monitoring;}
++  void setMonitoring (bool newState) {m_monitoring = newState;}
++
++  bool reset ();
++
++protected:
++  qint64 readData (char * /* data */, qint64 /* maxSize */)
++  {
++    return -1;			// we don't produce data
++  }
++
++  qint64 writeData (char const * data, qint64 maxSize);
++
++private:
++  typedef int16_t frame_t;
++
++  void clear ();		// discard buffer contents
++  unsigned secondInPeriod () const;
++
++  unsigned m_frameRate;
++  unsigned m_period;
++  unsigned m_bytesPerSignal;
++  bool m_monitoring;
++  bool m_starting;
++};
++
++#endif
+
+Added: branches/wsjtx/Modulator.cpp
+===================================================================
+--- branches/wsjtx/Modulator.cpp	                        (rev 0)
++++ branches/wsjtx/Modulator.cpp	2013-08-05 17:41:12 UTC (rev 3526)
+@@ -0,0 +1,195 @@
++#include &quot;Modulator.hpp&quot;
++
++#include &lt;cstdlib&gt;
++#include &lt;cmath&gt;
++#include &lt;algorithm&gt;
++#include &lt;limits&gt;
++
++#include &lt;QDateTime&gt;
++
++extern float gran();		// Noise generator (for tests only)
++
++double const Modulator::m_twoPi = 2.0 * 3.141592653589793238462;
++
++//    float wpm=20.0;
++//    unsigned m_nspd=1.2*48000.0/wpm;
++//    m_nspd=3072;                           //18.75 WPM
++unsigned const Modulator::m_nspd = 2048 + 512; // 22.5 WPM
++
++Modulator::Modulator (unsigned frameRate, unsigned periodLengthInSeconds, QObject * parent)
++  : QIODevice (parent)
++  , m_frameRate (frameRate)
++  , m_period (periodLengthInSeconds)
++  , m_state (Idle)
++  , m_phi (0.)
++  , m_ic (0)
++  , m_isym0 (std::numeric_limits&lt;unsigned&gt;::max ()) // ensure we set up first symbol tone
++{
++}
++
++bool Modulator::open (std::vector&lt;int&gt; const * symbols, std::vector&lt;int&gt; const * cw, double framesPerSymbol, unsigned frequency, double dBSNR)
++{
++  m_symbols.reset (symbols);	// take over ownership (cannot throw)
++  m_cw.reset (cw);		// take over ownership (cannot throw)
++  m_addNoise = dBSNR &lt; 0.;
++  m_nsps = framesPerSymbol;
++  m_frequency = frequency;
++  m_amp = std::numeric_limits&lt;frame_t&gt;::max ();
++  m_state = Idle;
++
++  // noise generator parameters
++  if (m_addNoise)
++    {
++      m_snr = std::pow (10.0, 0.05 * (dBSNR - 6.0));
++      m_fac = 3000.0;
++      if (m_snr &gt; 1.0)
++	{
++	  m_fac = 3000.0 / m_snr;
++	}
++    }
++  
++  return QIODevice::open (QIODevice::ReadOnly);
++}
++
++qint64 Modulator::readData (char * data, qint64 maxSize)
++{
++  frame_t * frames (reinterpret_cast&lt;frame_t *&gt; (data));
++  unsigned numFrames (maxSize / sizeof (frame_t));
++
++  switch (m_state)
++    {
++    case Idle:
++      {
++	// Time according to this computer
++	qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
++	unsigned mstr = ms % (1000 * m_period);
++	if (mstr &lt; 1000)	// send silence up to first second
++	  {
++	    std::fill (frames, frames + numFrames, 0);		 // silence
++	    return numFrames * sizeof (frame_t);
++	  }
++	m_ic = (mstr - 1000) * 48;
++
++	std::srand (mstr);		// Initialize random seed
++
++	m_state = Active;
++      }
++      // fall through
++
++    case Active:
++      {
++	unsigned isym (m_tuning ? 0 : m_ic / (4.0 * m_nsps)); // Actual fsample=48000
++
++	if (isym &gt;= m_symbols-&gt;size () &amp;&amp; (*m_cw)[0] &gt; 0)
++	  {
++	    // Output the CW ID
++	    m_dphi = m_twoPi * m_frequency / m_frameRate;
++
++	    unsigned const ic0 = m_symbols-&gt;size () * 4 * m_nsps;
++	    unsigned j (0);
++	    for (unsigned i = 0; i &lt; numFrames; ++i)
++	      {
++		m_phi += m_dphi;
++		if (m_phi &gt; m_twoPi)
++		  {
++		    m_phi -= m_twoPi;
++		  }
++		frame_t frame = std::numeric_limits&lt;frame_t&gt;::max () * std::sin (m_phi);
++		j = (m_ic - ic0) / m_nspd + 1;
++		if (!(*m_cw)[j])
++		  {
++		    frame = 0;
++		  }
++
++		frame = postProcessFrame (frame);
++
++		*frames++ = frame; //left
++		++m_ic;
++	      }
++	    if (j &gt; static_cast&lt;unsigned&gt; ((*m_cw)[0]))
++	      {
++		m_state = Done;
++	      }
++	    return numFrames * sizeof (frame_t);
++	  }
++
++	double const baud (12000.0 / m_nsps);
++
++	// fade out parameters (no fade out for tuning)
++	unsigned const i0 = m_tuning ? 999 * m_nsps : (m_symbols-&gt;size () - 0.017) * 4.0 * m_nsps;
++	unsigned const i1 = m_tuning ? 999 * m_nsps : m_symbols-&gt;size () * 4.0 * m_nsps;
++
++	for (unsigned i = 0; i &lt; numFrames; ++i)
++	  {
++	    isym = m_tuning ? 0 : m_ic / (4.0 * m_nsps); //Actual fsample=48000
++	    if (isym != m_isym0)
++	      {
++		double toneFrequency = m_frequency + (*m_symbols)[isym] * baud;
++		m_dphi = m_twoPi * toneFrequency / m_frameRate;
++		m_isym0 = isym;
++	      }
++	    m_phi += m_dphi;
++	    if (m_phi &gt; m_twoPi)
++	      {
++		m_phi -= m_twoPi;
++	      }
++	    if (m_ic &gt; i0)
++	      {
++		m_amp = 0.98 * m_amp;
++	      }
++	    if (m_ic &gt; i1)
++	      {
++		m_amp = 0.0;
++	      }
++	    frame_t frame (m_amp * std::sin (m_phi));
++	    frame = postProcessFrame (frame);
++	    *frames++ = frame;	//left
++	    ++m_ic;
++	  }
++
++	if (m_amp == 0.0) // TODO G4WJS: compare double with zero might not be wise
++	  {
++	    if ((*m_cw)[0] == 0)
++	      {
++		// no CW ID to send
++		m_state = Done;
++		return numFrames * sizeof (frame_t);
++	      }
++
++	    m_phi = 0.0;
++	  }
++
++	// done for this chunk - continue on next call
++	return numFrames * sizeof (frame_t);
++      }
++
++    case Done:
++      break;
++    }
++
++  Q_ASSERT (m_state == Done);
++  return 0;
++}
++
++Modulator::frame_t Modulator::postProcessFrame (frame_t frame) const
++{
++  if (m_muted)			// silent frame
++    {
++      return 0;
++    }
++
++  if (m_addNoise)
++    {
++      int i4 = m_fac * (gran () + frame * m_snr / 32768.0);
++      if (i4 &gt; std::numeric_limits&lt;frame_t&gt;::max ())
++	{
++	  i4 = std::numeric_limits&lt;frame_t&gt;::max ();
++	}
++      if (i4 &lt; std::numeric_limits&lt;frame_t&gt;::min ())
++	{
++	  i4 = std::numeric_limits&lt;frame_t&gt;::min ();
++	}
++      frame = i4;
++    }
++  return frame;
++}
+
+Added: branches/wsjtx/Modulator.hpp
+===================================================================
+--- branches/wsjtx/Modulator.hpp	                        (rev 0)
++++ branches/wsjtx/Modulator.hpp	2013-08-05 17:41:12 UTC (rev 3526)
+@@ -0,0 +1,81 @@
++#ifndef MODULATOR_HPP__
++#define MODULATOR_HPP__
++
++#include &lt;vector&gt;
++
++#include &lt;QIODevice&gt;
++#include &lt;QScopedPointer&gt;
++
++//
++// Input device that generates PCM audio frames that encode a message
++// and an optional CW ID.
++//
++// Output can be muted while underway, preserving waveform timing when
++// transmission is resumed.
++//
++class Modulator : public QIODevice
++{
++  Q_OBJECT;
++
++  Q_PROPERTY (unsigned frequency READ frequency WRITE setFrequency);
++  Q_PROPERTY (bool tuning READ isTuning WRITE tune);
++  Q_PROPERTY (bool muted READ isMuted WRITE mute);
++
++private:
++  Q_DISABLE_COPY (Modulator);
++
++public:
++  Modulator (unsigned frameRate, unsigned periodLengthInSeconds, QObject * parent = 0);
++
++  bool isTuning () const {return m_tuning;}
++  Q_SLOT void tune (bool newState = true) {m_tuning = newState;}
++
++  bool isMuted () const {return m_muted;}
++  Q_SLOT void mute (bool newState = true) {m_muted = newState;}
++
++  unsigned frequency () const {return m_frequency;}
++  Q_SLOT void setFrequency (unsigned newFrequency) {m_frequency = newFrequency;}
++
++  bool open (std::vector&lt;int&gt; const * symbols, std::vector&lt;int&gt; const * cw, double framesPerSymbol, unsigned frequency, double dBSNR = 99.);
++
++  bool isSequential () const
++  {
++    return true;
++  }
++
++protected:
++  qint64 readData (char * data, qint64 maxSize);
++  qint64 writeData (char const * /* data */, qint64 /* maxSize */)
++  {
++    return -1;			// we don't consume data
++  }
++
++private:
++  typedef short frame_t;
++
++  frame_t postProcessFrame (frame_t frame) const;
++
++  QScopedPointer&lt;std::vector&lt;int&gt; const&gt; m_symbols;
++  QScopedPointer&lt;std::vector&lt;int&gt; const&gt; m_cw;
++
++  static double const m_twoPi;
++  static unsigned const m_nspd;	// CW ID WPM factor
++
++  int m_frameRate;
++  int m_period;
++  double m_nsps;
++  double m_frequency;
++  double m_snr;
++  enum {Idle, Active, Done} m_state;
++  bool m_tuning;
++  bool m_muted;
++  bool m_addNoise;
++  double m_phi;
++  double m_dphi;
++  double m_amp;
++  unsigned m_ic;
++  double m_fac;
++  unsigned m_isym0;
++};
++
++#endif
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-05 15:22:59 UTC (rev 3525)
++++ branches/wsjtx/mainwindow.cpp	2013-08-05 17:41:12 UTC (rev 3526)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003217.html">[WSJT-SVN] r3525 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003219.html">[WSJT-SVN] r3527 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3218">[ date ]</a>
+              <a href="thread.html#3218">[ thread ]</a>
+              <a href="subject.html#3218">[ subject ]</a>
+              <a href="author.html#3218">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

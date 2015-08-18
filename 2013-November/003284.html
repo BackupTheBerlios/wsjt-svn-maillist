@@ -1,0 +1,541 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3591 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3591%20-%20branches/map65&In-Reply-To=%3C20131102205211.71C7A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="003285.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3591 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3591%20-%20branches/map65&In-Reply-To=%3C20131102205211.71C7A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3591 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Nov  2 21:52:11 CET 2013</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="003285.html">[WSJT-SVN] r3592 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3284">[ date ]</a>
+              <a href="thread.html#3284">[ thread ]</a>
+              <a href="subject.html#3284">[ subject ]</a>
+              <a href="author.html#3284">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-11-02 21:52:10 +0100 (Sat, 02 Nov 2013)
+New Revision: 3591
+
+Modified:
+   branches/map65/devsetup.cpp
+   branches/map65/devsetup.h
+   branches/map65/devsetup.ui
+   branches/map65/mainwindow.cpp
+   branches/map65/mainwindow.h
+   branches/map65/plotter.cpp
+   branches/map65/plotter.h
+   branches/map65/widegraph.h
+Log:
+Starting to implement support for the HB9DRI &quot;IQ+ XT&quot;.  This will require
+setting the Si570 to different frequencies for Rx and Tx.  
+
+Not finished yet!!
+
+
+Modified: branches/map65/devsetup.cpp
+===================================================================
+--- branches/map65/devsetup.cpp	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/devsetup.cpp	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -96,6 +96,9 @@
+   ui.soundCardRadioButton-&gt;setChecked(!m_network);
+   ui.rb96000-&gt;setChecked(m_fs96000);
+   ui.rb95238-&gt;setChecked(!m_fs96000);
++  ui.rbIQXT-&gt;setChecked(m_bIQxt);
++  ui.rbSi570-&gt;setChecked(!m_bIQxt);
++  ui.mult570TxSpinBox-&gt;setEnabled(m_bIQxt);
+   ui.comboBoxSndIn-&gt;setEnabled(!m_network);
+   ui.comboBoxSndIn-&gt;setCurrentIndex(m_nDevIn);
+   ui.comboBoxSndOut-&gt;setCurrentIndex(m_nDevOut);
+@@ -104,6 +107,7 @@
+   ui.cb10db-&gt;setChecked(m_10db);
+   ui.cbInitIQplus-&gt;setChecked(m_initIQplus);
+   ui.mult570SpinBox-&gt;setValue(m_mult570);
++  ui.mult570TxSpinBox-&gt;setValue(m_mult570Tx);
+   ui.cal570SpinBox-&gt;setValue(m_cal570);
+   sscanf(m_colors.toAscii(),&quot;%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x&quot;,
+          &amp;r,&amp;g,&amp;b,&amp;r0,&amp;g0,&amp;b0,&amp;r1,&amp;g1,&amp;b1,&amp;r2,&amp;g2,&amp;b2,&amp;r3,&amp;g3,&amp;b3);
+@@ -162,6 +166,7 @@
+   m_fAdd=ui.faddEntry-&gt;text().toDouble();
+   m_network=ui.networkRadioButton-&gt;isChecked();
+   m_fs96000=ui.rb96000-&gt;isChecked();
++  m_bIQxt=ui.rbIQXT-&gt;isChecked();
+   m_nDevIn=ui.comboBoxSndIn-&gt;currentIndex();
+   m_paInDevice=m_inDevList[m_nDevIn];
+   m_nDevOut=ui.comboBoxSndOut-&gt;currentIndex();
+@@ -171,6 +176,7 @@
+   m_10db=ui.cb10db-&gt;isChecked();
+   m_initIQplus=ui.cbInitIQplus-&gt;isChecked();
+   m_mult570=ui.mult570SpinBox-&gt;value();
++  m_mult570Tx=ui.mult570TxSpinBox-&gt;value();
+   m_cal570=ui.cal570SpinBox-&gt;value();
+ 
+   QDialog::accept();
+@@ -325,3 +331,15 @@
+   if (color.isValid()) {
+   }
+ }
++
++void DevSetup::on_mult570TxSpinBox_valueChanged(int n)
++{
++  m_mult570Tx=n;
++}
++
++void DevSetup::on_rbIQXT_toggled(bool checked)
++{
++  m_bIQxt=checked;
++  ui.mult570TxSpinBox-&gt;setEnabled(m_bIQxt);
++  ui.label_25-&gt;setEnabled(m_bIQxt);
++}
+
+Modified: branches/map65/devsetup.h
+===================================================================
+--- branches/map65/devsetup.h	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/devsetup.h	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -26,6 +26,7 @@
+   qint32  m_udpPort;
+   qint32  m_astroFont;
+   qint32  m_mult570;
++  qint32  m_mult570Tx;
+ 
+   double  m_fAdd;
+   double  m_cal570;
+@@ -39,6 +40,7 @@
+   bool    m_restartSoundOut;
+   bool    m_10db;
+   bool    m_initIQplus;
++  bool    m_bIQxt;
+ 
+   QString m_myCall;
+   QString m_myGrid;
+@@ -75,7 +77,10 @@
+   void on_sbGreen3_valueChanged(int arg1);
+   void on_sbBlue3_valueChanged(int arg1);
+   void on_pushButton_5_clicked();
++  void on_mult570TxSpinBox_valueChanged(int arg1);
+ 
++  void on_rbIQXT_toggled(bool checked);
++
+ private:
+   int r,g,b,r0,g0,b0,r1,g1,b1,r2,g2,b2,r3,g3,b3;
+   Ui::DialogSndCard ui;
+
+Modified: branches/map65/devsetup.ui
+===================================================================
+--- branches/map65/devsetup.ui	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/devsetup.ui	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -17,13 +17,13 @@
+    &lt;item&gt;
+     &lt;widget class=&quot;QTabWidget&quot; name=&quot;ioTabWidget&quot;&gt;
+      &lt;property name=&quot;currentIndex&quot;&gt;
+-      &lt;number&gt;0&lt;/number&gt;
++      &lt;number&gt;2&lt;/number&gt;
+      &lt;/property&gt;
+      &lt;widget class=&quot;QWidget&quot; name=&quot;tab&quot;&gt;
+       &lt;attribute name=&quot;title&quot;&gt;
+        &lt;string&gt;Station&lt;/string&gt;
+       &lt;/attribute&gt;
+-      &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++      &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+        &lt;property name=&quot;geometry&quot;&gt;
+         &lt;rect&gt;
+          &lt;x&gt;10&lt;/x&gt;
+@@ -952,22 +952,69 @@
+       &lt;attribute name=&quot;title&quot;&gt;
+        &lt;string&gt;Si570&lt;/string&gt;
+       &lt;/attribute&gt;
+-      &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget_6&quot;&gt;
++      &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
+        &lt;property name=&quot;geometry&quot;&gt;
+         &lt;rect&gt;
+-         &lt;x&gt;70&lt;/x&gt;
+-         &lt;y&gt;90&lt;/y&gt;
+-         &lt;width&gt;228&lt;/width&gt;
+-         &lt;height&gt;111&lt;/height&gt;
++         &lt;x&gt;40&lt;/x&gt;
++         &lt;y&gt;40&lt;/y&gt;
++         &lt;width&gt;272&lt;/width&gt;
++         &lt;height&gt;220&lt;/height&gt;
+         &lt;/rect&gt;
+        &lt;/property&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+         &lt;item&gt;
++         &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_19&quot;&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QLabel&quot; name=&quot;label_24&quot;&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;LO Selection:&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QRadioButton&quot; name=&quot;rbSi570&quot;&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;IQ+, Generic Si570&lt;/string&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;checked&quot;&gt;
++             &lt;bool&gt;true&lt;/bool&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QRadioButton&quot; name=&quot;rbIQXT&quot;&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;IQ+  Rx/XT&lt;/string&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;checked&quot;&gt;
++             &lt;bool&gt;false&lt;/bool&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++         &lt;/layout&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
++         &lt;spacer name=&quot;verticalSpacer_4&quot;&gt;
++          &lt;property name=&quot;orientation&quot;&gt;
++           &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;sizeType&quot;&gt;
++           &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;20&lt;/width&gt;
++            &lt;height&gt;40&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++         &lt;/spacer&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_9&quot;&gt;
+           &lt;item&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;label_12&quot;&gt;
+             &lt;property name=&quot;text&quot;&gt;
+-             &lt;string&gt;Frequency multiplier:&lt;/string&gt;
++             &lt;string&gt;Rx frequency multiplier:&lt;/string&gt;
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
+@@ -977,7 +1024,7 @@
+              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;sizeType&quot;&gt;
+-             &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
++             &lt;enum&gt;QSizePolicy::Preferred&lt;/enum&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+              &lt;size&gt;
+@@ -989,6 +1036,18 @@
+           &lt;/item&gt;
+           &lt;item&gt;
+            &lt;widget class=&quot;QSpinBox&quot; name=&quot;mult570SpinBox&quot;&gt;
++            &lt;property name=&quot;sizePolicy&quot;&gt;
++             &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++              &lt;horstretch&gt;0&lt;/horstretch&gt;
++              &lt;verstretch&gt;0&lt;/verstretch&gt;
++             &lt;/sizepolicy&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;minimumSize&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;80&lt;/width&gt;
++              &lt;height&gt;0&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
+             &lt;property name=&quot;minimum&quot;&gt;
+              &lt;number&gt;1&lt;/number&gt;
+             &lt;/property&gt;
+@@ -1003,6 +1062,58 @@
+          &lt;/layout&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
++         &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_20&quot;&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QLabel&quot; name=&quot;label_25&quot;&gt;
++            &lt;property name=&quot;enabled&quot;&gt;
++             &lt;bool&gt;false&lt;/bool&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;Tx frequency multiplier:&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;spacer name=&quot;horizontalSpacer_21&quot;&gt;
++            &lt;property name=&quot;orientation&quot;&gt;
++             &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;sizeType&quot;&gt;
++             &lt;enum&gt;QSizePolicy::Preferred&lt;/enum&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;47&lt;/width&gt;
++              &lt;height&gt;20&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
++           &lt;/spacer&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QSpinBox&quot; name=&quot;mult570TxSpinBox&quot;&gt;
++            &lt;property name=&quot;enabled&quot;&gt;
++             &lt;bool&gt;false&lt;/bool&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;sizePolicy&quot;&gt;
++             &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++              &lt;horstretch&gt;0&lt;/horstretch&gt;
++              &lt;verstretch&gt;0&lt;/verstretch&gt;
++             &lt;/sizepolicy&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;minimumSize&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;80&lt;/width&gt;
++              &lt;height&gt;0&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;value&quot;&gt;
++             &lt;number&gt;1&lt;/number&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
++         &lt;/layout&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_10&quot;&gt;
+           &lt;item&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;label_13&quot;&gt;
+@@ -1017,7 +1128,7 @@
+              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;sizeType&quot;&gt;
+-             &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
++             &lt;enum&gt;QSizePolicy::Preferred&lt;/enum&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+              &lt;size&gt;
+@@ -1029,6 +1140,18 @@
+           &lt;/item&gt;
+           &lt;item&gt;
+            &lt;widget class=&quot;QDoubleSpinBox&quot; name=&quot;cal570SpinBox&quot;&gt;
++            &lt;property name=&quot;sizePolicy&quot;&gt;
++             &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++              &lt;horstretch&gt;0&lt;/horstretch&gt;
++              &lt;verstretch&gt;0&lt;/verstretch&gt;
++             &lt;/sizepolicy&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;minimumSize&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;80&lt;/width&gt;
++              &lt;height&gt;0&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
+             &lt;property name=&quot;decimals&quot;&gt;
+              &lt;number&gt;3&lt;/number&gt;
+             &lt;/property&gt;
+@@ -1043,6 +1166,22 @@
+          &lt;/layout&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
++         &lt;spacer name=&quot;verticalSpacer_5&quot;&gt;
++          &lt;property name=&quot;orientation&quot;&gt;
++           &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;sizeType&quot;&gt;
++           &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;20&lt;/width&gt;
++            &lt;height&gt;40&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++         &lt;/spacer&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbInitIQplus&quot;&gt;
+           &lt;property name=&quot;text&quot;&gt;
+            &lt;string&gt;Initialize IQ+  on startup&lt;/string&gt;
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/mainwindow.cpp	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -240,6 +240,7 @@
+   if(m_fs96000) g_pWideGraph-&gt;setFsample(96000);
+   if(!m_fs96000) g_pWideGraph-&gt;setFsample(95238);
+   g_pWideGraph-&gt;m_mult570=m_mult570;
++  g_pWideGraph-&gt;m_mult570Tx=m_mult570Tx;
+   g_pWideGraph-&gt;m_cal570=m_cal570;
+   if(m_initIQplus) g_pWideGraph-&gt;initIQplus();
+ 
+@@ -342,6 +343,7 @@
+   settings.setValue(&quot;paOutDevice&quot;,m_paOutDevice);
+   settings.setValue(&quot;IQswap&quot;,m_IQswap);
+   settings.setValue(&quot;Plus10dB&quot;,m_10db);
++  settings.setValue(&quot;IQxt&quot;,m_bIQxt);
+   settings.setValue(&quot;InitIQplus&quot;,m_initIQplus);
+   settings.setValue(&quot;UDPport&quot;,m_udpPort);
+   settings.setValue(&quot;PaletteCuteSDR&quot;,ui-&gt;actionCuteSDR-&gt;isChecked());
+@@ -361,6 +363,7 @@
+   settings.setValue(&quot;PhaseX&quot;,(double)m_phasex);
+   settings.setValue(&quot;PhaseY&quot;,(double)m_phasey);
+   settings.setValue(&quot;Mult570&quot;,m_mult570);
++  settings.setValue(&quot;Mult570Tx&quot;,m_mult570Tx);
+   settings.setValue(&quot;Cal570&quot;,m_cal570);
+   settings.setValue(&quot;Colors&quot;,m_colors);
+   settings.endGroup();
+@@ -420,6 +423,7 @@
+   m_IQswap = settings.value(&quot;IQswap&quot;,false).toBool();
+   m_10db = settings.value(&quot;Plus10dB&quot;,false).toBool();
+   m_initIQplus = settings.value(&quot;InitIQplus&quot;,false).toBool();
++  m_bIQxt = settings.value(&quot;IQxt&quot;,false).toBool();
+   m_udpPort = settings.value(&quot;UDPport&quot;,50004).toInt();
+   soundInThread.setSwapIQ(m_IQswap);
+   soundInThread.set10db(m_10db);
+@@ -450,6 +454,7 @@
+   m_phasex=settings.value(&quot;PhaseX&quot;,0.0).toFloat();
+   m_phasey=settings.value(&quot;PhaseY&quot;,0.0).toFloat();
+   m_mult570=settings.value(&quot;Mult570&quot;,2).toInt();
++  m_mult570Tx=settings.value(&quot;Mult570Tx&quot;,1).toInt();
+   m_cal570=settings.value(&quot;Cal570&quot;,0.0).toDouble();
+   m_colors=settings.value(&quot;Colors&quot;,&quot;000066ff0000ffff00969696646464&quot;).toString();
+   settings.endGroup();
+@@ -612,8 +617,10 @@
+   dlg.m_IQswap=m_IQswap;
+   dlg.m_10db=m_10db;
+   dlg.m_initIQplus=m_initIQplus;
++  dlg.m_bIQxt=m_bIQxt;
+   dlg.m_cal570=m_cal570;
+   dlg.m_mult570=m_mult570;
++  dlg.m_mult570Tx=m_mult570Tx;
+   dlg.m_colors=m_colors;
+ 
+   dlg.initDlg();
+@@ -646,12 +653,14 @@
+     m_IQswap=dlg.m_IQswap;
+     m_10db=dlg.m_10db;
+     m_initIQplus=dlg.m_initIQplus;
++    m_bIQxt=dlg.m_bIQxt;
+     m_colors=dlg.m_colors;
+     g_pMessages-&gt;setColors(m_colors);
+     g_pBandMap-&gt;setColors(m_colors);
+     m_cal570=dlg.m_cal570;
+-    m_mult570=dlg.m_mult570;
++    m_mult570Tx=dlg.m_mult570Tx;
+     g_pWideGraph-&gt;m_mult570=m_mult570;
++    g_pWideGraph-&gt;m_mult570Tx=m_mult570Tx;
+     g_pWideGraph-&gt;m_cal570=m_cal570;
+     soundInThread.setSwapIQ(m_IQswap);
+     soundInThread.set10db(m_10db);
+
+Modified: branches/map65/mainwindow.h
+===================================================================
+--- branches/map65/mainwindow.h	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/mainwindow.h	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -162,6 +162,7 @@
+     qint32  m_adjustIQ;
+     qint32  m_applyIQcal;
+     qint32  m_mult570;
++    qint32  m_mult570Tx;
+     qint32  m_nfast;
+     qint32  m_nsum;
+     qint32  m_nsave;
+@@ -195,6 +196,7 @@
+     bool    m_IQswap;
+     bool    m_10db;
+     bool    m_initIQplus;
++    bool    m_bIQxt;
+ 
+     float   m_gainx;
+     float   m_gainy;
+
+Modified: branches/map65/plotter.cpp
+===================================================================
+--- branches/map65/plotter.cpp	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/plotter.cpp	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -547,10 +547,11 @@
+   int h = (m_Size.height()-60)/2;
+   int x=event-&gt;x();
+   int y=event-&gt;y();
+-  if(y &lt; h+30) {
+-    setFQSO(x,false);                               // Wideband waterfall
+-  } else {
+-    m_DF=int(m_ZoomStartFreq + x*m_fSample/32768.0);  // Zoomed waterfall
++  int button=event-&gt;button();
++  if(y &lt; h+30) {                                      // Wideband waterfall
++    if(button==1) setFQSO(x,false);
++  } else {                                            // Zoomed waterfall
++    if(button==1) m_DF=int(m_ZoomStartFreq + x*m_fSample/32768.0);
+     DrawOverlay();
+     update();
+   }
+
+Modified: branches/map65/plotter.h
+===================================================================
+--- branches/map65/plotter.h	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/plotter.h	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -56,6 +56,7 @@
+   void setBinsPerPixel(int n);
+   int  binsPerPixel();
+   void setFQSO(int n, bool bf);
++//  void setTxFreq(int)
+   void setFcal(int n);
+   void setNkhz(int n);
+   void DrawOverlay();
+
+Modified: branches/map65/widegraph.h
+===================================================================
+--- branches/map65/widegraph.h	2013-10-04 20:04:18 UTC (rev 3590)
++++ branches/map65/widegraph.h	2013-11-02 20:52:10 UTC (rev 3591)
+@@ -16,6 +16,7 @@
+ 
+   bool   m_bForceCenterFreq;
+   qint32 m_mult570;
++  qint32 m_mult570Tx;
+   double m_dForceCenterFreq;
+   double m_cal570;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="003285.html">[WSJT-SVN] r3592 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3284">[ date ]</a>
+              <a href="thread.html#3284">[ thread ]</a>
+              <a href="subject.html#3284">[ subject ]</a>
+              <a href="author.html#3284">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

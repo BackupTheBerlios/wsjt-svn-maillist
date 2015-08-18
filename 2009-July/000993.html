@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1299 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1299%20-%20branches/map65&In-Reply-To=%3C200907261631.n6QGVLWo031662%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000992.html">
+   <LINK REL="Next"  HREF="000994.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1299 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1299%20-%20branches/map65&In-Reply-To=%3C200907261631.n6QGVLWo031662%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1299 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Jul 26 18:31:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000992.html">[WSJT-SVN] r1298 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000994.html">[WSJT-SVN] r1300 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#993">[ date ]</a>
+              <a href="thread.html#993">[ thread ]</a>
+              <a href="subject.html#993">[ subject ]</a>
+              <a href="author.html#993">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-26 18:31:11 +0200 (Sun, 26 Jul 2009)
+New Revision: 1299
+
+Modified:
+   branches/map65/display.F90
+   branches/map65/extract.f
+   branches/map65/getdphi.f90
+   branches/map65/getfile2.F90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/rfile.f90
+   branches/map65/savetf2.F90
+   branches/map65/symspec.f90
+   branches/map65/wsjtgen.F90
+Log:
+Finished(?) inserting mutex lockouts.
+
+
+Modified: branches/map65/display.F90
+===================================================================
+--- branches/map65/display.F90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/display.F90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -15,6 +15,7 @@
+   integer utc(MAXLINES),utc2(MX),utcz
+   real*8 f0
+ 
++  call cs_lock('display')
+   ftol=0.02
+   rewind 26
+ 
+@@ -167,5 +168,7 @@
+ 1040 format(a40)
+   enddo
+   call flushqqq(20)
+-999  return
++999  continue
++  call cs_unlock
++  return
+ end subroutine display
+
+Modified: branches/map65/extract.f
+===================================================================
+--- branches/map65/extract.f	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/extract.f	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -41,14 +41,18 @@
+          call interleave63(mr2prob,-1)
+ 
+          nsec1=nsec1+1
++         call cs_lock('extracta')
+          write(22,rec=1) nsec1,xlambda,maxe,200,
+      +        mrsym,mrprob,mr2sym,mr2prob
+          call flushqqq(22)
++         call cs_unlock
+          call runqqq('kvasd.exe','-q',iret)
+          if(iret.ne.0) then
++            call cs_lock('extractb')
+             if(first) write(*,1000) iret
+  1000       format('Error in KV decoder, or no KV decoder present.'/
+      +         'Return code:',i8,'.  Will use BM algorithm.')
++            call cs_unlock
+             ndec=0
+             first=.false.
+             go to 20
+
+Modified: branches/map65/getdphi.f90
+===================================================================
+--- branches/map65/getdphi.f90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/getdphi.f90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -11,8 +11,10 @@
+   enddo
+ 
+   dphi=57.2957795*atan2(s,c)
++  call cs_lock('getdphi')
+   write(11,1010) nint(dphi)
+ 1010 format('Best-fit Dphi =',i4,' deg')
++  call cs_unlock
+ 
+   return
+   end
+
+Modified: branches/map65/getfile2.F90
+===================================================================
+--- branches/map65/getfile2.F90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/getfile2.F90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -33,7 +33,9 @@
+   monitoring=0
+   kbuf=1
+ 
++  call cs_lock('getfile2a')
+   call rfile3a(fname,id,n,ierr)
++  call cs_unlock
+   if(ierr.ne.0) then
+      print*,'Error opening or reading file: ',fname,ierr
+      go to 999
+@@ -48,7 +50,9 @@
+   enddo
+   sqave=174*sq/(kb-ka+1)
+   rxnoise=10.0*log10(sqave) - 48.0
++  call cs_lock('getfile2b')
+   read(filename(8:11),*,err=20,end=20) nutc
++  call cs_unlock
+   go to 30
+ 20 nutc=0
+ 
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/map65.py	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -1,4 +1,4 @@
+-#------------------------------------------------------------------------ MAP65
++#----------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/map65a.F90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -269,6 +269,7 @@
+               if(decoded(1:4).eq.'RO  ' .or. decoded(1:4).eq.'RRR  ' .or.  &amp;
+                  decoded(1:4).eq.'73  ') nsync2=nsync2-6
+               nwrite=nwrite+1
++              call cs_lock('map65aa')
+               if(ndphi.eq.0) then
+                  write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
+ 1010             format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
+@@ -280,12 +281,15 @@
+                       dt,sync2,nkv,nqual,decoded
+ 1011             format(i3,i4,i5,i4,i5.4,f5.1,f7.1,i3,i5,2x,a22)
+               endif
++              call cs_unlock
+            endif
+         enddo
+         if(nwrite.eq.0) then
+            nfqso=mfqso + nfoffset
++           call cs_lock('map65ab')
+            write(11,1012) nfqso,nutc
+ 1012          format(i3,9x,i5.4)
++           call cs_unlock
+         endif
+    
+      endif
+@@ -359,19 +363,23 @@
+            nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+            if(decoded(1:4).eq.'RO  ' .or. decoded(1:4).eq.'RRR  ' .or.  &amp;
+                 decoded(1:4).eq.'73  ') nsync2=nsync2-6
++           call cs_lock('map65ac')
+            write(26,1014) f0,ndf,ndf0,ndf1,ndf2,dt,npol,nsync1,       &amp;
+                 nsync2,nutc,decoded,nkv,nqual,nhist
+            write(21,1014) f0,ndf,ndf0,ndf1,ndf2,dt,npol,nsync1,       &amp;
+                 nsync2,nutc,decoded,nkv,nqual,nhist
+ 1014       format(f7.3,i5,3i3,f5.1,i5,i3,i4,i5.4,2x,a22,3i3)
++           call cs_unlock
+ 
+         endif
+      endif
+      j=j+nsiz(n)
+   enddo
++  call cs_lock('map65ad')
+   write(26,1015) nutc
+ 1015 format(39x,i4.4)
+   call flushqqq(26)
++  call cs_unlock
+   call display(nkeep,ncsmin)
+   ndecdone=2
+ 
+
+Modified: branches/map65/rfile.f90
+===================================================================
+--- branches/map65/rfile.f90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/rfile.f90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -1,12 +1,13 @@
+-
+-!----------------------------------------------------- rfile
+ subroutine rfile(lu,ibuf,n,ierr)
+ 
+   integer*1 ibuf(n)
+ 
++  call cs_lock('rfile')
+   read(lu,end=998) ibuf
+   ierr=0
+   go to 999
+ 998 ierr=1002
+-999  return
++999 continue
++  call cs_unlock
++  return
+ end subroutine rfile
+
+Modified: branches/map65/savetf2.F90
+===================================================================
+--- branches/map65/savetf2.F90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/savetf2.F90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -10,6 +10,7 @@
+   data nloc/-1/
+   save nloc
+ 
++  call cs_lock('savetf2')
+   call date_and_time(cdate,ctime2,czone,itt)
+   nh=itt(5)-itt(4)/60
+   nm=itt(6)
+@@ -51,5 +52,7 @@
+ 998 print*,'Cannot open file:'
+   print*,fname
+ 
+-999 return
++999 continue
++  call cs_unlock
++  return
+ end subroutine savetf2
+
+Modified: branches/map65/symspec.f90
+===================================================================
+--- branches/map65/symspec.f90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/symspec.f90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -84,10 +84,7 @@
+      enddo
+      nz2=nz2+n2
+      pctblank=nclip*100.0/nz2
+-!     write(*,3002) nblank,n2,nz2,nclip,kkk,kkdone,pctblank,sqave
+-!3002 format(4i6,2i9,f8.1,f10.0)
+   endif
+-!###
+ 
+   do nn=1,ntot
+      i0=ts+hsym                           !Starting sample pointer
+@@ -150,8 +147,10 @@
+ !         if(n.eq.ntot) then
+      if(n.ge.279) then
+         call move(ssz5,ss5,322*NFFT)
++        call cs_lock('symspec')
+         write(utcdata,1002) nutc
+ 1002    format(i4.4)
++        call cs_unlock
+         utcdata=utcdata(1:2)//':'//utcdata(3:4)
+         newspec=1
+         call move(ssz,ss,4*322*NFFT)
+
+Modified: branches/map65/wsjtgen.F90
+===================================================================
+--- branches/map65/wsjtgen.F90	2009-07-26 15:12:41 UTC (rev 1298)
++++ branches/map65/wsjtgen.F90	2009-07-26 16:31:11 UTC (rev 1299)
+@@ -69,10 +69,12 @@
+         go to 14
+ 12      print*,'Cannot open test file ',msg(2:)
+         go to 999
+-14      read(18) hdr
++14      call cs_lock('wsjtgena')
++        read(18) hdr
+         if(ndata.gt.NTxMax) ndata=NTxMax
+         call rfile(18,iwave,ndata,ierr)
+         close(18)
++        call cs_unlock
+         if(ierr.ne.0) print*,'Error reading test file ',msg(2:)
+         nwave=ndata/2
+         do i=nwave,NTXMAX
+@@ -90,13 +92,15 @@
+      if(msg(2:2).eq.'C' .or. msg(2:2).eq.'c') freq=1764
+      if(msg(2:2).eq.'D' .or. msg(2:2).eq.'d') freq=2205
+      if(freq.eq.1000.0) then
++        call cs_lock('wsjtgenb')
+         read(msg(2:),*,err=1) freq
+         goto 2
+ 1       txmsg='@1000'
+         nmsg=5
+         nmsg0=5
++2       call cs_unlock
+      endif
+-2    nwave=60*fsample_out
++     nwave=60*fsample_out
+      dpha=twopi*freq/fsample_out
+      do i=1,nwave
+         iwave(i)=32767.0*sin(i*dpha)
+@@ -108,7 +112,9 @@
+   if(mode(5:5).eq.'A') mode65=1
+   if(mode(5:5).eq.'B') mode65=2
+   if(mode(5:5).eq.'C') mode65=4
++  call cs_lock('wsjtgenc')
+   call gen65(msg,mode65,samfacout,iwave,nwave,sendingsh,msgsent)
++  call cs_unlock
+ 
+   if(lcwid) then
+ !  Generate and insert the CW ID.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000992.html">[WSJT-SVN] r1298 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000994.html">[WSJT-SVN] r1300 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#993">[ date ]</a>
+              <a href="thread.html#993">[ thread ]</a>
+              <a href="subject.html#993">[ subject ]</a>
+              <a href="author.html#993">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

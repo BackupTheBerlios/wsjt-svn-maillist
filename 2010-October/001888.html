@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2196 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2196%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100930235142.49727481013%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001889.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2196 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2196%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100930235142.49727481013%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2196 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  1 01:51:42 CEST 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001889.html">[WSJT-SVN] r2197 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1888">[ date ]</a>
+              <a href="thread.html#1888">[ thread ]</a>
+              <a href="subject.html#1888">[ subject ]</a>
+              <a href="author.html#1888">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-10-01 01:51:42 +0200 (Fri, 01 Oct 2010)
+New Revision: 2196
+
+Modified:
+   branches/wspr/WsprMod/advanced.py
+   branches/wspr/WsprMod/iq.py
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Tighten up Tx timing.  Move Txdb slider to Advanced screen.
+
+Modified: branches/wspr/WsprMod/advanced.py
+===================================================================
+--- branches/wspr/WsprMod/advanced.py	2010-09-30 11:44:14 UTC (rev 2195)
++++ branches/wspr/WsprMod/advanced.py	2010-09-30 23:51:42 UTC (rev 2196)
+@@ -24,6 +24,8 @@
+ bfofreq=IntVar()
+ idint=IntVar()
+ igrid6=IntVar()
++isc1=IntVar()
++isc1.set(0)
+ encal=IntVar()
+ fset=IntVar()
+ Acal=DoubleVar()
+@@ -66,6 +68,10 @@
+ lab1=Label(g1.interior(),text=t,justify=LEFT)
+ lab1.pack(fill=X,expand=1,padx=5,pady=0)
+ 
++sc1=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
++        to=0,variable=isc1,label='Reduce Tx Audio (dB)',relief=SOLID,bg='#FFC0CB')
++sc1.pack(side=TOP,padx=4,pady=4)
++
+ cwid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='CW ID (min):',
+         value='0',entry_textvariable=idint,entry_width=5,
+         validate={'validator':'numeric','min':0,'max':60})
+
+Modified: branches/wspr/WsprMod/iq.py
+===================================================================
+--- branches/wspr/WsprMod/iq.py	2010-09-30 11:44:14 UTC (rev 2195)
++++ branches/wspr/WsprMod/iq.py	2010-09-30 23:51:42 UTC (rev 2196)
+@@ -27,8 +27,6 @@
+ iqrxapp=IntVar()
+ iqrxadj=IntVar()
+ 
+-isc1=IntVar()
+-isc1.set(0)
+ isc2=IntVar()
+ isc2.set(0)
+ isc2a=IntVar()
+@@ -75,14 +73,6 @@
+         'minstrict':0,'maxstrict':0})
+ fiq_entry.pack(fill=X,padx=2,pady=4)
+ 
+-##t='Tx dB  Tx amp  Tx Pha'
+-##lab1=Label(g1.interior(),text=t,justify=LEFT)
+-##lab1.pack(fill=X,expand=1,padx=5,pady=0)
+-
+-sc1=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
+-        to=0,variable=isc1,label='Tx dB',relief=SOLID,bg='#FFC0CB')
+-sc1.pack(side=TOP,padx=4,pady=2)
+-
+ sc2=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
+         to=30,variable=isc2,label='Tx I/Q Balance (0.1 dB)', \
+         relief=SOLID,bg='#EEDD82')
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-09-30 11:44:14 UTC (rev 2195)
++++ branches/wspr/tx.f90	2010-09-30 23:51:42 UTC (rev 2196)
+@@ -6,18 +6,21 @@
+ 
+   parameter (NMAX2=2*120*48000)
+   parameter (NMAX3=4.5*48000)
+-  character message*22,call1*12,cdbm*3
++  character message*22,message0*22,call1*12,cdbm*3
+   character*22 msg0,msg1,cwmsg
+   character crig*6,cbaud*6,cdata*1,cstop*1,chs*8
+   character cmnd*120,snrfile*80
+   integer*2 jwave,icwid,id2
+   integer soundout,ptt,nt(9)
+   real*8 tsec1,tsec2
++  integer time
+   include 'acom1.f90'
+   common/bcom/ntransmitted
+   common/dcom/jwave(NMAX2),icwid(NMAX3),id2(NMAX2)
+   data ntx/0/,ns0/0/
+-  save ntx,ns0
++  data message0/'dummy'/,ntxdf0/-999/,ntune0/-999/,snr0/-999.0/
++  data iqmode0/-999/,iqtx0/-999/
++  save ntx,ns0,message0,ntxdf0,ntune0,snr0,iqmode0,iqtx0
+ 
+   ierr=0
+   call1=callsign
+@@ -89,8 +92,23 @@
+ 10 close(18)
+   call cs_unlock
+   call gmtime2(nt,tsec1)
+-  call genwspr(message,ntxdf,ntune,snr,iqmode,iqtx,appdir,nappdir,    &amp;
+-       sending,jwave)
++
++  newgen=0
++  if(message.ne.message0 .or. ntxdf.ne.ntxdf0 .or.                    &amp;
++       ntune.ne.ntune0 .or. snr.ne.snr0 .or. iqmode.ne.iqmode0 .or.   &amp;
++       iqtx.ne.iqtx0) then
++     message0=message
++     ntxdf0=ntxdf
++     ntune0=ntune
++     snr0=snr
++     iqmode0=iqmode
++     iqtx0=iqtx
++     newgen=1
++  endif
++
++  if(newgen.ne.0) call genwspr(message,ntxdf,ntune,snr,iqmode,iqtx,   &amp;
++       appdir,nappdir,sending,jwave)
++
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
+ 
+@@ -113,17 +131,25 @@
+ 
+   fac=10.0**(0.05*ntxdb)
+   if(ntune.eq.0) then
+-     call gmtime2(nt,tsec2)
+-     n=48000*(tsec2-tsec0)
+-!     istart=n*(iqmode+1) + 1
+-     istart=1
++20   call gmtime2(nt,tsec2)
++     tdiff=tsec2-tsec0
++     if(tdiff.lt.0.9) then
++        call msleep(100)
++        go to 20
++     endif
++
++     istart=48000*(tsec2-tsec0)*(iqmode+1)
++     if(istart.lt.1) istart=1
++     npts=npts-istart+1
+      j=istart-1
+      do i=1,npts*(iqmode+1)
+         j=j+1
+         id2(i)=fac*jwave(j)
+      enddo
+-     if(iqmode.eq.1) call phasetx(id2,npts,fac,txbal,txpha)
++
++     if(iqmode.eq.1 .and. newgen.eq.1) call phasetx(id2,npts,fac,txbal,txpha)
+      ierr=soundout(ndevout,id2,npts,iqmode)
++
+   else
+      istart=2*48000 +1
+      if(pctx.lt.100.0) then
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-30 11:44:14 UTC (rev 2195)
++++ branches/wspr/wspr.py	2010-09-30 23:51:42 UTC (rev 2196)
+@@ -713,7 +713,7 @@
+     w.acom1.iqrxapp=iq.iqrxapp.get()
+     w.acom1.iqrxadj=iq.iqrxadj.get()
+     w.acom1.iqtx=iq.iqtx.get()
+-    w.acom1.ntxdb=iq.isc1.get()
++    w.acom1.ntxdb=advanced.isc1.get()
+     bal=iq.isc2.get() + 0.02*iq.isc2a.get()
+     w.acom1.txbal=bal
+     pha=iq.isc3.get() + 0.02*iq.isc3a.get()
+@@ -1061,7 +1061,7 @@
+     f.write(&quot;IQrx &quot; + str(iq.iqrx.get()) + &quot;\n&quot;)
+     f.write(&quot;IQtx &quot; + str(iq.iqtx.get()) + &quot;\n&quot;)
+     f.write(&quot;FIQ &quot; + str(iq.fiq.get()) + &quot;\n&quot;)
+-    f.write(&quot;Ntxdb &quot; + str(iq.isc1.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxdb &quot; + str(advanced.isc1.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxbal &quot; + str(iq.isc2.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxbalf &quot; + str(iq.isc2a.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxpha &quot; + str(iq.isc3.get()) + &quot;\n&quot;)
+@@ -1433,7 +1433,7 @@
+             elif key == 'IQrx': iq.iqrx.set(value)
+             elif key == 'IQtx': iq.iqtx.set(value)
+             elif key == 'FIQ': iq.fiq.set(value)
+-            elif key == 'Ntxdb': iq.isc1.set(value)
++            elif key == 'Ntxdb': advanced.isc1.set(value)
+             elif key == 'Ntxbal': iq.isc2.set(value)
+             elif key == 'Ntxbalf': iq.isc2a.set(value)
+             elif key == 'Ntxpha': iq.isc3.set(value)
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-09-30 11:44:14 UTC (rev 2195)
++++ branches/wspr/wspr2.f90	2010-09-30 23:51:42 UTC (rev 2196)
+@@ -108,8 +108,7 @@
+         ireset=1
+      endif
+   endif
+-!  call msleep(200)
+-  call msleep(700)
++  call msleep(200)
+   go to 20
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001889.html">[WSJT-SVN] r2197 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1888">[ date ]</a>
+              <a href="thread.html#1888">[ thread ]</a>
+              <a href="subject.html#1888">[ subject ]</a>
+              <a href="author.html#1888">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

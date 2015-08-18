@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r565 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r565%20-%20branches/map65&In-Reply-To=%3C200710251944.l9PJijt6024589%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000249.html">
+   <LINK REL="Next"  HREF="000251.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r565 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r565%20-%20branches/map65&In-Reply-To=%3C200710251944.l9PJijt6024589%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r565 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Oct 25 21:44:45 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000249.html">[WSJT-SVN] r564 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000251.html">[WSJT-SVN] r566 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#250">[ date ]</a>
+              <a href="thread.html#250">[ thread ]</a>
+              <a href="subject.html#250">[ subject ]</a>
+              <a href="author.html#250">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-10-25 21:44:42 +0200 (Thu, 25 Oct 2007)
+New Revision: 565
+
+Modified:
+   branches/map65/map65.py
+Log:
+Display Tx pol advice with quick decode, rather than waiting until
+after the wideband decode.
+
+If fQSO changes, set Tol=500.
+
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-10-25 16:31:19 UTC (rev 564)
++++ branches/map65/map65.py	2007-10-25 19:44:42 UTC (rev 565)
+@@ -57,6 +57,7 @@
+ cmap0=&quot;Linrad&quot;
+ fileopened=&quot;&quot;
+ font1='Helvetica'
++fqso0=125
+ hiscall=&quot;&quot;
+ hisgrid=&quot;&quot;
+ hisgrid0=&quot;&quot;
+@@ -952,7 +953,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen,kxp0, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom,bm2_geom,hisgrid0
++           bm_geom,bm2_geom,hisgrid0,fqso0
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -999,21 +1000,12 @@
+             if len(HisGrid.get().strip())&lt;4:
+                 g.ndop=g.ndop00
+                 g.dfdt=g.dfdt0
+-            if hisgrid != hisgrid0:
+-                msg6.configure(text=&quot;        &quot;,bg='gray85')
+-                hisgrid0=hisgrid
+-                Audio.gcom2.nhispol=-999
+-            if Audio.gcom2.nhispol != -999:
+-                txpol=(int(Audio.gcom2.nhispol) - 2*g.poloffset + 360) % 180
+-                t=&quot;Tx pol: %d  &quot; % txpol
+-                if txpol &lt; 45 or txpol &gt; 135:
+-                    t=t + 'H'
+-                    color='pink'
+-                else:
+-                    t=t + 'V'
+-                    color='yellow'
+-                msg6.configure(text=t,bg=color)
+ 
++        if (len(HisGrid.get().strip())&lt;4) or (hisgrid != hisgrid0):
++            msg6.configure(text=&quot;        &quot;,bg='gray85')
++            hisgrid0=hisgrid
++            Audio.gcom2.nhispol=-999
++
+         astrotext.delete(1.0,END)
+         astrotext.insert(END,'   Moon\n')
+         astrotext.insert(END,&quot;Az: %7.1f\n&quot; % g.AzMoon)
+@@ -1065,6 +1057,11 @@
+     msg2.configure(text=t)    
+     t=&quot;QSO DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+     msg3.configure(text=t)
++    if int(Audio.gcom2.mousefqso) != fqso0:
++        itol=5
++        ltol.configure(text='Tol    '+str(500))
++        Audio.gcom2.dftolerance=500
++        fqso0=int(Audio.gcom2.mousefqso)
+ 
+     if mode.get()[:4]=='JT65' and (Audio.gcom2.ndecoding&gt;0 or \
+          (isec&gt;45 and  txminute==0 and Audio.gcom2.monitoring==1 and \
+@@ -1133,6 +1130,18 @@
+                 text.insert(END,lines[i])
+             text.see(END)
+             g.ndecphase=1
++
++            if Audio.gcom2.nhispol != -999:
++                txpol=(int(Audio.gcom2.nhispol) - 2*g.poloffset + 360) % 180
++                t=&quot;Tx pol: %d  &quot; % txpol
++                if txpol &lt; 45 or txpol &gt; 135:
++                    t=t + 'H'
++                    color='pink'
++                else:
++                    t=t + 'V'
++                    color='yellow'
++                msg6.configure(text=t,bg=color)
++
+ #            text.configure(state=DISABLED)
+ 
+             try:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000249.html">[WSJT-SVN] r564 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000251.html">[WSJT-SVN] r566 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#250">[ date ]</a>
+              <a href="thread.html#250">[ thread ]</a>
+              <a href="subject.html#250">[ subject ]</a>
+              <a href="author.html#250">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

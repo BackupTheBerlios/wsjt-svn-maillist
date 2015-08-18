@@ -1,0 +1,332 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2960 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2960%20-%20branches/wsprx&In-Reply-To=%3C20130118180809.06C8155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002651.html">
+   <LINK REL="Next"  HREF="002653.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2960 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2960%20-%20branches/wsprx&In-Reply-To=%3C20130118180809.06C8155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2960 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan 18 19:08:08 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002651.html">[WSJT-SVN] r2959 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002653.html">[WSJT-SVN] r2961 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2652">[ date ]</a>
+              <a href="thread.html#2652">[ thread ]</a>
+              <a href="subject.html#2652">[ subject ]</a>
+              <a href="author.html#2652">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-18 19:08:08 +0100 (Fri, 18 Jan 2013)
+New Revision: 2960
+
+Modified:
+   branches/wsprx/WSPR-X_Users_Guide.docx
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+Log:
+The ptt routine was not reliably saving the value of &quot;open&quot; 
+(now &quot;nopen&quot;), so I moved the save location to &quot;m_COMportOpen&quot; in mainwindow.
+(Does this mean something else is amiss???)
+Output from rigctl is now sent to a msgbox().
+Corrected the value of f0m1500 when BFO &lt;&gt; 1500 Hz.  Hope this is now right!
+
+
+Modified: branches/wsprx/WSPR-X_Users_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-18 16:08:53 UTC (rev 2959)
++++ branches/wsprx/mainwindow.cpp	2013-01-18 18:08:08 UTC (rev 2960)
+@@ -78,6 +78,13 @@
+   connect(&amp;p2, SIGNAL(error(QProcess::ProcessError)),
+           this, SLOT(p2Error()));
+ 
++  connect(&amp;p3, SIGNAL(readyReadStandardOutput()),
++                    this, SLOT(p3ReadFromStdout()));
++  connect(&amp;p3, SIGNAL(readyReadStandardError()),
++          this, SLOT(p3ReadFromStderr()));
++  connect(&amp;p3, SIGNAL(error(QProcess::ProcessError)),
++          this, SLOT(p3Error()));
++
+   mNetworkManager = new QNetworkAccessManager(this);
+   QObject::connect(mNetworkManager, SIGNAL(finished(QNetworkReply*)),
+                    this, SLOT(onNetworkReply(QNetworkReply*)));
+@@ -151,14 +158,6 @@
+     ui-&gt;dBmComboBox-&gt;addItem(t);
+   }
+ 
+-  int band[] ={2200,630,160,80,60,40,30,20,17,15,12,10,6,4,2};
+-  for(int i=0; i&lt;15; i++) {
+-    QString t;
+-    t.sprintf(&quot;%4d m&quot;,band[i]);
+-    ui-&gt;bandComboBox-&gt;addItem(t);
+-  }
+-  ui-&gt;bandComboBox-&gt;addItem(&quot;Other&quot;);
+-
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+@@ -420,7 +419,9 @@
+       int len1=m_c2name.length();
+       char c2name[80];
+       strcpy(c2name,m_c2name.toAscii());
+-      double f0m1500=m_dialFreq + m_BFO - 1500;
++      double f0m1500=m_dialFreq + 0.000001*(m_BFO - 1500);
++//      double f0m1500=m_dialFreq + m_BFO - 1500;
++      qDebug() &lt;&lt; m_dialFreq &lt;&lt; m_BFO &lt;&lt; f0m1500;
+       savec2_(c2name,&amp;m_TRseconds,&amp;f0m1500,len1);
+     }
+ 
+@@ -860,6 +861,28 @@
+   m_uploading=false;
+ }
+ 
++void MainWindow::p3ReadFromStdout()                        //p3readFromStdout
++{
++  QByteArray t=p3.readAllStandardOutput();
++  if(t.length()&gt;0) {
++    msgBox(&quot;rigctl stdout:\n\n&quot;+t+&quot;\n&quot;+m_cmnd);
++  }
++}
++
++void MainWindow::p3ReadFromStderr()                        //p3readFromStderr
++{
++  QByteArray t=p3.readAllStandardError();
++  if(t.length()&gt;0) {
++    msgBox(&quot;rigctl stderr:\n\n&quot;+t+&quot;\n&quot;+m_cmnd);
++  }
++}
++
++void MainWindow::p3Error()                                     //p3rror
++{
++  msgBox(&quot;Error attempting to run rigctl.\n\n&quot;+m_cmnd);
++}
++
++
+ void MainWindow::on_EraseButton_clicked()                          //Erase
+ {
+   ui-&gt;decodedTextBrowser-&gt;clear();
+@@ -1062,8 +1085,9 @@
+   }
+ //Raise PTT
+   if(m_pttMethodIndex==0) {
+-    QString cmnd=rig_command() + &quot; T 1&quot;;
+-    p3.start(cmnd);
++    m_cmnd=rig_command() + &quot; T 1&quot;;
++    p3.start(m_cmnd);
++    p3.waitForFinished();
+   }
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -1129,8 +1153,9 @@
+   loggit(&quot;Stop Tx2&quot;);
+ //Lower PTT
+   if(m_pttMethodIndex==0) {
+-    QString cmnd=rig_command() + &quot; T 0&quot;;
+-    p3.start(cmnd);
++    m_cmnd=rig_command() + &quot; T 0&quot;;
++    p3.start(m_cmnd);
++    p3.waitForFinished();
+   }
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -1199,12 +1224,14 @@
+   ui-&gt;dialFreqLineEdit-&gt;setText(t);
+   t.sprintf(&quot;%.6f&quot;,m_dialFreq+0.000001*m_txFreq);
+   ui-&gt;txFreqLineEdit-&gt;setText(t);
+-  if(m_rig&gt;=1) {
++  if(m_catEnabled) {
+     int nHz=int(1000000.0*m_dialFreq + 0.5);
+     QString cmnd1,cmnd3;
+     cmnd1=rig_command();
+     cmnd3.sprintf(&quot; F %d&quot;,nHz);
+-    p3.start(cmnd1+cmnd3);
++    m_cmnd=cmnd1 + cmnd3;
++    p3.start(m_cmnd);
++    p3.waitForFinished();
+   }
+ }
+ 
+@@ -1237,10 +1264,11 @@
+ 
+ void MainWindow::loggit(QString t)
+ {
+-  /*
++/*
+   QDateTime t2 = QDateTime::currentDateTimeUtc();
+-  qDebug() &lt;&lt; t2.time().toString(&quot;hh:mm:ss.zzz&quot;) &lt;&lt; t;
+-  */
++  qDebug() &lt;&lt; t2.time().toString(&quot;hh:mm:ss.zzz&quot;) &lt;&lt; t
++           &lt;&lt; m_catEnabled &lt;&lt; (int)m_catEnabled;
++*/
+ 
+   /*
+   QFile f(&quot;wsprx.log&quot;);
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-18 16:08:53 UTC (rev 2959)
++++ branches/wsprx/mainwindow.h	2013-01-18 18:08:08 UTC (rev 2960)
+@@ -36,7 +36,11 @@
+   void p2ReadFromStdout();
+   void p2ReadFromStderr();
+   void p2Error();
++  void p3ReadFromStdout();
++  void p3ReadFromStderr();
++  void p3Error();
+ 
++
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
+   void  closeEvent(QCloseEvent*);
+@@ -202,6 +206,7 @@
+     QString m_tune_style;
+     QString m_catPort;
+     QString m_handshake;
++    QString m_cmnd;
+ 
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-18 16:08:53 UTC (rev 2959)
++++ branches/wsprx/mainwindow.ui	2013-01-18 18:08:08 UTC (rev 2960)
+@@ -435,7 +435,88 @@
+            &lt;/widget&gt;
+           &lt;/item&gt;
+           &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
+-           &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;/&gt;
++           &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;2200&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;630&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;160&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;80&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;60&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;40&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;30&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;20&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;17&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;15&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;12&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;10&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;6&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;4&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;2&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;property name=&quot;text&quot;&gt;
++              &lt;string&gt;Other&lt;/string&gt;
++             &lt;/property&gt;
++            &lt;/item&gt;
++           &lt;/widget&gt;
+           &lt;/item&gt;
+           &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
+            &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002651.html">[WSJT-SVN] r2959 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002653.html">[WSJT-SVN] r2961 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2652">[ date ]</a>
+              <a href="thread.html#2652">[ thread ]</a>
+              <a href="subject.html#2652">[ subject ]</a>
+              <a href="author.html#2652">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

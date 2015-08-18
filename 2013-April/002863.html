@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3171 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3171%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415160623.51CE555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002862.html">
+   <LINK REL="Next"  HREF="002864.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3171 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3171%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415160623.51CE555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3171 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Apr 15 18:06:23 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002862.html">[WSJT-SVN] r3170 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002864.html">[WSJT-SVN] r3172 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2863">[ date ]</a>
+              <a href="thread.html#2863">[ thread ]</a>
+              <a href="subject.html#2863">[ subject ]</a>
+              <a href="author.html#2863">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-15 18:06:22 +0200 (Mon, 15 Apr 2013)
+New Revision: 3171
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+Add instructional labels to Tab 2.
+Reset m_repeatMsg=0 on Tx Halt, etc.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-15 00:28:27 UTC (rev 3170)
++++ branches/wsjtx/lib/decoder.f90	2013-04-15 16:06:22 UTC (rev 3171)
+@@ -42,7 +42,7 @@
+   else if(ntrMinutes.eq.5) then
+      nsps=40960
+      df3=1500.0/6144.0
+-     fmt='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22)' 
++     fmt='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22)'
+  else if(ntrMinutes.eq.10) then
+      nsps=82944
+      df3=1500.0/12288.0
+@@ -56,6 +56,7 @@
+ 
+   kstep=nsps/2
+   tstep=kstep/12000.0
++  tstep=0.5*tstep
+   idf=ntol/df3 + 0.999
+ 
+   do nqd=1,0,-1
+@@ -122,8 +123,6 @@
+ 
+            call timer('decode9 ',0)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
+-!           write(69,3300) nqd,i,f+1000.0,ccflim,ccfred(i),limit,nlim,msg(1:18)
+-!3300       format(i1,i6,f10.3,2f8.1,2i9,2x,a18)
+            call timer('decode9 ',1)
+  
+            sync=(syncpk+1)/4.0
+@@ -135,6 +134,8 @@
+            if(msg.ne.'                      ') then
+               write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+               write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
++!              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
++!1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
+               fgood=f
+               nsynced=1
+               ndecoded=1
+@@ -151,7 +152,7 @@
+ 1010 format('&lt;DecodeFinished&gt;',2i4)
+   call flush(6)
+   close(13)
+-!  call flush(69)
++!  call flush(14)
+ 
+   call timer('decoder ',1)
+   if(nstandalone.eq.0) call timer('decoder ',101)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-15 00:28:27 UTC (rev 3170)
++++ branches/wsjtx/mainwindow.cpp	2013-04-15 16:06:22 UTC (rev 3171)
+@@ -176,6 +176,7 @@
+   m_sent73=false;
+   m_watchdogLimit=5;
+   m_tune=false;
++  m_repeatMsg=0;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -704,6 +705,7 @@
+     btxok=false;
+     ui-&gt;autoButton-&gt;setStyleSheet(&quot;&quot;);
+     on_monitorButton_clicked();
++    m_repeatMsg=0;
+   }
+ }
+ 
+@@ -712,6 +714,7 @@
+   if(m_tune) on_tuneButton_clicked();
+   if(m_auto) on_autoButton_clicked();
+   btxok=false;
++  m_repeatMsg=0;
+ }
+ 
+ void MainWindow::keyPressEvent( QKeyEvent *e )                //keyPressEvent
+@@ -2403,6 +2406,7 @@
+   QString t=m_dFreq[index];
+   m_dialFreq=t.toDouble();
+   dialFreqChanged2(m_dialFreq);
++  m_repeatMsg=0;
+   if(m_catEnabled) {
+     int nHz=int(1000000.0*m_dialFreq + 0.5);
+     QString cmnd1,cmnd3;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-15 00:28:27 UTC (rev 3170)
++++ branches/wsjtx/mainwindow.h	2013-04-15 16:06:22 UTC (rev 3171)
+@@ -365,7 +365,7 @@
+ 
+ //void rig_control(int nrig, int verbose);
+ 
+-void rigOpen(int nrig, int verbose);
++int rigOpen(int nrig, int verbose);
+ void rigSetFreq(int fHz);
+ int rigFreq();
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-15 00:28:27 UTC (rev 3170)
++++ branches/wsjtx/mainwindow.ui	2013-04-15 16:06:22 UTC (rev 3171)
+@@ -1805,48 +1805,69 @@
+             &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_7&quot;&gt;
+              &lt;item&gt;
+               &lt;layout class=&quot;QGridLayout&quot; name=&quot;gridLayout_4&quot;&gt;
+-               &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++               &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbCallCQ&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Call CQ&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+-               &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
++               &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbAnswerCaller&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Answer Caller&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+-               &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
++               &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbAnswerCQ&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Answer CQ&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+-               &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
++               &lt;item row=&quot;3&quot; column=&quot;0&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbSendRRR&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Send RRR&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+-               &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
++               &lt;item row=&quot;3&quot; column=&quot;1&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbSendReport&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Send Report&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+-               &lt;item row=&quot;3&quot; column=&quot;0&quot; colspan=&quot;2&quot;&gt;
++               &lt;item row=&quot;4&quot; column=&quot;0&quot; colspan=&quot;2&quot;&gt;
+                 &lt;widget class=&quot;QPushButton&quot; name=&quot;pbSend73&quot;&gt;
+                  &lt;property name=&quot;text&quot;&gt;
+                   &lt;string&gt;Send 73&lt;/string&gt;
+                  &lt;/property&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
++               &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++                &lt;widget class=&quot;QLabel&quot; name=&quot;label_9&quot;&gt;
++                 &lt;property name=&quot;text&quot;&gt;
++                  &lt;string&gt;Call CQ and
++answer callers&lt;/string&gt;
++                 &lt;/property&gt;
++                 &lt;property name=&quot;alignment&quot;&gt;
++                  &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++                 &lt;/property&gt;
++                &lt;/widget&gt;
++               &lt;/item&gt;
++               &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
++                &lt;widget class=&quot;QLabel&quot; name=&quot;label_10&quot;&gt;
++                 &lt;property name=&quot;text&quot;&gt;
++                  &lt;string&gt;Answering CQ&lt;/string&gt;
++                 &lt;/property&gt;
++                 &lt;property name=&quot;alignment&quot;&gt;
++                  &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++                 &lt;/property&gt;
++                &lt;/widget&gt;
++               &lt;/item&gt;
+               &lt;/layout&gt;
+              &lt;/item&gt;
+              &lt;item&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002862.html">[WSJT-SVN] r3170 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002864.html">[WSJT-SVN] r3172 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2863">[ date ]</a>
+              <a href="thread.html#2863">[ thread ]</a>
+              <a href="subject.html#2863">[ subject ]</a>
+              <a href="author.html#2863">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

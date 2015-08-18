@@ -1,0 +1,339 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2886 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2886%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130103162836.564D955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002577.html">
+   <LINK REL="Next"  HREF="002579.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2886 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2886%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130103162836.564D955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2886 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan  3 17:28:36 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002577.html">[WSJT-SVN] r2885 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002579.html">[WSJT-SVN] r2887 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2578">[ date ]</a>
+              <a href="thread.html#2578">[ thread ]</a>
+              <a href="subject.html#2578">[ subject ]</a>
+              <a href="author.html#2578">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-03 17:28:35 +0100 (Thu, 03 Jan 2013)
+New Revision: 2886
+
+Added:
+   branches/wsprx/lib/genwsprx.f90
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/encode232.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/soundin.cpp
+   branches/wsprx/soundout.cpp
+Log:
+Starting to implement Tx mode.
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/lib/Makefile	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -23,23 +23,24 @@
+ 
+ all:    libwspr.a wspr0.exe
+ 
+-OBJS1 = symspec.o timf2.o fil3.o four2a.o pctile.o sort.o ssort.o db.o
+-
+-libwspr.a: $(OBJS1)
+-	ar cr libwspr.a $(OBJS1) 
+-	ranlib libwspr.a
+-
+-OBJS2 = wspr0.o wspr0_tx.o sound.o ptt.o gmtime2.o wfile5.o \
+-	genmept.o wqencode.o wqdecode.o inter_mept.o \
++OBJS1 = symspec.o timf2.o fil3.o wspr0_tx.o sound.o ptt.o gmtime2.o \
++	wfile5.o genmept.o wqencode.o wqdecode.o inter_mept.o \
+ 	encode232.o gran.o packcall.o packgrid.o pack50.o packpfx.o \
+ 	hash.o unpackcall.o unpackgrid.o unpackpfx.o unpack50.o \
+ 	grid2deg.o deg2grid.o nhash.o nchar.o wspr0_rx.o getrms.o \
+ 	mept162.o mix162.o spec162.o sync162.o twkfreq.o \
+ 	decode162.o getutc.o set.o xfft.o four2a.o flat3.o ps162.o \
+-	pctile.o fchisq.o db.o fano232.o sort.o ssort.o ccf2.o
++	pctile.o fchisq.o db.o fano232.o sort.o ssort.o ccf2.o \
++	genwsprx.o
+ 
+-wspr0.exe: $(OBJS2)
+-	$(FC) -o wspr0 $(FFLAGS) $(OBJS2) libportaudio.a \
++libwspr.a: $(OBJS1)
++	ar cr libwspr.a $(OBJS1) 
++	ranlib libwspr.a
++
++OBJS2 = wspr0.o 
++
++wspr0.exe: $(OBJS2) libwspr.a
++	$(FC) -o wspr0 $(FFLAGS) $(OBJS2) libwspr.a libportaudio.a \
+ 	   c:\MinGW\lib\libwinmm.a libfftw3f_win.a
+ 	cp wspr0.exe ../../wsprx_install
+ 
+
+Modified: branches/wsprx/lib/encode232.f90
+===================================================================
+--- branches/wsprx/lib/encode232.f90	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/lib/encode232.f90	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -1,15 +1,15 @@
+-subroutine encode232(dat,nsym,symbol)
++subroutine encode232(dat,nbytes,symbol,maxsym)
+ 
+ ! Convolutional encoder for a K=32, r=1/2 code.
+ 
+-  integer*1 dat(13)                 !User data, packed 8 bits per byte
+-  integer*1 symbol(500)             !Channel symbols, one bit per byte
++  integer*1 dat(nbytes)             !User data, packed 8 bits per byte
++  integer*1 symbol(maxsym)          !Channel symbols, one bit per byte
+   integer*1 i1
+   include 'conv232.f90'
+ 
+   nstate=0
+   k=0
+-  do j=1,nsym
++  do j=1,nbytes
+      do i=7,0,-1
+         i1=dat(j)
+         i4=i1
+@@ -23,11 +23,8 @@
+         n=ieor(n,ishft(n,-16))
+         k=k+1
+         symbol(k)=partab(iand(ieor(n,ishft(n,-8)),255))
+-        if(k.ge.nsym) go to 100
+      enddo
+   enddo
+ 
+-100 continue
+-
+   return
+ end subroutine encode232
+
+Added: branches/wsprx/lib/genwsprx.f90
+===================================================================
+--- branches/wsprx/lib/genwsprx.f90	                        (rev 0)
++++ branches/wsprx/lib/genwsprx.f90	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -0,0 +1,31 @@
++subroutine genwsprx(message,itone)
++
++! Encode a WSPR message and generate the corresponding wavefile.
++
++  character*22 message
++  parameter (MAXSYM=176)
++  integer*1 symbol(MAXSYM)
++  integer*1 data0(11),i1
++  integer*4 itone(162)
++  integer npr3(162)
++  data npr3/                                      &amp;
++      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,    &amp;
++      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,    &amp;
++      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,    &amp;
++      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,    &amp;
++      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,    &amp;
++      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,    &amp;
++      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,    &amp;
++      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,    &amp;
++      0,0/
++
++  call wqencode(message,ntype,data0)          !Source encoding
++  nbytes=(50+31+7)/8
++  call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
++  call inter_mept(symbol,1)                   !Interleaving
++  do i=1,162
++     itone(i)=npr3(i) + 2*symbol(i)
++  enddo
++
++  return
++end subroutine genwsprx
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/mainwindow.cpp	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -689,7 +689,10 @@
+ void MainWindow::p2ReadFromStderr()                        //p2readFromStderr
+ {
+   QByteArray t=p2.readAllStandardError();
+-  if(t.length()&gt;0) msgBox(t);
++  if(t.length()&gt;0) {
++    loggit(t);
++//    msgBox(t);
++  }
+   m_uploading=false;
+ }
+ 
+@@ -918,23 +921,43 @@
+ 
+ void MainWindow::startTx()
+ {
++  static char msg[23];
++  QString message=m_myCall + m_myGrid + &quot;37&quot;;            //### dBm ###
++  QByteArray ba=message.toAscii();
++  ba2msg(ba,msg);
++  int len1=22;
++  genwsprx_(msg,itone,len1);
+   int itx=1;
+   ptt(m_pttPort,itx,&amp;m_iptt);                   // Raise PTT
+-  if(!soundOutThread.isRunning()) {
+-    double snr=99.0;
+-    soundOutThread.setTxSNR(snr);
+-    soundOutThread.start(QThread::HighPriority);
+-  }
+-
+   pttTimer-&gt;setSingleShot(true);
+   connect(pttTimer, SIGNAL(timeout()), this, SLOT(startTx2()));
+   loggit(&quot;Start Tx&quot;);
+   pttTimer-&gt;start(200);                         //Sequencer delay
+ }
+ 
++void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
++{
++  bool eom;
++  eom=false;
++  int iz=ba.length();
++  for(int i=0;i&lt;22; i++) {
++    if(i&lt;iz) {
++      message[i]=ba[i];
++    } else {
++      message[i]=32;
++    }
++  }
++  message[22]=0;
++}
++
+ void MainWindow::startTx2()
+ {
+   loggit(&quot;Start Tx2&quot;);
++  if(!soundOutThread.isRunning()) {
++    double snr=99.0;
++    soundOutThread.setTxSNR(snr);
++    soundOutThread.start(QThread::HighPriority);
++  }
+ }
+ 
+ void MainWindow::stopTx()
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/mainwindow.h	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -185,7 +185,9 @@
+     void startTx();
+     void stopTx();
+     double tsec();
++    void ba2msg(QByteArray ba, char* message);
+ 
++
+ };
+ 
+ extern void getfile(QString fname, int ntrperiod);
+@@ -200,10 +202,7 @@
+ //----------------------------------------------------- C and Fortran routines
+ void symspec_(int* k, int* nsps, int* ingain, float* px, float s[],
+               float* df3, int* nhsym);
+-/*
+-void genjt9_(char* msg, int* ichk, char* msgsent, int itone[],
+-             int* itext, int len1, int len2);
+-*/
++void genwsprx_(char* msg, int itone[], int len1);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/mainwindow.ui	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -253,7 +253,7 @@
+         &lt;item&gt;
+          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxEnable&quot;&gt;
+           &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;false&lt;/bool&gt;
++           &lt;bool&gt;true&lt;/bool&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+            &lt;string&gt;Tx Enable&lt;/string&gt;
+
+Modified: branches/wsprx/soundin.cpp
+===================================================================
+--- branches/wsprx/soundin.cpp	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/soundin.cpp	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -42,7 +42,7 @@
+   int nbytes,k;
+ 
+   udata-&gt;ncall++;
+-  if( (statusFlags&amp;paInputOverflow) != 0) {
++  if( (statusFlags &amp; paInputOverflow) != 0) {
+     qDebug() &lt;&lt; &quot;Input Overflow&quot;;
+   }
+   if(udata-&gt;bzero) {           //Start of a new Rx sequence
+
+Modified: branches/wsprx/soundout.cpp
+===================================================================
+--- branches/wsprx/soundout.cpp	2013-01-03 01:11:12 UTC (rev 2885)
++++ branches/wsprx/soundout.cpp	2013-01-03 16:28:35 UTC (rev 2886)
+@@ -7,7 +7,7 @@
+ }
+ 
+ extern float gran();                  //Noise generator (for tests only)
+-extern int itone[85];                 //Tx audio tones for 85 symbols
++extern int itone[162];                 //Tx audio tones for 162 symbols
+ extern bool btxok;
+ extern bool btxMute;
+ extern double outputLatency;
+@@ -55,7 +55,7 @@
+     srand(mstr);                                //Initialize random seed
+   }
+   isym=ic/(4*udata-&gt;nsps);                      //Actual fsample=48000
+-  if(isym&gt;=85) return 1;
++  if(isym&gt;=162) return 1;
+   baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/48000.0;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002577.html">[WSJT-SVN] r2885 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002579.html">[WSJT-SVN] r2887 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2578">[ date ]</a>
+              <a href="thread.html#2578">[ thread ]</a>
+              <a href="subject.html#2578">[ subject ]</a>
+              <a href="author.html#2578">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

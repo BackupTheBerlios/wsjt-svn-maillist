@@ -1,0 +1,910 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3500 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3500%20-%20branches/wsjtx&In-Reply-To=%3C20130723173300.BEF3955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003191.html">
+   <LINK REL="Next"  HREF="003193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3500 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3500%20-%20branches/wsjtx&In-Reply-To=%3C20130723173300.BEF3955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3500 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jul 23 19:33:00 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003191.html">[WSJT-SVN] r3499 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003193.html">[WSJT-SVN] r3501 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3192">[ date ]</a>
+              <a href="thread.html#3192">[ thread ]</a>
+              <a href="subject.html#3192">[ subject ]</a>
+              <a href="author.html#3192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-23 19:32:59 +0200 (Tue, 23 Jul 2013)
+New Revision: 3500
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/rigclass.cpp
+   branches/wsjtx/rigclass.h
+   branches/wsjtx/wsjtx.iss
+Log:
+1. Full control of DTR and RTS on serial port used for CAT control -- patch 
+submitted by G4WJS.
+2. Improved(???) means of multiple tries when polling radio for frequency.
+3. Minor tweaks to widget sizes on devsetup screen.
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/devsetup.cpp	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -489,6 +489,11 @@
+   m_handshake=ui.handshakeComboBox-&gt;itemText(index);
+ }
+ 
++void DevSetup::on_handshakeComboBox_currentIndexChanged(int index)
++{
++  ui.RTSCheckBox-&gt;setEnabled(index != 2);
++}
++
+ void DevSetup::on_dataBitsComboBox_activated(int index)
+ {
+   m_dataBitsIndex=index;
+@@ -567,9 +572,9 @@
+     sprintf(buf,&quot;%d&quot;,m_stopBits);
+     rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+     rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toLatin1().data());
+-    if(m_bDTRoff) {
+-      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+-      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++    rig-&gt;setConf(&quot;dtr_state&quot;,m_bDTR ? &quot;ON&quot; : &quot;OFF&quot;);
++    if(ui.RTSCheckBox-&gt;isEnabled()) {
++      rig-&gt;setConf(&quot;rts_state&quot;,m_bRTS ? &quot;ON&quot; : &quot;OFF&quot;);
+     }
+   }
+ 
+@@ -604,11 +609,16 @@
+   }
+ }
+ 
+-void DevSetup::on_cbDTRoff_toggled(bool checked)
++void DevSetup::on_DTRCheckBox_toggled(bool checked)
+ {
+-  m_bDTRoff=checked;
++  m_bDTR=checked;
+ }
+ 
++void DevSetup::on_RTSCheckBox_toggled(bool checked)
++{
++  m_bRTS=checked;
++}
++
+ void DevSetup::on_rbData_toggled(bool checked)
+ {
+   m_pttData=checked;
+@@ -635,7 +645,6 @@
+ void DevSetup::enableWidgets()
+ {
+   ui.cbEnableCAT-&gt;setChecked(m_catEnabled);
+-  ui.cbDTRoff-&gt;setChecked(m_bDTRoff);
+   ui.rigComboBox-&gt;setEnabled(m_catEnabled);
+   ui.testCATButton-&gt;setEnabled(m_catEnabled);
+   ui.label_4-&gt;setEnabled(m_catEnabled);
+@@ -653,7 +662,10 @@
+   ui.dataBitsComboBox-&gt;setEnabled(bSerial);
+   ui.stopBitsComboBox-&gt;setEnabled(bSerial);
+   ui.handshakeComboBox-&gt;setEnabled(bSerial);
+-  ui.cbDTRoff-&gt;setEnabled(bSerial);
++  ui.DTRCheckBox-&gt;setEnabled(bSerial);
++  ui.DTRCheckBox-&gt;setChecked(m_bDTR);
++  ui.RTSCheckBox-&gt;setEnabled(bSerial &amp;&amp; m_handshakeIndex != 2);
++  ui.RTSCheckBox-&gt;setChecked(m_bRTS);
+   ui.rbData-&gt;setEnabled(bSerial);
+   ui.rbMic-&gt;setEnabled(bSerial);
+   ui.label_21-&gt;setEnabled(bSerial);
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/devsetup.h	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -46,7 +46,8 @@
+   bool    m_catEnabled;
+   bool    m_After73;
+   bool    m_bRigOpen;
+-  bool    m_bDTRoff;
++  bool    m_bDTR;
++  bool    m_bRTS;
+   bool    m_pttData;
+   bool    m_bSplit;
+   bool    m_bXIT;
+@@ -82,13 +83,15 @@
+   void on_cbEnableCAT_toggled(bool checked);
+   void on_serialRateComboBox_activated(int index);
+   void on_handshakeComboBox_activated(int index);
++  void on_handshakeComboBox_currentIndexChanged(int index);
+   void on_dataBitsComboBox_activated(int index);
+   void on_stopBitsComboBox_activated(int index);
+   void on_rigComboBox_activated(int index);
+   void on_cbID73_toggled(bool checked);
+   void on_testCATButton_clicked();
+   void on_testPTTButton_clicked();
+-  void on_cbDTRoff_toggled(bool checked);
++  void on_DTRCheckBox_toggled(bool checked);
++  void on_RTSCheckBox_toggled(bool checked);
+   void on_rbData_toggled(bool checked);
+   void on_pollSpinBox_valueChanged(int n);
+   void on_pttComboBox_currentIndexChanged(int index);
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/devsetup.ui	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -6,8 +6,8 @@
+    &lt;rect&gt;
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+-    &lt;width&gt;588&lt;/width&gt;
+-    &lt;height&gt;557&lt;/height&gt;
++    &lt;width&gt;570&lt;/width&gt;
++    &lt;height&gt;465&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+@@ -594,13 +594,26 @@
+           &lt;/spacer&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
+-          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbDTRoff&quot;&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;DTRCheckBox&quot;&gt;
++           &lt;property name=&quot;enabled&quot;&gt;
++            &lt;bool&gt;false&lt;/bool&gt;
++           &lt;/property&gt;
+            &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;RTS/DTR OFF&lt;/string&gt;
++            &lt;string&gt;DTR&lt;/string&gt;
+            &lt;/property&gt;
+           &lt;/widget&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;RTSCheckBox&quot;&gt;
++           &lt;property name=&quot;enabled&quot;&gt;
++            &lt;bool&gt;false&lt;/bool&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;RTS&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
+           &lt;spacer name=&quot;horizontalSpacer_14&quot;&gt;
+            &lt;property name=&quot;orientation&quot;&gt;
+             &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+@@ -931,7 +944,7 @@
+            &lt;/item&gt;
+            &lt;item&gt;
+             &lt;property name=&quot;text&quot;&gt;
+-             &lt;string&gt;XonXoff&lt;/string&gt;
++             &lt;string&gt;XONXOFF&lt;/string&gt;
+             &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+@@ -1839,8 +1852,8 @@
+            &lt;rect&gt;
+             &lt;x&gt;0&lt;/x&gt;
+             &lt;y&gt;0&lt;/y&gt;
+-            &lt;width&gt;527&lt;/width&gt;
+-            &lt;height&gt;554&lt;/height&gt;
++            &lt;width&gt;308&lt;/width&gt;
++            &lt;height&gt;505&lt;/height&gt;
+            &lt;/rect&gt;
+           &lt;/property&gt;
+           &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_14&quot;&gt;
+@@ -1863,13 +1876,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -1885,7 +1898,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -1898,7 +1911,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -1917,7 +1930,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -1939,13 +1952,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -1961,7 +1974,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -1977,7 +1990,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2006,13 +2019,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2034,13 +2047,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2062,13 +2075,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2081,10 +2094,16 @@
+              &lt;/item&gt;
+              &lt;item row=&quot;9&quot; column=&quot;1&quot;&gt;
+               &lt;widget class=&quot;QLineEdit&quot; name=&quot;f9&quot;&gt;
++               &lt;property name=&quot;minimumSize&quot;&gt;
++                &lt;size&gt;
++                 &lt;width&gt;0&lt;/width&gt;
++                 &lt;height&gt;20&lt;/height&gt;
++                &lt;/size&gt;
++               &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2097,7 +2116,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2110,7 +2129,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2123,7 +2142,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2139,7 +2158,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2155,7 +2174,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2174,13 +2193,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2205,13 +2224,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2230,7 +2249,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2243,7 +2262,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2256,7 +2275,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2275,13 +2294,13 @@
+                &lt;property name=&quot;minimumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2300,7 +2319,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;text&quot;&gt;
+@@ -2343,7 +2362,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;27&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2356,7 +2375,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2369,7 +2388,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2382,7 +2401,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2395,7 +2414,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2408,7 +2427,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2421,7 +2440,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2434,7 +2453,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+@@ -2447,7 +2466,7 @@
+                &lt;property name=&quot;maximumSize&quot;&gt;
+                 &lt;size&gt;
+                  &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
++                 &lt;height&gt;20&lt;/height&gt;
+                 &lt;/size&gt;
+                &lt;/property&gt;
+                &lt;property name=&quot;alignment&quot;&gt;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/mainwindow.cpp	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -32,7 +32,7 @@
+ LogQSO* logDlg = NULL;
+ Rig* rig = NULL;
+ QTextEdit* pShortcuts;
+-QTcpSocket* socket = new QTcpSocket(0);
++QTcpSocket* commanderSocket = new QTcpSocket(0);
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSJT-X   v1.1, r&quot; + rev.mid(6,4) +
+@@ -466,8 +466,8 @@
+   settings.setValue(&quot;Runaway&quot;,m_runaway);
+   settings.setValue(&quot;Tx2QSO&quot;,m_tx2QSO);
+   settings.setValue(&quot;MultipleOK&quot;,m_bMultipleOK);
+-  settings.setValue(&quot;DTRoff&quot;,m_bDTRoff);
+-  settings.setValue(&quot;pttData&quot;,m_pttData);
++  settings.setValue(&quot;DTR&quot;,m_bDTR);
++  settings.setValue(&quot;RTS&quot;,m_bRTS);  settings.setValue(&quot;pttData&quot;,m_pttData);
+   settings.setValue(&quot;LogQSOgeom&quot;,m_logQSOgeom);
+   settings.setValue(&quot;Polling&quot;,m_poll);
+   settings.setValue(&quot;OutBufSize&quot;,outBufSize);
+@@ -615,8 +615,8 @@
+   ui-&gt;actionTx2QSO-&gt;setChecked(m_tx2QSO);
+   m_bMultipleOK=settings.value(&quot;MultipleOK&quot;,false).toBool();
+   ui-&gt;actionAllow_multiple_instances-&gt;setChecked(m_bMultipleOK);
+-  m_bDTRoff=settings.value(&quot;DTRoff&quot;,false).toBool();
+-  m_pttData=settings.value(&quot;pttData&quot;,false).toBool();
++  m_bDTR=settings.value(&quot;DTR&quot;,false).toBool();
++  m_bRTS=settings.value(&quot;RTS&quot;,false).toBool();  m_pttData=settings.value(&quot;pttData&quot;,false).toBool();
+   m_poll=settings.value(&quot;Polling&quot;,0).toInt();
+   m_logQSOgeom=settings.value(&quot;LogQSOgeom&quot;,QRect(500,400,424,283)).toRect();
+   outBufSize=settings.value(&quot;OutBufSize&quot;,4096).toInt();
+@@ -737,8 +737,8 @@
+   dlg.m_stopBitsIndex=m_stopBitsIndex;
+   dlg.m_handshake=m_handshake;
+   dlg.m_handshakeIndex=m_handshakeIndex;
+-  dlg.m_bDTRoff=m_bDTRoff;
+-  dlg.m_pttData=m_pttData;
++  dlg.m_bDTR=m_bDTR;
++  dlg.m_bRTS=m_bRTS;  dlg.m_pttData=m_pttData;
+   dlg.m_poll=m_poll;
+   dlg.m_bSplit=m_bSplit;
+   dlg.m_bXIT=m_bXIT;
+@@ -780,7 +780,8 @@
+     m_stopBitsIndex=dlg.m_stopBitsIndex;
+     m_handshake=dlg.m_handshake;
+     m_handshakeIndex=dlg.m_handshakeIndex;
+-    m_bDTRoff=dlg.m_bDTRoff;
++    m_bDTR=dlg.m_bDTR;
++    m_bRTS=dlg.m_bRTS;
+     m_pttData=dlg.m_pttData;
+     m_poll=dlg.m_poll;
+ 
+@@ -1841,27 +1842,8 @@
+       signalMeter-&gt;setValue(0);
+     }
+ 
+-    if(m_catEnabled and m_poll&gt;0 and (nsec%m_poll)==0 and !m_decoderBusy) {
+-      double fMHz;
+-      if(m_dontReadFreq) {
+-        m_dontReadFreq=false;
+-      } else if(!m_transmitting) {
+-        for(int iter=0; iter&lt;3; iter++) {
+-          fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
+-          if(fMHz&lt;0.0 and iter&gt;=2) {
+-            rt.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
+-                       int(1000000.0*fMHz));
+-            msgBox(rt);
+-            m_catEnabled=false;
+-            ui-&gt;readFreq-&gt;setStyleSheet(&quot;QPushButton{background-color: red; \
+-                                    border-width: 0px; border-radius: 5px;}&quot;);
+-        }
+-      }
+-        int ndiff=1000000.0*(fMHz-m_dialFreq);
+-        if(ndiff!=0) dialFreqChanged2(fMHz);
+-      }
+-    }
+-
++    if(m_catEnabled and m_poll&gt;0 and (nsec%m_poll)==0 and
++       !m_decoderBusy) pollRigFreq();
+     m_sec0=nsec;
+   }
+ 
+@@ -2952,15 +2934,16 @@
+     sprintf(buf,&quot;%d&quot;,m_stopBits);
+     rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+     rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toLatin1().data());
+-    if(m_bDTRoff) {
+-      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+-      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++    if(m_handshakeIndex != 2) {
++      rig-&gt;setConf(&quot;rts_state&quot;,m_bRTS ? &quot;ON&quot; : &quot;OFF&quot;);
++      rig-&gt;setConf(&quot;dtr_state&quot;,m_bDTR ? &quot;ON&quot; : &quot;OFF&quot;);
+     }
+   }
+ 
+   ret=rig-&gt;open(m_rig);
+   if(ret==RIG_OK) {
+     m_bRigOpen=true;
++    m_bad=0;
+     if(m_poll==0) ui-&gt;readFreq-&gt;setEnabled(true);
+     m_CATerror=false;
+   } else {
+@@ -3084,3 +3067,28 @@
+   m_plus2kHz=checked;
+   on_bandComboBox_activated(m_band);
+ }
++
++void MainWindow::pollRigFreq()
++{
++  double fMHz;
++  if(m_dontReadFreq) {
++    m_dontReadFreq=false;
++  } else if(!m_transmitting) {
++    fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
++    if(fMHz&lt;0.0) {
++      m_bad++;
++      if(m_bad&gt;=20) {
++        QString rt;
++        rt.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
++                   int(1000000.0*fMHz));
++        msgBox(rt);
++        m_catEnabled=false;
++        ui-&gt;readFreq-&gt;setStyleSheet(&quot;QPushButton{background-color: red; \
++                                    border-width: 0px; border-radius: 5px;}&quot;);
++    }
++  } else {
++    int ndiff=1000000.0*(fMHz-m_dialFreq);
++    if(ndiff!=0) dialFreqChanged2(fMHz);
++  }
++}
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/mainwindow.h	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -210,6 +210,7 @@
+     qint32  m_poll;
+     qint32  m_fMin;
+     qint32  m_fMax;
++    qint32  m_bad;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+@@ -249,7 +250,8 @@
+     bool    m_tune;
+     bool    m_bRigOpen;
+     bool    m_bMultipleOK;
+-    bool    m_bDTRoff;
++    bool    m_bDTR;
++    bool    m_bRTS;
+     bool    m_pttData;
+     bool    m_dontReadFreq;
+     bool    m_lockTxFreq;
+@@ -355,6 +357,7 @@
+     void freeText();
+     void displayTxMsg(QString t);
+     void rigOpen();
++    void pollRigFreq();
+     bool gridOK(QString g);
+     QString baseCall(QString t);
+ };
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/rigclass.cpp	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -38,6 +38,8 @@
+ #include &lt;QDebug&gt;
+ #include &lt;QHostAddress&gt;
+ 
++#define NUMTRIES 5
++
+ static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg);
+ 
+ static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg)
+@@ -101,13 +103,13 @@
+     }
+   }
+   if(n==9998) {
+-    if(socket-&gt;state()==QAbstractSocket::ConnectedState) {
+-      socket-&gt;abort();
++    if(commanderSocket-&gt;state()==QAbstractSocket::ConnectedState) {
++      commanderSocket-&gt;abort();
+     }
+ 
+-    if(socket-&gt;state()==QAbstractSocket::UnconnectedState) {
+-      socket-&gt;connectToHost(QHostAddress::LocalHost, 52002);
+-      if(!socket-&gt;waitForConnected(1000)) {
++    if(commanderSocket-&gt;state()==QAbstractSocket::UnconnectedState) {
++      commanderSocket-&gt;connectToHost(QHostAddress::LocalHost, 52002);
++      if(!commanderSocket-&gt;waitForConnected(1000)) {
+         return -1;
+       }
+     }
+@@ -115,9 +117,9 @@
+     t=&quot;&lt;command:10&gt;CmdGetFreq&lt;parameters:0&gt;&quot;;
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    socket-&gt;write(buf);
+-    socket-&gt;waitForReadyRead(1000);
+-    QByteArray reply=socket-&gt;read(128);
++    commanderSocket-&gt;write(buf);
++    commanderSocket-&gt;waitForReadyRead(1000);
++    QByteArray reply=commanderSocket-&gt;read(128);
+     if(reply.indexOf(&quot;&lt;CmdFreq:&quot;)==0) {
+       m_cmndr=true;
+       return 0;
+@@ -133,7 +135,7 @@
+     HRDInterfaceDisconnect();
+     return 0;
+   } else if(m_cmndr) {
+-    socket-&gt;close();
++    commanderSocket-&gt;close();
+     return 0;
+   } else
+ #endif
+@@ -168,8 +170,8 @@
+     t.sprintf(&quot;&lt;command:10&gt;CmdSetFreq&lt;parameters:23&gt;&lt;xcvrfreq:10&gt;%10.3f&quot;,f);
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    socket-&gt;write(buf);
+-    socket-&gt;waitForBytesWritten(1000);
++    commanderSocket-&gt;write(buf);
++    commanderSocket-&gt;waitForBytesWritten(1000);
+     return 0;
+   } else
+ #endif
+@@ -216,8 +218,8 @@
+     t.sprintf(&quot;&lt;command:12&gt;CmdSetTxFreq&lt;parameters:23&gt;&lt;xcvrfreq:10&gt;%10.3f&quot;,f);
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    socket-&gt;write(buf);
+-    socket-&gt;waitForBytesWritten(1000);
++    commanderSocket-&gt;write(buf);
++    commanderSocket-&gt;waitForBytesWritten(1000);
+     return 0;
+   } else
+ #endif
+@@ -242,9 +244,9 @@
+     t=&quot;&lt;command:10&gt;CmdGetFreq&lt;parameters:0&gt;&quot;;
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    socket-&gt;write(buf);
+-    socket-&gt;waitForReadyRead(1000);
+-    QByteArray reply=socket-&gt;read(128);
++    commanderSocket-&gt;write(buf);
++    commanderSocket-&gt;waitForReadyRead(1000);
++    QByteArray reply=commanderSocket-&gt;read(128);
+     QString t2(reply);
+     if(t2.indexOf(&quot;&lt;CmdFreq:&quot;)==0) {
+       int i1=t2.indexOf(&quot;&gt;&quot;);
+@@ -257,9 +259,11 @@
+   } else
+ #endif
+   {
+-    int iret=rig_get_freq(theRig, vfo, &amp;freq);
+-// iret should be 0.  Negative values mean rig_get_freq() failed.
+-    if(iret&lt;0) freq=-1.0;
++    freq=-1.0;
++    for(int i=0; i&lt;NUMTRIES; i++) {
++      int iret=rig_get_freq(theRig, vfo, &amp;freq);
++      if(iret==RIG_OK) break;
++    }
+     return freq;
+   }
+ }
+@@ -301,8 +305,8 @@
+     if(ptt&gt;0) t=&quot;&lt;command:5&gt;CmdTX&lt;parameters:0&gt;&quot;;
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    socket-&gt;write(buf);
+-    socket-&gt;waitForBytesWritten(1000);
++    commanderSocket-&gt;write(buf);
++    commanderSocket-&gt;waitForBytesWritten(1000);
+     return 0;
+   } else
+ #endif
+
+Modified: branches/wsjtx/rigclass.h
+===================================================================
+--- branches/wsjtx/rigclass.h	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/rigclass.h	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -27,7 +27,7 @@
+ #include &lt;QString&gt;
+ #include &lt;QTcpSocket&gt;
+ 
+-extern QTcpSocket* socket;
++extern QTcpSocket* commanderSocket;
+ 
+ class BACKEND_IMPEXP Rig {
+ private:
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2013-07-23 10:28:22 UTC (rev 3499)
++++ branches/wsjtx/wsjtx.iss	2013-07-23 17:32:59 UTC (rev 3500)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 1.1.0 r3488
++AppVerName=wsjtx Version 1.1.0 r3496
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx2
+ DefaultGroupName=wsjtx2
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003191.html">[WSJT-SVN] r3499 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003193.html">[WSJT-SVN] r3501 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3192">[ date ]</a>
+              <a href="thread.html#3192">[ thread ]</a>
+              <a href="subject.html#3192">[ subject ]</a>
+              <a href="author.html#3192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

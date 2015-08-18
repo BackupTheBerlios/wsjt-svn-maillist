@@ -1,0 +1,701 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2775 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2775%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121127153804.14BC855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002466.html">
+   <LINK REL="Next"  HREF="002468.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2775 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2775%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121127153804.14BC855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2775 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Nov 27 16:38:03 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002466.html">[WSJT-SVN] r2774 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002468.html">[WSJT-SVN] r2776 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2467">[ date ]</a>
+              <a href="thread.html#2467">[ thread ]</a>
+              <a href="subject.html#2467">[ subject ]</a>
+              <a href="author.html#2467">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-27 16:38:03 +0100 (Tue, 27 Nov 2012)
+New Revision: 2775
+
+Added:
+   branches/wsjtx/lib/decode9a.f90
+   branches/wsjtx/lib/downsam9.f90
+   branches/wsjtx/lib/symspec2.f90
+Removed:
+   branches/wsjtx/lib/test9.f90
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/peakdt9.f90
+   branches/wsjtx/lib/twkfreq.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Refactor the test9 routine into downsam9, peakdt9, symspec2, ...
+
+
+Copied: branches/wsjtx/lib/decode9a.f90 (from rev 2774, branches/wsjtx/lib/test9.f90)
+===================================================================
+--- branches/wsjtx/lib/decode9a.f90	                        (rev 0)
++++ branches/wsjtx/lib/decode9a.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -0,0 +1,47 @@
++subroutine decode9a(c0,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
++     i1SoftSymbols)
++
++  complex c0(0:npts8-1)
++  complex c2(0:4096-1)
++  complex c3(0:4096-1)
++  complex c5(0:4096-1)
++  complex z
++  real a(3),aa(3)
++  integer*1 i1SoftSymbolsScrambled(207)
++  integer*1 i1SoftSymbols(207)
++  character*22 msg
++  include 'jt9sync.f90'
++
++  nspsd=16
++  ndown=nsps8/nspsd
++
++! Downsample to 16 samples/symbol
++  call downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2) 
++
++  call peakdt9(c2,nz2,nsps8,nspsd,c3,nz3,xdt)
++
++  fsample=1500.0/ndown
++  a=0.
++  call afc9(c3,nz3,fsample,a,syncpk)
++
++  call twkfreq(c3,c5,nz3,fsample,a)
++
++  call symspec2(c5,nz3,nsps8,nspsd,fsample,snrdb,i1SoftSymbolsScrambled)
++
++  call interleave9(i1SoftSymbolsScrambled,-1,i1SoftSymbols)
++!  limit=10000
++!  call decode9(i1SoftSymbols,limit,nlim,msg)
++
++!###
++!  do j=1,85
++!     write(71,2101) j,nint(1.e-3*ss2(0:8,j))
++!2101 format(i2,2x,9i6)
++!  enddo
++  
++  freq=fpk - a(1)
++  drift=-2.0*a(2)
++!  write(*,1100) nutc,nsync,nsnr,xdt,freq,a(2),msg
++!1100 format(i4.4,i5,i5,f6.1,f9.2,f8.2,2x,a22)
++
++  return
++end subroutine decode9a
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/lib/decoder.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -88,11 +88,11 @@
+ !     call spec9(c0,npts8,nsps,f,fpk,xdt,snr,i1SoftSymbols)
+ !     call timer('spec9   ',1)
+ 
+-     call timer('test9   ',0)
++     call timer('decode9a',0)
+      fpk=1000.0 + df3*(i-1)
+      c1(1:npts8)=conjg(c0(1:npts8))
+-     call test9(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,i1SoftSymbols)
+-     call timer('test9   ',1)
++     call decode9a(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,i1SoftSymbols)
++     call timer('decode9a',1)
+ 
+      call timer('decode9 ',0)
+      call decode9(i1SoftSymbols,limit,nlim,msg)
+
+Added: branches/wsjtx/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx/lib/downsam9.f90	                        (rev 0)
++++ branches/wsjtx/lib/downsam9.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -0,0 +1,46 @@
++subroutine downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2)     
++
++!Downsample to nspsd samples per symbol, info centered at fpk
++
++  parameter (NMAX=128*31500)
++  complex c0(0:npts8-1)
++  complex c1(0:NMAX-1)
++  complex c2(0:4096-1)
++
++  fac=1.e-4
++  c1(0:npts8-1)=fac*c0                     !Copy c0 into c1
++  do i=1,npts8-1,2
++     c1(i)=-c1(i)
++  enddo
++  c1(npts8:)=0.                            !Zero the rest of c1
++  nfft1=128*nsps8                          !Forward FFT length
++  nh1=nfft1/2
++  df1=1500.0/nfft1
++  call four2a(c1,nfft1,1,-1,1)             !Forward FFT
++
++!  do i=0,nfft1-1
++!     f=i*df1
++!     pp=real(c1(i))**2 + aimag(c1(i))**2
++!     write(50,3009) i,f,1.e-6*pp
++!3009 format(i8,f12.3,f12.3)
++!  enddo   
++  
++  ndown=nsps8/16                           !Downsample factor
++  nfft2=nfft1/ndown                        !Backward FFT length
++  nh2=nfft2/2
++   
++  fshift=fpk-1500.0
++  i0=nh1 + fshift/df1
++  do i=0,nfft2-1
++     j=i0+i
++     if(i.gt.nh2) j=j-nfft2
++     c2(i)=c1(j)
++  enddo
++
++  call four2a(c2,nfft2,1,1,1)              !Backward FFT
++
++  nspsd=nsps8/ndown
++  nz2=npts8/ndown
++
++  return
++end subroutine downsam9
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/lib/jt9sim.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -54,7 +54,9 @@
+   if(minutes.eq.10) nsps=82944
+   if(minutes.eq.30) nsps=252000
+   if(nsps.eq.0) stop 'Bad value for minutes.'
+-  f0=1500.d0                         !Center frequency (MHz)
++
++  f0=1400.d0                         !Center frequency (MHz)
++!  f0=1500.0
+ !  if(minutes.eq.5)  f0=1100.
+ !  if(minutes.eq.10) f0=1050.
+ !  if(minutes.eq.30) f0=1025.
+@@ -108,12 +110,17 @@
+         phi=0.
+         baud=12000.d0/nsps
+         k=12000                             !Start audio at t = 1.0 s
++        f1=0.0001 * (ifile-1)
++        print*,ifile-2,f1
++        dphi2=0.
++        ddphi2=twopi*f1*dt/60.0
+         do isym=1,85
+            freq=f + i4tone(isym)*baud
+            if(msg0(1:3).eq.'sin') freq=sinfreq
+-           dphi=twopi*freq*dt
++           dphi=twopi*freq*dt + dphi2
+            do i=1,nsps
+               phi=phi + dphi
++              dphi2=dphi2 + ddphi2
+               if(phi.lt.-twopi) phi=phi+twopi
+               if(phi.gt.twopi) phi=phi-twopi
+               xphi=phi
+
+Modified: branches/wsjtx/lib/peakdt9.f90
+===================================================================
+--- branches/wsjtx/lib/peakdt9.f90	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/lib/peakdt9.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -1,50 +1,59 @@
+-subroutine peakdt9(c0,npts8,nsps8,istart,foffset,idtpk)
++subroutine peakdt9(c2,nz2,nsps8,nspsd,c3,nz3,xdt)
+ 
+-  complex c0(0:npts8-1)
+-  complex zsum
++  complex c2(0:4096-1)
++  complex c3(0:4096-1)
++  complex z
++  real p(0:3300)
+   include 'jt9sync.f90'
+ 
+-  twopi=8.0*atan(1.0)
++  p=0.
++  i0=5*nspsd
++  do i=0,nz2-1
++     z=1.e-3*sum(c2(max(i-(nspsd-1),0):i))       !Integrate
++     p(i0+i)=real(z)**2 + aimag(z)**2      !Symbol power at freq=0
++! Option here for coherent processing ?
++!     write(53,3301) i,z,p(i0+i),atan2(aimag(z),real(z))
++!3301 format(i6,4e12.3)
++  enddo
++
++  call getlags(nsps8,lag0,lag1,lag2)
++  tsymbol=nsps8/1500.0
++  dtlag=tsymbol/nspsd
+   smax=0.
+-  tstep=0.0625*nsps8/1500.0
+-  idtmax=2.5/tstep
+-
+-  f0=foffset
+-  dphi=twopi*f0/1500.0
+-
+-  idtstep=4
+-  if(idtmax.lt.30) idtstep=2
+-  if(idtmax.lt.15) idtstep=1
+-  idt1=-idtmax
+-  idt2=idtmax
+-
+-10 do idt=idt1,idt2,idtstep
+-     i0=istart + 0.0625*nsps8*idt
+-    sum=0.
+-     do j=1,16
+-        i1=max(0,(ii(j)-1)*nsps8 + i0)
+-        i2=min(npts8-1,i1+nsps8-1)
+-        phi=0.
+-        zsum=0.
+-        do i=i1,i2
+-           if(i.lt.0 .or. i.gt.npts8-1) cycle
+-           phi=phi + dphi
+-           zsum=zsum + c0(i)*cmplx(cos(phi),-sin(phi))
+-        enddo
+-        sum=sum + real(zsum)**2 + aimag(zsum)**2
++  lagpk=0
++  do lag=lag1,lag2
++     sum0=0.
++     sum1=0.
++     j=-nspsd
++     do i=1,85
++        j=j+nspsd
++        if(isync(i).eq.1) then
++           sum1=sum1+p(j+lag)
++        else
++           sum0=sum0+p(j+lag)
++        endif
+      enddo
+-     if(sum.gt.smax) then
+-        idtpk=idt
+-        smax=sum
++     ss=(sum1/16.0)/(sum0/69.0) - 1.0
++     xdt=(lag-lag0)*dtlag
++!     write(52,3001) lag,xdt,ss
++!3001 format(i5,2f12.3)
++     if(ss.gt.smax) then
++        smax=ss
++        lagpk=lag
+      endif
+   enddo
+ 
+-  if(idtstep.gt.1) then
+-     idtstep=1
+-     idt1=idtpk-3
+-     idt2=idtpk+3
+-     go to 10
+-  endif
++  xdt=(lagpk-lag0)*dtlag
+ 
++  nz3=nspsd*85
++  do i=0,nz3-1
++     j=i+lagpk-i0-nspsd+1
++     if(j.ge.0 .and. j.le.nz2) then
++        c3(i)=c2(j)
++     else
++        c3(i)=0.
++     endif
++  enddo
++ 
+   return
+ end subroutine peakdt9
+
+Added: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	                        (rev 0)
++++ branches/wsjtx/lib/symspec2.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -0,0 +1,86 @@
++subroutine symspec2(c5,nz3,nsps8,nspsd,fsample,snrdb,i1SoftSymbolsScrambled)
++
++  complex c5(0:4096-1)
++  complex z
++  integer*1 i1SoftSymbolsScrambled(207)
++  real aa(3)
++  real ss2(0:8,85)
++  real ss3(0:7,69)
++  integer*1 i1
++  equivalence (i1,i4)
++  include 'jt9sync.f90' 
++
++  aa(1)=-1500.0/nsps8
++  aa(2)=0.
++  aa(3)=0.
++  do i=0,8
++     if(i.ge.1) call twkfreq(c5,c5,nz3,fsample,aa)
++     m=0
++     k=-1
++     do j=1,85
++        z=0.
++        do n=1,nspsd
++           k=k+1
++           z=z+c5(k)
++        enddo
++        ss2(i,j)=real(z)**2 + aimag(z)**2
++        if(i.ge.1 .and. isync(j).eq.0) then
++           m=m+1
++           ss3(i-1,m)=ss2(i,j)
++        endif
++     enddo
++  enddo
++
++!###
++  ss=0.
++  sig=0.
++  do j=1,69
++     smax=0.
++     do i=0,7
++        smax=max(smax,ss3(i,j))
++        ss=ss+ss3(i,j)
++     enddo
++     sig=sig+smax
++     ss=ss-smax
++  enddo
++  ave=ss/(69*7) 
++  call pctile(ss2,9*85,35,xmed)
++  ss3=ss3/ave
++
++  sig=sig/69.
++  df8=1500.0/nsps8
++  t=max(1.0,sig/xmed - 1.0)
++  snrdb=db(t) - db(2500.0/df8) - 4.5
++!  print*,'A',ave,xmed,sig,t,df8,snrdb
++     
++  m0=3
++  k=0
++  do j=1,69
++        smax=0.
++        do i=0,7
++           if(ss3(i,j).gt.smax) smax=ss3(i,j)
++        enddo
++
++     do m=m0-1,0,-1                   !Get bit-wise soft symbols
++        if(m.eq.2) then
++           r1=max(ss3(4,j),ss3(5,j),ss3(6,j),ss3(7,j))
++           r0=max(ss3(0,j),ss3(1,j),ss3(2,j),ss3(3,j))
++        else if(m.eq.1) then
++           r1=max(ss3(2,j),ss3(3,j),ss3(4,j),ss3(5,j))
++           r0=max(ss3(0,j),ss3(1,j),ss3(6,j),ss3(7,j))
++        else
++           r1=max(ss3(1,j),ss3(2,j),ss3(4,j),ss3(7,j))
++           r0=max(ss3(0,j),ss3(3,j),ss3(5,j),ss3(6,j))
++        endif
++
++        k=k+1
++        i4=nint(10.0*(r1-r0))
++        if(i4.lt.-127) i4=-127
++        if(i4.gt.127) i4=127
++        i4=i4+128
++        i1SoftSymbolsScrambled(k)=i1
++     enddo
++  enddo
++
++  return
++end subroutine symspec2
+
+Deleted: branches/wsjtx/lib/test9.f90
+===================================================================
+--- branches/wsjtx/lib/test9.f90	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/lib/test9.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -1,221 +0,0 @@
+-subroutine test9(c0,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,i1SoftSymbols)
+-
+-  parameter (NMAX=128*31500)
+-  complex c0(0:npts8-1)
+-  complex c1(0:NMAX-1)
+-  complex c2(0:4096-1)
+-  complex c3(0:4096-1)
+-  complex c5(0:4096-1)
+-  complex z
+-  real p(0:3300)
+-  real a(3),aa(3)
+-  real ss2(0:8,85)
+-  real ss3(0:7,69)
+-  integer*1 i1SoftSymbolsScrambled(207)
+-  integer*1 i1SoftSymbols(207)
+-  integer*1 i1
+-  equivalence (i1,i4)
+-  character*22 msg
+-
+-  include 'jt9sync.f90'
+-
+-  fac=1.e-4
+-  c1(0:npts8-1)=fac*c0                     !Copy c0 into c1
+-  do i=1,npts8-1,2
+-     c1(i)=-c1(i)
+-  enddo
+-  c1(npts8:)=0.                            !Zero the rest of c1
+-  nfft1=128*nsps8                          !Forward FFT length
+-  nh1=nfft1/2
+-  df1=1500.0/nfft1
+-  call four2a(c1,nfft1,1,-1,1)             !Forward FFT
+-
+-!  do i=0,nfft1-1
+-!     f=i*df1
+-!     pp=real(c1(i))**2 + aimag(c1(i))**2
+-!     write(50,3009) i,f,1.e-6*pp
+-!3009 format(i8,f12.3,f12.3)
+-!  enddo   
+-  
+-  ndown=nsps8/16                           !Downsample factor
+-  nfft2=nfft1/ndown                        !Backward FFT length
+-  nh2=nfft2/2
+-  
+-  fshift=fpk-1500.0
+-  i0=nh1 + fshift/df1
+-  do i=0,nfft2-1
+-     j=i0+i
+-     if(i.gt.nh2) j=j-nfft2
+-     c2(i)=c1(j)
+-  enddo
+-
+-  call four2a(c2,nfft2,1,1,1)              !Backward FFT
+-
+-  nspsd=nsps8/ndown
+-  nz=npts8/ndown
+-
+-! Start of afc loop here: solve for DT, f0, f1, f2, (phi0) ?
+-  p=0.
+-  i0=5*nspsd
+-  do i=0,nz-1
+-     z=1.e-3*sum(c2(max(i-(nspsd-1),0):i))       !Integrate
+-     p(i0+i)=real(z)**2 + aimag(z)**2      !Symbol power at freq=0
+-! Option here for coherent processing ?
+-!     write(53,3301) i,z,p(i0+i),atan2(aimag(z),real(z))
+-!3301 format(i6,4e12.3)
+-  enddo
+-
+-  call getlags(nsps8,lag0,lag1,lag2)
+-  tsymbol=nsps8/1500.0
+-  dtlag=tsymbol/nspsd
+-  smax=0.
+-  do lag=lag1,lag2
+-     sum0=0.
+-     sum1=0.
+-     j=-nspsd
+-     do i=1,85
+-        j=j+nspsd
+-        if(isync(i).eq.1) then
+-           sum1=sum1+p(j+lag)
+-        else
+-           sum0=sum0+p(j+lag)
+-        endif
+-     enddo
+-     ss=(sum1/16.0)/(sum0/69.0) - 1.0
+-     xdt=(lag-lag0)*dtlag
+-!     write(52,3001) lag,xdt,ss
+-!3001 format(i5,2f12.3)
+-     if(ss.gt.smax) then
+-        smax=ss
+-        lagpk=lag
+-     endif
+-  enddo
+-
+-  xdt=(lagpk-lag0)*dtlag
+-
+-  iz=nspsd*85
+-  do i=0,iz-1
+-     j=i+lagpk-i0-nspsd+1
+-     if(j.ge.0 .and. j.le.nz) then
+-        c3(i)=c2(j)
+-     else
+-        c3(i)=0.
+-     endif
+-  enddo
+-
+-  sum1=0.
+-  sum0=0.
+-  k=-1
+-  do i=1,85
+-     z=0.
+-     do j=1,nspsd
+-        k=k+1
+-        z=z+c3(k)
+-     enddo
+-     pp=real(z)**2 + aimag(z)**2     
+-     if(isync(i).eq.1) then
+-        sum1=sum1+pp
+-     else
+-        sum0=sum0+pp
+-     endif
+-  enddo
+-  ss=(sum1/16.0)/(sum0/69.0) - 1.0
+-
+-  fsample=1500.0/ndown
+-  nptsd=nspsd*85
+-  a=0.
+-  call afc9(c3,nptsd,fsample,a,syncpk)
+-  call twkfreq(c3,c5,nptsd,fsample,a)
+-
+-  aa(1)=-1500.0/nsps8
+-  aa(2)=0.
+-  aa(3)=0.
+-  do i=0,8
+-     if(i.ge.1) call twkfreq(c5,c5,nptsd,fsample,aa)
+-     m=0
+-     k=-1
+-     do j=1,85
+-        z=0.
+-        do n=1,nspsd
+-           k=k+1
+-           z=z+c5(k)
+-        enddo
+-        ss2(i,j)=real(z)**2 + aimag(z)**2
+-        if(i.ge.1 .and. isync(j).eq.0) then
+-           m=m+1
+-           ss3(i-1,m)=ss2(i,j)
+-        endif
+-     enddo
+-  enddo
+-
+-!###
+-  ss=0.
+-  sig=0.
+-  do j=1,69
+-     smax=0.
+-     do i=0,7
+-        smax=max(smax,ss3(i,j))
+-        ss=ss+ss3(i,j)
+-     enddo
+-     sig=sig+smax
+-     ss=ss-smax
+-  enddo
+-  ave=ss/(69*7)
+-  call pctile(ss2,9*85,50,xmed)
+-  ss3=ss3/ave
+-
+-  sig=sig/69.
+-  df8=1500.0/nsps8
+-  t=max(1.0,sig/xmed - 1.0)
+-  snrdb=db(t) - db(2500.0/df8) - 5.0
+-!  print*,'A',ave,xmed,sig,t,df8,snrdb
+-     
+-  m0=3
+-  k=0
+-  do j=1,69
+-        smax=0.
+-        do i=0,7
+-           if(ss3(i,j).gt.smax) then
+-              smax=ss3(i,j)
+-              ipk=i
+-           endif
+-        enddo
+-
+-     do m=m0-1,0,-1                   !Get bit-wise soft symbols
+-        if(m.eq.2) then
+-           r1=max(ss3(4,j),ss3(5,j),ss3(6,j),ss3(7,j))
+-           r0=max(ss3(0,j),ss3(1,j),ss3(2,j),ss3(3,j))
+-        else if(m.eq.1) then
+-           r1=max(ss3(2,j),ss3(3,j),ss3(4,j),ss3(5,j))
+-           r0=max(ss3(0,j),ss3(1,j),ss3(6,j),ss3(7,j))
+-        else
+-           r1=max(ss3(1,j),ss3(2,j),ss3(4,j),ss3(7,j))
+-           r0=max(ss3(0,j),ss3(3,j),ss3(5,j),ss3(6,j))
+-        endif
+-
+-        k=k+1
+-        i4=nint(10.0*(r1-r0))
+-        if(i4.lt.-127) i4=-127
+-        if(i4.gt.127) i4=127
+-        i4=i4+128
+-        i1SoftSymbolsScrambled(k)=i1
+-     enddo
+-  enddo
+-
+-  call interleave9(i1SoftSymbolsScrambled,-1,i1SoftSymbols)
+-!  limit=10000
+-!  call decode9(i1SoftSymbols,limit,nlim,msg)
+-
+-!###
+-!  do j=1,85
+-!     write(71,2101) j,nint(1.e-3*ss2(0:8,j))
+-!2101 format(i2,2x,9i6)
+-!  enddo
+-  
+-  freq=1500.0 + fshift - a(1)
+-  drift=a(2)
+-!  write(*,1100) nutc,nsync,nsnr,xdt,freq,a(2),msg
+-!1100 format(i4.4,i5,i5,f6.1,f9.2,f8.2,2x,a22)
+-
+-  return
+-end subroutine test9
+
+Modified: branches/wsjtx/lib/twkfreq.f90
+===================================================================
+--- branches/wsjtx/lib/twkfreq.f90	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/lib/twkfreq.f90	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -8,17 +8,18 @@
+ 
+ ! Mix the complex signal
+   w=1.0
++  wstep=1.0
+   x0=0.5*(npts+1)
+   s=2.0/npts
+   do i=1,npts
+      x=s*(i-x0)
+-     if(mod(i,100).eq.1) then
++!     if(mod(i,100).eq.1) then
+         p2=1.5*x*x - 0.5
+ !          p3=2.5*(x**3) - 1.5*x
+ !          p4=4.375*(x**4) - 3.75*(x**2) + 0.375
+         dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/fsample)
+         wstep=cmplx(cos(dphi),sin(dphi))
+-     endif
++!     endif
+      w=w*wstep
+      c4(i)=w*c3(i)
+   enddo
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-26 21:06:41 UTC (rev 2774)
++++ branches/wsjtx/mainwindow.cpp	2012-11-27 15:38:03 UTC (rev 2775)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002466.html">[WSJT-SVN] r2774 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002468.html">[WSJT-SVN] r2776 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2467">[ date ]</a>
+              <a href="thread.html#2467">[ thread ]</a>
+              <a href="subject.html#2467">[ subject ]</a>
+              <a href="author.html#2467">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2124 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2124%20-%20wsjt7a&In-Reply-To=%3C20100818152222.6CCB64808B3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001815.html">
+   <LINK REL="Next"  HREF="001817.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2124 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2124%20-%20wsjt7a&In-Reply-To=%3C20100818152222.6CCB64808B3%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2124 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 18 17:22:22 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001815.html">[WSJT-SVN] r2123 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001817.html">[WSJT-SVN] r2125 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1816">[ date ]</a>
+              <a href="thread.html#1816">[ thread ]</a>
+              <a href="subject.html#1816">[ subject ]</a>
+              <a href="author.html#1816">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-18 17:22:22 +0200 (Wed, 18 Aug 2010)
+New Revision: 2124
+
+Removed:
+   wsjt7a/lendiana.f90
+Modified:
+   wsjt7a/specdiana.f90
+   wsjt7a/syncdiana.f90
+   wsjt7a/wsjt.py
+Log:
+More cleanup of Diana code.  This mode works very well !
+
+
+Deleted: wsjt7a/lendiana.f90
+===================================================================
+--- wsjt7a/lendiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
++++ wsjt7a/lendiana.f90	2010-08-18 15:22:22 UTC (rev 2124)
+@@ -1,21 +0,0 @@
+-subroutine lendiana(fs0,ipk,jpk,msglen)
+-  real fs0(1024,108)                       !108 = 96 + 12 extra
+-
+-  nblk=24
+-  smax=0.
+-  ja=jpk+16
+-  if(ja.gt.4*nblk) ja=ja-4*nblk
+-  jb=jpk+20
+-  if(jb.gt.4*nblk) jb=jb-4*nblk
+-  do i=ipk,ipk+60,2                         !Find User's message length
+-     ss=fs0(i,ja) + fs0(i+10,jb)
+-     if(ss.gt.smax) then
+-        smax=ss
+-        ipk2=i
+-     endif
+-  enddo
+-
+-  msglen=(ipk2-ipk)/2
+-
+-  return
+-end subroutine lendiana
+
+Modified: wsjt7a/specdiana.f90
+===================================================================
+--- wsjt7a/specdiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
++++ wsjt7a/specdiana.f90	2010-08-18 15:22:22 UTC (rev 2124)
+@@ -4,9 +4,8 @@
+   real dat(npts)                          !Raw signal, 30 s at 11025 sps
+   real x(4096),x2(4096)
+   complex c(0:4096)
+-  real s0(1024,NSZ)
+-  real fs0(1024,108)                       !108 = 96 + 3*4
+-  real savg(1024)
++  real s0(1024,NSZ)                       !Symbol spectra at 1/4-symbol steps
++  real fs0(1024,96)                       !Folded-for-sync spectra
+   real b(1024)
+   equivalence (x,c)
+ 
+@@ -17,7 +16,6 @@
+   kstep=nsps/4                        !Step by 1/4 symbol
+   nq=nfft/4
+   fac=1.0/1000.0                      !Somewhat arbitrary
+-  savg=0.
+ 
+   ia=1-kstep
+   do j=1,4*nsym                       !Compute symbol spectra
+@@ -29,13 +27,11 @@
+      call four2a(x,nfft,1,-1,0)
+      do i=1,nq
+         s0(i,j)=real(c(i))**2 + aimag(c(i))**2
+-        savg(i)=savg(i) + s0(i,j)     !Accumulate average spectrum
+      enddo
+   enddo
+ 
+ 10 jsym=j-1
+ 
+-  savg=savg/jsym
+   do i=1,nq                           !Find baseline
+      x(1:jsym)=s0(i,1:jsym)
+      call pctile(x,x2,jsym,30,b(i))
+@@ -44,11 +40,6 @@
+   nadd=51
+   call smo(b,nq,x2,nadd)              !Smooth the baseline
+ 
+-!  do i=nadd/1+1,nq-nadd/2
+-!     write(51,3001) i*df,savg(i),db(savg(i)),b(i),db(b(i))
+-!3001 format(5f12.3)
+-!  enddo
+-
+   do j=1,jsym                         !Normalize the spectra
+      s0(1:nq,j)=s0(1:nq,j)/b(1:nq)
+   enddo
+@@ -61,9 +52,5 @@
+      fs0(1:nq,k)=fs0(1:nq,k) + s0(1:nq,j)
+   enddo
+ 
+-  do j=1,12                           !Replicate first 12 spectra at end
+-     fs0(1:nq,96+j)=fs0(1:nq,j)
+-  enddo
+-
+   return
+ end subroutine specdiana
+
+Modified: wsjt7a/syncdiana.f90
+===================================================================
+--- wsjt7a/syncdiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
++++ wsjt7a/syncdiana.f90	2010-08-18 15:22:22 UTC (rev 2124)
+@@ -1,7 +1,7 @@
+ subroutine syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
+      ipk,jpk,dfx,dtx,msglen,ccfblue)
+ 
+-  real fs0(1024,108)                       !108 = 96 + 3*4
++  real fs0(1024,96)                       !Folded-for-sync spectra
+   real ccfblue(-5:540)
+   integer dftolerance
+   integer isync(4)
+@@ -13,9 +13,9 @@
+   smax=0.
+   ipk=9999
+   jpk=9999
++
+   ia=-10
+   ib=10
+-
+   if(nfreeze.eq.1) then
+      ia=(mousedf-dftolerance)/df
+      ib=(mousedf+dftolerance)/df
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-18 15:08:02 UTC (rev 2123)
++++ wsjt7a/wsjt.py	2010-08-18 15:22:22 UTC (rev 2124)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------- WSJT
++#------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001815.html">[WSJT-SVN] r2123 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001817.html">[WSJT-SVN] r2125 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1816">[ date ]</a>
+              <a href="thread.html#1816">[ thread ]</a>
+              <a href="subject.html#1816">[ subject ]</a>
+              <a href="author.html#1816">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

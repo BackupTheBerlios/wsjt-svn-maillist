@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3275 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3275%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130516190116.D6EE955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002966.html">
+   <LINK REL="Next"  HREF="002968.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3275 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3275%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130516190116.D6EE955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3275 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu May 16 21:01:16 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002966.html">[WSJT-SVN] r3274 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002968.html">[WSJT-SVN] r3276 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2967">[ date ]</a>
+              <a href="thread.html#2967">[ thread ]</a>
+              <a href="subject.html#2967">[ subject ]</a>
+              <a href="author.html#2967">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-16 21:01:16 +0200 (Thu, 16 May 2013)
+New Revision: 3275
+
+Modified:
+   branches/wsjtx/WSJT-X_Users_Guide.docx
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/fillcom.f90
+   branches/wsjtx/lib/softsym.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Reduce ntol.
+Add &quot;red3&quot; (but not yet using it).
+
+
+Modified: branches/wsjtx/WSJT-X_Users_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-05-16 16:02:00 UTC (rev 3274)
++++ branches/wsjtx/lib/decoder.f90	2013-05-16 19:01:16 UTC (rev 3275)
+@@ -11,6 +11,7 @@
+   character*20 datetime
+   real*4 ccfred(NSMAX)
+   real*4 red2(NSMAX)
++  real*4 red3(NSMAX)
+   logical ccfok(NSMAX)
+   logical done(NSMAX)
+   integer*1 i1SoftSymbols(207)
+@@ -67,14 +68,18 @@
+   lag1=-(2.5/tstep + 0.9999)
+   lag2=5.0/tstep + 0.9999
+   call timer('sync9   ',0)
+-  call sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,ipk)
++  call sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,red3,ipk)
+   call timer('sync9   ',1)
+-  red2lim=1.6
+-  schklim=2.2
+ 
++  nsps8=nsps/8
++  df8=1500.0/nsps8
++  dblim=db(864.0/nsps8) - 26.2
++
+   do nqd=1,0,-1
+      limit=1000
+      ccflim=4.0
++     red2lim=1.6
++     schklim=2.2
+      if(ndepth.eq.2) then
+         limit=10000
+         ccflim=3.5
+@@ -83,39 +88,33 @@
+         limit=100000
+         ccflim=2.5
+      endif
++     ccfok=.false.
+ 
+      if(nqd.eq.1) then
+         limit=100000
+-        ccflim=2.0
++        ccfok(ia:ib)=.true.
++!        ccflim=2.0
++!        red2lim=-20.
++!        schklim=1.0
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
++        ia=max(1,nint((nfa1-1000)/df3))
++        ib=min(NSMAX,nint((nfb1-1000)/df3))
++        ia1=ia
++        ib1=ib
+      else
+         nfa1=nfa
+         nfb1=nfb
+-     endif
+-
+-     ia=max(1,nint((nfa1-1000)/df3))
+-     ib=min(NSMAX,nint((nfb1-1000)/df3))
+-     ccfok=.false.
+-     if(nqd.eq.1) then
+-        ccfok(ipk)=.true.
++        ia=max(1,nint((nfa1-1000)/df3))
++        ib=min(NSMAX,nint((nfb1-1000)/df3))
+         do i=ia,ib
+            ccfok(i)=ccfred(i).gt.ccflim .and. red2(i).gt.red2lim
+         enddo
+-        ia1=ia
+-        ib1=ib
+-     else
+-        do i=ia,ib
+-           ccfok(i)=ccfred(i).gt.ccflim .and. red2(i).gt.red2lim
+-        enddo
+         ccfok(ia1:ib1)=.false.
+      endif
+ 
+      nRxLog=0
+      fgood=0.
+-     nsps8=nsps/8
+-     df8=1500.0/nsps8
+-     dblim=db(864.0/nsps8) - 26.2
+ 
+      do i=ia,ib
+         f=(i-1)*df3
+@@ -145,9 +144,9 @@
+               nsnr=nint(snrdb)
+               ndrift=nint(drift/df3)
+               
+-!              write(38,3002) nutc,nqd,nsnr,i,freq,ccfred(i),red2(i),     &amp;
+-!                   schk,nlim,msg
+-!3002          format(i4.4,i2,i5,i6,f8.1,3f6.1,i9,2x,a22)
++              write(38,3002) nutc,nqd,nsnr,i,freq,ccfred(i),red2(i),     &amp;
++                   red3(i),schk,nlim,msg
++3002          format(i4.4,i2,i4,i5,f7.1,f5.1,f6.1,2f5.1,i8,1x,a22)
+ 
+               if(msg.ne.'                      ') then
+                  if(nqd.eq.0) ndecodes0=ndecodes0+1
+@@ -168,7 +167,8 @@
+                  call flush(6)
+               endif
+            else
+-!              write(38,3002) nutc,nqd,-99,i,freq,ccfred(i),red2(i),schk,0
++              write(38,3002) nutc,nqd,-99,i,freq,ccfred(i),red2(i),red3(i),  &amp;
++                   schk,0
+            endif
+         endif
+      enddo
+@@ -186,11 +186,11 @@
+   if(nstandalone.eq.0) call timer('decoder ',101)
+ 
+   call system_clock(iclock,iclock_rate,iclock_max)
+-!  write(39,3001) nutc,nfreqs1,nfreqs0,ndecodes1,ndecodes0+ndecodes1,       &amp;
+-!       float(iclock-iclock0)/iclock_rate
+-!3001 format(5i8,f10.3)
+-!  call flush(38)
+-!  call flush(39)
++  write(39,3001) nutc,nfreqs1,nfreqs0,ndecodes1,ndecodes0+ndecodes1,       &amp;
++       float(iclock-iclock0)/iclock_rate
++3001 format(5i8,f10.3)
++  call flush(38)
++  call flush(39)
+ 
+   return
+ end subroutine decoder
+
+Modified: branches/wsjtx/lib/fillcom.f90
+===================================================================
+--- branches/wsjtx/lib/fillcom.f90	2013-05-16 16:02:00 UTC (rev 3274)
++++ branches/wsjtx/lib/fillcom.f90	2013-05-16 19:01:16 UTC (rev 3275)
+@@ -12,7 +12,7 @@
+   npts8=74736
+   nfa=1000
+   nfb=2000
+-  ntol=10
++  ntol=3
+   kin=1024
+   nzhsym=173
+   nsave=0
+
+Modified: branches/wsjtx/lib/softsym.f90
+===================================================================
+--- branches/wsjtx/lib/softsym.f90	2013-05-16 16:02:00 UTC (rev 3274)
++++ branches/wsjtx/lib/softsym.f90	2013-05-16 19:01:16 UTC (rev 3275)
+@@ -11,8 +11,6 @@
+   integer*1 i1SoftSymbolsScrambled(207)
+   integer*1 i1SoftSymbols(207)
+   include 'jt9sync.f90'
+-  data freq0/-999.0/,drift0/-999.0/
+-  save freq0,drift0
+ 
+   nspsd=16
+   ndown=nsps8/nspsd
+@@ -28,14 +26,6 @@
+   freq=fpk - a(1)
+   drift=-2.0*a(2)
+ 
+-  if(abs(freq-freq0).lt.0.1 .and. abs(drift-drift0).lt.0.1) then
+-     schk=0.
+-     go to 999
+-  endif
+-  freq0=freq
+-  drift0=drift
+-  newdat=0
+-
+   call twkfreq(c3,c5,nz3,fsample,a)   !Correct for deltaF, fDot, fDDot
+ 
+ ! Compute soft symbols (in scrambled order)
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2013-05-16 16:02:00 UTC (rev 3274)
++++ branches/wsjtx/lib/sync9.f90	2013-05-16 19:01:16 UTC (rev 3275)
+@@ -1,4 +1,4 @@
+-subroutine sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,ipkbest)
++subroutine sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,red3,ipkbest)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
+@@ -9,6 +9,7 @@
+   real smo(-5:25)
+   real sq(NSMAX)
+   real red2(NSMAX)
++  real red3(NSMAX)
+   include 'jt9sync.f90'
+ 
+   ipk=0
+@@ -26,19 +27,34 @@
+         if(ss1(j).gt.3.0) ss1(j)=3.0
+      enddo
+ 
++     call pctile(ss1,nzhsym,45,sbase)
++     ss1=ss1-sbase
++     sq0=dot_product(ss1(1:nzhsym),ss1(1:nzhsym))
++     rms=sqrt(sq0/(nzhsym-1))
++
+      smax=0.
++     smax2=0.
+      do lag=lag1,lag2                !DT = 2.5 to 5.0 s
+         sum1=0.
++        sq2=sq0
++        nsum=nzhsym
+         do j=1,16                    !Sum over 16 sync symbols
+            k=ii2(j) + lag
+-           if(k.ge.1 .and. k.le.nzhsym) sum1=sum1 + ss1(k)
++           if(k.ge.1 .and. k.le.nzhsym) then
++              sum1=sum1 + ss1(k)
++              sq2=sq2 - ss1(k)*ss1(k)
++              nsum=nsum-1
++           endif
+         enddo
+         if(sum1.gt.smax) then
+            smax=sum1
+            ipk=i 
+         endif
++        rms=sqrt(sq2/(nsum-1))
++        if(sum1/rms.gt.smax2) smax2=sum1/rms
+      enddo
+      ccfred(i)=smax                        !Best at this freq, over all lags
++     red3(i)=0.1*smax2 - 1.0
+      if(smax.gt.sbest) then
+         sbest=smax
+         ipkbest=ipk
+@@ -48,14 +64,13 @@
+   call pctile(ccfred(ia),ib-ia+1,50,xmed)
+   if(xmed.le.0.0) xmed=1.0
+   ccfred=2.0*ccfred/xmed 
+-!  ccfred=4.0*(ccfred/xmed - 1.0)
+ 
+   savg=0.
+   do j=1,nzhsym
+      savg(ia:ib)=savg(ia:ib) + ss(j,ia:ib)
+   enddo
+-  df=1500.0/2048.0                          ! 0.732422
+-  df9=12000.0/6912.0                        ! 1.736111
++!  df=1500.0/2048.0                          ! 0.732422
++!  df9=12000.0/6912.0                        ! 1.736111
+   savg(ia:ib)=savg(ia:ib)/nzhsym
+   smo(0:20)=1.0/21.0
+   smo(-5:-1)=-(1.0/21.0)*(21.0/10.0)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-16 16:02:00 UTC (rev 3274)
++++ branches/wsjtx/mainwindow.cpp	2013-05-16 19:01:16 UTC (rev 3275)
+@@ -1227,7 +1227,7 @@
+   jt9com_.nfa=g_pWideGraph-&gt;getFmin();
+   jt9com_.nfb=g_pWideGraph-&gt;getFmax();
+ 
+-  jt9com_.ntol=10;
++  jt9com_.ntol=3;
+   if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to all65.txt
+   m_nutc0=jt9com_.nutc;
+   jt9com_.nrxlog=m_RxLog;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002966.html">[WSJT-SVN] r3274 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002968.html">[WSJT-SVN] r3276 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2967">[ date ]</a>
+              <a href="thread.html#2967">[ thread ]</a>
+              <a href="subject.html#2967">[ subject ]</a>
+              <a href="author.html#2967">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

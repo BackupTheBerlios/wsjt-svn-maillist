@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2170 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2170%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100920185255.3FE37480F2D%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001861.html">
+   <LINK REL="Next"  HREF="001863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2170 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2170%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100920185255.3FE37480F2D%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2170 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 20 20:52:55 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001861.html">[WSJT-SVN] r2169 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001863.html">[WSJT-SVN] r2171 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1862">[ date ]</a>
+              <a href="thread.html#1862">[ thread ]</a>
+              <a href="subject.html#1862">[ subject ]</a>
+              <a href="author.html#1862">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-20 20:52:55 +0200 (Mon, 20 Sep 2010)
+New Revision: 2170
+
+Modified:
+   branches/wspr/WsprMod/iq.py
+   branches/wspr/acom1.f90
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+Log:
+Working toward useful controls for opposite-sideband rejection.
+
+
+Modified: branches/wspr/WsprMod/iq.py
+===================================================================
+--- branches/wspr/WsprMod/iq.py	2010-09-20 16:47:40 UTC (rev 2169)
++++ branches/wspr/WsprMod/iq.py	2010-09-20 18:52:55 UTC (rev 2170)
+@@ -27,6 +27,14 @@
+ 
+ isc1=IntVar()
+ isc1.set(0)
++isc2=IntVar()
++isc2.set(0)
++isc3=IntVar()
++isc3.set(0)
++##isc4=IntVar()
++##isc4.set(0)
++##isc5=IntVar()
++##isc5.set(0)
+ 
+ #-------------------------------------------------------- Create GUI widgets
+ g1=Pmw.Group(root,tag_pyclass=None)
+@@ -54,9 +62,29 @@
+         'minstrict':0,'maxstrict':0})
+ fiq_entry.pack(fill=X,padx=2,pady=2)
+ 
+-sc1=Scale(g1.interior(),orient=HORIZONTAL,length=300,from_=-100, \
+-               to=100,variable=isc1)
+-sc1.pack(side=LEFT,padx=4)
++##t='Tx dB  Tx amp  Tx Pha'
++##lab1=Label(g1.interior(),text=t,justify=LEFT)
++##lab1.pack(fill=X,expand=1,padx=5,pady=0)
++
++sc1=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
++               to=0,variable=isc1,label='Tx dB')
++sc1.pack(side=TOP,padx=4,pady=2)
++
++sc2=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++               to=100,variable=isc2,label='Tx I/Q Balance')
++sc2.pack(side=TOP,padx=4,pady=2)
++
++sc3=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++               to=100,variable=isc3,label='Tx Phase')
++sc3.pack(side=TOP,padx=4,pady=2)
++
++##sc4=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++##               to=100,variable=isc4,label='Rx I/Q Balance')
++##sc4.pack(side=TOP,padx=4,pady=2)
++##
++##sc5=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++##               to=100,variable=isc5,label='Rx Phase')
++##sc5.pack(side=TOP,padx=4,pady=2)
+ ##balloon.bind(sc1,&quot;Select desired fraction of sequences to transmit&quot;)
+ 
+ f1=Frame(g1.interior(),width=100,height=10)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-09-20 16:47:40 UTC (rev 2169)
++++ branches/wspr/acom1.f90	2010-09-20 18:52:55 UTC (rev 2170)
+@@ -11,7 +11,7 @@
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+-       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
++       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,ntxdb,             &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+        pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-09-20 16:47:40 UTC (rev 2169)
++++ branches/wspr/tx.f90	2010-09-20 18:52:55 UTC (rev 2170)
+@@ -15,7 +15,7 @@
+   real*8 tsec1,tsec2
+   include 'acom1.f90'
+   common/bcom/ntransmitted
+-  common/dcom/jwave(NMAX2),icwid(NMAX3)
++  common/dcom/jwave(NMAX2),icwid(NMAX3),id2(NMAX2)
+   data ntx/0/,ns0/0/
+   save ntx,ns0
+ 
+@@ -111,15 +111,35 @@
+      ns0=nsec
+   endif
+ 
++  fac=10.0**(0.05*ntxdb)
+   if(ntune.eq.0) then
+      call gmtime2(nt,tsec2)
+      n=48000*(tsec2-tsec0)
+      istart=n*(iqmode+1) + 1
+-     ierr=soundout(ndevout,jwave(istart),npts,iqmode)
++     do i=1,npts+istart
++        id2(i)=fac*jwave(i)
++     enddo
++     ierr=soundout(ndevout,id2(istart),npts,iqmode)
+   else
+-     npts=48000*pctx
+-     istart=2*48000*(iqmode+1)+1
+-     ierr=soundout(ndevout,jwave(2*48000),npts,iqmode)
++     istart=2*48000*(iqmode+1)
++     if(pctx.lt.100.0) then
++        npts=48000*pctx
++        do i=1,npts+istart
++           id2(i)=fac*jwave(i)
++        enddo
++        ierr=soundout(ndevout,id2(istart),npts,iqmode)
++     else
++        npts=24*4096
++        do irpt=1,100
++           fac=10.0**(0.05*ntxdb)
++           j=istart-1
++           do i=1,npts
++              j=j+1
++              id2(i)=fac*jwave(j)
++           enddo
++           ierr=soundout(ndevout,id2,npts,iqmode)
++        enddo
++     endif
+      ntune=0
+   endif
+   if(ierr.ne.0) then
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-20 16:47:40 UTC (rev 2169)
++++ branches/wspr/wspr.py	2010-09-20 18:52:55 UTC (rev 2170)
+@@ -709,6 +709,7 @@
+     w.acom1.iqmode=iq.iqmode.get()
+     w.acom1.iqrx=iq.iqrx.get()
+     w.acom1.iqtx=iq.iqtx.get()
++    w.acom1.ntxdb=iq.isc1.get()
+     try:
+         w.acom1.nfiq=iq.fiq.get()
+     except:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001861.html">[WSJT-SVN] r2169 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001863.html">[WSJT-SVN] r2171 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1862">[ date ]</a>
+              <a href="thread.html#1862">[ thread ]</a>
+              <a href="subject.html#1862">[ subject ]</a>
+              <a href="author.html#1862">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

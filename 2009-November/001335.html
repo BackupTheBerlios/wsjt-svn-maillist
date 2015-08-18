@@ -1,0 +1,423 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1644 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1644%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911091457.nA9EvW4W025552%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001334.html">
+   <LINK REL="Next"  HREF="001336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1644 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1644%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911091457.nA9EvW4W025552%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1644 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov  9 15:57:32 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001334.html">[WSJT-SVN] r1643 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="001336.html">[WSJT-SVN] r1645 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1335">[ date ]</a>
+              <a href="thread.html#1335">[ thread ]</a>
+              <a href="subject.html#1335">[ subject ]</a>
+              <a href="author.html#1335">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-09 15:57:28 +0100 (Mon, 09 Nov 2009)
+New Revision: 1644
+
+Added:
+   branches/wspr/afc2.f90
+Modified:
+   branches/wspr/Makefile.CVF
+   branches/wspr/WsprMod/options.py
+   branches/wspr/sound.c
+   branches/wspr/wspr.py
+Log:
+Polishing the user interface, help instructions, and startup behavior.
+
+
+Modified: branches/wspr/Makefile.CVF
+===================================================================
+--- branches/wspr/Makefile.CVF	2009-11-07 21:24:39 UTC (rev 1643)
++++ branches/wspr/Makefile.CVF	2009-11-09 14:57:28 UTC (rev 1644)
+@@ -41,7 +41,7 @@
+ 	fchisq.obj ccf2.obj twkfreq.obj wqdecode.obj \
+ 	afc2.obj packcall.obj packgrid.obj pack50.obj encode232.obj \
+ 	nhash.obj hash.obj unpackname.obj unpacktext2.obj deg2grid.obj \
+-	unpackpfx.obj unpackprop.obj
++	unpackpfx.obj unpackprop.obj thcvf.obj
+ 
+ rxtest.exe: $(OBJS2)
+ 	$(FC) $(FFLAGS) /exe:rxtest.exe $(OBJS2)
+
+Modified: branches/wspr/WsprMod/options.py
+===================================================================
+--- branches/wspr/WsprMod/options.py	2009-11-07 21:24:39 UTC (rev 1643)
++++ branches/wspr/WsprMod/options.py	2009-11-09 14:57:28 UTC (rev 1644)
+@@ -37,6 +37,8 @@
+ ptt_port=IntVar()
+ CatPort=StringVar()
+ PttPort=StringVar()
++CatPort.set('None')
++PttPort.set('None')
+ ndevin=IntVar()
+ ndevout=IntVar()
+ DevinName=StringVar()
+
+Added: branches/wspr/afc2.f90
+===================================================================
+--- branches/wspr/afc2.f90	2009-11-07 21:24:39 UTC (rev 1643)
++++ branches/wspr/afc2.f90	2009-11-09 14:57:28 UTC (rev 1644)
+@@ -0,0 +1,209 @@
++subroutine afc2(c4)
++
++  complex c4(45000)
++  complex c5(45000)
++  complex c6(45000)
++  complex c(0:4095)
++  complex cc(-16:48,0:163)
++  complex ct
++  complex wshift(-16:48)
++  complex*16 w,ws,wt
++  real fpk(162),spk(162)
++  real f2(162),s2(162)
++  real ww(-5:5)
++  real sqn(-16:16,0:7)
++  real*8 dt,f,dphi,twopi
++  integer npr3(162)
++  common/ccom/rr(162)
++  data npr3/                                   &amp;
++      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
++      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
++      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1, &amp;
++      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1, &amp;
++      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0, &amp;
++      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1, &amp;
++      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1, &amp;
++      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0, &amp;
++      0,0/
++
++  dt=1.0/375
++  nsps=256
++  nsym=162
++  twopi=8.d0*atan(1.d0)
++  dftone=12000.d0/8192.d0                     !1.46484375 Hz
++
++! At this point we have established pretty good time and frequency 
++! synchronization.  Now remove the sync modulation.
++  k=0
++  w=1.0
++  do j=1,nsym
++!     f=dftone*(npr3(j)+2*symbol(j)-1.5)
++     f=dftone*(npr3(j)-1.5)
++     dphi=twopi*dt*f
++     ws=dcmplx(cos(dphi),-sin(dphi))
++     do i=1,nsps
++        w=w*ws
++        k=k+1
++        c5(k)=w*c4(k)
++     enddo
++  enddo
++  kz=k 
++! At this point c5 has only data modulation, with 2-FSK frequency steps 
++! of size 2*dftone = 2.9296875 Hz.
++
++! Compute oversampled complex spectra of each symbol at frequencies 
++! from about -1.5 to +4.5 Hz.
++  nft=2048
++  df1=375.0/nft
++  ia=-dftone/df1
++  ib=-3*ia
++  do j=1,nsym
++     do i=ia,ib
++        w=1.0
++        dphi=i*twopi/nft
++        ws=dcmplx(cos(dphi),-sin(dphi))
++        m=(j-1)*nsps
++        ct=0.
++        do k=1,nsps
++           m=m+1
++           ct=ct + w*c5(m)
++           w=w*ws
++        enddo
++        wshift(i)=w
++        cc(i,j)=ct
++     enddo
++        do i=ia,ib
++           sq=real(cc(i,j))**2 + aimag(cc(i,j))**2
++           pha=atan2(aimag(wshift(i)),real(wshift(i)))
++!           write(51,3002) i*df1,sq,pha
++!3002       format(3f10.3)
++        enddo
++  enddo
++
++! Combine the complex coeffs to produce coherent spectra over groups
++! of three successive symbols.  Loop over all 8 possible tone combinations
++! to find the best-fit value for the central symbol.
++
++  cc(ia:ib,0)=0.
++  cc(ia:ib,163)=0.
++  do j=1,nsym
++     smax=0.
++     do n=0,7
++        i1=0
++        if(n.eq.2 .or. n.eq.3  .or. n.eq.6  .or. n.eq.7) i1=16
++        i2=0
++        if(n.ge.4) i2=16
++        i3=0
++        if(mod(n,2).eq.1) i3=16
++        do i=ia/2,-ia/2
++           ct=conjg(wshift(i1+i))*cc(i1+i,j-1) + cc(i2+i,j) + &amp;
++                wshift(i3+i)*cc(i3+i,j+1)
++           sq=real(ct)**2 + aimag(ct)**2
++           sqn(i,n)=sq
++           if(sq.gt.smax) then
++              smax=sq
++              nmax=n
++              ipk=i
++           endif
++        enddo
++     enddo
++     if(nmax.lt.4) rsym=sqn(ipk,nmax+4)-smax
++     if(nmax.ge.4) rsym=smax-sqn(ipk,nmax-4)
++!     rr(j)=0.004*rsym
++
++     smax=0.
++!     do i=ia/2,-ia/2
++     do i=-3,3
++        do n=1,3
++           sqn(i,0)=sqn(i,0)+sqn(i,n)
++           sqn(i,4)=sqn(i,4)+sqn(i,n+4)
++        enddo
++        sq=abs(sqn(i,4)-sqn(i,0))
++        if(sq.gt.abs(smax)) then
++           smax=sqn(i,4)-sqn(i,0)
++           ipk=i
++        endif
++     enddo
++     rr(j)=0.002*smax
++
++     write(52,3001) j,rr(j)
++3001 format(i3,f12.3)
++
++  enddo
++
++! Do coherent FFTs over several symbols.  Find peak freq and subtract 
++! 2*dftone if it was the upper one of two.  Save fpk and smax centered 
++! on each symbol.  (May want to play with nd and nfft.)
++
++  nd=3
++  ndat=nd*nsps
++  nfft=1024
++  df=375.0/nfft
++  ia=2*dftone/df
++  noff=nint(0.5*nd*nsps)
++  c6(1:noff)=0.
++  c6(noff+1:noff+kz)=c5(1:kz)
++
++  k=1-nsps
++  do j=1,nsym
++     k=k+nsps
++     c(0:ndat-1)=c6(k:k+ndat)
++     c(ndat:nfft-1)=0.
++     call four2a(c,nfft,1,-1,1)
++     smax=0.
++     do i=-ia,ia
++        k1=i
++        if(k1.lt.0) k1=k1+nfft
++        s=real(c(k1))**2 + aimag(c(k1))**2 
++        if(s.gt.smax) then
++           ipk=i
++           if(ipk.gt.ia/2) ipk=ipk-ia
++           if(ipk.lt.-ia/2) ipk=ipk+ia
++           smax=s
++        endif
++     enddo
++     fpk(j)=ipk*df
++     spk(j)=smax
++  enddo
++
++  ww(0)=1.0
++  do i=1,5
++     x=(i/3.0)**2
++     ww(i)=exp(-x)
++     ww(-i)=exp(-x)
++  enddo
++
++  do j=1,nsym
++     sum=0.
++     sumw=0.
++     do i=-5,5
++        if(j+i.ge.1 .and. j+i.le.162) then
++           wgt=ww(i)*spk(j+i)
++           sumw=sumw + wgt
++           sum=sum + wgt*fpk(j+i)
++        endif
++     enddo
++     f2(j)=sum/sumw
++  enddo
++
++!  do j=1,nsym
++!     write(54,3201) j,fpk(j),0.000015*spk(j),f2(j)
++!3201 format(i3,3f10.3)
++!  enddo
++!  write(54,3201) 163,-4.0,0.0,0.0
++!  write(54,3201)   0,-4.0,0.0,0.0
++
++!  k=0
++!  w=1.0
++!  do j=1,nsym
++!     dphi=twopi*dt*f2(j)
++!     ws=dcmplx(cos(dphi),-sin(dphi))
++!     do i=1,nsps
++!        w=w*ws
++!        k=k+1
++!        c4(k)=w*c4(k)
++!     enddo
++!  enddo
++
++  return
++end subroutine afc2
+
+Modified: branches/wspr/sound.c
+===================================================================
+--- branches/wspr/sound.c	2009-11-07 21:24:39 UTC (rev 1643)
++++ branches/wspr/sound.c	2009-11-09 14:57:28 UTC (rev 1644)
+@@ -3,7 +3,7 @@
+ #include &lt;portaudio.h&gt;
+ 
+ #define SAMPLE_RATE  (48000)
+-#define FRAMES_PER_BUFFER (8192)
++#define FRAMES_PER_BUFFER (4096)
+ #define NUM_CHANNELS    (1)
+ /* #define DITHER_FLAG     (paDitherOff)  */
+ #define DITHER_FLAG     (0) /**/
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-07 21:24:39 UTC (rev 1643)
++++ branches/wspr/wspr.py	2009-11-09 14:57:28 UTC (rev 1644)
+@@ -281,14 +281,17 @@
+     t=&quot;Basic Operating Instructions&quot;
+     Label(about,text=t,font=(font1,14)).pack(padx=20,pady=5)
+     t=&quot;&quot;&quot;
+-1. Open the Setup | Options screen and enter your callsign,
+-   grid locator, and Tx power in dBm.  Select desired
+-   devices for Audio In and Audio Out.
++1. Open the Setup | Station Parameters screen and enter
++   your callsign and grid locator 6 characters).  Select
++   desired devices for Audio In and Audio Out, and your
++   power level in dBm.
+    
+-2. Select a serial port for PTT control via DTR/RTS, or for
+-   rig control including T/R switching and setting of
+-   frequency and power level.  For rig control check
+-   'Enable CAT' and enter suitable parameters.
++2. Select your PTT method (CAT control, DTR, or RTS).  If
++   you choose DTR or RTS, select a PTT port.  If T/R
++   switching or frequency setting will be done by CAT
++   control, select a CAT port and be sure that &quot;Enable CAT&quot;
++   is checked.  You will need to enter a Rig number and
++   correct parameters for the serial connection.
+ 
+ 3. Select the desired band from the Band menu and if
+    necessary correct your USB dial frequency on the main
+@@ -304,11 +307,11 @@
+    an automatic internet-based clock-setting utility.
+ 
+ 6. WSPR will begin a Tx or Rx sequence at the start of each
+-   even minute.  The waterfall will update and decoding will
+-   take place at the end of each Rx sequence.  During
+-   reception, you can adjust the Rx noise level to get
+-   something close to 0 dB.  Use Setup | Rx volume control
+-   or change your receiver's output level.
++   even-numbered minute.  The waterfall will update and
++   decoding will take place at the end of each Rx sequence.
++   During reception, you can adjust the Rx noise level to get
++   something close to 0 dB.  Use the operating system's audio
++   mixer control or change your receiver's output level.
+ &quot;&quot;&quot;
+     Label(about,text=t,justify=LEFT).pack(padx=20)
+     about.focus_set()
+@@ -1033,7 +1036,6 @@
+ Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,df_readout)
+ Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,set_tx_freq)
+ graph1.pack(side=LEFT)
+-balloon.bind(graph1,&quot;Double-click to select a Tx frequency&quot;)
+ c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+ c.pack(side=LEFT)
+ 
+@@ -1273,12 +1275,14 @@
+     print 'key=',key,'   value=',value
+     print 'Continuing with defaults.'
+ 
+-if options.MyCall.get()=='':
++if options.MyCall.get()=='' or options.MyCall.get()=='##':
+     options.lcall._entryFieldEntry['background']='pink'
++    options1()
+ else:
+     options.lcall._entryFieldEntry['background']='white'
+-if options.MyGrid.get()=='':
++if options.MyGrid.get()=='' or options.MyGrid.get()=='##':
+     options.lgrid._entryFieldEntry['background']='pink'
++    options1()
+ else:
+     options.lgrid._entryFieldEntry['background']='white'
+ 
+@@ -1337,13 +1341,17 @@
+ # Clean up and save user options before terminating
+ f=open(appdir+'/WSPR.INI',mode='w')
+ f.write(&quot;WSPRGeometry &quot; + root_geom + &quot;\n&quot;)
++if options.MyCall.get()=='': options.MyCall.set('##')
+ f.write(&quot;MyCall &quot; + options.MyCall.get() + &quot;\n&quot;)
++if options.MyGrid.get()=='': options.MyGrid.set('##')
+ f.write(&quot;MyGrid &quot; + options.MyGrid.get() + &quot;\n&quot;)
+ f.write(&quot;CWID &quot; + str(advanced.idint.get()) + &quot;\n&quot;)
+ f.write(&quot;dBm &quot; + str(options.dBm.get()) + &quot;\n&quot;)
+ f.write(&quot;PttPort &quot; + str(options.PttPort.get()) + &quot;\n&quot;)
+ f.write(&quot;CatPort &quot; + str(options.CatPort.get()) + &quot;\n&quot;)
++if options.DevinName.get()=='': options.DevinName.set('0')
+ f.write(&quot;AudioIn &quot;  + options.DevinName.get().replace(&quot; &quot;,&quot;#&quot;) + &quot;\n&quot;)
++if options.DevoutName.get()=='': options.DevoutName.set('2')
+ f.write(&quot;AudioOut &quot; + options.DevoutName.get().replace(&quot; &quot;,&quot;#&quot;) + &quot;\n&quot;)
+ f.write(&quot;BFOfreq &quot; + str(advanced.bfofreq.get()) + &quot;\n&quot;)
+ f.write(&quot;PTTmode &quot; + options.pttmode.get() + &quot;\n&quot;)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001334.html">[WSJT-SVN] r1643 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="001336.html">[WSJT-SVN] r1645 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1335">[ date ]</a>
+              <a href="thread.html#1335">[ thread ]</a>
+              <a href="subject.html#1335">[ subject ]</a>
+              <a href="author.html#1335">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

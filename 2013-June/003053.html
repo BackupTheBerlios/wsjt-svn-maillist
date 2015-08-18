@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3361 - branches/wsjtx_k1jt_p1/lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3361%20-%20branches/wsjtx_k1jt_p1/lib&In-Reply-To=%3C20130609132828.7EBCBBF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003052.html">
+   <LINK REL="Next"  HREF="003054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3361 - branches/wsjtx_k1jt_p1/lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3361%20-%20branches/wsjtx_k1jt_p1/lib&In-Reply-To=%3C20130609132828.7EBCBBF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3361 - branches/wsjtx_k1jt_p1/lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Jun  9 15:28:28 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003052.html">[WSJT-SVN] r3360 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003054.html">[WSJT-SVN] r3362 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3053">[ date ]</a>
+              <a href="thread.html#3053">[ thread ]</a>
+              <a href="subject.html#3053">[ subject ]</a>
+              <a href="author.html#3053">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-09 15:28:27 +0200 (Sun, 09 Jun 2013)
+New Revision: 3361
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/lib/jt9a.f90
+Log:
+WSJT-X is now decoding JT65 as well as JT9 from the real-time data stream!
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-09 01:03:16 UTC (rev 3360)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-09 13:28:27 UTC (rev 3361)
+@@ -12,6 +12,7 @@
+   logical ccfok(NSMAX)
+   logical done(NSMAX)
+   integer*2 id2(NTMAX*12000)
++  real*4 dd(NTMAX*12000)
+   integer*1 i1SoftSymbols(207)
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+        kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
+@@ -168,6 +169,20 @@
+      if(nagain.ne.0) exit
+   enddo
+ 
++!###
++  npts65=52*12000
++  dd(1:npts65)=id2(1:npts65)
++  newdat65=1
++  ntol65=100
++  nfa65=270
++  nfb65=2270
++  nfqso65=1270
++  nagain65=0
++  ndiskdat65=0
++  call jt65a(dd,npts65,newdat65,nutc,ntol65,nfa65,nfb65,nfqso65,nagain65,  &amp;
++       ndiskdat65)
++!###
++
+   write(*,1010) nsynced,ndecoded
+ 1010 format('&lt;DecodeFinished&gt;',2i4)
+   call flush(6)
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-09 01:03:16 UTC (rev 3360)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-09 13:28:27 UTC (rev 3361)
+@@ -1,6 +1,6 @@
+ subroutine jt65a(dd,npts,newdat,nutc,ntol,nfa,nfb,nfqso,nagain,ndiskdat)
+ 
+-!  Process id2() data to find and decode JT65 signals.
++!  Process dd() data to find and decode JT65 signals.
+ 
+   parameter (NSZ=3413)
+   parameter (NZMAX=60*12000)
+@@ -69,8 +69,11 @@
+            nfreq=nint(freq)
+            s2db=10.0*log10(sync2) - 40             !### empirical ###
+            nsync2=nint(s2db)
+-           write(*,1010) nutc,nsync2,dt,nfreq,decoded,nflip,newdat
+-1010       format(i4.4,i6,f6.1,i6,2x,a22,3x,2i3)
++!           write(*,1010) nutc,nsync2,dt,nfreq,decoded,nflip,newdat
++!1010       format(i4.4,i6,f6.1,i6,2x,a22,3x,2i3)
++           decoded='# '//decoded(1:20)
++           write(*,1010) nutc,nsync2,nsync2,dt,freq,0,decoded
++1010       format(i4.4,i4,i5,f6.1,f8.0,i4,3x,a22)
+            freq0=freq
+            sync10=sync1
+            i2=min(NSZ,i+10)                !### ??? ###
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt9a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt9a.f90	2013-06-09 01:03:16 UTC (rev 3360)
++++ branches/wsjtx_k1jt_p1/lib/jt9a.f90	2013-06-09 13:28:27 UTC (rev 3361)
+@@ -19,7 +19,8 @@
+   call getcwd(cwd)
+   open(12,file='timer.out',status='unknown')
+ 
+-  limtrace=0
++!  limtrace=0
++  limtrace=-1                            !Disable all calls to timer()
+   lu=12
+   i1=attach_jt9()
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003052.html">[WSJT-SVN] r3360 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003054.html">[WSJT-SVN] r3362 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3053">[ date ]</a>
+              <a href="thread.html#3053">[ thread ]</a>
+              <a href="subject.html#3053">[ subject ]</a>
+              <a href="author.html#3053">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

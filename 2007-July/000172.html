@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r487 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r487%20-%20branches/map65&In-Reply-To=%3C200707101657.l6AGvYXe027115%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000171.html">
+   <LINK REL="Next"  HREF="000173.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r487 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r487%20-%20branches/map65&In-Reply-To=%3C200707101657.l6AGvYXe027115%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r487 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 10 18:57:34 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000171.html">[WSJT-SVN] r486 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000173.html">[WSJT-SVN] r488 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#172">[ date ]</a>
+              <a href="thread.html#172">[ thread ]</a>
+              <a href="subject.html#172">[ subject ]</a>
+              <a href="author.html#172">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-10 18:57:29 +0200 (Tue, 10 Jul 2007)
+New Revision: 487
+
+Modified:
+   branches/map65/avemsg65.f
+   branches/map65/decode65b.f
+   branches/map65/extract.f
+   branches/map65/map65.py
+Log:
+Suppress garbage &quot;text decodes&quot; with flip=-1.
+
+
+Modified: branches/map65/avemsg65.f
+===================================================================
+--- branches/map65/avemsg65.f	2007-07-10 16:35:52 UTC (rev 486)
++++ branches/map65/avemsg65.f	2007-07-10 16:57:29 UTC (rev 487)
+@@ -8,6 +8,7 @@
+       character decoded*22,deepmsg*22
+       character mycall*12,hiscall*12,hisgrid*6
+       real s3(64,63)
++      logical ltext
+       common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+ 
+ C  Count the available spectra for this Monitor segment (mseg=1 or 2),
+@@ -36,7 +37,7 @@
+       enddo
+ 
+       nadd=nused*mode65
+-      call extract(s3,nadd,ncount,decoded)     !Extract the message
++      call extract(s3,nadd,ncount,decoded,ltext)     !Extract the message
+       if(ncount.lt.0) decoded='                      '
+ 
+       nqual=0
+
+Modified: branches/map65/decode65b.f
+===================================================================
+--- branches/map65/decode65b.f	2007-07-10 16:35:52 UTC (rev 486)
++++ branches/map65/decode65b.f	2007-07-10 16:57:29 UTC (rev 487)
+@@ -3,7 +3,7 @@
+ 
+       real s2(256,126)
+       real s3(64,63)
+-      logical first
++      logical first,ltext
+       character decoded*22,deepmsg*22
+       character mycall*12,hiscall*12,hisgrid*6
+ !      include 'avecom.h'
+@@ -25,10 +25,11 @@
+       mode65=2
+       nadd=mode65
+ 
+-      call extract(s3,nadd,ncount,nhist,decoded)     !Extract the message
+-C  Suppress &quot;birdie messages&quot;:
++      call extract(s3,nadd,ncount,nhist,decoded,ltext)     !Extract the message
++C  Suppress &quot;birdie messages&quot; and other garbage decodes:
+       if(decoded(1:7).eq.'000AAA ') ncount=-1
+       if(decoded(1:7).eq.'0L6MWK ') ncount=-1
++      if(flip.lt.0.0 .and. ltext) ncount=-1
+       nkv=1
+       if(ncount.lt.0) then 
+          nkv=0
+
+Modified: branches/map65/extract.f
+===================================================================
+--- branches/map65/extract.f	2007-07-10 16:35:52 UTC (rev 486)
++++ branches/map65/extract.f	2007-07-10 16:57:29 UTC (rev 487)
+@@ -1,11 +1,11 @@
+-      subroutine extract(s3,nadd,ncount,nhist,decoded)
++      subroutine extract(s3,nadd,ncount,nhist,decoded,ltext)
+ 
+       real s3(64,63)
+       real tmp(4032)
+       character decoded*22
+       integer era(51),dat4(12),indx(64)
+       integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
+-      logical first
++      logical first,ltext
+       data first/.true./,nsec1/0/
+       save
+ 
+@@ -55,8 +55,10 @@
+          endif
+          read(22,rec=2) nsec2,ncount,dat4
+          decoded='                      '
++         ltext=.false.
+          if(ncount.ge.0) then
+             call unpackmsg(dat4,decoded) !Unpack the user message
++            if(iand(dat4(10),8).ne.0) ltext=.true.
+          endif
+       endif
+  20   if(ndec.eq.0) then
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-10 16:35:52 UTC (rev 486)
++++ branches/map65/map65.py	2007-07-10 16:57:29 UTC (rev 487)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- MAP65
++#--------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000171.html">[WSJT-SVN] r486 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000173.html">[WSJT-SVN] r488 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#172">[ date ]</a>
+              <a href="thread.html#172">[ thread ]</a>
+              <a href="subject.html#172">[ subject ]</a>
+              <a href="author.html#172">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

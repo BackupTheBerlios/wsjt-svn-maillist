@@ -1,0 +1,304 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r781 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r781%20-%20branches/wspr&In-Reply-To=%3C200805211730.m4LHUCDU012032%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000468.html">
+   <LINK REL="Next"  HREF="000470.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r781 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r781%20-%20branches/wspr&In-Reply-To=%3C200805211730.m4LHUCDU012032%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r781 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 21 19:30:12 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000468.html">[WSJT-SVN] r780 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000470.html">[WSJT-SVN] r782 - in branches/wspr: . Wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#469">[ date ]</a>
+              <a href="thread.html#469">[ thread ]</a>
+              <a href="subject.html#469">[ subject ]</a>
+              <a href="author.html#469">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-21 19:30:09 +0200 (Wed, 21 May 2008)
+New Revision: 781
+
+Added:
+   branches/wspr/afc2.f90
+Modified:
+   branches/wspr/rect.f90
+   branches/wspr/rxtest.f90
+Log:
+New routine afc2.f90
+
+
+Added: branches/wspr/afc2.f90
+===================================================================
+--- branches/wspr/afc2.f90	2008-05-21 12:04:14 UTC (rev 780)
++++ branches/wspr/afc2.f90	2008-05-21 17:30:09 UTC (rev 781)
+@@ -0,0 +1,125 @@
++subroutine afc2(c4)
++
++  complex c4(45000)
++  complex c5(45000)
++  complex c6(45000)
++  complex c(0:4095)
++  complex*16 w,ws
++  real fpk(162),spk(162)
++  real f2(162),s2(162)
++  real ww(-5:5)
++  real*8 dt,f,dphi,twopi
++  integer npr3(162)
++  data npr3/                                   &amp;
++      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
++      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
++      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1, &amp;
++      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1, &amp;
++      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0, &amp;
++      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1, &amp;
++      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1, &amp;
++      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0, &amp;
++      0,0/
++
++  dt=1.0/375
++  nsps=256
++  nsym=162
++  twopi=8.d0*atan(1.d0)
++  dftone=12000.d0/8192.d0                     !1.46484375 Hz
++
++! At this point we have established pretty good time and frequency 
++! synchronization.  Now remove the sync modulation.
++  k=0
++  w=1.0
++  do j=1,nsym
++!     f=dftone*(npr3(j)+2*symbol(j)-1.5)
++     f=dftone*(npr3(j)-1.5)
++     dphi=twopi*dt*f
++     ws=dcmplx(cos(dphi),-sin(dphi))
++     do i=1,nsps
++        w=w*ws
++        k=k+1
++        c5(k)=w*c4(k)
++     enddo
++  enddo
++  kz=k
++! Now c5 has only the data modulation, with 2-FSK frequency steps of
++! 2*dftone = 2.9296875 Hz.
++
++! Do coherent FFTs over several symbols.  Find peak freq and subtract 
++! 2*dftone if it was the upper one of two.  Save fpk and smax centered 
++! on each symbol.  (May want to play with nd and nfft.)
++
++  nd=3
++  ndat=nd*nsps
++  nfft=1024
++  nh=nfft/2
++  df=375.0/nfft
++  ia=2*dftone/df
++  noff=nint(0.5*nd*nsps)
++  c6(1:noff)=0.
++  c6(noff+1:noff+kz)=c5(1:kz)
++  k=1-nsps
++
++  do j=1,nsym
++     k=k+nsps
++     c(0:ndat-1)=c6(k:k+ndat)
++     c(ndat:nfft-1)=0.
++     call four2a(c,nfft,1,-1,1)
++     smax=0.
++     do i=-ia,ia
++        k1=i
++        if(k1.lt.0) k1=k1+nfft
++        s=real(c(k1))**2 + aimag(c(k1))**2 
++        if(s.gt.smax) then
++           ipk=i
++           if(ipk.gt.ia/2) ipk=ipk-ia
++           if(ipk.lt.-ia/2) ipk=ipk+ia
++           smax=s
++        endif
++     enddo
++     fpk(j)=ipk*df
++     spk(j)=smax
++  enddo
++
++  ww(0)=1.0
++  do i=1,5
++     x=(i/3.0)**2
++     ww(i)=exp(-x)
++     ww(-i)=exp(-x)
++  enddo
++
++  do j=1,nsym
++     sum=0.
++     sumw=0.
++     do i=-5,5
++        if(j+i.ge.1 .and. j+i.le.162) then
++           wgt=ww(i)*spk(j+i)
++           sumw=sumw + wgt
++           sum=sum + wgt*fpk(j+i)
++        endif
++     enddo
++     f2(j)=sum/sumw
++  enddo
++
++  do j=1,nsym
++     write(54,3201) j,fpk(j),0.000015*spk(j),f2(j)
++3201 format(i3,3f10.3)
++  enddo
++  write(54,3201) 163,-4.0,0.0,0.0
++  write(54,3201)   0,-4.0,0.0,0.0
++
++  k=0
++  w=1.0
++  do j=1,nsym
++     dphi=twopi*dt*f2(j)
++     ws=dcmplx(cos(dphi),-sin(dphi))
++     do i=1,nsps
++        w=w*ws
++        k=k+1
++        c4(k)=w*c4(k)
++     enddo
++  enddo
++
++  return
++end subroutine afc2
+
+Modified: branches/wspr/rect.f90
+===================================================================
+--- branches/wspr/rect.f90	2008-05-21 12:04:14 UTC (rev 780)
++++ branches/wspr/rect.f90	2008-05-21 17:30:09 UTC (rev 781)
+@@ -119,19 +119,22 @@
+      do i=-20,20
+         k1=i
+         if(k1.lt.0) k1=k1+nfft
+-!        k2=i+nfft/256
++!        k2=i+nfft/128
+ !        if(k2.lt.0) k2=k2+nfft
+ !        s=real(c(k1))**2 + aimag(c(k1))**2 + real(c(k2))**2 + aimag(c(k2))**2
+         s=real(c(k1))**2 + aimag(c(k1))**2 
+         if(s.gt.smax) then
+            ipk=i
++           if(ipk.gt.8) ipk=ipk-16
+            smax=s
+         endif
+      enddo
+      fpk=ipk*df3
+-     write(54,3201) j,fpk,0.000015*smax
+-3201 format(i3,2f10.3)
++     write(54,3201) j,ipk,fpk,0.000015*smax
++3201 format(i3,i5,2f10.3)
+   enddo
++  write(54,3201) 163,ipk,-3.0,0.0
++  write(54,3201) 0,ipk,-3.0,0.0
+ !###
+ 
+ 
+
+Modified: branches/wspr/rxtest.f90
+===================================================================
+--- branches/wspr/rxtest.f90	2008-05-21 12:04:14 UTC (rev 780)
++++ branches/wspr/rxtest.f90	2008-05-21 17:30:09 UTC (rev 781)
+@@ -2,37 +2,26 @@
+ 
+   character*22 message
+   character*11 datetime
++  character*12 arg
+   real*8 freq
+   real a(5)
+   complex c3(45000),c4(45000)
+   complex c(65536)
+ 
++  nargs=iargc()
++  if(nargs.ne.1) then
++     print*,'Usage: rxtest &lt;ifile&gt;'
++     go to 999
++  endif
++  call getarg(1,arg)
++  read(arg,*) ireq
+ 
+   dt=1.0/375
+   jz=45000
+   do ifile=1,9999
+      read(71,end=999),datetime,nsnrx,dtx,freq,nf1,c3
+-     if(ifile.ne.2) go to 24
++     if(ifile.ne.ireq .and. ireq.ne.0) go to 24
+ 
+-!     fac=1.0/65536.
+-!     c(:jz)=fac*c3
+-!     c(jz+1:)=0.
+-!     call four2a(c,65536,1,-1,1)
+-!     nn=512
+-!     do i=1,nn
+-!        fac=float(nn-i)/nn
+-!        c(i)=fac*c(i)
+-!        j=65537-i
+-!        c(j)=fac*c(j)
+-!     enddo
+-!     c(nn:65536-nn)=0.
+-!     call four2a(c,65536,1,1,1)
+-!     a=0.
+-!     a(1)=1.4648
+-!     ccf=-fchisq(c,jz,375.0,a,-200,200,ccfbest,dtbest)
+-!     print*,dtbest,dtx,dtbest-dtx-2.0
+-!     dtx=dtbest-2.0
+-
+      do idt=0,128
+         ii=(idt+1)/2
+         if(mod(idt,2).eq.1) ii=-ii
+@@ -48,11 +37,12 @@
+            i2=jz+i1
+            c4(-i1:)=c3(:i2)
+         endif
++!        if(idt.eq.0) call afc2(c4)
++        call afc2(c4)
+         call decode162(c4,jz,message,ncycles,metric,nerr)
+         if(message(1:6).ne.'      ') then
+-           call rect(c4,message,dfx2,width,pmax)
+-           write(*,1012) ifile,nsnrx,dtx,freq,nf1,message,ii,width,pmax-44
+-1012       format(i4.4,i4,f5.1,f11.6,i3,2x,a22,i5,2f6.1)
++           write(*,1012) ifile,nsnrx,dtx,freq,nf1,message,ii
++1012       format(i4.4,i4,f5.1,f11.6,i3,2x,a22,i5)
+ 
+            go to 24
+         endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000468.html">[WSJT-SVN] r780 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000470.html">[WSJT-SVN] r782 - in branches/wspr: . Wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#469">[ date ]</a>
+              <a href="thread.html#469">[ thread ]</a>
+              <a href="subject.html#469">[ subject ]</a>
+              <a href="author.html#469">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

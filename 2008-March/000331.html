@@ -1,0 +1,470 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r644 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r644%20-%20branches/wspr&In-Reply-To=%3C200803201614.m2KGEjju000796%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000330.html">
+   <LINK REL="Next"  HREF="000332.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r644 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r644%20-%20branches/wspr&In-Reply-To=%3C200803201614.m2KGEjju000796%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r644 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 20 17:14:45 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000330.html">[WSJT-SVN] r643 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000332.html">[WSJT-SVN] r645 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#331">[ date ]</a>
+              <a href="thread.html#331">[ thread ]</a>
+              <a href="subject.html#331">[ subject ]</a>
+              <a href="author.html#331">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-03-20 17:14:41 +0100 (Thu, 20 Mar 2008)
+New Revision: 644
+
+Modified:
+   branches/wspr/WSPR.INI
+   branches/wspr/getsound.c
+   branches/wspr/options.py
+   branches/wspr/playsound.c
+   branches/wspr/wspr.py
+   branches/wspr/wspr_rx.f90
+   branches/wspr/wspr_tx.f90
+Log:
+Enable selection of audio devices.
+Rearrange controls on GUI.
+Move pctx to Options screen.
+
+
+Modified: branches/wspr/WSPR.INI
+===================================================================
+--- branches/wspr/WSPR.INI	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/WSPR.INI	2008-03-20 16:14:41 UTC (rev 644)
+@@ -1,12 +1,11 @@
+-WSPRGeometry +94+402
++WSPRGeometry +393+342
+ MyCall K1JT
+ MyGrid FN20
+ dBm 25
+-IDinterval 10
+ PttPort 0
+ AudioIn 0
+ AudioOut 0
+ Nsave 2
+-PctTx 100
+-Sync 2
+-MRUDir C:\k1jt\wspr
++PctTx 33
++Sync 1
++MRUDir C:\k1jt\svn\wsjt\wspr
+
+Modified: branches/wspr/getsound.c
+===================================================================
+--- branches/wspr/getsound.c	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/getsound.c	2008-03-20 16:14:41 UTC (rev 644)
+@@ -107,9 +107,9 @@
+ 
+ /*******************************************************************/
+ #ifdef CVF
+-extern int __stdcall GETSOUND(short int iwave[])
++extern int __stdcall GETSOUND(int *ndevin, short int iwave[])
+ #else
+-extern int getsound_(short int iwave[])
++extern int getsound_(int *ndevin, short int iwave[])
+ #endif
+ {
+   PaStreamParameters  inputParameters,
+@@ -136,7 +136,11 @@
+   err = Pa_Initialize();
+   if( err != paNoError ) goto done;
+ 
+-  inputParameters.device = Pa_GetDefaultInputDevice();
++  if(*ndevin == 0)
++    inputParameters.device = Pa_GetDefaultInputDevice();
++  else
++    inputParameters.device = *ndevin;
++
+   inputParameters.channelCount = 1;
+   inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+   inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )-&gt;defaultLowInputLatency;
+
+Modified: branches/wspr/options.py
+===================================================================
+--- branches/wspr/options.py	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/options.py	2008-03-20 16:14:41 UTC (rev 644)
+@@ -26,17 +26,21 @@
+ ndevout=IntVar()
+ DevinName=StringVar()
+ DevoutName=StringVar()
++pctx=IntVar()
+ 
+-idinterval=Pmw.EntryField(g1.interior(),labelpos=W,label_text='ID Interval (m):',
+-        value=10,entry_textvariable=IDinterval,entry_width=12)
++##idinterval=Pmw.EntryField(g1.interior(),labelpos=W,label_text='ID Interval (m):',
++##        value=0,entry_textvariable=IDinterval,entry_width=12)
+ comport=Pmw.EntryField(g1.interior(),labelpos=W,label_text='PTT Port:',
+         value='/dev/ttyS0',entry_textvariable=PttPort,entry_width=12)
+ audioin=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Audio In:',
+         value='0',entry_textvariable=DevinName,entry_width=12)
+ audioout=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Audio Out:',
+         value='0',entry_textvariable=DevoutName,entry_width=12)
++pctx0=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Pct Tx:',
++        value='33',entry_textvariable=pctx,entry_width=12)
+ 
+-widgets = (idinterval,comport,audioin,audioout)
++##widgets = (idinterval,comport,audioin,audioout)
++widgets = (comport,audioin,audioout,pctx0)
+ for widget in widgets:
+     widget.pack(fill=X,expand=1,padx=10,pady=2)
+ 
+
+Modified: branches/wspr/playsound.c
+===================================================================
+--- branches/wspr/playsound.c	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/playsound.c	2008-03-20 16:14:41 UTC (rev 644)
+@@ -106,9 +106,9 @@
+ 
+ /*******************************************************************/
+ #ifdef CVF
+-extern int __stdcall PLAYSOUND(short int iwave[])
++extern int __stdcall PLAYSOUND(int *ndevout, short int iwave[])
+ #else
+-extern int playsound_(short int iwave[])
++extern int playsound_(int *ndevout, short int iwave[])
+ #endif
+ {
+   PaStreamParameters  inputParameters,
+@@ -134,7 +134,12 @@
+   data.frameIndex = 0;
+   err = Pa_Initialize();
+   if( err != paNoError ) goto done;
+-  outputParameters.device = Pa_GetDefaultOutputDevice();
++
++  if( *ndevout == 0) 
++    outputParameters.device = Pa_GetDefaultOutputDevice();
++  else
++    outputParameters.device = *ndevout;
++
+   outputParameters.channelCount = NUM_CHANNELS;
+   outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
+   outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )-&gt;defaultLowOutputLatency;
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/wspr.py	2008-03-20 16:14:41 UTC (rev 644)
+@@ -59,11 +59,10 @@
+ nsec0=0
+ nspeed0=IntVar()
+ NX=500
+-NY=120
++NY=160
+ im=Image.new('P',(NX,NY))
+ im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+ pim=ImageTk.PhotoImage(im)
+-pctx=25
+ receiving=0
+ slabel=&quot;Sync   &quot;
+ transmitting=0
+@@ -235,7 +234,8 @@
+ def start_rx(f0,nsec):
+     global receiving,transmitting,bandmap,bandmap2
+     cmd=&quot;wspr_rx.exe&quot;
+-    args=str(f0) + &quot; &quot; + str(nsec) + &quot; &quot; + str(isync) + &quot; &quot; + str(nsave.get())
++    args=str(f0) + &quot; &quot; + str(nsec) + &quot; &quot; + str(isync) + &quot; &quot; + \
++        str(nsave.get()) + &quot; &quot; + options.DevinName.get()
+     receiving=1
+     try:
+         os.spawnv(os.P_WAIT,cmd,(cmd,) + (args,))
+@@ -297,7 +297,9 @@
+ def start_tx(mycall,mygrid,ndbm,ntxdf):
+     global receiving,transmitting
+     cmd=&quot;wspr_tx.exe&quot;
+-    args=mycall + &quot; &quot; + mygrid + &quot; &quot; + str(ndbm) + &quot; 5 &quot; + str(ntxdf)
++    args=mycall + &quot; &quot; + mygrid + &quot; &quot; + str(ndbm) + \
++          &quot; &quot; + str(options.PttPort.get()) + &quot; &quot; + str(ntxdf) + \
++          &quot; &quot; + options.DevoutName.get()
+     transmitting=1
+     try:
+         os.spawnv(os.P_WAIT,cmd,(cmd,) + (args,))
+@@ -307,7 +309,7 @@
+ 
+ #------------------------------------------------------ update
+ def update():
+-    global root_geom,isec0,im,pim,cmap0,lauto,nsec0,pctx, \
++    global root_geom,isec0,im,pim,cmap0,lauto,nsec0, \
+         receiving,transmitting
+     tsec=time.time()
+     nsec=int(tsec)
+@@ -317,8 +319,8 @@
+     ns120=nsec%120
+     if ns120==0 and (not transmitting) and (not receiving):
+         x=random.uniform(0.,100.)
+-        if x&lt;pctx and lauto:
+-            ntxdf=int(1.e6*(ftx.get()-f0.get()))-1500
++        if x&lt;options.pctx.get() and lauto:
++            ntxdf=int(round(1.e6*(ftx.get()-f0.get())))-1500
+             thread.start_new_thread(start_tx,
+                 (MyCall.get(),MyGrid.get(),dBm.get(),ntxdf))
+         else:
+@@ -333,7 +335,6 @@
+         ldate.configure(text=t)
+         root_geom=root.geometry()
+         utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
+-    pctx=sc1.get()
+ 
+     bgcolor='gray85'
+     t=''
+@@ -406,11 +407,11 @@
+ iframe1 = Frame(frame, bd=1, relief=SUNKEN)
+ graph1=Canvas(iframe1, bg='black', width=NX, height=NY,cursor='crosshair')
+ graph1.pack(side=LEFT)
+-c=Canvas(iframe1, bg='white', width=50, height=NY,bd=0)
++c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+ c.pack(side=LEFT)
+ 
+ #-------------------------------------------------------- Band map
+-text1=Text(iframe1, height=8, width=12)
++text1=Text(iframe1, height=10, width=12)
+ text1.pack(side=LEFT, padx=1)
+ text1.insert(END,'132 ZL1BPU')
+ sb = Scrollbar(iframe1, orient=VERTICAL, command=text1.yview)
+@@ -457,59 +458,42 @@
+ lab2.place(x=3,y=6, anchor='w')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+-#-------------------------------------------------------- Decoded text
++#-------------------------------------------------------- 
+ iframe4 = Frame(frame, bd=1, relief=SUNKEN)
+-text=Text(iframe4, height=10, width=80)
+-text.pack(side=LEFT, fill=X, padx=1)
+-text.insert(END,'1054   4 -25   1.1  10.140140  K1JT FN20 25')
+-sb = Scrollbar(iframe4, orient=VERTICAL, command=text.yview)
+-sb.pack(side=RIGHT, fill=Y)
+-text.configure(yscrollcommand=sb.set)
+-iframe4.pack(expand=1, fill=X, padx=4)
++f4a=Frame(iframe4,height=170,bd=2,relief=FLAT)
+ 
+-#-----------------------------------------------------General control area
+-iframe5 = Frame(frame, bd=1, relief=FLAT,height=180)
+-f5a=Frame(iframe5,height=170,bd=2,relief=FLAT)
+-
+ #------------------------------------------------------ Date and Time
+-ldate=Label(f5a, bg='black', fg='yellow', width=11, bd=4,
++ldate=Label(f4a, bg='black', fg='yellow', width=11, bd=4,
+         text='2005 Apr 22\n01:23:45', relief=RIDGE,
+         justify=CENTER, font=(font1,16))
+-ldate.pack(side=LEFT,padx=2,pady=2)
+-ldsec=Label(f5a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+-ldsec.pack(side=LEFT,ipadx=3,padx=2,pady=5)
++ldate.pack(side=TOP,padx=2,pady=2)
++ldsec=Label(f4a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
++ldsec.pack(side=TOP,ipadx=3,padx=2,pady=5)
+ Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+ Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
+-f5a.pack(side=LEFT,expand=0,fill=Y)
+ 
+-#------------------------------------------------------ Receiving parameters
+-f5b=Frame(iframe5,bd=2,relief=FLAT)
+-lsync=Label(f5b, bg='white', fg='black', text='Sync   1', width=8, relief=RIDGE)
+-lsync.grid(column=0,row=0,padx=2,pady=1,sticky='EW')
+-Widget.bind(lsync,'&lt;Button-1&gt;',incsync)
+-Widget.bind(lsync,'&lt;Button-3&gt;',decsync)
+-f5b.pack(side=LEFT,expand=0,fill=BOTH,padx=40)
+-lab3=Label(iframe5,text='Rx',bd=0)
+-lab3.pack(side=LEFT,padx=8)
+-sc1=Scale(iframe5,from_=0,to_=100,orient='horizontal',
+-          label='          % Transmitting',showvalue=1,sliderlength=5,
+-          length=150,resolution=5,tickinterval=20.0)
+-sc1.pack(side=LEFT)
+-lab4=Label(iframe5,text='Tx',bd=0)
+-lab4.pack(side=LEFT,padx=8)
+-
+-#------------------------------------------------------- Button Bar
+-f5c = Frame(iframe5, bd=2, relief=SUNKEN)
+-berase=Button(f5c, text='Erase',underline=0,command=erase,
+-                padx=1,pady=1)
+-auto=Button(f5c,text='Enable Tx',underline=0,command=toggleauto,
+-            padx=1,pady=1)
++berase=Button(f4a, text='Erase',underline=0,command=erase,padx=1,pady=1)
+ berase.pack(side=TOP,expand=1,fill=BOTH)
++auto=Button(f4a,text='Enable Tx',underline=0,command=toggleauto,
++            padx=1,pady=1)
+ auto.pack(side=TOP,expand=1,fill=BOTH)
+-f5c.pack(expand=1, fill=X, padx=4,pady=4)
++f4a.pack(side=LEFT,expand=0,fill=Y)
+ 
+-iframe5.pack(expand=1, fill=X, padx=4)
++lsync=Label(f4a, bg='white', fg='black', text='Sync   1', width=8, relief=RIDGE)
++lsync.pack(side=TOP,ipadx=3,padx=2,pady=5)
++Widget.bind(lsync,'&lt;Button-1&gt;',incsync)
++Widget.bind(lsync,'&lt;Button-3&gt;',decsync)
+ 
++f4b=Frame(iframe4,height=170,bd=2,relief=FLAT)
++text=Text(f4b, height=11, width=68)
++text.pack(side=RIGHT, fill=X, padx=1)
++text.insert(END,'1054   4 -25   1.1  10.140140  K1JT FN20 25')
++sb = Scrollbar(f4b, orient=VERTICAL, command=text.yview)
++sb.pack(side=RIGHT, fill=Y)
++text.configure(yscrollcommand=sb.set)
++f4b.pack(side=LEFT,expand=0,fill=Y)
++iframe4.pack(expand=1, fill=X, padx=4)
++
+ #------------------------------------------------------------ Status Bar
+ iframe6 = Frame(frame, bd=1, relief=SUNKEN)
+ msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+@@ -553,8 +537,8 @@
+         elif key == 'MyCall': MyCall.set(value)
+         elif key == 'MyGrid': MyGrid.set(value)
+         elif key == 'dBm': dBm.set(value)
+-        elif key == 'PctTx': sc1.set(value)
+-        elif key == 'IDinterval': options.IDinterval.set(value)
++        elif key == 'PctTx': options.pctx.set(value)
++#        elif key == 'IDinterval': options.IDinterval.set(value)
+         elif key == 'PttPort':
+             try:
+                 options.PttPort.set(value)
+@@ -603,12 +587,12 @@
+ f.write(&quot;MyCall &quot; + MyCall.get() + &quot;\n&quot;)
+ f.write(&quot;MyGrid &quot; + MyGrid.get() + &quot;\n&quot;)
+ f.write(&quot;dBm &quot; + str(dBm.get()) + &quot;\n&quot;)
+-f.write(&quot;IDinterval &quot; + str(options.IDinterval.get()) + &quot;\n&quot;)
++#f.write(&quot;IDinterval &quot; + str(options.IDinterval.get()) + &quot;\n&quot;)
+ f.write(&quot;PttPort &quot; + str(options.PttPort.get()) + &quot;\n&quot;)
+ f.write(&quot;AudioIn &quot; + options.DevinName.get() + &quot;\n&quot;)
+ f.write(&quot;AudioOut &quot; + options.DevoutName.get() + &quot;\n&quot;)
+ f.write(&quot;Nsave &quot; + str(nsave.get()) + &quot;\n&quot;)
+-f.write(&quot;PctTx &quot; + str(pctx) + &quot;\n&quot;)
++f.write(&quot;PctTx &quot; + str(options.pctx.get()) + &quot;\n&quot;)
+ f.write(&quot;Sync &quot; + str(isync) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+
+Modified: branches/wspr/wspr_rx.f90
+===================================================================
+--- branches/wspr/wspr_rx.f90	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/wspr_rx.f90	2008-03-20 16:14:41 UTC (rev 644)
+@@ -24,6 +24,7 @@
+   character*12 arg
+   character*6 cfile6
+   character*70 outfile
++  character*32 devin
+   equivalence(i1,i4)
+   data npr3/                                          &amp;
+       1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,        &amp;
+@@ -92,8 +93,8 @@
+   save
+ 
+   nargs=iargc()
+-  if(nargs.ne.4) then
+-     print*,'Usage: wspr_rx f0 nsec minsync nsave'
++  if(nargs.ne.5) then
++     print*,'Usage: wspr_rx f0 nsec minsync nsave devin'
+      go to 999
+   endif
+ 
+@@ -105,7 +106,10 @@
+   read(arg,*) minsync
+   call getarg(4,arg)
+   read(arg,*) nsave
+-  nsym=162                  !Symbols per transmission
++  call getarg(5,devin)
++  ndevin=0
++  read(devin,*,err=1) ndevin
++1  nsym=162                  !Symbols per transmission
+   do i=1,nsym
+      pr3(i)=2*npr3(i)-1
+   enddo
+@@ -120,7 +124,7 @@
+   open(14,file='decoded.txt',status='unknown')
+ 
+   ierr=unlink('abort')
+-  ierr=getsound(iwave)
++  ierr=getsound(ndevin,iwave)
+   npts=114*12000
+   call getrms(iwave,npts,ave,rms)
+   call mept162(cfile6,f0,iwave,NMAX,rms,nsec)
+
+Modified: branches/wspr/wspr_tx.f90
+===================================================================
+--- branches/wspr/wspr_tx.f90	2008-03-20 14:42:47 UTC (rev 643)
++++ branches/wspr/wspr_tx.f90	2008-03-20 16:14:41 UTC (rev 644)
+@@ -15,12 +15,13 @@
+   character*4 grid
+   character*3 cdbm
+   character*22 message
++  character*32 devout
+   integer*2 iwave(NMAX)
+   integer playsound,ptt
+ 
+   nargs=iargc()
+-  if(nargs.ne.5) then
+-     print*,'Usage: wspr_tx call grid dBm nport ntxdf'
++  if(nargs.ne.6) then
++     print*,'Usage: wspr_tx call grid dBm nport ntxdf devout'
+      go to 999
+   endif
+ 
+@@ -32,15 +33,17 @@
+   read(arg,*) nport
+   call getarg(5,arg)
+   read(arg,*) ntxdf
+-
+-  write(cdbm,'(i3)'),ndbm
++  call getarg(6,devout)
++  ndevout=0
++  read(devout,*,err=1) ndevout
++1  write(cdbm,'(i3)'),ndbm
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   message=call1(1:i1)//grid//' '//cdbm
+   call genmept(call1,grid,ndbm,ntxdf,99.0,iwave)
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+   ierr=unlink('abort')
+-  ierr=playsound(iwave)
++  ierr=playsound(ndevout,iwave)
+   if(nport.gt.0) ierr=ptt(nport,junk,0,iptt)
+ 
+ 999 continue
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000330.html">[WSJT-SVN] r643 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000332.html">[WSJT-SVN] r645 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#331">[ date ]</a>
+              <a href="thread.html#331">[ thread ]</a>
+              <a href="subject.html#331">[ subject ]</a>
+              <a href="author.html#331">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

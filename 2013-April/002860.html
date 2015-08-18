@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3168 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3168%20-%20branches/wsjtx&In-Reply-To=%3C20130414141121.40E7955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002859.html">
+   <LINK REL="Next"  HREF="002861.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3168 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3168%20-%20branches/wsjtx&In-Reply-To=%3C20130414141121.40E7955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3168 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Apr 14 16:11:21 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002859.html">[WSJT-SVN] r3167 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002861.html">[WSJT-SVN] r3169 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2860">[ date ]</a>
+              <a href="thread.html#2860">[ thread ]</a>
+              <a href="subject.html#2860">[ subject ]</a>
+              <a href="author.html#2860">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-14 16:11:20 +0200 (Sun, 14 Apr 2013)
+New Revision: 3168
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+Log:
+Added &quot;Tune&quot; button.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-13 18:51:25 UTC (rev 3167)
++++ branches/wsjtx/mainwindow.cpp	2013-04-14 14:11:20 UTC (rev 3168)
+@@ -38,12 +38,6 @@
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+   ui-&gt;labDialFreq-&gt;setStyleSheet( \
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+-/*
+-  ui-&gt;labTol1-&gt;setStyleSheet( \
+-        &quot;QLabel { background-color : white; color : black; }&quot;);
+-  ui-&gt;labTol1-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+-  ui-&gt;dxStationGroupBox-&gt;setStyleSheet(&quot;QFrame{border: 5px groove red}&quot;);
+-*/
+   QActionGroup* paletteGroup = new QActionGroup(this);
+   ui-&gt;actionCuteSDR-&gt;setActionGroup(paletteGroup);
+   ui-&gt;actionLinrad-&gt;setActionGroup(paletteGroup);
+@@ -181,6 +175,7 @@
+   m_msErase=0;
+   m_sent73=false;
+   m_watchdogLimit=5;
++  m_tune=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -222,6 +217,10 @@
+   m_pbAutoOn_style=&quot;QPushButton{background-color: red; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
++  m_pbTune_style=&quot;QPushButton{background-color: red; \
++      border-style: outset; border-width: 1px; border-radius: 5px; \
++      border-color: black; min-width: 5em; padding: 3px;}&quot;;
++
+   genStdMsgs(m_rpt);
+   on_actionWide_Waterfall_triggered();                   //###
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+@@ -710,6 +709,7 @@
+ 
+ void MainWindow::on_stopTxButton_clicked()                    //Stop Tx
+ {
++  if(m_tune) on_tuneButton_clicked();
+   if(m_auto) on_autoButton_clicked();
+   btxok=false;
+ }
+@@ -1386,9 +1386,9 @@
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+   double t2p=fmod(tsec,2*m_TRperiod);
+-  bool bTxTime = (t2p &gt;= tx1) &amp;&amp; (t2p &lt; tx2);
++  bool bTxTime = ((t2p &gt;= tx1) and (t2p &lt; tx2)) or m_tune;
+ 
+-  if(m_auto) {
++  if(m_auto or m_tune) {
+ 
+     QFile f(&quot;txboth&quot;);
+     if(f.exists() and fmod(tsec,m_TRperiod) &lt; (1.0 + 85.0*m_nsps/12000.0)) {
+@@ -1396,7 +1396,8 @@
+     }
+ 
+     float fTR=float((nsec%m_TRperiod))/m_TRperiod;
+-    if(bTxTime and m_iptt==0 and !btxMute and fTR&lt;0.4) {
++//    if(bTxTime and m_iptt==0 and !btxMute and fTR&lt;0.4) {
++    if(m_iptt==0 and ((bTxTime and !btxMute and fTR&lt;0.4) or m_tune )) {
+       icw[0]=m_ncw;
+ 
+       //Raise PTT
+@@ -1439,6 +1440,7 @@
+     genjt9_(message,&amp;ichk,msgsent,itone,&amp;itext,len1,len1);
+     msgsent[22]=0;
+     QString t=QString::fromAscii(msgsent);
++    if(m_tune) t=&quot;TUNE&quot;;
+     lab5-&gt;setText(&quot;Last Tx:  &quot; + t);
+     if(m_restart) {
+       QFile f(&quot;ALL.TXT&quot;);
+@@ -1519,7 +1521,7 @@
+     out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
+         &lt;&lt; &quot;  Transmitting:  &quot; &lt;&lt; t &lt;&lt; endl;
+     f.close();
+-    if(m_tx2QSO) displayTxMsg(t);
++    if(m_tx2QSO and !m_tune) displayTxMsg(t);
+   }
+ 
+   if(!btxok &amp;&amp; btxok0 &amp;&amp; m_iptt==1) stopTx();
+@@ -1594,11 +1596,11 @@
+     m_hsym0=khsym;
+     m_sec0=nsec;
+ 
+-//###
+-    m_cmnd=rig_command() + &quot; f&quot;;
+-    p3.start(m_cmnd);
+-    p3.waitForFinished();
+-//###
++    if(m_catEnabled) {
++      m_cmnd=rig_command() + &quot; f&quot;;
++      p3.start(m_cmnd);
++      p3.waitForFinished();
++    }
+   }
+ 
+   iptt0=m_iptt;
+@@ -2538,3 +2540,16 @@
+ {
+   m_tx2QSO=checked;
+ }
++
++void MainWindow::on_tuneButton_clicked()
++{
++  m_tune=!m_tune;
++  soundOutThread.setTune(m_tune);
++  if(m_tune) {
++    ui-&gt;tuneButton-&gt;setStyleSheet(m_pbTune_style);
++  } else {
++    btxok=false;
++    ui-&gt;tuneButton-&gt;setStyleSheet(&quot;&quot;);
++    on_monitorButton_clicked();
++  }
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-13 18:51:25 UTC (rev 3167)
++++ branches/wsjtx/mainwindow.h	2013-04-14 14:11:20 UTC (rev 3168)
+@@ -151,6 +151,7 @@
+   void on_actionRunaway_Tx_watchdog_triggered(bool checked);
+   void on_actionTx2QSO_triggered(bool checked);
+   void killFile();
++  void on_tuneButton_clicked();
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -245,6 +246,7 @@
+     bool    m_sent73;
+     bool    m_runaway;
+     bool    m_tx2QSO;
++    bool    m_tune;
+ 
+     char    m_decoded[80];
+ 
+@@ -281,6 +283,7 @@
+     QString m_pbdecoding_style1;
+     QString m_pbmonitor_style;
+     QString m_pbAutoOn_style;
++    QString m_pbTune_style;
+     QString m_myCall;
+     QString m_myGrid;
+     QString m_baseCall;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-13 18:51:25 UTC (rev 3167)
++++ branches/wsjtx/mainwindow.ui	2013-04-14 14:11:20 UTC (rev 3168)
+@@ -459,6 +459,13 @@
+          &lt;/widget&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
++         &lt;widget class=&quot;QPushButton&quot; name=&quot;tuneButton&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;&amp;Tune&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;widget class=&quot;QPushButton&quot; name=&quot;autoButton&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+            &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-04-13 18:51:25 UTC (rev 3167)
++++ branches/wsjtx/soundout.cpp	2013-04-14 14:11:20 UTC (rev 3168)
+@@ -22,6 +22,7 @@
+   int    ncall;
+   bool   txMute;
+   bool   bRestart;
++  bool   btune;
+ } paUserData;
+ 
+ //--------------------------------------------------------------- d2aCallback
+@@ -57,6 +58,7 @@
+     srand(mstr);                                //Initialize random seed
+   }
+   isym=ic/(4*udata-&gt;nsps);                      //Actual fsample=48000
++  if(udata-&gt;btune) isym=0;                      //If tuning, send pure tone
+   if(udata-&gt;txsnrdb &lt; 0.0) {
+     snr=pow(10.0,0.05*(udata-&gt;txsnrdb-6.0));
+     fac=3000.0;
+@@ -100,6 +102,10 @@
+   amp=32767.0;
+   int i0=84.983*4.0*udata-&gt;nsps;
+   int i1=85*4*udata-&gt;nsps;
++  if(udata-&gt;btune) {                           //If tuning, no ramp down
++    i0=999*udata-&gt;nsps;
++    i1=i0;
++  }
+   for(uint i=0 ; i&lt;framesToProcess; i++ )  {
+     phi += dphi;
+     if(phi&gt;twopi) phi -= twopi;
+@@ -154,6 +160,7 @@
+   udata.ncall=0;
+   udata.txMute=m_txMute;
+   udata.bRestart=true;
++  udata.btune=m_tune;
+ 
+   paerr=Pa_OpenStream(&amp;outStream,           //Output stream
+         NULL,                               //No input parameters
+@@ -219,6 +226,11 @@
+   m_txsnrdb=snr;
+ }
+ 
++void SoundOutThread::setTune(bool b)
++{
++  m_tune=b;
++}
++
+ double SoundOutThread::samFacOut()
+ {
+   return m_SamFacOut;
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2013-04-13 18:51:25 UTC (rev 3167)
++++ branches/wsjtx/soundout.h	2013-04-14 14:11:20 UTC (rev 3168)
+@@ -28,6 +28,7 @@
+   void setPeriod(int ntrperiod, int nsps);
+   void setTxFreq(int n);
+   void setTxSNR(double snr);
++  void setTune(bool b);
+   double samFacOut();
+   bool quitExecution;           //If true, thread exits gracefully
+ 
+@@ -41,6 +42,7 @@
+   qint32  m_txFreq;
+   bool    m_txOK;               //Enable Tx audio
+   bool    m_txMute;             //Mute temporarily
++  bool    m_tune;
+ };
+ 
+ #endif
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002859.html">[WSJT-SVN] r3167 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002861.html">[WSJT-SVN] r3169 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2860">[ date ]</a>
+              <a href="thread.html#2860">[ thread ]</a>
+              <a href="subject.html#2860">[ subject ]</a>
+              <a href="author.html#2860">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

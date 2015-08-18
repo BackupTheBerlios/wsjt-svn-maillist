@@ -1,0 +1,275 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3128 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3128%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403213222.55F7D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002819.html">
+   <LINK REL="Next"  HREF="002822.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3128 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3128%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403213222.55F7D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3128 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Apr  3 23:32:22 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002819.html">[WSJT-SVN] r3127 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002822.html">[WSJT-SVN] r3129 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2820">[ date ]</a>
+              <a href="thread.html#2820">[ thread ]</a>
+              <a href="subject.html#2820">[ subject ]</a>
+              <a href="author.html#2820">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-03 23:32:21 +0200 (Wed, 03 Apr 2013)
+New Revision: 3128
+
+Modified:
+   branches/wsjtx/lib/redsync.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+&quot;Clear call and grid after logging&quot; is now optional.
+Option to display distance in miles.
+Remove (or reduce?) negative red spikes at start of Rx period.
+
+
+Modified: branches/wsjtx/lib/redsync.f90
+===================================================================
+--- branches/wsjtx/lib/redsync.f90	2013-04-03 20:42:12 UTC (rev 3127)
++++ branches/wsjtx/lib/redsync.f90	2013-04-03 21:32:21 UTC (rev 3128)
+@@ -25,13 +25,12 @@
+      enddo
+      red(i)=smax
+   enddo
+-  call pctile(red,iz,50,xmed)
++  call pctile(red,iz,40,xmed)
+   if(xmed.le.0.0) xmed=1.0
+   red=red/xmed
+   smax=0.
+   do i=1,iz
+      red(i)=0.2*db(red(i))
+-!     red(i)=2.0*sqrt(red(i))
+      smax=max(smax,red(i))
+   enddo
+   h=10.
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-03 20:42:12 UTC (rev 3127)
++++ branches/wsjtx/mainwindow.cpp	2013-04-03 21:32:21 UTC (rev 3128)
+@@ -161,6 +161,8 @@
+   m_promptToLog=false;
+   m_blankLine=false;
+   m_insertBlank=false;
++  m_clearCallGrid=false;
++  m_bMiles=false;
+   m_fMin=1000;
+   ui-&gt;fMinSpinBox-&gt;setValue(m_fMin);
+   decodeBusy(false);
+@@ -367,6 +369,8 @@
+   settings.setValue(&quot;BandIndex&quot;,m_band);
+   settings.setValue(&quot;PromptToLog&quot;,m_promptToLog);
+   settings.setValue(&quot;InsertBlank&quot;,m_insertBlank);
++  settings.setValue(&quot;ClearCallGrid&quot;,m_clearCallGrid);
++  settings.setValue(&quot;Miles&quot;,m_bMiles);
+   settings.endGroup();
+ }
+ 
+@@ -461,9 +465,11 @@
+   ui-&gt;actionPrompt_to_log_QSO-&gt;setChecked(m_promptToLog);
+   m_insertBlank=settings.value(&quot;InsertBlank&quot;,false).toBool();
+   ui-&gt;actionBlank_line_between_decoding_periods-&gt;setChecked(m_insertBlank);
++  m_clearCallGrid=settings.value(&quot;ClearCallGrid&quot;,false).toBool();
++  ui-&gt;actionClear_DX_Call_and_Grid_after_logging-&gt;setChecked(m_clearCallGrid);
++    m_bMiles=settings.value(&quot;Miles&quot;,false).toBool();
++  ui-&gt;actionDisplay_distance_in_miles-&gt;setChecked(m_bMiles);
+ 
+-  settings.endGroup();
+-
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+     !ui-&gt;actionAFMHot-&gt;isChecked() &amp;&amp; !ui-&gt;actionBlue-&gt;isChecked()) {
+     on_actionLinrad_triggered();
+@@ -1156,7 +1162,7 @@
+       QTextCursor cursor;
+       QTextBlockFormat bf;
+       if(m_insertBlank and m_blankLine) {
+-        QString bg=&quot;#9fb6cd&quot;;
++        QString bg=&quot;#d3d3d3&quot;;
+         bf.setBackground(QBrush(QColor(bg)));
+         QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+             bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + &quot; &quot; + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+@@ -1928,7 +1934,8 @@
+     QString t;
+     t.sprintf(&quot;Az: %d&quot;,nAz);
+     ui-&gt;labAz-&gt;setText(t);
+-    t.sprintf(&quot;%d km&quot;,nDkm);
++    if(m_bMiles) t.sprintf(&quot;%d mi&quot;,int(0.621371*nDkm));
++    if(!m_bMiles) t.sprintf(&quot;%d km&quot;,nDkm);
+     ui-&gt;labDist-&gt;setText(t);
+   } else {
+     ui-&gt;labAz-&gt;setText(&quot;&quot;);
+@@ -1965,14 +1972,16 @@
+                     m_noSuffix,m_toRTTY,m_dBtoComments);
+   if(logDlg.exec() == QDialog::Accepted) {
+   }
+-  m_hisCall=&quot;&quot;;
+-  ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+-  m_hisGrid=&quot;&quot;;
+-  ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
+-  m_rptSent=&quot;&quot;;
+-  m_rptRcvd=&quot;&quot;;
+-  m_qsoStart=&quot;&quot;;
+-  m_qsoStop=&quot;&quot;;
++  if(m_clearCallGrid) {
++    m_hisCall=&quot;&quot;;
++    ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
++    m_hisGrid=&quot;&quot;;
++    ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
++    m_rptSent=&quot;&quot;;
++    m_rptRcvd=&quot;&quot;;
++    m_qsoStart=&quot;&quot;;
++    m_qsoStop=&quot;&quot;;
++  }
+ }
+ 
+ void MainWindow::on_actionJT9_1_triggered()
+@@ -2248,3 +2257,14 @@
+   m_fMax=n;
+   g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
+ }
++
++void MainWindow::on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked)
++{
++  m_clearCallGrid=checked;
++}
++
++void MainWindow::on_actionDisplay_distance_in_miles_triggered(bool checked)
++{
++  m_bMiles=checked;
++  on_dxGridEntry_textChanged(m_hisGrid);
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-03 20:42:12 UTC (rev 3127)
++++ branches/wsjtx/mainwindow.h	2013-04-03 21:32:21 UTC (rev 3128)
+@@ -134,6 +134,10 @@
+   void on_fMinSpinBox_valueChanged(int n);
+   void on_fMaxSpinBox_valueChanged(int n);
+ 
++  void on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked);
++
++  void on_actionDisplay_distance_in_miles_triggered(bool checked);
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -214,6 +218,8 @@
+     bool    m_promptToLog;
+     bool    m_blankLine;
+     bool    m_insertBlank;
++    bool    m_clearCallGrid;
++    bool    m_bMiles;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-03 20:42:12 UTC (rev 3127)
++++ branches/wsjtx/mainwindow.ui	2013-04-03 21:32:21 UTC (rev 3128)
+@@ -526,7 +526,7 @@
+           &lt;property name=&quot;lineWidth&quot;&gt;
+            &lt;number&gt;1&lt;/number&gt;
+           &lt;/property&gt;
+-          &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++          &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+            &lt;property name=&quot;geometry&quot;&gt;
+             &lt;rect&gt;
+              &lt;x&gt;2&lt;/x&gt;
+@@ -1711,12 +1711,13 @@
+     &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;actionMonitor_OFF_at_startup&quot;/&gt;
+     &lt;addaction name=&quot;actionF4_sets_Tx6&quot;/&gt;
+-    &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;actionLog_JT9_without_submode&quot;/&gt;
+     &lt;addaction name=&quot;actionConvert_JT9_x_to_RTTY&quot;/&gt;
+     &lt;addaction name=&quot;actionLog_dB_reports_to_Comments&quot;/&gt;
+     &lt;addaction name=&quot;actionPrompt_to_log_QSO&quot;/&gt;
+     &lt;addaction name=&quot;actionBlank_line_between_decoding_periods&quot;/&gt;
++    &lt;addaction name=&quot;actionClear_DX_Call_and_Grid_after_logging&quot;/&gt;
++    &lt;addaction name=&quot;actionDisplay_distance_in_miles&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuView&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -2213,6 +2214,27 @@
+     &lt;string&gt;Blank line between decoding periods&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionClear_DX_Call_and_Grid_after_logging&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Clear DX Call and Grid after logging&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionDistance_in_miles&quot;&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Distance in miles&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionDisplay_distance_in_miles&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Display distance in miles&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002819.html">[WSJT-SVN] r3127 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002822.html">[WSJT-SVN] r3129 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2820">[ date ]</a>
+              <a href="thread.html#2820">[ thread ]</a>
+              <a href="subject.html#2820">[ subject ]</a>
+              <a href="author.html#2820">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

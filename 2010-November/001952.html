@@ -1,0 +1,488 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2260 - branches/map65iq
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2260%20-%20branches/map65iq&In-Reply-To=%3C20101119203316.501FB480B79%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001951.html">
+   <LINK REL="Next"  HREF="001953.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2260 - branches/map65iq</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2260%20-%20branches/map65iq&In-Reply-To=%3C20101119203316.501FB480B79%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2260 - branches/map65iq">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Nov 19 21:33:16 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001951.html">[WSJT-SVN] r2259 - branches/map65iq
+</A></li>
+        <LI>Next message: <A HREF="001953.html">[WSJT-SVN] r2261 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1952">[ date ]</a>
+              <a href="thread.html#1952">[ thread ]</a>
+              <a href="subject.html#1952">[ subject ]</a>
+              <a href="author.html#1952">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-11-19 21:33:15 +0100 (Fri, 19 Nov 2010)
+New Revision: 2260
+
+Modified:
+   branches/map65iq/Makefile.MinGW
+   branches/map65iq/datcom.f90
+   branches/map65iq/decode1.f90
+   branches/map65iq/decode1a.f
+   branches/map65iq/filbig.f
+   branches/map65iq/getfile.f90
+   branches/map65iq/getfile2.f90
+   branches/map65iq/map65.py
+   branches/map65iq/map65a.f90
+   branches/map65iq/recvpkt.f90
+   branches/map65iq/symspec.f90
+Log:
+MAP65-IQ can nor receive R84 as well as i*2 data in UDP packets.
+
+
+Modified: branches/map65iq/Makefile.MinGW
+===================================================================
+--- branches/map65iq/Makefile.MinGW	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/Makefile.MinGW	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -3,23 +3,24 @@
+ CC = /mingw/bin/gcc
+ FC = g95
+ CFLAGS = -I. -fPIC
+-FFLAGS = -Wall -Wno-precision-loss -fbounds-check -fPIC
++FFLAGS = -Wall -Wno-precision-loss -fno-second-underscore -fbounds-check -fPIC
+ 
+ .f.o:
+ 	${FC} ${CPPFLAGS} ${FFLAGS} -c -o ${&lt;:.f=.o} $&lt;
+ 
++#all:    MAP65.EXE plrs.exe plrr.exe
+ all:    MAP65.EXE
+ 
+-OBJC1 = init_rs.o encode_rs.o decode_rs.o jtaudio.o plrr_subs.o deep65.o
++OBJC1 = init_rs.o encode_rs.o decode_rs.o jtaudio.o plrr_subs.o \
++      deep65.o fthread.o
+ 
+ F2PYONLY = ftn_init ftn_quit audio_init getfile azdist0 astro0 spec
+ 
+-SRCF90 = a2d.f90 astro0.f90 audio_init.f90 azdist0.f90 \
+-	decode1.f90 ftn_init.f90 ftn_quit.f90 wsjtgen.f90 \
+-	runqqq.f90 fivehz.f90 flushqqq.f90 \
+-	rfile.f90 rfile3a.F90 spec.f90 map65a.F90 display.F90 \
+-	getfile.f90 getfile2.f90 recvpkt.f90 savetf2.F90 \
+-	symspec.f90 sec_midn.F90
++SRCF90 = a2d.f90 astro0.f90 audio_init.f90 azdist0.f90 decode1.f90 \
++        ftn_init.f90 ftn_quit.f90 wsjtgen.f90 runqqq.f90 fivehz.f90 \
++	rfile.f90 rfile3a.f90 spec.f90 map65a.f90 display.f90 \
++	getfile.f90 getfile2.f90 recvpkt.f90 savetf2.f90 \
++	symspec.f90 sec_midn.f90 thnix.f90
+ 
+ SRCCOM = datcom.f90 gcom1.f90 gcom2.f90 gcom3.f90 gcom4.f90 spcom.f90
+ 
+@@ -61,9 +62,17 @@
+ 	C:/Python25/python C:/Python25/pyinstaller-1.3/makespec.py \
+ 	--icon wsjt.ico --tk --onefile map65.py
+ 
+-deep65.o: deep65.F
+-	$(FC) -c -O0 -Wall -fPIC deep65.F
++#plrr.exe: plrr.f90 sec_midn.f90 plrr_subs.c cutil.c
++#	$(CC) -c plrs_subs.c cutil.c
++#	$(FC) -o plrr.exe -fno-second-underscore plrr.f90 sec_midn.f90 plrr_subs.o cutil.o
+ 
++#plrs.exe: plrs.f90 sec_midn.f90 plrs_subs.c cutil.c
++#	$(CC) -c plrs_subs.c cutil.c
++#	$(FC) -o plrs.exe -fno-second-underscore plrs.f90 sec_midn.f90 plrs_subs.o cutil.o
++
++deep65.o: deep65.f
++	$(FC) -c -O0 -fno-second-underscore -Wall -fPIC deep65.f
++
+ jtaudio.o: jtaudio.c
+ 	$(CC) -c -DWin32 -o jtaudio.o jtaudio.c
+ 
+
+Modified: branches/map65iq/datcom.f90
+===================================================================
+--- branches/map65iq/datcom.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/datcom.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,7 +1,7 @@
+ parameter (NSMAX=60*96000)          !Samples per 60 s file
+ real*8 fcfile
+-integer*2 id                        !46 MB: raw data from Linrad timf2
++real*4 dd                           !92 MB: raw data from Linrad timf2
+ character*80 fname80
+-common/datcom/id(2,NSMAX,2),nutc,newdat2,kbuf,kxp,kk,kkdone,nlost,   &amp;
++common/datcom/dd(2,NSMAX,2),nutc,newdat2,kbuf,kxp,kk,kkdone,nlost,   &amp;
+      nlen,fname80
+ equivalence (id,fcfile)
+
+Modified: branches/map65iq/decode1.f90
+===================================================================
+--- branches/map65iq/decode1.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/decode1.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -35,7 +35,7 @@
+   n=Tsec
+ 
+   if((ndiskdat.eq.1 .or. ndecoding.eq.0) .and. ((kkk-kkdone).gt.32768)) then
+-     call symspec(id,kbuf,kk,kkdone,nutc,newdat)
++     call symspec(dd,kbuf,kk,kkdone,nutc,newdat)
+      call sleep_msec(10)
+   endif
+ 
+
+Modified: branches/map65iq/decode1a.f
+===================================================================
+--- branches/map65iq/decode1a.f	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/decode1a.f	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,4 +1,4 @@
+-      subroutine decode1a(id,newdat,f0,nflip,mode65,
++      subroutine decode1a(dd,newdat,f0,nflip,mode65,
+      +         mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,
+      +         sync2,a,dt,nkv,nhist,qual,decoded)
+ 
+@@ -7,7 +7,7 @@
+ 
+ !      parameter (NFFT1=77760,NFFT2=2430)
+       parameter (NMAX=60*96000)          !Samples per 60 s
+-      integer*2 id(2,NMAX)               !46 MB: raw data from Linrad timf2
++      real*4 dd(2,NMAX)                  !92 MB: raw data from Linrad timf2
+       complex cx0(NMAX/64)               !Data at 1378.125 samples/s
+       complex cx(NMAX/64)                !Data at 1378.125 samples/s
+       complex c5x(NMAX/256)              !Data at 344.53125 samples/s
+@@ -25,7 +25,7 @@
+ 
+ C  Mix sync tone to baseband, low-pass filter, and decimate by 64
+       dt00=dt
+-      call filbig(id,NMAX,f0,newdat,cx0,n5)
++      call filbig(dd,NMAX,f0,newdat,cx0,n5)
+ C Move data later by 1 s.  (This is a kludge.)
+       do i=1,1378
+          cx(i)=0.
+
+Modified: branches/map65iq/filbig.f
+===================================================================
+--- branches/map65iq/filbig.f	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/filbig.f	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,12 +1,12 @@
+-      subroutine filbig(id,nmax,f0,newdat,c4a,n4)
++      subroutine filbig(dd,nmax,f0,newdat,c4a,n4)
+ 
+ C  Filter and downsample the complex data for one polarization,
+-C  stored in array id(2,nmax).  Output is downsampled from 96000 Hz
++C  stored in array dd(2,nmax).  Output is downsampled from 96000 Hz
+ C  to 1378.125 Hz.  
+ 
+ !      parameter (NFFT1=5376000,NFFT2=77175)
+       parameter (NFFT1=5120000,NFFT2=74088)
+-      integer*2 id(2,nmax)                       !Input data
++      real*4 dd(2,nmax)                          !Input data
+       complex c4a(NFFT2)                         !Output data
+       complex ca(NFFT1)                          !FFT of input
+       real*8 df
+@@ -64,7 +64,7 @@
+       if(newdat.ne.0) then
+          nz=min(nmax,NFFT1)
+          do i=1,nz
+-            ca(i)=cmplx(float(int(id(1,i))),float(int(id(2,i))))
++            ca(i)=cmplx(dd(1,i),dd(2,i))
+          enddo
+ 
+          if(nmax.lt.NFFT1) then
+
+Modified: branches/map65iq/getfile.f90
+===================================================================
+--- branches/map65iq/getfile.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/getfile.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,4 +1,3 @@
+-!----------------------------------------------------- getfile
+ subroutine getfile(fname,len)
+   character*(*) fname
+ 
+
+Modified: branches/map65iq/getfile2.f90
+===================================================================
+--- branches/map65iq/getfile2.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/getfile2.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -7,6 +7,7 @@
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom4.f90'
++  integer*2 id(2,NSMAX)
+ 
+ 1 if(ndecoding.eq.0) go to 2
+   call usleep(100*1000)
+@@ -25,7 +26,15 @@
+   monitoring=0
+   kbuf=1
+ 
++!###
++! NB: not really necessary to read whole file at once.  Save memory!
+   call rfile3a(fname,id,n,ierr)
++  do i=1,NSMAX
++     dd(1,i,1)=id(1,i)
++     dd(2,i,1)=id(2,i)
++  enddo
++!###
++
+   if(ierr.ne.0) then
+      print*,'Error opening or reading file: ',fname,ierr
+      go to 999
+@@ -35,7 +44,7 @@
+   ka=0.1*NSMAX
+   kb=0.8*NSMAX
+   do k=ka,kb
+-     sq=sq + float(int(id(1,k,1)))**2 + float(int(id(2,k,1)))**2
++     sq=sq + dd(1,k,1)**2 + dd(2,k,1)**2
+   enddo
+   sqave=174*sq/(kb-ka+1)
+   rxnoise=10.0*log10(sqave) - 48.0
+
+Modified: branches/map65iq/map65.py
+===================================================================
+--- branches/map65iq/map65.py	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/map65.py	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,4 +1,4 @@
+-#------------------------------------------------------------------- MAP65-IQ
++#------------------------------------------------------------------ MAP65-IQ
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/map65iq/map65a.f90
+===================================================================
+--- branches/map65iq/map65a.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/map65a.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -163,7 +163,7 @@
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+                  f00=(i-1)*df        !Freq of detected sync tone (0-95238 Hz)
+-                 call decode1a(id(1,1,kbuf),newdat,f00,nflip,mode65,        &amp;
++                 call decode1a(dd(1,1,kbuf),newdat,f00,nflip,mode65,        &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,    &amp;
+                       sync2,a,dt,nkv,nhist,qual,decoded)
+                  km=min(1000,km+1)
+@@ -327,8 +327,8 @@
+   call display(nkeep,ncsmin,mhz)
+   ndecdone=2
+ 
+-  if(nsave.gt.0 .and. ndiskdat.eq.0) call savetf2(id(1,1,kbuf),       &amp;
+-       fnamedate,savedir,fcenter+fadd)
++!  if(nsave.gt.0 .and. ndiskdat.eq.0) call savetf2(id(1,1,kbuf),       &amp;
++!       fnamedate,savedir,fcenter+fadd)
+ 
+ 999 close(23)
+   if(kbuf.eq.1) kkdone=60*96000
+
+Modified: branches/map65iq/recvpkt.f90
+===================================================================
+--- branches/map65iq/recvpkt.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/recvpkt.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,19 +1,22 @@
+ subroutine recvpkt(iarg)
+ 
+-! Receive timf2 packets from Linrad and stuff data into array id().
++! Receive timf2 packets from Linrad and stuff data into array dd().
+ ! (This routine runs in a background thread and will never return.)
+ 
+   parameter (NSZ=2*60*96000)
+-  real d4(NSZ)
+   integer*1 userx_no,iusb
+   integer*2 nblock,nblock0
+   logical synced
+-  real*8 center_freq
++  real*8 center_freq,d8,buf8(174)
+   common/plrscom/center_freq,msec,fqso,iptr,nblock,userx_no,iusb,buf4(348)
+   include 'datcom.f90'
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+-  equivalence (id,d4)
++  integer*2 id(2,NSMAX,2),jd(2)
++  real*4 xd(2)
++  equivalence (jd,d4)
++  equivalence (xd,d8)
++  equivalence (buf4,buf8)
+   data nblock0/0/,kb/1/,ns00/99/
+   data sqave/0.0/,u/0.002/,rxnoise/0.0/,pctblank/0.0/,kbuf/1/,lost_tot/0/
+   data multicast0/-99/
+@@ -35,8 +38,17 @@
+ 
+ 10 if(multicast.ne.multicast0) go to 1
+   call recv_pkt(center_freq)
++  if(userx_no.gt.0) then
++     ifloat=0
++     iz=348
++  else
++     ifloat=1
++     iz=174
++  endif
+ 
+-! Should receive a new packet every 348/95238.1 = 0.003654 s
++! Should receive a new packet every 348/95238.1 = 0.003654 s (i*2 data)
++!                        ...  every 174/95238.1 = 0.001827 s (r*4 data)
++
+   nsec=mod(Tsec,86400.d0)           !Time according to MAP65
+   nseclr=msec/1000                  !Time according to Linrad
+   if(lauto+monitoring.ne.0) fcenter=center_freq
+@@ -62,8 +74,8 @@
+   if(transmitting.eq.1) ntx=1
+ 
+ ! Test for buffer full
+-  if((kb.eq.1 .and. (k+348).gt.NSMAX) .or.                          &amp;
+-       (kb.eq.2 .and. (k+348).gt.2*NSMAX)) go to 20
++  if((kb.eq.1 .and. (k+iz).gt.NSMAX) .or.                          &amp;
++       (kb.eq.2 .and. (k+iz).gt.2*NSMAX)) go to 20
+ 
+ ! Check for lost packets
+   lost=nblock-nblock0-1
+@@ -73,10 +85,12 @@
+      nb0=nblock0
+      if(nb0.lt.0) nb0=nb0+65536
+      lost_tot=lost_tot + lost               ! Insert zeros for the lost data.
+-     do i=1,348*lost
+-        k=k+1
+-        d4(k)=0.
+-     enddo
++!###
++!     do i=1,iz*lost
++!        k=k+1
++!        d4(k)=0.
++!     enddo
++!###
+   endif
+   nblock0=nblock
+ 
+@@ -87,20 +101,32 @@
+ ! Move data into Rx buffer and compute average signal level.
+ ! Each r*4 word of buf4 and d4 is one sample, I and Q
+   sq=0.
+-  do i=1,348
++  do i=1,iz
+      k=k+1
+-     d4(k)=buf4(i)
+      k2=k
+      n=1
+      if(k.gt.NSMAX) then
+         k2=k2-NSMAX
+         n=2
+      endif
+-     x1=id(1,k2,n)
+-     x2=id(2,k2,n)
+-     sq=sq + x1*x1 + x2*x2
++     if(ifloat.eq.0) then
++        d4=buf4(i)
++        x1=jd(1)
++        x2=jd(2)
++        dd(1,k2,n)=x1
++        dd(2,k2,n)=x2
++        sq=sq + x1*x1 + x2*x2
++     else
++        d8=buf8(i)
++        x1=xd(1)
++        x2=xd(2)
++        dd(1,k2,n)=x1
++        dd(2,k2,n)=x2
++        sq=sq + x1*x1 + x2*x2
++     endif
+   enddo
+-  sq=sq/(2.0*348.0)
++
++  sq=sq/(2.0*iz)
+   sqave=sqave + u*(sq-sqave)
+   rxnoise=10.0*log10(sqave) - 20.0           !Target rms=10, sqave=100
+   kxp=k
+
+Modified: branches/map65iq/symspec.f90
+===================================================================
+--- branches/map65iq/symspec.f90	2010-11-19 20:31:15 UTC (rev 2259)
++++ branches/map65iq/symspec.f90	2010-11-19 20:33:15 UTC (rev 2260)
+@@ -1,9 +1,9 @@
+-subroutine symspec(id,kbuf,kk,kkdone,nutc,newdat)
++subroutine symspec(dd,kbuf,kk,kkdone,nutc,newdat)
+ 
+ !  Compute spectra using half-symbol steps.
+ 
+   parameter (NSMAX=60*96000)
+-  integer*2 id(2,NSMAX,2)
++  real*4 dd(2,NSMAX,2)
+   complex z
+   real*8 ts,hsym
+   include 'spcom.f90'
+@@ -40,8 +40,8 @@
+         sq=0.
+         do i=1,n1                         !Find power in each block
+            k=k+1
+-           x1=id(1,k,kbuf)
+-           x2=id(2,k,kbuf)
++           x1=dd(1,k,kbuf)
++           x2=dd(2,k,kbuf)
+            sq=sq + x1*x1 + x2*x2
+         enddo
+         if(sq.lt.n1*10000.) then          !Find power in good blocks
+@@ -62,15 +62,15 @@
+         sq=0.
+         do i=1,n1
+            k=k+1
+-           x1=id(1,k,kbuf)
+-           x2=id(2,k,kbuf)
++           x1=dd(1,k,kbuf)
++           x2=dd(2,k,kbuf)
+            sq=sq + x1*x1 + x2*x2
+         enddo
+ ! If power in this block is excessive, blank it.
+         if(sq.gt.1.5*sqave) then
+            do i=k-n1+1,k
+-              id(1,i,kbuf)=0
+-              id(2,i,kbuf)=0
++              dd(1,i,kbuf)=0
++              dd(2,i,kbuf)=0
+            enddo
+            nclip=nclip+1
+         endif
+@@ -85,8 +85,8 @@
+      i1=ts+2*hsym                         !Next starting sample pointer
+      ts=ts+hsym                           !OK, update the exact sample pointer
+      do i=1,npts                          !Copy data to FFT arrays
+-        xr=fac*id(1,i0+i,kbuf)
+-        xi=fac*id(2,i0+i,kbuf)
++        xr=fac*dd(1,i0+i,kbuf)
++        xi=fac*dd(2,i0+i,kbuf)
+         cx(i)=cmplx(xr,xi)
+      enddo
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001951.html">[WSJT-SVN] r2259 - branches/map65iq
+</A></li>
+	<LI>Next message: <A HREF="001953.html">[WSJT-SVN] r2261 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1952">[ date ]</a>
+              <a href="thread.html#1952">[ thread ]</a>
+              <a href="subject.html#1952">[ subject ]</a>
+              <a href="author.html#1952">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

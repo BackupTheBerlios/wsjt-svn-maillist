@@ -1,0 +1,269 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2281 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2281%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101206202637.9CA21480D52%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001972.html">
+   <LINK REL="Next"  HREF="001974.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2281 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2281%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101206202637.9CA21480D52%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2281 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Dec  6 21:26:37 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001972.html">[WSJT-SVN] r2280 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001974.html">[WSJT-SVN] r2282 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1973">[ date ]</a>
+              <a href="thread.html#1973">[ thread ]</a>
+              <a href="subject.html#1973">[ subject ]</a>
+              <a href="author.html#1973">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-06 21:26:37 +0100 (Mon, 06 Dec 2010)
+New Revision: 2281
+
+Modified:
+   branches/wspr/WsprMod/hopping.py
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Add a &quot;Tuneup&quot; checkbox for each band on the Frequency-hopping screen.
+Save/Restore frequency-hopping parameters to file &quot;hopping.ini&quot;.
+
+
+Modified: branches/wspr/WsprMod/hopping.py
+===================================================================
+--- branches/wspr/WsprMod/hopping.py	2010-12-04 22:37:44 UTC (rev 2280)
++++ branches/wspr/WsprMod/hopping.py	2010-12-06 20:26:37 UTC (rev 2281)
+@@ -37,6 +37,8 @@
+ lhopping   =range(len(bandlabels))
+ hoppingflag=range(len(bandlabels))
+ hoppingpctx=range(len(bandlabels))
++btuneup    =range(len(bandlabels))
++tuneupflag =range(len(bandlabels))
+ 
+ #-------------------------------------------------------- Create GUI widgets
+ g1=Pmw.Group(root,tag_pyclass=None)
+@@ -47,6 +49,8 @@
+ lpctx.grid(row=r,column=1,padx=2,pady=2,sticky='SW')
+ llab=Label(g1.interior(),text='      ') # to make space for the percentage labels without repacking
+ llab.grid(row=r,column=2,padx=2,pady=2,sticky='SW')
++ltune=Label(g1.interior(),text='Tuneup')
++ltune.grid(row=r,column=3,padx=2,pady=2,sticky='SW')
+ 
+ def globalupdate():
+     global hopping
+@@ -71,14 +75,45 @@
+     hoppingflag[r].set(0)
+     hoppingpctx[r] = IntVar()
+     hoppingpctx[r].set(0)
+-    bhopping[r]=Checkbutton(g1.interior(),text=bandlabels[r],command=bcmd,variable=hoppingflag[r])
++    tuneupflag[r] = IntVar()
++    tuneupflag[r].set(0)
++    bhopping[r]=Checkbutton(g1.interior(),text=bandlabels[r],command=bcmd, \
++                        variable=hoppingflag[r])
+     bhopping[r].grid(row=r,column=0,padx=2,pady=3,sticky='SW')
+-    shopping[r]=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=0, to=100,command=scmd,variable=hoppingpctx[r],showvalue=0)
++    shopping[r]=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=0, \
++                        to=100,command=scmd,variable=hoppingpctx[r],showvalue=0)
+     shopping[r].grid(row=r,column=1,padx=2,pady=2,sticky='SW')
+     lhopping[r]=Label(g1.interior(),text='0')
+     lhopping[r].grid(row=r,column=2,padx=2,pady=2,sticky='SW')
++    btuneup[r]=Checkbutton(g1.interior(),text=&quot;&quot;,command=bcmd, \
++                           variable=tuneupflag[r])
++    btuneup[r].grid(row=r,column=3,padx=2,pady=3,sticky='SW')
+ 
+ cbcoord=Checkbutton(g1.interior(),text='Coordinated bands',variable=coord_bands)
+ cbcoord.grid(row=18,column=1,padx=2,pady=2,sticky='S')
+ g1.pack(side=LEFT,fill=X,expand=0,padx=4,pady=4)
+ 
++def save_params(appdir):
++    f=open(appdir+'/hopping.ini',mode='w')
++    t=&quot;%d %d\n&quot; % (hopping.get(),coord_bands.get())
++    f.write(t)
++    for r in range(1,16):
++        t=&quot;%4s %2d %5d %2d\n&quot; % (bandlabels[r][:-2], hoppingflag[r].get(), \
++                                hoppingpctx[r].get(),tuneupflag[r].get())
++        f.write(t)
++    f.close()
++
++def restore_params(appdir):
++    try:
++        f=open(appdir+'/hopping.ini',mode='r')
++        s=f.readlines()
++        f.close()
++        hopping.set(int(s[0][0:1]))
++        coord_bands.set(int(s[0][2:3]))
++        for r in range(1,16):
++            hoppingflag[r].set(int(s[r][6:7]))
++            hoppingpctx[r].set(int(s[r][8:13]))
++            tuneupflag[r].set(int(s[r][13:16]))
++        globalupdate()
++    except:
++        print 'Error reading hopping.ini.'
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-12-04 22:37:44 UTC (rev 2280)
++++ branches/wspr/tx.f90	2010-12-06 20:26:37 UTC (rev 2281)
+@@ -23,7 +23,6 @@
+   save ntx,ns0,message0,ntxdf0,ntune0,snr0,iqmode0,iqtx0
+ 
+   nfhopok=0                                ! Transmitting, don't hop 
+-
+   ierr=0
+   call1=callsign
+   call cs_lock('tx')
+@@ -171,6 +170,7 @@
+      istart=2*48000 +1
+      if(pctx.lt.100.0) then
+         npts=48000*pctx
++        if(ntune.lt.0) npts=48000*abs(ntune)
+         j=istart-1
+         do i=1,npts*(iqmode+1)
+            j=j+1
+@@ -191,7 +191,6 @@
+            ierr=soundout(ndevout,id2,npts,iqmode)
+         enddo
+      endif
+-     ntune=0
+   endif
+   if(ierr.ne.0) then
+      print*,'Error in soundout',ierr
+@@ -223,10 +222,9 @@
+   endif
+ 
+   ntransmitted=1
+-  ntxdone=1
+-  
+-  nfhopok=1                                ! Tx done, can hop 
+-  
++  ntxdone=1                        !Tx done
++  if(ntune.ge.0) nfhopok=1         !Unless this was ATU tuneup, can now hop
++  ntune=0
+ 
+   return
+ end subroutine tx
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-04 22:37:44 UTC (rev 2280)
++++ branches/wspr/wspr.py	2010-12-06 20:26:37 UTC (rev 2281)
+@@ -786,6 +786,7 @@
+     else:
+       bhopping.configure(state=DISABLED)
+ 
++    hopped=0
+     if hopping.hopping.get()==1:
+         w.acom1.nfhopping=1        
+         
+@@ -796,7 +797,6 @@
+                 ns=nsec % 86400
+                 ns1=ns % (10*120)
+                 b=ns1/120 + 3
+-##                print 'A',ns,ns1,b
+                 if b==12: b=2
+                 if hopping.hoppingflag[b].get()==0: b=-1
+             if b&lt;0:                
+@@ -806,8 +806,9 @@
+                     if hopping.hoppingflag[b].get()!=0:
+                         found=True
+             ipctx.set(hopping.hoppingpctx[b].get())
++            if b!=iband.get(): hopped=1
+             iband.set(b)
+-##            print 'Hop:',hopping.coord_bands.get(),b,ipctx.get(),hopping.bandlabels[b]
++##            print 'Hopping to',hopping.bandlabels[b],' at',ns120
+ 
+     else:
+         w.acom1.nfhopping=0
+@@ -845,6 +846,7 @@
+                       options.stopbits.get(),options.serial_handshake.get(), nHz)
+             ierr=os.system(cmd)
+             if ierr==0:
++                ierr2=0
+                 bandmap=[]
+                 bm={}
+                 text1.configure(state=NORMAL)
+@@ -877,6 +879,9 @@
+                 ftx.set(freqtx[iband.get()])
+                 t=&quot;%.6f&quot; % (ftx.get(),)
+                 sftx.set(t)
++##            if ierr==0 and ierr2==0 and w.acom1.nfhopping==1 and hopped==1:
++            if ierr==0 and ierr2==0 and w.acom1.nfhopping==1 and hopped==1 \
++                   and hopping.tuneupflag[iband.get()].get(): w.acom1.ntune=-4
+         else:
+             iband0=iband.get()
+ 
+@@ -1216,6 +1221,7 @@
+     f.write(&quot;Reject &quot; + str(nreject) + &quot;\n&quot;)
+     f.write(&quot;RxApply &quot; + str(iq.iqrxapp.get()) + &quot;\n&quot;)
+     f.close()
++    hopping.save_params(appdir)
+ 
+ #------------------------------------------------------ Top level frame
+ frame = Frame(root)
+@@ -1613,6 +1619,7 @@
+ w.acom1.reject=0.
+ while nparam &lt; len(params)-1:
+     readinit()
++hopping.restore_params(appdir)
+ 
+ r=options.chkcall(options.MyCall.get())
+ if r&lt;0:
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-12-04 22:37:44 UTC (rev 2280)
++++ branches/wspr/wspr2.f90	2010-12-06 20:26:37 UTC (rev 2281)
+@@ -83,7 +83,7 @@
+   if(pctx.lt.1.0) ntune=0
+   call cs_unlock
+ 
+-  if (ntune.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
++  if (ntune.ne.0 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
+        (.not.receiving) .and. pctx.ge.1.0) then
+ 
+ ! Test transmission of length pctx seconds.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001972.html">[WSJT-SVN] r2280 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001974.html">[WSJT-SVN] r2282 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1973">[ date ]</a>
+              <a href="thread.html#1973">[ thread ]</a>
+              <a href="subject.html#1973">[ subject ]</a>
+              <a href="author.html#1973">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

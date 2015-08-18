@@ -1,0 +1,377 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r939 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r939%20-%20branches/wspr&In-Reply-To=%3C200807112229.m6BMTP6O025935%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000627.html">
+   <LINK REL="Next"  HREF="000629.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r939 - branches/wspr</H1>
+    <B>w1bw at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r939%20-%20branches/wspr&In-Reply-To=%3C200807112229.m6BMTP6O025935%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r939 - branches/wspr">w1bw at mail.berlios.de
+       </A><BR>
+    <I>Sat Jul 12 00:29:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000627.html">[WSJT-SVN] r938 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000629.html">[WSJT-SVN] r940 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#628">[ date ]</a>
+              <a href="thread.html#628">[ thread ]</a>
+              <a href="subject.html#628">[ subject ]</a>
+              <a href="author.html#628">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: w1bw
+Date: 2008-07-12 00:29:15 +0200 (Sat, 12 Jul 2008)
+New Revision: 939
+
+Modified:
+   branches/wspr/decode162.f
+   branches/wspr/encode232.f
+   branches/wspr/fano232.f
+   branches/wspr/genmept.f
+   branches/wspr/getfile.F90
+   branches/wspr/mept162.F
+   branches/wspr/pack50.f
+   branches/wspr/unpack50.f
+   branches/wspr/wspr.py
+Log:
+1) turn off experimental qso mode interface (controlled by global variable)
+2) backport endian changes...works on tx, still doesn't work on Rx on big-endian
+
+
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/decode162.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -5,14 +5,13 @@
+       complex c4(npts)
+       character*22 message
+       real*8 dt,df,twopi,f0,f1,dphi0,dphi1
+-      complex*16 cz,cz1,c0,c1
++      complex*16 c0,c1
+       complex*16 w0,w1,ws0,ws1
+-      integer*1 i1,symbol(162)
++      integer*1 symbol(162)
+       integer*1 data1(11)
+       integer amp
+       integer mettab(0:255,0:1)
+       logical first
+-      equivalence (i1,i4)
+       data first/.true./
+       integer npr3(162)
+       common/ccom/rr(162)
+@@ -128,8 +127,7 @@
+          r=rsym+128.
+          if(r.gt.255.0) r=255.0
+          if(r.lt.0.0) r=0.0
+-         i4=nint(r)
+-         symbol(j)=i1
++         symbol(j)=nint(r)
+       enddo
+ 
+       call inter_mept(symbol,-1)                      !Remove interleaving
+
+Modified: branches/wspr/encode232.f
+===================================================================
+--- branches/wspr/encode232.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/encode232.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -6,13 +6,14 @@
+       integer*1 symbol(maxsym)          !Channel symbols, one bit per byte
+       integer*1 i1
+       include 'conv232.f'
+-      equivalence (i1,i4)
+ 
+       nstate=0
+       k=0
+       do j=1,nbytes
+          do i=7,0,-1
+             i1=dat(j)
++            i4=i1
++            if (i4.lt.0) i4=i4+256
+             nstate=ior(ishft(nstate,1),iand(ishft(i4,-i),1))
+             n=iand(nstate,npoly1)
+             n=ieor(n,ishft(n,-16))
+
+Modified: branches/wspr/fano232.f
+===================================================================
+--- branches/wspr/fano232.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/fano232.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -10,6 +10,7 @@
+       integer*1 symbol(0:2*MAXBITS-1)
+       integer*1 dat(MAXDAT)               !Decoded user data, 8 bits per byte
+       integer mettab(0:255,0:1)           !Metric table
++      integer i4a,i4b
+ 
+ C  These were the &quot;node&quot; structure in Karn's C code:
+       integer nstate(0:MAXBITS-1)      !Encoder state of next node
+@@ -18,21 +19,17 @@
+       integer tm(0:1,0:MAXBITS-1)      !Sorted metrics for current hypotheses
+       integer ii(0:MAXBITS-1)          !Current branch being tested
+ 
+-      integer*1 i1a,i1b
+       logical noback
+-      equivalence (i1a,i4a),(i1b,i4b)
+       include 'conv232.f'
+ 
+       ntail=nbits-31
+ 
+ C  Compute all possible branch metrics for each symbol pair.
+ C  This is the only place we actually look at the raw input symbols
+-      i4a=0
+-      i4b=0
+       do np=0,nbits-1
+          j=2*np
+-         i1a=symbol(j)
+-         i1b=symbol(j+1)
++         i4a=iand(symbol(j),255)
++         i4b=iand(symbol(j+1),255)
+          metrics(0,np) = mettab(i4a,0) + mettab(i4b,0)
+          metrics(1,np) = mettab(i4a,0) + mettab(i4b,1)
+          metrics(2,np) = mettab(i4a,1) + mettab(i4b,0)
+@@ -145,8 +142,8 @@
+       nbytes=(nbits+7)/8
+       np=7
+       do j=1,nbytes-1
+-         i4a=nstate(np)
+-         dat(j)=i1a
++         i4a=iand(nstate(np),255)
++         dat(j)=i4a
+          np=np+8
+       enddo
+       dat(nbytes)=0
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/genmept.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -23,7 +23,6 @@
+       character*4 dxgrid(0:23)
+       common/acom2/ ndxkm,dxgrid
+ 
+-      equivalence(i1,i4)
+       data npr3/
+      + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+      + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
+
+Modified: branches/wspr/getfile.F90
+===================================================================
+--- branches/wspr/getfile.F90	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/getfile.F90	2008-07-11 22:29:15 UTC (rev 939)
+@@ -34,7 +34,13 @@
+   read(10) hdr
+   npts=114*12000
+   read(10) (iwave(i),i=1,npts)
+-  call getrms(iwave,npts,ave,rms)
++  n4=1
++  if (n1.eq.1) goto 8                     !skip byteswap if little endian
++  do i=1,npts
++     i4 = iwave(i)
++     iwave(i) = ishft(iand(iwave(i),255),8) +  iand(ishft(iwave(i),-8),255)
++  enddo    
++8 call getrms(iwave,npts,ave,rms)
+   ndecdone=0                              !??? ### ???
+   ndiskdat=1
+   outfile=fname
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/mept162.F	2008-07-11 22:29:15 UTC (rev 939)
+@@ -82,7 +82,7 @@
+             close(13)
+             write(14,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
+      +           ncycles/81,ii
+- 1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
++ 1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5,f5.1)
+             i1=index(message,' ')
+             call bestdx(datetime,message(i1+1:i1+4))
+          endif
+
+Modified: branches/wspr/pack50.f
+===================================================================
+--- branches/wspr/pack50.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/pack50.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -1,24 +1,23 @@
+       subroutine pack50(n1,n2,dat)
+ 
+       integer*1 dat(11),i1
+-      equivalence (i1,i4)
+ 
+-      i4=iand(ishft(n1,-20),255)                !8 bits
++      i1=iand(ishft(n1,-20),255)                !8 bits
+       dat(1)=i1
+-      i4=iand(ishft(n1,-12),255)                 !8 bits
++      i1=iand(ishft(n1,-12),255)                 !8 bits
+       dat(2)=i1
+-      i4=iand(ishft(n1, -4),255)                 !8 bits
++      i1=iand(ishft(n1, -4),255)                 !8 bits
+       dat(3)=i1
+-      i4=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
++      i1=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
+       dat(4)=i1
+-      i4=iand(ishft(n2,-10),255)                 !8 bits
++      i1=iand(ishft(n2,-10),255)                 !8 bits
+       dat(5)=i1
+-      i4=iand(ishft(n2, -2),255)                 !8 bits
++      i1=iand(ishft(n2, -2),255)                 !8 bits
+       dat(6)=i1
+-      i4=64*iand(n2,3)                           !2 bits
++      i1=64*iand(n2,3)                           !2 bits
+       dat(7)=i1
+       dat(8)=0
+-      dat(8)=0
++      dat(9)=0
+       dat(10)=0
+       dat(11)=0
+ 
+
+Modified: branches/wspr/unpack50.f
+===================================================================
+--- branches/wspr/unpack50.f	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/unpack50.f	2008-07-11 22:29:15 UTC (rev 939)
+@@ -1,24 +1,23 @@
+       subroutine unpack50(dat,n1,n2)
+ 
+-      integer*1 dat(11),i1
+-      equivalence (i1,i4)
++      integer*1 dat(11)
++      integer i4
+ 
+-      i4=0
+-      i1=dat(1)
++      i4=iand(dat(1),255)
+       n1=ishft(i4,20)
+-      i1=dat(2)
++      i4=iand(dat(2),255)
+       n1=n1 + ishft(i4,12)
+-      i1=dat(3)
++      i4=iand(dat(3),255)
+       n1=n1 + ishft(i4,4)
+-      i1=dat(4)
++      i4=iand(dat(4),255)
+       n1=n1 + iand(ishft(i4,-4),15)
+ 
+       n2=ishft(iand(i4,15),18)
+-      i1=dat(5)
++      i4=iand(dat(5),255)
+       n2=n2 + ishft(i4,10)
+-      i1=dat(6)
++      i4=iand(dat(6),255)
+       n2=n2 + ishft(i4,2)
+-      i1=dat(7)
++      i4=iand(dat(7),255)
+       n2=n2 + iand(ishft(i4,-6),3)
+ 
+       return
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-07-11 17:15:24 UTC (rev 938)
++++ branches/wspr/wspr.py	2008-07-11 22:29:15 UTC (rev 939)
+@@ -27,6 +27,11 @@
+ import urllib
+ import thread
+ 
++## flag to enable experimental QSO mode interface; only for developer use!
++qso_enable = 0
++
++
++
+ root = Tk()
+ Version=&quot;0.8_r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+@@ -644,9 +649,11 @@
+     bgcolor='gray85'
+     t=''
+     if transmitting:
+-##        t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
+-##           options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
+-        t='Txing: '+g.ftnstr(w.acom1.ctxmsg)
++        if qso_enable == 0:
++            t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
++               options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
++        else:
++            t='Txing: '+g.ftnstr(w.acom1.ctxmsg)
+         bgcolor='yellow'
+     if receiving:
+         bgcolor='green'
+@@ -820,8 +827,9 @@
+ bupload=Checkbutton(iframe2,text='Upload spots',justify=RIGHT,variable=upload)
+ bupload.place(x=360,y=12, anchor='e')
+ #bupload.pack(side=LEFT)
+-bbestdx=Checkbutton(iframe2,text='Tx Best DX',justify=RIGHT,variable=nbestdx)
+-bbestdx.place(x=460,y=12, anchor='e')
++if qso_enable:
++    bbestdx=Checkbutton(iframe2,text='Tx Best DX',justify=RIGHT,variable=nbestdx)
++    bbestdx.place(x=460,y=12, anchor='e')
+ lab02=Label(iframe2, text='')
+ lab02.place(x=500,y=10, anchor='e')
+ lab00=Label(iframe2, text='Band Map').place(x=623,y=10, anchor='e')
+@@ -897,16 +905,16 @@
+ 
+ #------------------------------------------------------------ Status Bar
+ iframe6 = Frame(frame, bd=1, relief=SUNKEN)
+-btest=Checkbutton(iframe6,text='Test mode',justify=LEFT,variable=ntest)
+-btest.pack(side=LEFT, fill=X, padx=5)
+-bqso=Checkbutton(iframe6,text='QSO Mode',justify=LEFT,variable=nqso)
+-bqso.pack(side=LEFT, fill=X, padx=5)
+-btxfirst=Checkbutton(iframe6,text='Tx First',justify=LEFT,variable=ntxfirst)
+-btxfirst.pack(side=LEFT, fill=X, padx=5)
+-TxMsg=Pmw.EntryField(iframe6,labelpos=W,label_text='Tx msg:',
+-        value='CQ K1JT FN20',entry_textvariable=txmsg,entry_width=22)
+-TxMsg.pack(side=LEFT, fill=X, padx=5)
+-
++if qso_enable:
++    btest=Checkbutton(iframe6,text='Test mode',justify=LEFT,variable=ntest)
++    btest.pack(side=LEFT, fill=X, padx=5)
++    bqso=Checkbutton(iframe6,text='QSO Mode',justify=LEFT,variable=nqso)
++    bqso.pack(side=LEFT, fill=X, padx=5)
++    btxfirst=Checkbutton(iframe6,text='Tx First',justify=LEFT,variable=ntxfirst)
++    btxfirst.pack(side=LEFT, fill=X, padx=5)
++    TxMsg=Pmw.EntryField(iframe6,labelpos=W,label_text='Tx msg:',
++                         value='CQ K1JT FN20',entry_textvariable=txmsg,entry_width=22)
++    TxMsg.pack(side=LEFT, fill=X, padx=5)
+ ##msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+ ##msg1.pack(side=LEFT, fill=X, padx=1)
+ ##msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000627.html">[WSJT-SVN] r938 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000629.html">[WSJT-SVN] r940 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#628">[ date ]</a>
+              <a href="thread.html#628">[ thread ]</a>
+              <a href="subject.html#628">[ subject ]</a>
+              <a href="author.html#628">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,218 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3415 - branches/wsjtx_k1jt_p1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3415%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130628025350.AE6E5BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003106.html">
+   <LINK REL="Next"  HREF="003108.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3415 - branches/wsjtx_k1jt_p1</H1>
+    <B>ac6sl at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3415%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130628025350.AE6E5BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3415 - branches/wsjtx_k1jt_p1">ac6sl at scm.berlios.de
+       </A><BR>
+    <I>Fri Jun 28 04:53:50 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003106.html">[WSJT-SVN] r3414 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003108.html">[WSJT-SVN] r3416 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3107">[ date ]</a>
+              <a href="thread.html#3107">[ thread ]</a>
+              <a href="subject.html#3107">[ subject ]</a>
+              <a href="author.html#3107">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ac6sl
+Date: 2013-06-28 04:53:50 +0200 (Fri, 28 Jun 2013)
+New Revision: 3415
+
+Modified:
+   branches/wsjtx_k1jt_p1/devsetup.cpp
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/mainwindow.h
+Log:
+2nd attempt to save SoundInName SoundOutName, instead of indices into unstable device table.
+Both host_API &amp; device name are saved.
+No attempt is made to interpret old saved index variables, so users must set sound device in xiSetup-&gt;Configuration dialog.
+
+
+Modified: branches/wsjtx_k1jt_p1/devsetup.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/devsetup.cpp	2013-06-27 20:03:51 UTC (rev 3414)
++++ branches/wsjtx_k1jt_p1/devsetup.cpp	2013-06-28 02:53:50 UTC (rev 3415)
+@@ -42,6 +42,8 @@
+     nchin=pdi-&gt;maxInputChannels;
+     if(nchin&gt;0) {
+       m_inDevList[k]=id;
++      if (id == m_paInDevice)
++        m_nDevIn = k;
+       k++;
+       sprintf((char*)(pa_device_name),&quot;%s&quot;,pdi-&gt;name);
+       sprintf((char*)(pa_device_hostapi),&quot;%s&quot;,
+@@ -79,6 +81,8 @@
+     nchout=pdi-&gt;maxOutputChannels;
+     if(nchout&gt;0) {
+       m_outDevList[k]=id;
++      if (id == m_paOutDevice)
++        m_nDevOut = k;
+       k++;
+       sprintf((char*)(pa_device_name),&quot;%s&quot;,pdi-&gt;name);
+       sprintf((char*)(pa_device_hostapi),&quot;%s&quot;,
+@@ -138,8 +142,6 @@
+   ui.comboBoxSndOut-&gt;setCurrentIndex(m_nDevOut);
+   ui.cbID73-&gt;setChecked(m_After73);
+   ui.cbPSKReporter-&gt;setChecked(m_pskReporter);
+-  m_paInDevice=m_inDevList[m_nDevIn];
+-  m_paOutDevice=m_outDevList[m_nDevOut];
+ 
+   enableWidgets();
+ 
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-27 20:03:51 UTC (rev 3414)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-28 02:53:50 UTC (rev 3415)
+@@ -372,10 +372,19 @@
+   settings.setValue(&quot;PTTmethod&quot;,m_pttMethodIndex);
+   settings.setValue(&quot;PTTport&quot;,m_pttPort);
+   settings.setValue(&quot;SaveDir&quot;,m_saveDir);
+-  settings.setValue(&quot;SoundInIndex&quot;,m_nDevIn);
+-  settings.setValue(&quot;paInDevice&quot;,m_paInDevice);
+-  settings.setValue(&quot;SoundOutIndex&quot;,m_nDevOut);
+-  settings.setValue(&quot;paOutDevice&quot;,m_paOutDevice);
++  char soundName[128];
++  if (Pa_GetDeviceInfo( m_paInDevice)) {  // store name, number may be different next time
++    snprintf( soundName, sizeof( soundName), &quot;%s:%s&quot;,
++      Pa_GetHostApiInfo( Pa_GetDeviceInfo( m_paInDevice)-&gt;hostApi)-&gt;name,
++      Pa_GetDeviceInfo( m_paInDevice)-&gt;name);
++    settings.setValue(&quot;SoundInName&quot;, soundName);
++  }
++  if (Pa_GetDeviceInfo( m_paOutDevice)) {  // store name, number may be different next time
++    snprintf( soundName, sizeof( soundName), &quot;%s:%s&quot;,
++      Pa_GetHostApiInfo( Pa_GetDeviceInfo( m_paOutDevice)-&gt;hostApi)-&gt;name,
++      Pa_GetDeviceInfo( m_paOutDevice)-&gt;name);
++    settings.setValue(&quot;SoundOutName&quot;, soundName);
++  }
+   settings.setValue(&quot;PaletteCuteSDR&quot;,ui-&gt;actionCuteSDR-&gt;isChecked());
+   settings.setValue(&quot;PaletteLinrad&quot;,ui-&gt;actionLinrad-&gt;isChecked());
+   settings.setValue(&quot;PaletteAFMHot&quot;,ui-&gt;actionAFMHot-&gt;isChecked());
+@@ -463,22 +472,36 @@
+   m_pttMethodIndex=settings.value(&quot;PTTmethod&quot;,1).toInt();
+   m_pttPort=settings.value(&quot;PTTport&quot;,0).toInt();
+   m_saveDir=settings.value(&quot;SaveDir&quot;,m_appDir + &quot;/save&quot;).toString();
+-  m_nDevIn = settings.value(&quot;SoundInIndex&quot;, 0).toInt();
+-  m_paInDevice = settings.value(&quot;paInDevice&quot;, paNoDevice).toInt();
+-  if (m_paInDevice == paNoDevice) { // no saved input device?
++
++  char soundName[128];
++  QString savedName = settings.value( &quot;SoundInName&quot;, &quot;default&quot;).toString();
++  for (m_paInDevice = Pa_GetDeviceCount() - 1; m_paInDevice &gt;= 0; m_paInDevice--) {
++    snprintf( soundName, sizeof( soundName), &quot;%s:%s&quot;,
++      Pa_GetHostApiInfo( Pa_GetDeviceInfo( m_paInDevice)-&gt;hostApi)-&gt;name,
++      Pa_GetDeviceInfo( m_paInDevice)-&gt;name);
++    if (savedName == soundName)
++      break;
++  }
++  if (m_paInDevice &lt; 0) { // no match for device name?
+     m_paInDevice = Pa_GetDefaultInputDevice();
+-    if (m_paInDevice == paNoDevice) { // no default input device?
++    if (m_paInDevice == paNoDevice)  // no default input device?
+       m_paInDevice = 0;
+-    }
+   }
+-  m_nDevOut = settings.value(&quot;SoundOutIndex&quot;, 0).toInt();
+-  m_paOutDevice = settings.value(&quot;paOutDevice&quot;, paNoDevice).toInt();
+-  if (m_paOutDevice == paNoDevice) { // no saved output device?
++
++  savedName = settings.value(&quot;SoundOutName&quot;, &quot;default&quot;).toString();
++  for (m_paOutDevice = Pa_GetDeviceCount() - 1; m_paOutDevice &gt;= 0; m_paOutDevice--) {
++    snprintf( soundName, sizeof( soundName), &quot;%s:%s&quot;,
++      Pa_GetHostApiInfo( Pa_GetDeviceInfo( m_paOutDevice)-&gt;hostApi)-&gt;name,
++      Pa_GetDeviceInfo( m_paOutDevice)-&gt;name);
++    if (savedName == soundName)
++      break;
++  }
++  if (m_paOutDevice &lt; 0) { // no match for device name?
+     m_paOutDevice = Pa_GetDefaultOutputDevice();
+-    if (m_paOutDevice == paNoDevice) { // no default output device?
++    if (m_paOutDevice == paNoDevice)  // no default output device?
+       m_paOutDevice = 0;
+-    }
+   }
++
+   ui-&gt;actionCuteSDR-&gt;setChecked(settings.value(
+                                   &quot;PaletteCuteSDR&quot;,false).toBool());
+   ui-&gt;actionLinrad-&gt;setChecked(settings.value(
+@@ -658,8 +681,8 @@
+   dlg.m_pttMethodIndex=m_pttMethodIndex;
+   dlg.m_pttPort=m_pttPort;
+   dlg.m_saveDir=m_saveDir;
+-  dlg.m_nDevIn=m_nDevIn;
+-  dlg.m_nDevOut=m_nDevOut;
++  dlg.m_paInDevice=m_paInDevice;
++  dlg.m_paOutDevice=m_paOutDevice;
+   dlg.m_pskReporter=m_pskReporter;
+   dlg.m_After73=m_After73;
+   dlg.m_macro=m_macro;
+@@ -699,9 +722,7 @@
+     m_pttMethodIndex=dlg.m_pttMethodIndex;
+     m_pttPort=dlg.m_pttPort;
+     m_saveDir=dlg.m_saveDir;
+-    m_nDevIn=dlg.m_nDevIn;
+     m_paInDevice=dlg.m_paInDevice;
+-    m_nDevOut=dlg.m_nDevOut;
+     m_paOutDevice=dlg.m_paOutDevice;
+     m_macro=dlg.m_macro;
+     m_dFreq=dlg.m_dFreq;
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-27 20:03:51 UTC (rev 3414)
++++ branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-28 02:53:50 UTC (rev 3415)
+@@ -169,8 +169,6 @@
+     qint64  m_msErase;
+     qint64  m_secBandChanged;
+ 
+-    qint32  m_nDevIn;
+-    qint32  m_nDevOut;
+     qint32  m_idInt;
+     qint32  m_waterfallAvg;
+     qint32  m_pttMethodIndex;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003106.html">[WSJT-SVN] r3414 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003108.html">[WSJT-SVN] r3416 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3107">[ date ]</a>
+              <a href="thread.html#3107">[ thread ]</a>
+              <a href="subject.html#3107">[ subject ]</a>
+              <a href="author.html#3107">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,436 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2975 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2975%20-%20trunk&In-Reply-To=%3C20130124185407.3C61D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002666.html">
+   <LINK REL="Next"  HREF="002668.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2975 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2975%20-%20trunk&In-Reply-To=%3C20130124185407.3C61D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2975 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 24 19:54:07 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002666.html">[WSJT-SVN] r2974 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002668.html">[WSJT-SVN] r2976 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2667">[ date ]</a>
+              <a href="thread.html#2667">[ thread ]</a>
+              <a href="subject.html#2667">[ subject ]</a>
+              <a href="author.html#2667">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-24 19:54:06 +0100 (Thu, 24 Jan 2013)
+New Revision: 2975
+
+Added:
+   trunk/xcor24.f90
+Removed:
+   trunk/xcor24.f
+Modified:
+   trunk/decode24.f90
+   trunk/sync24.f90
+   trunk/wsjt24.f90
+Log:
+Working to make the &quot;ccfred&quot; curve more sensible.
+
+
+Modified: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-24 17:45:25 UTC (rev 2974)
++++ trunk/decode24.f90	2013-01-24 18:54:06 UTC (rev 2975)
+@@ -1,5 +1,5 @@
+ subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,     &amp;
+-  hisgrid,decoded,ncount,deepbest,qbest,submode)
++  hisgrid,decoded,ncount,deepbest,qbest,ichbest,submode)
+ 
+ ! Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+
+Modified: trunk/sync24.f90
+===================================================================
+--- trunk/sync24.f90	2013-01-24 17:45:25 UTC (rev 2974)
++++ trunk/sync24.f90	2013-01-24 18:54:06 UTC (rev 2975)
+@@ -14,6 +14,8 @@
+   real ccfred(-450:450)            !Peak of ccfblue, as function of freq
+   real ccfred1(-224:224)           !Peak of ccfblue, as function of freq
+   real tmp(1260)
++  integer ipk1(1)
++  equivalence (ipk1,ipk1a)
+   save
+ 
+ ! Do FFTs of twice symbol length, stepped by half symbols.  Note that 
+@@ -59,13 +61,21 @@
+   syncbest=-1.e30
+   syncbest2=-1.e30
+   ccfred=0.
++  if(ia-i0.lt.-450) ia=i0-450
++  if(ib-i0.gt.450)  ib=i0450
++  jmax=-1000
++  jmin=1000
+ 
+   do i=ia,ib                                !Find best frequency channel for CCF
+ 
+      call xcor24(s2,i,nsteps,nsym,lag1,lag2,mode4,ccfblue,ccf0,lagpk0,flip)
+      j=i-i0
+      if(mode.eq.7) j=j + 3*mode4
+-     if(j.ge.-372 .and. j.le.372) ccfred(j)=ccf0
++     if(j.ge.-372 .and. j.le.372) then
++        ccfred(j)=ccf0
++        jmax=max(j,jmax)
++        jmin=min(j,jmin)
++     endif
+ 
+ ! Find rms of the CCF, without main peak
+      call slope(ccfblue(lag1),lag2-lag1+1,lagpk0-lag1+1.0)
+@@ -131,49 +141,28 @@
+      if(mode.eq.7) snrx=snrx + 3.0         !Empirical
+   endif
+   if(snrx.lt.-33.0) snrx=-33.0
++  width=df*mode4
+ 
+-! Compute width of sync tone to outermost -3 dB points
+-  i1=max(-450,ia-i0)
+-  i2=min(450,ib-i0)
+-  call pctile(ccfred(i1),tmp,i2-i1+1,45,base)
+-
+-  jpk=ipk-i0
+-  if(abs(jpk).gt.450) then
+-     print*,'sync24 a:',jpk,ipk,i0
+-     snrsync=0.
+-     go to 999
+-  else
+-     stest=base + 0.5*(ccfred(jpk)-base) ! -3 dB
+-  endif
+-  do i=-10,0
+-     if(jpk+i.ge.-371) then 
+-        if(ccfred(jpk+i).gt.stest) go to 30
+-     endif
++  ccfred1=0.
++  jmin=max(jmin,-224)
++  jmax=min(jmax,224)
++  do i=jmin,jmax
++     ccfred1(i)=ccfred(i)
+   enddo
+-  i=0
+-30 continue
+-  if(abs(jpk+i-1).gt.450 .or. abs(jpk+i).gt.450) then
+-     print*,'sync24 b:',jpk,i
+-  else
+-     x1=i-0.5
+-  endif
+ 
+-  do i=10,0,-1
+-     if(jpk+i.le.371) then
+-        if(ccfred(jpk+i).gt.stest) go to 32
++  ipk1=maxloc(ccfred1) - 225
++  ns=0
++  s=0.
++  iw=min(mode4,(ib-ia)/4)
++  do i=jmin,jmax
++     if(abs(i-ipk1a).gt.iw) then
++        s=s+ccfred1(i)
++        ns=ns+1
+      endif
+   enddo
+-  i=0
+-32 x2=i+0.5
+-  width=x2-x1
+-  if(width.gt.1.2) width=sqrt(width**2 - 1.44)
+-  width=df*width
+-  width=max(0.0,min(99.0,width))
++  base=s/ns
++  ccfred1=ccfred1-base
+ 
+-  do i=-224,224
+-     ccfred1(i)=ccfred(i)
+-  enddo
+-
+ 999 return
+ end subroutine sync24
+ 
+
+Modified: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-24 17:45:25 UTC (rev 2974)
++++ trunk/wsjt24.f90	2013-01-24 18:54:06 UTC (rev 2975)
+@@ -22,8 +22,10 @@
+   character*6 hisgrid
+   character submode*1
+   real*4 ccfbluesum(-5:540),ccfredsum(-224:224)
++  integer nch(7)
+   common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data first/.true./,ns10/0/,ns20/0/
++  data nch/1,2,4,9,18,36,72/
+   save
+ 
+   if(first) then
+@@ -94,7 +96,7 @@
+   endif
+ 
+   call decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,        &amp;
+-       hisgrid,decoded,ncount,deepmsg,qual,submode)
++       hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
+ 
+ 200 kvqual=0
+   if(ncount.ge.0) kvqual=1
+@@ -120,7 +122,7 @@
+   call cs_lock('wsjt24')
+   write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
+        csync,special,decoded,kvqual,nqual,submode
+-1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a22,i4,i5,1x,a1)
++1010 format(a6,i3,i5,f5.1,i5,i4,1x,a1,1x,a5,a22,i4,i5,1x,a1)
+ 
+ ! Blank all end-of-line stuff if no decode
+   if(line(31:40).eq.'          ') line=line(:30)
+@@ -184,6 +186,7 @@
+ 
+   ccfbluesum=ccfbluesum + ccfblue
+   ccfredsum=ccfredsum + ccfred
++  if(mode4.gt.1) ccfred=ccfred*sqrt(float(nch(ichbest)))
+ 
+   return
+ end subroutine wsjt24
+
+Deleted: trunk/xcor24.f
+===================================================================
+--- trunk/xcor24.f	2013-01-24 17:45:25 UTC (rev 2974)
++++ trunk/xcor24.f	2013-01-24 18:54:06 UTC (rev 2975)
+@@ -1,96 +0,0 @@
+-      subroutine xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode4,
+-     +  ccf,ccf0,lagpk,flip)
+-
+-C  Computes ccf of a row of s2 and the pseudo-random array pr2.  Returns
+-C  peak of the CCF and the lag at which peak occurs.  For JT65, the 
+-C  CCF peak may be either positive or negative, with negative implying
+-C  the &quot;OOO&quot; message.
+-
+-      parameter (NHMAX=1260)           !Max length of power spectra
+-      parameter (NSMAX=525)            !Max number of half-symbol steps
+-      real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
+-      real a(NSMAX)
+-      real ccf(-5:540)
+-      integer npr2(207)
+-      real pr2(207)
+-      logical first
+-      data lagmin/0/                    !Silence g77 warning
+-      data first/.true./
+-      data npr2/
+-     +  0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,
+-     +  0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,
+-     +  1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1,
+-     +  0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1,
+-     +  0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1,
+-     +  0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1,
+-     +  1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
+-      save
+-
+-      if(first) then
+-         do i=1,207
+-            pr2(i)=2*npr2(i)-1
+-         enddo
+-         first=.false.
+-      endif
+-
+-      do j=1,nsteps
+-         n=2*mode4
+-         if(mode4.eq.1) then
+-            a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - 
+-     +           max(s2(ipk  ,j),s2(ipk+2*n,j))
+-         else
+-            kz=mode4/2
+-            ss0=0.
+-            ss1=0.
+-            ss2=0.
+-            ss3=0.
+-            wsum=0.
+-            do k=-kz+1,kz-1
+-               w=float(kz-iabs(k))/mode4
+-               wsum=wsum+w
+-               if(ipk+k.lt.1 .or. ipk+3*n+k.gt.1260) then
+-                  print*,'xcor24:',ipk,n,k
+-               else
+-                  ss0=ss0 + w*s2(ipk    +k,j)
+-                  ss1=ss1 + w*s2(ipk+  n+k,j)
+-                  ss2=ss2 + w*s2(ipk+2*n+k,j)
+-                  ss3=ss3 + w*s2(ipk+3*n+k,j)
+-               endif
+-            enddo
+-            a(j)=(max(ss1,ss3) - max(ss0,ss2))/sqrt(wsum)
+-         endif
+-      enddo
+-
+-      ccfmax=0.
+-      ccfmin=0.
+-      do lag=lag1,lag2
+-         x=0.
+-         do i=1,nsym
+-            j=2*i-1+lag
+-            if(j.ge.1 .and. j.le.nsteps) x=x+a(j)*pr2(i)
+-         enddo
+-         ccf(lag)=2*x                        !The 2 is for plotting scale
+-         if(ccf(lag).gt.ccfmax) then
+-            ccfmax=ccf(lag)
+-            lagpk=lag
+-         endif
+-
+-         if(ccf(lag).lt.ccfmin) then
+-            ccfmin=ccf(lag)
+-            lagmin=lag
+-         endif
+-      enddo
+-
+-      ccf0=ccfmax
+-      flip=1.0
+-      if(-ccfmin.gt.ccfmax) then
+-         do lag=lag1,lag2
+-            ccf(lag)=-ccf(lag)
+-         enddo
+-         lagpk=lagmin
+-         ccf0=-ccfmin
+-         flip=-1.0
+-      endif
+-
+-      return
+-      end
+
+Copied: trunk/xcor24.f90 (from rev 2954, trunk/xcor24.f)
+===================================================================
+--- trunk/xcor24.f90	                        (rev 0)
++++ trunk/xcor24.f90	2013-01-24 18:54:06 UTC (rev 2975)
+@@ -0,0 +1,94 @@
++subroutine xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode4,ccf,ccf0,lagpk,flip)
++
++! Computes ccf of a row of s2 and the pseudo-random array pr2.  Returns
++! peak of the CCF and the lag at which peak occurs.  For JT65, the 
++! CCF peak may be either positive or negative, with negative implying
++! the &quot;OOO&quot; message.
++
++  parameter (NHMAX=1260)           !Max length of power spectra
++  parameter (NSMAX=525)            !Max number of half-symbol steps
++  real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++  real a(NSMAX)
++  real ccf(-5:540)
++  integer npr2(207)
++  real pr2(207)
++  logical first
++  data lagmin/0/                    !Silence g77 warning
++  data first/.true./
++  data npr2/                                                        &amp;
++       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0, &amp;
++       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0, &amp;
++       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1, &amp;
++       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1, &amp;
++       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1, &amp;
++       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1, &amp;
++       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
++  save
++
++  if(first) then
++     do i=1,207
++        pr2(i)=2*npr2(i)-1
++     enddo
++     first=.false.
++  endif
++
++  do j=1,nsteps
++     n=2*mode4
++     if(mode4.eq.1) then
++        a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - max(s2(ipk  ,j),s2(ipk+2*n,j))
++     else
++        kz=mode4/2
++        ss0=0.
++        ss1=0.
++        ss2=0.
++        ss3=0.
++        wsum=0.
++        do k=-kz+1,kz-1
++           w=float(kz-iabs(k))/mode4
++           wsum=wsum+w
++           if(ipk+k.lt.1 .or. ipk+3*n+k.gt.1260) then
++              print*,'xcor24:',ipk,n,k
++           else
++              ss0=ss0 + w*s2(ipk    +k,j)
++              ss1=ss1 + w*s2(ipk+  n+k,j)
++              ss2=ss2 + w*s2(ipk+2*n+k,j)
++              ss3=ss3 + w*s2(ipk+3*n+k,j)
++           endif
++        enddo
++        a(j)=(max(ss1,ss3) - max(ss0,ss2))/sqrt(wsum)
++     endif
++  enddo
++
++  ccfmax=0.
++  ccfmin=0.
++  do lag=lag1,lag2
++     x=0.
++     do i=1,nsym
++        j=2*i-1+lag
++        if(j.ge.1 .and. j.le.nsteps) x=x+a(j)*pr2(i)
++     enddo
++     ccf(lag)=2*x                        !The 2 is for plotting scale
++     if(ccf(lag).gt.ccfmax) then
++        ccfmax=ccf(lag)
++        lagpk=lag
++     endif
++
++     if(ccf(lag).lt.ccfmin) then
++        ccfmin=ccf(lag)
++        lagmin=lag
++     endif
++  enddo
++
++  ccf0=ccfmax
++  flip=1.0
++  if(-ccfmin.gt.ccfmax) then
++     do lag=lag1,lag2
++        ccf(lag)=-ccf(lag)
++     enddo
++     lagpk=lagmin
++     ccf0=-ccfmin
++     flip=-1.0
++  endif
++
++  return
++end subroutine xcor24
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002666.html">[WSJT-SVN] r2974 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002668.html">[WSJT-SVN] r2976 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2667">[ date ]</a>
+              <a href="thread.html#2667">[ thread ]</a>
+              <a href="subject.html#2667">[ subject ]</a>
+              <a href="author.html#2667">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

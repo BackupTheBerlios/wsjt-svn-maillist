@@ -1,0 +1,401 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3463 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3463%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130708195702.6760B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003154.html">
+   <LINK REL="Next"  HREF="003156.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3463 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3463%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130708195702.6760B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3463 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jul  8 21:57:02 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003154.html">[WSJT-SVN] r3462 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003156.html">[WSJT-SVN] r3464 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3155">[ date ]</a>
+              <a href="thread.html#3155">[ thread ]</a>
+              <a href="subject.html#3155">[ subject ]</a>
+              <a href="author.html#3155">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-08 21:57:01 +0200 (Mon, 08 Jul 2013)
+New Revision: 3463
+
+Modified:
+   branches/wsjtx/about.cpp
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+Log:
+Warning: these changes have not yet been thoroughly tested!
+1. Correct the TxMode label on program startup.
+2. Insert TxMode (not RxMode) into the &quot;Transmitting...&quot; lines in ALL.TXT.
+3. Put TxMode in wsjtx_status.txt.
+4. F4 clears Az, Dist, and all Tx messages as well as DxCall and DxGrid.
+5. Make it possible to decode JT9 in the &quot;JT65 region&quot;, and vice-versa, with
+   directed double-click on signal in waterfall.
+6. Improved logic for enabling/disabling TestPTT button on setup screen.
+7. Do not call getFreq() when TestPTT is activated under CAT control.
+
+
+Modified: branches/wsjtx/about.cpp
+===================================================================
+--- branches/wsjtx/about.cpp	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/about.cpp	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -12,7 +12,7 @@
+   m_Str += &quot;WSJT-X implements experimental mode JT9 for &lt;br&gt;&quot;;
+   m_Str += &quot;Amateur Radio communication at HF, MF, and LF.  &lt;br&gt;&lt;br&gt;&quot;;
+   m_Str += &quot;Copyright 2001-2013 by Joe Taylor, K1JT.   Additional &lt;br&gt;&quot;;
+-  m_Str += &quot;contributions from AC6SL, AE4JY, G4KLA, PY2SDR, &lt;br&gt;&quot;;
++  m_Str += &quot;contributions from AC6SL, AE4JY, G4KLA, K3WYC, PY2SDR, &lt;br&gt;&quot;;
+   m_Str += &quot;and VK4BDJ.&lt;br&gt;&quot;;
+   ui-&gt;labelTxt-&gt;setText(m_Str);
+ }
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/devsetup.cpp	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -381,8 +381,8 @@
+ {
+   m_catEnabled=b;
+   enableWidgets();
+-  bool b2=(m_pttMethodIndex==1 or m_pttMethodIndex==2 or m_catEnabled) and
+-      !(m_pttMethodIndex==3);
++  bool b2=m_pttMethodIndex==0 and m_catEnabled;
++  b2=b2 or ((m_pttMethodIndex==1 or m_pttMethodIndex==2) and m_pttPort!=0);
+   ui.testPTTButton-&gt;setEnabled(b2);
+ }
+ 
+@@ -425,7 +425,27 @@
+ 
+ void DevSetup::on_testCATButton_clicked()
+ {
++  openRig();
++  if(!m_catEnabled) return;
+   QString t;
++  double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
++  if(fMHz&gt;0.0) {
++    t.sprintf(&quot;Rig control appears to be working.\nDial Frequency:  %.6f MHz&quot;,
++              fMHz);
++  } else {
++    t.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
++              int(1000000.0*fMHz));
++    if(m_poll&gt;0) {
++      m_catEnabled=false;
++      ui.cbEnableCAT-&gt;setChecked(false);
++    }
++  }
++  msgBox(t);
++}
++
++void DevSetup::openRig()
++{
++  QString t;
+   int ret;
+ 
+   if(!m_catEnabled) return;
+@@ -440,6 +460,7 @@
+   if(m_rig&lt;9900) {
+     if (!rig-&gt;init(m_rig)) {
+       msgBox(&quot;Rig init failure&quot;);
++      m_catEnabled=false;
+       return;
+     }
+     QString sCATport=m_catPort;
+@@ -471,32 +492,17 @@
+     ui.cbEnableCAT-&gt;setChecked(false);
+     return;
+   }
+-
+-  double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
+-  if(fMHz&gt;0.0) {
+-    t.sprintf(&quot;Rig control appears to be working.\nDial Frequency:  %.6f MHz&quot;,
+-              fMHz);
+-  } else {
+-    t.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
+-              int(1000000.0*fMHz));
+-    if(m_poll&gt;0) {
+-      m_catEnabled=false;
+-      ui.cbEnableCAT-&gt;setChecked(false);
+-    }
+-  }
+-  msgBox(t);
+ }
+ 
+ void DevSetup::on_testPTTButton_clicked()
+ {
+   m_test=1-m_test;
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+-//    qDebug() &lt;&lt; &quot;devsetup line 492:&quot; &lt;&lt; m_pttPort &lt;&lt; m_test &lt;&lt; &amp;g2_iptt &lt;&lt; &amp;g2_COMportOpen;
+     ptt(m_pttPort,m_test,&amp;g2_iptt,&amp;g2_COMportOpen);
+-//    qDebug() &lt;&lt; &quot;devsetup line 494:&quot; &lt;&lt; m_pttPort &lt;&lt; m_test &lt;&lt; &amp;g2_iptt &lt;&lt; &amp;g2_COMportOpen;
+   }
+   if(m_pttMethodIndex==0 and !m_bRigOpen) {
+-    on_testCATButton_clicked();
++//    on_testCATButton_clicked();
++    openRig();
+   }
+   if(m_pttMethodIndex==0 and m_bRigOpen) {
+     if(m_test==0) rig-&gt;setPTT(RIG_PTT_OFF, RIG_VFO_CURR);
+@@ -525,6 +531,7 @@
+ void DevSetup::on_pttComboBox_currentIndexChanged(int index)
+ {
+   m_pttPort=index;
++  enableWidgets();
+ }
+ 
+ void DevSetup::on_pttMethodComboBox_currentIndexChanged(int index)
+@@ -566,10 +573,10 @@
+   ui.pollSpinBox-&gt;setEnabled(m_catEnabled);
+   bool b1=(m_pttMethodIndex==1 or m_pttMethodIndex==2);
+   ui.pttComboBox-&gt;setEnabled(b1);
++  b1=b1 and (m_pttPort!=0);
+   bool b2 = (m_catEnabled and m_pttMethodIndex==1 and m_rig&lt;9900) or
+             (m_catEnabled and m_pttMethodIndex==2 and m_rig&lt;9900);
+   bool b3 = (m_catEnabled and m_pttMethodIndex==0 and m_rig&gt;=9900);
+-//  ui.testPTTButton-&gt;setEnabled(b1 or b2);
+   ui.testPTTButton-&gt;setEnabled(b1 or b2 or b3);  //Include PTT via HRD or Commander
+ }
+ 
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/devsetup.h	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -101,6 +101,7 @@
+   Rig* rig;
+   void msgBox(QString t);
+   void enableWidgets();
++  void openRig();
+   Ui::DialogSndCard ui;
+ };
+ 
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/lib/decoder.f90	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -81,11 +81,11 @@
+ 
+      if(nqd.eq.1) then
+         limit=100000
+-        ccfok(ia:ib)=.true.
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
+         ia=max(1,nint((nfa1-nf0)/df3))
+         ib=min(NSMAX,nint((nfb1-nf0)/df3))
++        ccfok(ia:ib)=.true.
+         ia1=ia
+         ib1=ib
+      else
+@@ -102,7 +102,8 @@
+      fgood=0.
+      do i=ia,ib
+         f=(i-1)*df3
+-        if(done(i) .or. (.not.ccfok(i)) .or. (ccfred(i).lt.ccflim-1.0)) cycle
++        if(done(i) .or. (.not.ccfok(i)) .or.                               &amp;
++             (nqd.eq.0 .and. (ccfred(i).lt.ccflim-1.0))) cycle
+         if(nqd.eq.1 .or.                                                   &amp;
+            (ccfred(i).ge.ccflim .and. abs(f-fgood).gt.10.0*df8)) then
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/mainwindow.cpp	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -513,8 +513,8 @@
+                                  &quot;PaletteBlue&quot;,false).toBool());
+   m_mode=settings.value(&quot;Mode&quot;,&quot;JT9&quot;).toString();
+   m_modeTx=settings.value(&quot;ModeTx&quot;,&quot;JT9&quot;).toString();
+-  if(m_mode==&quot;JT9&quot;) ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9 @&quot;);
+-  if(m_mode==&quot;JT65&quot;) ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65 #&quot;);
++  if(m_modeTx==&quot;JT9&quot;) ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
++  if(m_modeTx==&quot;JT65&quot;) ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+   ui-&gt;actionNone-&gt;setChecked(settings.value(&quot;SaveNone&quot;,true).toBool());
+   ui-&gt;actionSave_decoded-&gt;setChecked(settings.value(
+                                          &quot;SaveDecoded&quot;,false).toBool());
+@@ -980,8 +980,7 @@
+   if(f.open(QFile::WriteOnly | QIODevice::Text)) {
+     QTextStream out(&amp;f);
+     out &lt;&lt; m_dialFreq &lt;&lt; &quot;;&quot; &lt;&lt; m_mode &lt;&lt; &quot;;&quot; &lt;&lt; m_hisCall &lt;&lt; &quot;;&quot;
+-        &lt;&lt; ui-&gt;rptSpinBox-&gt;value() &lt;&lt; endl;
+-//    out &lt;&lt; m_dialFreq &lt;&lt; &quot;;&quot; &lt;&lt; m_mode &lt;&lt; &quot;;&quot; &lt;&lt; m_hisCall &lt;&lt; endl;
++        &lt;&lt; ui-&gt;rptSpinBox-&gt;value() &lt;&lt; m_modeTx &lt;&lt; endl;
+     f.close();
+   } else {
+     msgBox(&quot;Cannot open file \&quot;wsjtx_status.txt\&quot;.&quot;);
+@@ -1629,7 +1628,7 @@
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+       QTextStream out(&amp;f);
+       out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
+-          &lt;&lt; &quot;  Transmitting &quot; &lt;&lt; m_dialFreq &lt;&lt; &quot; MHz  &quot; &lt;&lt; m_mode
++          &lt;&lt; &quot;  Transmitting &quot; &lt;&lt; m_dialFreq &lt;&lt; &quot; MHz  &quot; &lt;&lt; m_modeTx
+           &lt;&lt; &quot;:  &quot; &lt;&lt; t &lt;&lt; endl;
+       f.close();
+       if(m_tx2QSO) displayTxMsg(t);
+@@ -1704,7 +1703,7 @@
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+       QTextStream out(&amp;f);
+       out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
+-          &lt;&lt; &quot;  Transmitting &quot; &lt;&lt; m_dialFreq &lt;&lt; &quot; MHz  &quot; &lt;&lt; m_mode
++          &lt;&lt; &quot;  Transmitting &quot; &lt;&lt; m_dialFreq &lt;&lt; &quot; MHz  &quot; &lt;&lt; m_modeTx
+           &lt;&lt; &quot;:  &quot; &lt;&lt; t &lt;&lt; endl;
+       f.close();
+     }
+@@ -2004,12 +2003,12 @@
+ 
+   if(t4.at(4)==&quot;@&quot;) {
+     m_modeTx=&quot;JT9&quot;;
+-    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9 @&quot;);
++    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
+     g_pWideGraph-&gt;setModeTx(m_modeTx);
+   }
+   if(t4.at(4)==&quot;#&quot;) {
+     m_modeTx=&quot;JT65&quot;;
+-    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65 #&quot;);
++    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+     g_pWideGraph-&gt;setModeTx(m_modeTx);
+   }
+   QString firstcall=t4.at(5);
+@@ -2107,6 +2106,19 @@
+ {
+   QString hisCall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
+   ui-&gt;dxCallEntry-&gt;setText(hisCall);
++  if(hisCall==&quot;&quot;) {
++    ui-&gt;labAz-&gt;setText(&quot;&quot;);
++    ui-&gt;labDist-&gt;setText(&quot;&quot;);
++    ui-&gt;tx1-&gt;setText(&quot;&quot;);
++    ui-&gt;tx2-&gt;setText(&quot;&quot;);
++    ui-&gt;tx3-&gt;setText(&quot;&quot;);
++    ui-&gt;tx4-&gt;setText(&quot;&quot;);
++    ui-&gt;tx5-&gt;setText(&quot;&quot;);
++    ui-&gt;tx6-&gt;setText(&quot;&quot;);
++    ui-&gt;genMsg-&gt;setText(&quot;&quot;);
++    ui-&gt;freeTextMsg-&gt;setText(&quot;&quot;);
++    return;
++  }
+   QString hisBase=baseCall(hisCall);
+   QString myBase=baseCall(m_myCall);
+   QString t0=hisBase + &quot; &quot; + myBase + &quot; &quot;;
+@@ -2359,7 +2371,19 @@
+ void MainWindow::on_dxGridEntry_textChanged(const QString &amp;t) //dxGrid changed
+ {
+   int n=t.length();
+-  if(n!=4 and n!=6) return;
++  if(n!=4 and n!=6) {
++    ui-&gt;labAz-&gt;setText(&quot;&quot;);
++    ui-&gt;labDist-&gt;setText(&quot;&quot;);
++    ui-&gt;tx1-&gt;setText(&quot;&quot;);
++    ui-&gt;tx2-&gt;setText(&quot;&quot;);
++    ui-&gt;tx3-&gt;setText(&quot;&quot;);
++    ui-&gt;tx4-&gt;setText(&quot;&quot;);
++    ui-&gt;tx5-&gt;setText(&quot;&quot;);
++    ui-&gt;tx6-&gt;setText(&quot;&quot;);
++    ui-&gt;genMsg-&gt;setText(&quot;&quot;);
++    ui-&gt;freeTextMsg-&gt;setText(&quot;&quot;);
++    return;
++  }
+   if(!t[0].isLetter() or !t[1].isLetter()) return;
+   if(!t[2].isDigit() or !t[3].isDigit()) return;
+   if(n==4) m_hisGrid=t.mid(0,2).toUpper() + t.mid(2,2);
+@@ -2652,6 +2676,9 @@
+       m_dontReadFreq=true;
+       ret=rig-&gt;setFreq(MHz(m_dialFreq));
+ //      ret=rig-&gt;setSplitFreq(MHz(m_dialFreq),RIG_VFO_B);
++      if(m_bSplit or m_bXIT) setXIT(m_txFreq);
++//        ret=rig-&gt;setSplitFreq(MHz(m_dialFreq)+xit,RIG_VFO_B);
++
+       bumpFqso(11);
+       bumpFqso(12);
+       if(ret!=RIG_OK) {
+@@ -2922,10 +2949,10 @@
+ {
+   if(m_modeTx==&quot;JT9&quot;) {
+     m_modeTx=&quot;JT65&quot;;
+-    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65 #&quot;);
++    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+   } else {
+     m_modeTx=&quot;JT9&quot;;
+-    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9 @&quot;);
++    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
+   }
+   g_pWideGraph-&gt;setModeTx(m_modeTx);
+ }
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-07-08 13:17:22 UTC (rev 3462)
++++ branches/wsjtx/mainwindow.ui	2013-07-08 19:57:01 UTC (rev 3463)
+@@ -743,7 +743,7 @@
+             &lt;enum&gt;QTabWidget::Triangular&lt;/enum&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;currentIndex&quot;&gt;
+-            &lt;number&gt;0&lt;/number&gt;
++            &lt;number&gt;1&lt;/number&gt;
+            &lt;/property&gt;
+            &lt;widget class=&quot;QWidget&quot; name=&quot;tab&quot;&gt;
+             &lt;attribute name=&quot;title&quot;&gt;
+@@ -1887,7 +1887,7 @@
+          &lt;bool&gt;true&lt;/bool&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Az&lt;/string&gt;
++         &lt;string/&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;alignment&quot;&gt;
+          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+@@ -1918,7 +1918,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Dist&lt;/string&gt;
++         &lt;string/&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;alignment&quot;&gt;
+          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003154.html">[WSJT-SVN] r3462 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003156.html">[WSJT-SVN] r3464 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3155">[ date ]</a>
+              <a href="thread.html#3155">[ thread ]</a>
+              <a href="subject.html#3155">[ subject ]</a>
+              <a href="author.html#3155">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

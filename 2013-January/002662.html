@@ -1,0 +1,425 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2970 - branches/wsjtx/lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2970%20-%20branches/wsjtx/lib&In-Reply-To=%3C20130123195455.571A855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002661.html">
+   <LINK REL="Next"  HREF="002663.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2970 - branches/wsjtx/lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2970%20-%20branches/wsjtx/lib&In-Reply-To=%3C20130123195455.571A855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2970 - branches/wsjtx/lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jan 23 20:54:55 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002661.html">[WSJT-SVN] r2969 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002663.html">[WSJT-SVN] r2971 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2662">[ date ]</a>
+              <a href="thread.html#2662">[ thread ]</a>
+              <a href="subject.html#2662">[ subject ]</a>
+              <a href="author.html#2662">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-23 20:54:54 +0100 (Wed, 23 Jan 2013)
+New Revision: 2970
+
+Added:
+   branches/wsjtx/lib/extract4.f90
+Modified:
+   branches/wsjtx/lib/decode24.f90
+   branches/wsjtx/lib/getmet24.f90
+   branches/wsjtx/lib/wsjt24.f90
+Log:
+Message averaging and DS now fully integrated in wsjt24d.
+Code cleanup and optimization still to be done!
+
+
+Modified: branches/wsjtx/lib/decode24.f90
+===================================================================
+--- branches/wsjtx/lib/decode24.f90	2013-01-23 16:25:07 UTC (rev 2969)
++++ branches/wsjtx/lib/decode24.f90	2013-01-23 19:54:54 UTC (rev 2970)
+@@ -1,11 +1,11 @@
+ subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,ncount,   &amp;
+-     deepmsg,qual,submode)
++     deepbest,qbest,submode)
+ 
+ ! Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+   parameter (MAXAVE=120)
+   real dat(npts)                        !Raw data
+-  character decoded*22,deepmsg*22
++  character decoded*22,deepmsg*22,deepbest*22
+   character*12 mycall,hiscall
+   character*6 hisgrid
+   character*72 c72
+@@ -23,7 +23,7 @@
+   integer mettab(0:255,0:1)             !Metric table
+   integer nch(7)
+   integer npr2(207)
+-!  common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data mode0/-999/
+   data nsum/7*0/,rsymbol/1449*0.0/
+   data npr2/                                                         &amp;
+@@ -128,59 +128,49 @@
+ !  enddo
+ !###
+   
+-  nbits=72+31
+-  delta=50
+-  limit=100000
+-  ncycles=0
+-  ncount=-1
+-  call interleave24(symbol(2),-1)         !Remove the interleaving
++  call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
+ 
+-  call fano232(symbol(2),nbits,mettab,delta,limit,data1,ncycles,metric,ncount)
+-  nlim=ncycles/nbits
+-
+-!### Try deep search
+-  qual=0.
++  qual=0.                                    !Now try deep search
+   neme=1
+   mycall='VK7MO'
+   hiscall='W5LUA'
+   hisgrid='EM13'
+-  call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++  call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
+   if(qual.gt.qbest) then
+      qbest=qual
+-     deepmsg=decoded
++     deepbest=deepmsg
+      ichbest=ich
+   endif
+-!###
+ 
+   if(ncount.ge.0) go to 100
+   if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+ 
+-100 do i=1,9
+-     i4=data1(i)
+-     if(i4.lt.0) i4=i4+256
+-     data4a(i)=i4
+-  enddo
+-  write(c72,1100) (data4a(i),i=1,9)
+-1100 format(9b8.8)
+-  read(c72,1102) data4
+-1102 format(12b6)
++100 continue
++!100 do i=1,9
++!     i4=data1(i)
++!     if(i4.lt.0) i4=i4+256
++!     data4a(i)=i4
++!  enddo
++!  write(c72,1100) (data4a(i),i=1,9)
++!1100 format(9b8.8)
++!  read(c72,1102) data4
++!1102 format(12b6)
+ 
+-  decoded='                      '
+-  submode=' '
+-  if(ncount.ge.0) then
+-     call unpackmsg(data4,decoded)
+-     submode=char(ichar('A')+ich-1)
+-  else
+-     decoded=deepmsg
++!  decoded='                      '
++!  submode=' '
++
++  if(ncount.lt.0) then
++     decoded=deepbest
+      submode=char(ichar('A')+ichbest-1)
+      qual=qbest
+   endif
+-  if(decoded(1:6).eq.'000AAA') then
+-     decoded='***WRONG MODE?***'
+-     ncount=-1
+-  endif
++!  if(decoded(1:6).eq.'000AAA') then
++!     decoded='***WRONG MODE?***'
++!     ncount=-1
++!  endif
+ 
+ ! Save symbol spectra for possible decoding of average.
++  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)
+ 
+   return
+ end subroutine decode24
+
+Added: branches/wsjtx/lib/extract4.f90
+===================================================================
+--- branches/wsjtx/lib/extract4.f90	                        (rev 0)
++++ branches/wsjtx/lib/extract4.f90	2013-01-23 19:54:54 UTC (rev 2970)
+@@ -0,0 +1,61 @@
++subroutine extract4(sym,nadd,ncount,decoded)
++
++  real sym(207)
++  character decoded*22, submode*1
++  character*72 c72
++  integer*1 symbol(207)
++  integer*1 data1(13)                   !Decoded data (8-bit bytes)
++  integer   data4a(9)                   !Decoded data (8-bit bytes)
++  integer   data4(12)                   !Decoded data (6-bit bytes)
++  integer mettab(0:255,0:1)             !Metric table
++  logical first
++  data first/.true./
++  save first,mettab
++
++  if(first) then
++     call getmet24(mode,mettab)
++     first=.false.
++  endif
++
++  do j=1,207
++     r=sym(j) + 128.
++     if(r.gt.255.0) r=255.0
++     if(r.lt.0.0) r=0.0
++     i4=nint(r)
++     if(i4.gt.127) i4=i4-256
++     symbol(j)=i4
++  enddo
++
++  nbits=72+31
++  ndelta=50
++  limit=100000
++  ncycles=0
++  ncount=-1
++  decoded='                      '
++  submode=' '
++
++  call interleave24(symbol(2),-1)         !Remove the interleaving
++  call fano232(symbol(2),nbits,mettab,ndelta,limit,data1,ncycles,metric,ncount)
++  nlim=ncycles/nbits
++
++  if(ncount.ge.0) then
++     do i=1,9
++        i4=data1(i)
++        if(i4.lt.0) i4=i4+256
++        data4a(i)=i4
++     enddo
++     write(c72,1100) (data4a(i),i=1,9)
++1100 format(9b8.8)
++     read(c72,1102) data4
++1102 format(12b6)
++
++     call unpackmsg(data4,decoded)
++     submode=char(ichar('A')+ich-1)
++     if(decoded(1:6).eq.'000AAA') then
++        decoded='***WRONG MODE?***'
++        ncount=-1
++     endif
++  endif
++
++  return
++end subroutine extract4
+
+Modified: branches/wsjtx/lib/getmet24.f90
+===================================================================
+--- branches/wsjtx/lib/getmet24.f90	2013-01-23 16:25:07 UTC (rev 2969)
++++ branches/wsjtx/lib/getmet24.f90	2013-01-23 19:54:54 UTC (rev 2970)
+@@ -5,8 +5,6 @@
+ ! Metric table (RxSymbol,TxSymbol)
+   integer mettab(0:255,0:1)
+   real*4 xx0(0:255)
+-  logical first
+-  data first/.true./
+   data xx0/                                                      &amp;
+         1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+         1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+@@ -42,15 +40,12 @@
+        -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
+   save
+ 
+-  if(first) then
+-     bias=0.5
+-     scale=10.0
+-     do i=0,255
+-        mettab(i,0)=nint(scale*(xx0(i)-bias))
+-        if(i.ge.1) mettab(256-i,1)=mettab(i,0)
+-     enddo
+-     first=.false.
+-  endif
++  bias=0.5
++  scale=10.0
++  do i=0,255
++     mettab(i,0)=nint(scale*(xx0(i)-bias))
++     if(i.ge.1) mettab(256-i,1)=mettab(i,0)
++  enddo
+ 
+   return
+ end subroutine getmet24
+
+Modified: branches/wsjtx/lib/wsjt24.f90
+===================================================================
+--- branches/wsjtx/lib/wsjt24.f90	2013-01-23 16:25:07 UTC (rev 2969)
++++ branches/wsjtx/lib/wsjt24.f90	2013-01-23 19:54:54 UTC (rev 2970)
+@@ -22,8 +22,7 @@
+   character*6 hisgrid
+   character submode*1
+   real*4 ccfbluesum(-5:540),ccfredsum(-224:224)
+-!  common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE) !For msg avg
+-  integer nflag(MAXAVE),iseg(MAXAVE)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data first/.true./,ns10/0/,ns20/0/
+   save
+ 
+@@ -37,6 +36,7 @@
+      if(nspecial.eq.999) go to 900        !Silence compiler warning
+   endif
+ 
++  ndepth=3                                !###
+   naggressive=0
+   if(ndepth.ge.2) naggressive=1
+   nq1=3
+@@ -118,18 +118,18 @@
+ ! Blank all end-of-line stuff if no decode
+   if(line(31:40).eq.'          ') line=line(:30)
+ 
+-!  if(lcum) write(21,1011) line
++  if(lcum) write(21,1011) line
+ 
+ ! Write decoded msg unless this is an &quot;Exclude&quot; request:
+   if(MinSigdB.lt.99) write(*,1011) line
+ 1011 format(a77)
+ 
+-!  if(nsave.ge.1) call avemsg65(1,mode65,ndepth,                      &amp;
+-!       avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,     &amp;
+-!       ns1,ncount1)
+-!  if(nsave.ge.1) call avemsg65(2,mode65,ndepth,                      &amp;
+-!       avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,     &amp;
+-!       ns2,ncount2)
++  if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
++       avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,     &amp;
++       ns1,ncount1)
++  if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
++       avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,     &amp;
++       ns2,ncount2)
+   nqual1=qual1
+   nqual2=qual2
+   if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
+@@ -140,39 +140,36 @@
+   if(ncount2.ge.0) nc2=1
+ 
+ ! Write the average line
+-!      if(ns1.ge.1 .and. ns1.ne.ns10) then
++  if(ns1.ge.1) then
++     if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
++1021 format(a6,i3,i4,'/',i1,20x,a19,i7,i5)
++     if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
++          1,nused1,ns1,avemsg1,nc1,nqual1
++1022 format(a6,i3,i4,'/',i2,19x,a19,i7,i5)
++     if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
++          avemsg1,nc1,nqual1
++1023 format(a6,i3,i4,'/',i3,18x,a19,i7,i5)
++     if(lcum .and. (avemsg1.ne.'                  '))                &amp;
++          write(21,1011) ave1
++     ns10=ns1
++  endif
+ 
+-!  if(ns1.ge.1) then
+-!     if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
+-!1021 format(a6,i3,i4,'/',i1,20x,a19,i8,i4)
+-!     if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
+-!          1,nused1,ns1,avemsg1,nc1,nqual1
+-!1022 format(a6,i3,i4,'/',i2,19x,a19,i8,i4)
+-!     if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
+-!          avemsg1,nc1,nqual1
+-!1023 format(a6,i3,i4,'/',i3,18x,a19,i8,i4)
+-!     if(lcum .and. (avemsg1.ne.'                  '))                &amp;
+-!          write(21,1011) ave1
+-!     ns10=ns1
+-!  endif
+-
+ ! If Monitor segment #2 is available, write that line also
+-!      if(ns2.ge.1 .and. ns2.ne.ns20) then     !***Why the 2nd part?? ***
+-!  if(ns2.ge.1) then
+-!     if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
+-!     if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,       &amp;
+-!          2,nused2,ns2,avemsg2,nc2,nqual2
+-!     if(ns2.ge.100) write(ave2,1023) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
+-!     if(lcum .and. (avemsg2.ne.'                  '))               &amp;
+-!          write(21,1011) ave2
+-!     ns20=ns2
+-!  endif
++  if(ns2.ge.1) then
++     if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
++     if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,       &amp;
++          2,nused2,ns2,avemsg2,nc2,nqual2
++     if(ns2.ge.100) write(ave2,1023) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
++     if(lcum .and. (avemsg2.ne.'                  '))               &amp;
++          write(21,1011) ave2
++     ns20=ns2
++  endif
+ 
+   if(ave1(31:40).eq.'          ') ave1=ave1(:30)
+   if(ave2(31:40).eq.'          ') ave2=ave2(:30)
+-!  write(12,1011) ave1
+-!  write(12,1011) ave2
+-!  call flush(12)
++  write(12,1011) ave1
++  write(12,1011) ave2
++  call flush(12)
+ !  call cs_unlock
+   
+ 900 continue
+@@ -180,19 +177,5 @@
+   ccfbluesum=ccfbluesum + ccfblue
+   ccfredsum=ccfredsum + ccfred
+ 
+-! This was for testing message averaging:
+-
+-!  rewind 71
+-!  rewind 72
+-!  do i=-5,540
+-!     write(71,3001) 0.2 + i*0.057143,ccfbluesum(i)
+-!3001 format(2f12.3)
+-!  enddo
+-!  do i=-224,224
+-!     write(72,3001) i*2.1875,ccfredsum(i)
+-!  enddo
+-!  call flush(71)
+-!  call flush(72)
+-
+   return
+ end subroutine wsjt24
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002661.html">[WSJT-SVN] r2969 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002663.html">[WSJT-SVN] r2971 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2662">[ date ]</a>
+              <a href="thread.html#2662">[ thread ]</a>
+              <a href="subject.html#2662">[ subject ]</a>
+              <a href="author.html#2662">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

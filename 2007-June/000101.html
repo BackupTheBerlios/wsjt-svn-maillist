@@ -1,0 +1,1106 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r416 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r416%20-%20branches/map65&In-Reply-To=%3C200706252018.l5PKIxk2016466%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000100.html">
+   <LINK REL="Next"  HREF="000102.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r416 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r416%20-%20branches/map65&In-Reply-To=%3C200706252018.l5PKIxk2016466%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r416 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 25 22:18:59 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000100.html">[WSJT-SVN] r415 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000102.html">[WSJT-SVN] r417 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#101">[ date ]</a>
+              <a href="thread.html#101">[ thread ]</a>
+              <a href="subject.html#101">[ subject ]</a>
+              <a href="author.html#101">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-25 22:18:43 +0200 (Mon, 25 Jun 2007)
+New Revision: 416
+
+Removed:
+   branches/map65/decode2.f90
+   branches/map65/decode3.F90
+   branches/map65/savedata.F90
+Modified:
+   branches/map65/Makefile.win
+   branches/map65/ftn_init.F90
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/specjt.py
+Log:
+Cleaned up menus.
+Removed unused GUI controls.
+Removed unused code and routines.
+Added &quot;Measure&quot; and &quot;Pulsar&quot; to Save menu.
+
+
+Modified: branches/map65/Makefile.win
+===================================================================
+--- branches/map65/Makefile.win	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/Makefile.win	2007-06-25 20:18:43 UTC (rev 416)
+@@ -18,7 +18,7 @@
+ 	decode1.f90 ftn_init.f90 ftn_quit.f90 wsjtgen.f90 \
+ 	runqqq.f90 fivehz.f90 flushqqq.f90 map65a0.f90 \
+ 	rfile.f90 rfile3a.f90 spec.f90 map65a.f90 display.F90 \
+-	getfile.f90 getfile2.f90 recvpkt.f90
++	getfile.f90 getfile2.f90 recvpkt.f90 savetf2.f90
+ 
+ SRCS2F77 = indexx.f gen65.f chkmsg.f \
+ 	gentone.f gencwid.f set.f db.f pctile.f sort.f ssort.f \
+
+Deleted: branches/map65/decode2.f90
+===================================================================
+--- branches/map65/decode2.f90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/decode2.f90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -1,102 +0,0 @@
+-!---------------------------------------------------- decode2
+-subroutine decode2
+-
+-! Get data and parameters from gcom, then call the decoders
+-
+-  character fnamex*24
+-  
+-  include 'gcom1.f90'
+-  include 'gcom2.f90'
+-  include 'gcom3.f90'
+-  include 'gcom4.f90'
+-
+-! ndecoding  data  Action
+-!--------------------------------------
+-!    0             Idle
+-!    1       d2a   Standard decode, full file
+-!    2       y1    Mouse pick, top half
+-!    3       y1    Mouse pick, bottom half
+-!    4       d2c   Decode recorded file
+-!    5       d2a   Mouse pick, main window
+-
+-  lenpick=22050                !Length of FSK441 mouse-picked region
+-  if(mode(1:4).eq.'JT6M') then
+-     lenpick=4*11025
+-     if(mousebutton.eq.3) lenpick=10*11025
+-  endif
+-
+-  istart=1.0 + 11025*0.001*npingtime - lenpick/2
+-  if(mode(1:4).eq.'JT6M') istart=istart+11025
+-  if(istart.lt.2) istart=2
+-  if(ndecoding.eq.1) then
+-! Normal decoding at end of Rx period (or at t=53s in JT65)
+-     istart=1
+-     call decode3(d2a,jza,istart,fnamea)
+-  else if(ndecoding.eq.2) then
+-
+-! Mouse pick, top half of waterfall
+-! The following is empirical:
+-     k=2048*ibuf0 + istart - 11025*mod(tbuf(ibuf0),dble(trperiod)) -3850
+-     if(k.le.0)      k=k+NRxMax
+-     if(k.gt.NrxMax) k=k-NRxMax
+-     nt=ntime/86400
+-     nt=86400*nt + tbuf(ibuf0)
+-     if(receiving.eq.0) nt=nt-trperiod
+-     call get_fname(hiscall,nt,trperiod,lauto,fnamex)
+-     do i=1,lenpick
+-        k=k+1
+-        if(k.gt.NrxMax) k=k-NRxMax
+-        d2b(i)=dgain*y1(k)
+-     enddo
+-     call decode3(d2b,lenpick,istart,fnamex)
+-  else if(ndecoding.eq.3) then
+-
+-!Mouse pick, bottom half of waterfall
+-     ib0=ibuf0-161
+-     if(lauto.eq.1 .and. mute.eq.0 .and. transmitting.eq.1) ib0=ibuf0-323
+-     if(ib0.lt.1) ib0=ib0+1024
+-     k=2048*ib0 + istart - 11025*mod(tbuf(ib0),dble(trperiod)) - 3850
+-     if(k.le.0)      k=k+NRxMax
+-     if(k.gt.NrxMax) k=k-NRxMax
+-     nt=ntime/86400
+-     nt=86400*nt + tbuf(ib0)
+-     call get_fname(hiscall,nt,trperiod,lauto,fnamex)
+-     do i=1,lenpick
+-        k=k+1
+-        if(k.gt.NrxMax) k=k-NRxMax
+-        d2b(i)=dgain*y1(k)
+-     enddo
+-     call decode3(d2b,lenpick,istart,fnamex)
+-
+-!Recorded file
+-  else if(ndecoding.eq.4) then
+-     jzz=jzc
+-     if(mousebutton.eq.0) istart=1
+-     if(mousebutton.gt.0) then
+-        jzz=lenpick
+-
+-!  This is a major kludge:
+-        if(mode(1:4).eq.'JT6M') then          
+-           jzz=4*11025
+-           if(mousebutton.eq.3) jzz=10*11025
+-        else
+-           istart=istart + 3300 - jzz/2
+-        endif
+-
+-        if(istart.lt.2) istart=2
+-        if(istart+jzz.gt.jzc) istart=jzc-jzz
+-     endif
+-     call decode3(d2c(istart),jzz,istart,filename)
+-
+-  else if(ndecoding.eq.5) then
+-! Mouse pick, main window (but not from recorded file)
+-     istart=istart - 1512
+-     if(istart.lt.2) istart=2
+-     if(istart+lenpick.gt.jza) istart=jza-lenpick
+-     call decode3(d2a(istart),lenpick,istart,fnamea)
+-  endif
+-  fnameb=fnamea
+-
+-  return
+-
+-end subroutine decode2
+
+Deleted: branches/map65/decode3.F90
+===================================================================
+--- branches/map65/decode3.F90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/decode3.F90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -1,83 +0,0 @@
+-!---------------------------------------------------- decode3
+-subroutine decode3(d2,jz,istart,filename)
+-
+-#ifdef Win32
+-  use dfport
+-#endif
+-
+-  integer*2 d2(jz),d2d(65*11025)
+-  character*24 filename
+-  character FileID*40
+-  include 'gcom1.f90'
+-  include 'gcom2.f90'
+-  
+-  if(ichar(filename(1:1)).eq.0) go to 999
+-    
+-  FileID=filename
+-  decodedfile=filename
+-  lumsg=11
+-  nqrn=nclip+5
+-  nmode=1
+-  if(mode(1:4).eq.'JT65') then
+-     nmode=2
+-     if(mode(5:5).eq.'A') mode65=1
+-     if(mode(5:5).eq.'B') mode65=2
+-     if(mode(5:5).eq.'C') mode65=4
+-  endif
+-  if(mode.eq.'Echo') nmode=3
+-  if(mode.eq.'JT6M') nmode=4
+-
+-  sum=0.
+-  do i=1,jz
+-     sum=sum+d2(i)
+-  enddo
+-  nave=nint(sum/jz)
+-  do i=1,jz
+-     d2(i)=d2(i)-nave
+-     d2d(i)=d2(i)
+-  enddo
+-
+-  nseg=1
+-  if(mode(1:4).eq.'JT65') then
+-     i=index(FileID,'.')-3
+-     if(FileID(i:i).eq.'1'.or.FileID(i:i).eq.'3'.or.FileID(i:i).eq.'5'  &amp;
+-          .or.FileID(i:i).eq.'7'.or.FileID(i:i).eq.'9') nseg=2
+-  endif
+-
+-  open(23,file=appdir(:lenappdir)//'/CALL3.TXT',status='unknown')
+-  if(nadd5.eq.1) then
+-     nzero=5*11025
+-     do i=jz,nzero+1,-1
+-        d2d(i)=d2d(i-nzero)
+-     enddo
+-     do i=1,nzero
+-        d2d(i)=0
+-     enddo
+-     jz=min(60*11025,jz+nzero)
+-  endif
+-!  call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,MinSigdB,           &amp;
+-!       NQRN,DFTolerance,MouseButton,NClearAve,                        &amp;
+-!       nMode,NFreeze,NAFC,NZap,mode65,idf,                            &amp;
+-!       MyCall,HisCall,HisGrid,neme,nsked,ntx2,s2,                     &amp;
+-!       ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,        &amp;
+-!       MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+-  basevb=-999.
+-  close(23)
+-  if(basevb.le.-98.0) go to 999
+-
+-! See whether this file should be saved or erased from disk
+-  if(nsave.eq.1 .and. ldecoded) filetokilla=''
+-  if(nsave.eq.3 .or. (nsave.eq.2 .and. lauto.eq.1)) then
+-     filetokilla=''
+-     filetokillb=''
+-  endif
+-  if(nsavelast.eq.1) filetokillb=''
+-  nsavelast=0
+-  ierr=unlink(filetokillb)
+-  
+-  nclearave=0
+-  nagain=0
+-  call pix2d65(d2d,jz)
+-
+-999 return
+-end subroutine decode3
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/ftn_init.F90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -14,6 +14,9 @@
+ !   21  ALL65.TXT
+ !   22  kvasd.dat
+ !   23  CALL3.TXT
++!   24  meas24.dat
++!   25  meas25.dat
++!   26  tmp26.tmp
+ 
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+@@ -108,13 +111,20 @@
+ #endif
+ 
+ #ifdef Win32
+-  open(24,file=appdir(:iz)//'/tmp24.txt',status='unknown',                 &amp;
++  open(24,file=appdir(:iz)//'/meas24.txt',status='unknown',                 &amp;
+        share='denynone')
+ #else
+-  open(24,file=appdir(:iz)//'/tmp24.txt',status='unknown')
++  open(24,file=appdir(:iz)//'/meas24.txt',status='unknown')
+ #endif
+ 
+ #ifdef Win32
++  open(25,file=appdir(:iz)//'/meas25.txt',status='unknown',                 &amp;
++       share='denynone')
++#else
++  open(25,file=appdir(:iz)//'/meas25.txt',status='unknown')
++#endif
++
++#ifdef Win32
+   open(26,file=appdir(:iz)//'/tmp26.txt',status='unknown',                 &amp;
+        share='denynone')
+ #else
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/gcom2.f90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -29,7 +29,6 @@
+ logical rxdone         !Has the Rx sequence finished?      SoundIn,Decoder
+ integer monitoring     !Are we monitoring?                      GUI
+ integer nzap           !Is Zap checked?                         GUI
+-integer nsavecum       !(why is this here?)
+ integer minsigdb       !Decoder threshold setting               GUI
+ integer nclearave      !Set to 1 to clear JT65 avg         GUI,Decoder
+ integer nfreeze        !Is Freeze checked?                      GUI
+@@ -50,7 +49,6 @@
+ integer naggressive    !Is &quot;Aggressive decoding&quot; checked?       GUI
+ integer ntx2           !Is &quot;No shorthands if Tx1&quot; checked?      GUI
+ integer nagain         !Decode same file again?                 GUI
+-integer nsavelast      !Save last file?                         GUI
+ integer shok           !Shorthand messages OK?                  GUI
+ integer sendingsh      !Sending a shorthand message?            SoundIn
+ integer*2 d2a          !Rx data, extracted from y1              Decoder
+@@ -94,9 +92,9 @@
+      green(500),fselect,pctlost,rxnoise,ngreen,dgain,iter,ndecoding,    &amp;
+      ndecoding0,mousebutton,   &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+-     dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,     &amp;
+-     nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+-     mousedf,mousefqso,neme,nsked,naggressive,ntx2,nagain,nsavelast,    &amp;
++     dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,              &amp;
++     nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,   &amp;
++     nport,mousedf,mousefqso,neme,nsked,naggressive,ntx2,nagain,        &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,     &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,&amp;
+      ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),     &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/map65.py	2007-06-25 20:18:43 UTC (rev 416)
+@@ -73,14 +73,13 @@
+ ndmiles=0
+ ndkm=0
+ ndebug=IntVar()
++ndebug.set(0)
+ neme=IntVar()
+ nfreeze=IntVar()
+ nopen=0
+ nosh441=IntVar()
+ noshjt65=IntVar()
+-#nsked=IntVar()
+ setseq=IntVar()
+-slabel=&quot;Sync   &quot;
+ textheight=7
+ tx6alt=&quot;&quot;
+ txsnrdb=99.
+@@ -515,20 +514,15 @@
+ 
+ #------------------------------------------------------ ModeJT65
+ def ModeJT65():
+-    global slabel,isync,textheight,itol
++    global isync,textheight,itol
+     cleartext()
+     Audio.gcom1.trperiod=60
+     iframe4b.pack(after=iframe4,expand=1, fill=X, padx=4)
+     textheight=7
+     text.configure(height=textheight)
+-    slabel=&quot;Sync   &quot;
+-    lsync.configure(text=slabel+str(isync))
+     bclravg.configure(state=NORMAL)
+     binclude.configure(state=NORMAL)
+     bexclude.configure(state=NORMAL)
+-    cbfreeze.configure(state=NORMAL)
+-    cbafc.configure(state=NORMAL)
+-#    sked.configure(state=NORMAL)
+     graph2.configure(bg='#66FFFF')
+     itol=4
+     inctol()
+@@ -722,36 +716,6 @@
+     else:
+         labDist.configure(text=str(int(1.609344*ndmiles))+&quot; km&quot;)
+     
+-#------------------------------------------------------ incsync
+-def incsync(event):
+-    global isync
+-    if isync&lt;10:
+-        isync=isync+1
+-        lsync.configure(text=slabel+str(isync))
+-
+-#------------------------------------------------------ decsync
+-def decsync(event):
+-    global isync
+-    if isync&gt;-30:
+-        isync=isync-1
+-        lsync.configure(text=slabel+str(isync))
+-
+-#------------------------------------------------------ incclip
+-def incclip(event):
+-    global iclip
+-    if iclip&lt;5:
+-        iclip=iclip+1
+-        if iclip==5: iclip=99
+-        lclip.configure(text='Clip   '+str(iclip))
+-
+-#------------------------------------------------------ decclip
+-def decclip(event):
+-    global iclip
+-    if iclip&gt;-5:
+-        iclip=iclip-1
+-        if iclip==98: iclip=4
+-        lclip.configure(text='Clip   '+str(iclip))
+-
+ #------------------------------------------------------ inctol
+ def inctol(event=NONE):
+     global itol
+@@ -804,16 +768,6 @@
+     f.close()
+     Audio.gcom2.nclearave=1
+ 
+-#------------------------------------------------------ defaults
+-def defaults():
+-    global slabel,isync,iclip,itol,idsec
+-    isync=1
+-    iclip=0
+-    lclip.configure(text='Clip   '+str(iclip))
+-    itol=5
+-    ltol.configure(text='Tol    '+str(ntol[itol]))
+-    lsync.configure(text=slabel+str(isync))
+-
+ #------------------------------------------------------ delwav
+ def delwav():
+     t=&quot;Are you sure you want to delete\nall *.WAV files in the RxWav directory?&quot;
+@@ -882,8 +836,8 @@
+         g.freeze_decode=1
+     
+ #------------------------------------------------------ mouse_up_g1
+-#(### What is this for? ###)
+ def mouse_up_g1(event):
++# This is a fix for certain mouse-clicks
+     pass
+ 
+ #------------------------------------------------------ right_arrow
+@@ -952,154 +906,6 @@
+         tx6.insert(0,tx6alt.upper())
+         altmsg=1
+ 
+-    
+-#------------------------------------------------------ plot_large
+-def plot_large():
+-    &quot;Plot the green, red, and blue curves in JT65 mode.&quot;
+-    graph1.delete(ALL)
+-    y=[]
+-    ngreen=Audio.gcom2.ngreen
+-    if ngreen&gt;0:
+-        for i in range(ngreen):             #Find ymax for green curve
+-            green=Audio.gcom2.green[i]
+-            y.append(green)
+-        ymax=max(y)
+-        if ymax&lt;1: ymax=1
+-        yfac=4.0
+-        if ymax&gt;75.0/yfac: yfac=75.0/ymax
+-        xy=[]
+-        for i in range(ngreen):             #Make xy list for green curve
+-            green=Audio.gcom2.green[i]
+-            n=int(105.0-yfac*green)
+-            xy.append(i)
+-            xy.append(n)
+-        graph1.create_line(xy,fill=&quot;green&quot;)
+-
+-        if Audio.gcom2.nspecial==0:
+-            y=[]
+-            for i in range(446):                #Find ymax for red curve
+-                psavg=Audio.gcom2.psavg[i+1]
+-                y.append(psavg)
+-            ymax=max(y)
+-            yfac=30.0
+-            if ymax&gt;85.0/yfac: yfac=85.0/ymax
+-            xy=[]
+-            fac=500.0/446.0
+-            for i in range(446):                #Make xy list for red curve
+-                x=i*fac
+-                psavg=Audio.gcom2.psavg[i+1]
+-                n=int(90.0-yfac*psavg)
+-                xy.append(x)
+-                xy.append(n)
+-            graph1.create_line(xy,fill=&quot;red&quot;)
+-        else:
+-            y1=[]
+-            y2=[]
+-            for i in range(446):        #Find ymax for magenta/orange curves
+-                ss1=Audio.gcom2.ss1[i+1]
+-                y1.append(ss1)
+-                ss2=Audio.gcom2.ss2[i+1]
+-                y2.append(ss2)
+-            ymax=max(y1+y2)
+-            yfac=30.0
+-            if ymax&gt;85.0/yfac: yfac=85.0/ymax
+-            xy1=[]
+-            xy2=[]
+-            fac=500.0/446.0
+-            for i in range(446):        #Make xy list for magenta/orange curves
+-                x=i*fac
+-                ss1=Audio.gcom2.ss1[i+1]
+-                n=int(90.0-yfac*ss1)
+-                xy1.append(x)
+-                xy1.append(n)
+-                ss2=Audio.gcom2.ss2[i+1]
+-                n=int(90.0-yfac*ss2) - 20
+-                xy2.append(x)
+-                xy2.append(n)
+-            graph1.create_line(xy1,fill=&quot;magenta&quot;)
+-            graph1.create_line(xy2,fill=&quot;orange&quot;)
+-
+-            x1 = 250.0 + fac*Audio.gcom2.ndf/2.6916504
+-            x2 = x1 + Audio.gcom2.mode65*Audio.gcom2.nspecial*10*fac
+-            graph1.create_line([x1,85,x1,95],fill=&quot;yellow&quot;)
+-            graph1.create_line([x2,85,x2,95],fill=&quot;yellow&quot;)
+-            t=&quot;RO&quot;
+-            if Audio.gcom2.nspecial==3: t=&quot;RRR&quot;
+-            if Audio.gcom2.nspecial==4: t=&quot;73&quot;
+-            graph1.create_text(x2+3,93,anchor=W,text=t,fill=&quot;yellow&quot;)
+-
+-        if Audio.gcom2.ccf[0] != -9999.0:
+-            y=[]
+-            for i in range(65):             #Find ymax for blue curve
+-                ccf=Audio.gcom2.ccf[i]
+-                y.append(ccf)
+-            ymax=max(y)
+-            yfac=40.0
+-            if ymax&gt;55.0/yfac: yfac=55.0/ymax
+-            xy2=[]
+-            fac=500.0/64.6
+-            for i in range(65):             #Make xy list for blue curve
+-                x=(i+0.5)*fac
+-                ccf=Audio.gcom2.ccf[i]
+-                n=int(60.0-yfac*ccf)
+-                xy2.append(x)
+-                xy2.append(n)
+-            graph1.create_line(xy2,fill='#33FFFF')
+-
+-#  Put in the tick marks
+-        for i in range(13):
+-            x=int(i*41.667)
+-            j2=115
+-            if i==1 or i==6 or i==11: j2=110
+-            graph1.create_line([x,j2,x,125],fill=&quot;red&quot;)
+-            if Audio.gcom2.nspecial==0:
+-#                x=int((i-0.8)*41.667)
+-                j1=9
+-                if i==2 or i==7 or i==12: j1=14
+-                graph1.create_line([x,0,x,j1],fill=&quot;#33FFFF&quot;)  #light blue
+-            else:
+-                graph1.create_line([x,0,x,125-j2],fill=&quot;red&quot;)
+-
+-#------------------------------------------------------ plot_small
+-def plot_small():        
+-    graph2.delete(ALL)
+-    xy=[]
+-    xy2=[]
+-    df=11025.0/256.0
+-    fac=150.0/3500.0
+-    for i in range(81):
+-        x=int(i*df*fac)
+-        xy.append(x)
+-        psavg=Audio.gcom2.psavg[i]
+-        n=int(150.0-2*psavg)
+-        xy.append(n)
+-    graph2.create_line(xy,fill=&quot;magenta&quot;)
+-    for i in range(7):
+-        x=i*500*fac
+-        ytop=110
+-        if i%2: ytop=115
+-        graph2.create_line([x,120,x,ytop],fill=&quot;white&quot;)
+-
+-#------------------------------------------------------ plot_yellow
+-def plot_yellow():
+-    nz=int(Audio.gcom2.ps0[215])
+-    if nz&gt;10:
+-        y=[]
+-        for i in range(nz):             #Find ymax for yellow curve
+-            n=Audio.gcom2.ps0[i]
+-            y.append(n)
+-        ymax=max(y)
+-        fac=1.0
+-        if ymax&gt;60: fac=60.0/ymax
+-        xy2=[]
+-        for i in range(nz):
+-            x=int(2.34*i)
+-            y=fac*Audio.gcom2.ps0[i] + 8
+-            n=int(85.0-y)
+-            xy2.append(x)
+-            xy2.append(n)
+-        graph1.create_line(xy2,fill=&quot;yellow&quot;)
+-
+ #------------------------------------------------------ update
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen, \
+@@ -1227,7 +1033,6 @@
+     if Audio.gcom1.transmitting:
+         nmsg=int(Audio.gcom2.nmsg)
+         t=g.ftnstr(Audio.gcom2.sending)
+-#        if t[:3]==&quot;CQ &quot;: nsked.set(0)
+         t=&quot;Txing:  &quot;+t[:nmsg]
+         bgcolor='yellow'
+         if Audio.gcom2.sendingsh==1:  bgcolor='#66FFFF'    #Shorthand (lt blue)
+@@ -1334,8 +1139,6 @@
+             im.putpalette(g.palette)
+             cmap0=g.cmap
+             
+-#        plot_large()
+-
+ # Save some parameters
+     g.mode=mode.get()
+     Audio.gcom1.txfirst=TxFirst.get()
+@@ -1347,8 +1150,6 @@
+         Audio.gcom1.samfacout=options.samfacout.get()
+     except:
+         Audio.gcom1.samfacout=1.0
+-#    if Audio.gcom1.samfacin&gt;1.01: Audio.gcom1.samfacin=1.01
+-# ... etc.
+     Audio.gcom2.mycall=(options.MyCall.get()+'            ')[:12]
+     Audio.gcom2.hiscall=(ToRadio.get()+'            ')[:12]
+     Audio.gcom2.hisgrid=(HisGrid.get()+'      ')[:6]
+@@ -1368,7 +1169,6 @@
+     Audio.gcom2.dftolerance=ntol[itol]
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+-#    Audio.gcom2.nsked=nsked.get()
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+     except:
+@@ -1382,14 +1182,9 @@
+         Audio.gcom2.nport=int(options.PttPort.get())
+     except:
+         Audio.gcom2.nport=0
+-
+-#    print 'About to init Audio.gcom2.PttPort in save some parameters'
+     Audio.gcom2.pttport=(options.PttPort.get() + '            ')[:12]
+-#    print Audio.gcom2.pttport
+-
+     if altmsg: tx6alt=tx6.get()    
+-# Queue up the next update
+-    ldate.after(100,update)
++    ldate.after(100,update)                       # Queue up the next update
+     
+ #------------------------------------------------------ Top level frame
+ frame = Frame(root)
+@@ -1431,8 +1226,6 @@
+ setupmenu.add_checkbutton(label = 'Double-click on callsign sets TxFirst',
+                           variable=setseq)
+ setupmenu.add_checkbutton(label = 'GenStdMsgs sets Tx1',variable=k2txb)
+-setupmenu.add_separator()
+-setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
+ 
+ #------------------------------------------------------ View menu
+ viewbutton=Menubutton(mbar,text='View')
+@@ -1458,11 +1251,11 @@
+ # state=modemenu.entrycget(0,&quot;state&quot;)
+ 
+ modemenu.add_radiobutton(label = 'JT65A', variable=mode, command = ModeJT65A, \
+-                         accelerator='F8')
++            state=DISABLED, accelerator='F8')
+ modemenu.add_radiobutton(label = 'JT65B', variable=mode, command = ModeJT65B, \
+                          accelerator='Shift+F8')
+ modemenu.add_radiobutton(label = 'JT65C', variable=mode, command = ModeJT65C, \
+-                         accelerator='Ctrl+F8')
++            state=DISABLED, accelerator='Ctrl+F8')
+ 
+ #------------------------------------------------------ Decode menu
+ decodebutton = Menubutton(mbar, text = 'Decode')
+@@ -1488,9 +1281,9 @@
+ savebutton['menu'] = savemenu
+ nsave=IntVar()
+ savemenu.add_radiobutton(label = 'None', variable=nsave,value=0)
+-savemenu.add_radiobutton(label = 'Save decoded', variable=nsave,value=1)
+-savemenu.add_radiobutton(label = 'Save if Auto On', variable=nsave,value=2)
+-savemenu.add_radiobutton(label = 'Save all', variable=nsave,value=3)
++savemenu.add_radiobutton(label = 'Save timf2', variable=nsave,value=1)
++savemenu.add_radiobutton(label = 'Measure', variable=nsave,value=2)
++savemenu.add_radiobutton(label = 'Pulsar', variable=nsave,value=3)
+ nsave.set(0)
+ 
+ #------------------------------------------------------ Band menu
+@@ -1701,29 +1494,11 @@
+ 
+ #------------------------------------------------------ Receiving parameters
+ f5b=Frame(iframe5,bd=2,relief=GROOVE)
+-lsync=Label(f5b, bg='white', fg='black', text='Sync   1', width=8, relief=RIDGE)
+-lsync.grid(column=0,row=0,padx=2,pady=1,sticky='EW')
+-Widget.bind(lsync,'&lt;Button-1&gt;',incsync)
+-Widget.bind(lsync,'&lt;Button-3&gt;',decsync)
+ nzap=IntVar()
+-cbzap=Checkbutton(f5b,text='Zap',underline=0,variable=nzap)
+-cbzap.grid(column=1,row=0,padx=2,pady=1,sticky='W')
+-cbnb=Checkbutton(f5b,text='NB',variable=nblank)
+-cbnb.grid(column=1,row=1,padx=2,pady=1,sticky='W')
+-cbfreeze=Checkbutton(f5b,text='Freeze',underline=0,variable=nfreeze)
+-cbfreeze.grid(column=1,row=2,padx=2,sticky='W')
+-cbafc=Checkbutton(f5b,text='AFC',variable=nafc)
+-cbafc.grid(column=1,row=3,padx=2,pady=1,sticky='W')
+-lclip=Label(f5b, bg='white', fg='black', text='Clip   0', width=8, relief=RIDGE)
+-lclip.grid(column=0,row=1,padx=2,sticky='EW')
+-Widget.bind(lclip,'&lt;Button-1&gt;',incclip)
+-Widget.bind(lclip,'&lt;Button-3&gt;',decclip)
+ ltol=Label(f5b, bg='white', fg='black', text='Tol    400', width=8, relief=RIDGE)
+ ltol.grid(column=0,row=2,padx=2,pady=1,sticky='EW')
+ Widget.bind(ltol,'&lt;Button-1&gt;',inctol)
+ Widget.bind(ltol,'&lt;Button-3&gt;',dectol)
+-Button(f5b,text='Defaults',command=defaults,padx=1,pady=1).grid(column=0,
+-                              row=3,sticky='EW')
+ ldsec=Label(f5b, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+ ldsec.grid(column=0,row=4,ipadx=3,padx=2,pady=5,sticky='EW')
+ Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+@@ -1735,7 +1510,6 @@
+ f5c=Frame(iframe5,bd=2,relief=GROOVE)
+ txfirst=Checkbutton(f5c,text='Tx First',justify=RIGHT,variable=TxFirst)
+ f5c2=Frame(f5c,bd=0)
+-#sked=Checkbutton(f5c,text='Sked',justify=RIGHT,variable=nsked)
+ genmsg=Button(f5c,text='GenStdMsgs',underline=0,command=GenStdMsgs,
+             padx=1,pady=1)
+ auto=Button(f5c,text='Auto is Off',underline=0,command=toggleauto,
+@@ -1923,8 +1697,6 @@
+     print key,value
+ 
+ g.mode=mode.get()
+-lsync.configure(text=slabel+str(isync))
+-lclip.configure(text='Clip   '+str(iclip))
+ Audio.gcom2.appdir=(appdir+'                                                                                          ')[:80]
+ Audio.gcom2.ndepth=ndepth.get()
+ f=open(appdir+'/tmp26.txt','w')
+@@ -1988,13 +1760,11 @@
+ f.write(&quot;Zap &quot; + str(nzap.get()) + &quot;\n&quot;)
+ f.write(&quot;NB &quot; + str(nblank.get()) + &quot;\n&quot;)
+ f.write(&quot;NAFC &quot; + str(nafc.get()) + &quot;\n&quot;)
+-#f.write(&quot;Sked &quot; + str(nsked.get()) + &quot;\n&quot;)
+ f.write(&quot;NoSh441 &quot; + str(nosh441.get()) + &quot;\n&quot;)
+ f.write(&quot;NoShJT65 &quot; + str(noshjt65.get()) + &quot;\n&quot;)
+ f.write(&quot;NEME &quot; + str(neme.get()) + &quot;\n&quot;)
+ f.write(&quot;NDepth &quot; + str(ndepth.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+-#f.write(&quot;TRPeriod &quot; + str(Audio.gcom1.trperiod) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+ if g.astro_geom[:7]==&quot;200x200&quot;: g.astro_geom=&quot;316x373&quot; + g.astro_geom[7:]
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/map65a.f90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -41,27 +41,9 @@
+   write(utcdata,1002) nutc
+ 1002 format(i4.4)
+   utcdata=utcdata(1:2)//':'//utcdata(3:4)
+-
+-  fselect=mousefqso + 1.6
+-
+-!  fselect=126.0 + 1.6 + 0.290                ! K6MYC (NG??)
+-!  nflip=-1
+-!  ip0=1
+-
+-!  fselect=128.0 + 1.6 + 0.220               ! AA1YN (OK)
+-!  nflip=1
+-!  ip0=3
+-
+-!  fselect=155.0 + 1.6 + 0.454                ! N0AKC (OK)
+-!  nflip=1
+-!  ip0=2
+-
+-!  fselect=103 + 1.6 - 0.07
+-!  nflip=-1                     !May need to try both +/- 1
+-!  ip0=4                       !Try all four?
+-
+   open(23,file='CALL3.TXT',status='old')
+ 
++  fselect=mousefqso + 1.6
+   df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
+   fa=0.0
+   fb=60000.0
+@@ -320,6 +302,8 @@
+   enddo
+   call display
+   ndecdone=2
++
++  if(nsave.gt.0) call savetf2(id(1,1,kbuf),nsave,nutc)
+     
+ 999 newdat2=0
+   nagain=0
+
+Deleted: branches/map65/savedata.F90
+===================================================================
+--- branches/map65/savedata.F90	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/savedata.F90	2007-06-25 20:18:43 UTC (rev 416)
+@@ -1,133 +0,0 @@
+-!----------------------------------------------------------- savedata
+-subroutine savedata
+-
+-#ifdef Win32
+-  use dfport
+-#endif
+-
+-  character fname*24,longname*80
+-  data ibuf0z/1/
+-  include 'gcom1.f90'
+-  include 'gcom2.f90'
+-  include 'gcom3.f90'
+-  save
+-
+-  if(mode(1:4).eq.'JT65') then
+-     call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+-     ibuf1=ibuf0
+-     ibuf2=ibuf
+-     go to 1
+-  else
+-     call get_fname(hiscall,ntime-trperiod,trperiod,lauto,fname0)
+-  endif
+-
+-  if(ibuf0.eq.ibuf0z) go to 999         !Startup condition, do not save
+-  if(ntrbuf(ibuf0z).eq.1) go to 999     !We were transmitting, do not save
+-
+-! Get buffer pointers, then copy completed Rx sequence from y1 to d2a:
+-  ibuf1=ibuf0z
+-  ibuf2=ibuf0-1
+-1 jza=2048*(ibuf2-ibuf1)
+-  if(jza.lt.0) jza=jza+NRxMax
+-  if(jza.lt.110250) go to 999           !Don't save files less than 10 s
+-  if(jza.gt.60*11025) go to 999         !Don't save if something's fishy
+-  k=2048*(ibuf1-1)
+-  if(mode(1:4).ne.'JT65') k=k+3*2048
+-  if(mode(1:4).ne.'JT65' .and. jza.gt.30*11025) then
+-     k=k + (jza-30*11025)
+-     if(k.gt.NRxMax) k=k-NRxMax
+-     jza=30*11025
+-  endif
+-
+-! Check timestamps of buffers used for this data
+-  msbig=0
+-  i=k/2048
+-  if(msmax.eq.0) i=i+1
+-  nz=jza/2048
+-  if(msmax.eq.0) then
+-     i=i+1
+-     nz=nz-1
+-  endif
+-  do n=1,nz
+-     i=i+1
+-     if(i.gt.1024) i=i-1024
+-     i0=i-1
+-     if(i0.lt.1) i0=i0+1024
+-     dtt=tbuf(i)-tbuf(i0)
+-     ms=0
+-     if(dtt.gt.0.d0 .and. dtt.lt.80000.0) ms=1000.d0*dtt
+-     msbig=max(ms,msbig)
+-  enddo
+-
+-  if(ndebug.gt.0 .and. msbig.gt.msmax .and. msbig.gt.330) then
+-     write(*,1020) msbig
+-1020 format('Warning: interrupt service interval',i11,' ms.')
+-  endif
+-  msmax=max(msbig,msmax)
+-
+-  do i=1,jza
+-     k=k+1
+-     if(k.gt.NRxMax) k=k-NRxMax
+-     xx=dgain*y1(k)
+-     xx=min(32767.0,max(-32767.0,xx))
+-     d2a(i)=nint(xx)
+-  enddo
+-  fnamea=fname0
+-
+-  npingtime=0
+-  fname=fnamea                   !Save filename for output to disk
+-  nagain=0
+-  ndecoding=1                    !Request decoding
+-  
+-! Generate file name and write data to file
+-!    if(nsave.ge.2 .and. ichar(fname(1:1)).ne.0) then
+-  if(ichar(fname(1:1)).ne.0) then
+-
+-! Generate header for wavefile:
+-     ariff='RIFF'
+-     awave='WAVE'
+-     afmt='fmt '
+-     adata='data'
+-     lenfmt=16
+-     nfmt2=1
+-     nchan2=1
+-     nsamrate=11025
+-     nbytesam2=2
+-     nbytesec=nchan2*nsamrate*nbytesam2
+-     nbitsam2=16
+-     ndata=2*jza
+-     nbytes=ndata+44
+-     nchunk=nbytes-8
+-     
+-     do i=80,1,-1
+-        if(appdir(i:i).ne.' ') go to 10
+-     enddo
+-10   longname=AppDir(1:i)//'/RxWav/'//fname
+-
+-#ifdef Win32
+-     open(17,file=longname,status='unknown',form='binary',err=20)
+-     write(17) ariff,nchunk,awave,afmt,lenfmt,nfmt2,nchan2,nsamrate, &amp;
+-          nbytesec,nbytesam2,nbitsam2,adata,ndata,(d2a(j),j=1,jza)
+-     close(17)
+-#else
+-     open(17,file=longname,status='unknown',form='unformatted',      &amp;
+-          access='direct',recl=nbytes,err=20)
+-     write(17,rec=1) ariff,nchunk,awave,afmt,lenfmt,nfmt2,nchan2,nsamrate, &amp;
+-          nbytesec,nbytesam2,nbitsam2,adata,ndata,(d2a(j),j=1,jza)
+-     close(17)     
+-#endif
+-     filetokillb=filetokilla
+-     filetokilla=longname
+-     go to 30
+-20   print*,'Error opening Fortran unit 17.'
+-     print*,longname
+-30   continue
+-  endif
+-
+-999 if(mode(1:4).ne.'JT65') then
+-     ibuf0z=ibuf0
+-     call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+-  endif
+-
+-  return
+-end subroutine savedata
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-25 16:57:31 UTC (rev 415)
++++ branches/map65/specjt.py	2007-06-25 20:18:43 UTC (rev 416)
+@@ -142,7 +142,6 @@
+ #---------------------------------------------------- df_mark
+ def df_mark():
+     draw_axis()
+-#    if nmark.get()==0 or Audio.gcom2.nfreeze:
+ # Mark QSO freq in top graph
+     color='green'
+     df=96.0/750.0
+@@ -176,30 +175,6 @@
+     if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+     if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
+ 
+-#def set_frange():
+-#    nfr.set(3-nfr.get())
+-
+-#---------------------------------------------------- freq_center
+-##def freq_center(event):
+-### Move clicked location to center of frequency scale
+-##    global fmid,frange
+-##    n=100*int(0.01*df*(event.x-375))
+-##    fmid = fmid + n
+-##    if fmid&lt;1000: fmid=1000
+-##    if fmid&gt;1700: fmid=1700
+-
+-#---------------------------------------------------- decode_request
+-##def decode_request(event):
+-##    if g.mode[:4]!='JT65' and nspeed0.get()&gt;5:
+-### If decoder is busy or we are not monitoring, ignore request
+-##        if Audio.gcom2.ndecoding==0 and Audio.gcom2.monitoring:
+-##            Audio.gcom2.mousebutton=event.num       #Left=1, Right=3
+-##            Audio.gcom2.npingtime=int(40*event.x)   #Time (ms) of selected ping
+-##            if event.y &lt;= 150:
+-##                Audio.gcom2.ndecoding=2             #Mouse pick, top half
+-##            else:
+-##                Audio.gcom2.ndecoding=3             #Mouse pick, bottom half
+-
+ #---------------------------------------------------- freeze_decode
+ def freeze_decode(event):
+ # If decoder is busy or we are not monitoring, ignore request
+@@ -318,7 +293,6 @@
+     if(fmid&lt;&gt;fmid0 or frange&lt;&gt;frange0):
+         if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+         if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
+-#        draw_axis()
+         df_mark()
+         fmid0=fmid
+         frange0=frange
+@@ -367,12 +341,6 @@
+             c2.create_text(x,y,text=str(ix))
+         c2.create_line(i,25,i,j,fill='black')
+ 
+-#    tol=Audio.gcom2.dftolerance
+-#    x1=(Audio.gcom2.mousedf-tol)/xdf2 + 0.5*NX
+-#    x2=(Audio.gcom2.mousedf+tol)/xdf2 + 0.5*NX
+-#    c2.create_line(x1,25,x2,25,fill='green',width=2)
+-
+-
+ #-------------------------------------------------------- Create GUI widgets
+ 
+ #-------------------------------------------------------- Menu bar
+@@ -382,34 +350,23 @@
+ mbar = Frame(frame)
+ mbar.pack(fill=X)
+ 
+-#--------------------------------------------------------- Options menu
+-setupbutton = Menubutton(mbar, text = 'Options', )
++#--------------------------------------------------------- Palette menu
++setupbutton = Menubutton(mbar, text = 'Palette', )
+ setupbutton.pack(side = LEFT)
+-setupmenu = Menu(setupbutton, tearoff=1)
++setupmenu = Menu(setupbutton,tearoff=0)
+ setupbutton['menu'] = setupmenu
+-setupmenu.add_checkbutton(label='Flatten spectra',variable=nflat)
+-setupmenu.add_checkbutton(label='Mark JT65 tones only if Freeze is checked',
+-            variable=nmark)
+-setupmenu.add_separator()
+-setupmenu.add_radiobutton(label='Frequency axis',command=df_mark,
+-            value=0,variable=naxis)
+-setupmenu.add_radiobutton(label='JT65 DF axis',command=df_mark,
+-            value=1,variable=naxis)
+-setupmenu.add_separator()
+-setupmenu.palettes=Menu(setupmenu,tearoff=0)
+-setupmenu.palettes.add_radiobutton(label='Gray0',command=pal_gray0,
++setupmenu.add_radiobutton(label='Gray0',command=pal_gray0,
+             value=0,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Gray1',command=pal_gray1,
++setupmenu.add_radiobutton(label='Gray1',command=pal_gray1,
+             value=1,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Linrad',command=pal_linrad,
++setupmenu.add_radiobutton(label='Linrad',command=pal_linrad,
+             value=2,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Blue',command=pal_blue,
++setupmenu.add_radiobutton(label='Blue',command=pal_blue,
+             value=3,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Hot',command=pal_Hot,
++setupmenu.add_radiobutton(label='Hot',command=pal_Hot,
+             value=4,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='AFMHot',command=pal_AFMHot,
++setupmenu.add_radiobutton(label='AFMHot',command=pal_AFMHot,
+             value=5,variable=npal)
+-setupmenu.add_cascade(label = 'Palette',menu=setupmenu.palettes)
+ 
+ lab1=Label(mbar,padx=20,bd=0)
+ lab1.pack(side=LEFT)
+@@ -420,17 +377,9 @@
+ 
+ lab3=Label(mbar,padx=13,bd=0)
+ lab3.pack(side=LEFT)
+-#bbw=Button(mbar,text='BW',command=set_frange,padx=1,pady=1)
+-#bbw.pack(side=LEFT)
+ 
+ lab0=Label(mbar,padx=10,bd=0)
+ lab0.pack(side=LEFT)
+-#bfmid1=Button(mbar,text='&lt;',command=change_fmid1,padx=1,pady=1)
+-#bfmid2=Button(mbar,text='&gt;',command=change_fmid2,padx=1,pady=1)
+-#bfmid3=Button(mbar,text='|',command=set_fmid,padx=3,pady=1)
+-#bfmid1.pack(side=LEFT)
+-#bfmid3.pack(side=LEFT)
+-#bfmid2.pack(side=LEFT)
+ 
+ #------------------------------------------------- Speed selection buttons
+ for i in (5, 4, 3, 2, 1):
+@@ -446,13 +395,10 @@
+ Widget.bind(c,&quot;&lt;Shift-Button-1&gt;&quot;,freq_range)
+ Widget.bind(c,&quot;&lt;Shift-Button-2&gt;&quot;,freq_range)
+ Widget.bind(c,&quot;&lt;Shift-Button-3&gt;&quot;,freq_range)
+-#Widget.bind(c,&quot;&lt;Control-Button-1&gt;&quot;,freq_center)
+ 
+ graph1=Canvas(iframe1, bg='black', width=NX, height=NY,bd=0,cursor='crosshair')
+ graph1.pack(side=TOP)
+ Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,fdf_change)
+-#Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,decode_request)
+-#Widget.bind(graph1,&quot;&lt;Button-3&gt;&quot;,decode_request)
+ Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,set_fqso)
+ Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
+ iframe1.pack(expand=1, fill=X)
+@@ -462,7 +408,6 @@
+ Widget.bind(c2,&quot;&lt;Shift-Button-1&gt;&quot;,freq_range)
+ Widget.bind(c2,&quot;&lt;Shift-Button-2&gt;&quot;,freq_range)
+ Widget.bind(c2,&quot;&lt;Shift-Button-3&gt;&quot;,freq_range)
+-#Widget.bind(c2,&quot;&lt;Control-Button-1&gt;&quot;,freq_center)
+ 
+ graph2=Canvas(iframe1, bg='black', width=NX, height=NY,bd=0,cursor='crosshair')
+ graph2.pack(side=TOP)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000100.html">[WSJT-SVN] r415 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000102.html">[WSJT-SVN] r417 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#101">[ date ]</a>
+              <a href="thread.html#101">[ thread ]</a>
+              <a href="subject.html#101">[ subject ]</a>
+              <a href="author.html#101">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

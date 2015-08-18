@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1190 - branches/wsjt8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1190%20-%20branches/wsjt8&In-Reply-To=%3C200905011808.n41I8JYV025787%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000880.html">
+   <LINK REL="Next"  HREF="000882.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1190 - branches/wsjt8</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1190%20-%20branches/wsjt8&In-Reply-To=%3C200905011808.n41I8JYV025787%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1190 - branches/wsjt8">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri May  1 20:08:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000880.html">[WSJT-SVN] r1189 - branches/wsjt8
+</A></li>
+        <LI>Next message: <A HREF="000882.html">[WSJT-SVN] r1191 - branches/wsjt8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#881">[ date ]</a>
+              <a href="thread.html#881">[ thread ]</a>
+              <a href="subject.html#881">[ subject ]</a>
+              <a href="author.html#881">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-05-01 20:08:17 +0200 (Fri, 01 May 2009)
+New Revision: 1190
+
+Added:
+   branches/wsjt8/dfdt441.f90
+Modified:
+   branches/wsjt8/gen441.f90
+   branches/wsjt8/t441.f90
+Log:
+Move number-crunching to a subroutine.
+
+
+Added: branches/wsjt8/dfdt441.f90
+===================================================================
+--- branches/wsjt8/dfdt441.f90	2009-05-01 15:34:51 UTC (rev 1189)
++++ branches/wsjt8/dfdt441.f90	2009-05-01 18:08:17 UTC (rev 1190)
+@@ -0,0 +1,90 @@
++subroutine dfdt441(dat,jz,freezedf,dftol,tmsg,nmsg,xdfpk,idtpk,sbest,ppk)
++
++! Get DF, DT, and possibly ppk (message length) from FSK441 data
++
++  real dat(jz)
++  character*28 tmsg
++  real s1(jz)
++  real s2(jz)
++  real acf(500)
++  real p(28*3*25)                           !Folded s2
++  integer itone(3*28)                       !Tones of test message
++  complex cz(3*28*25)                       !Complex LO for test message
++  complex csum
++  data twopi/6.2831853/
++
++  nstep=5
++  fdiv=5.
++  call gen441(tmsg,nmsg,itone)
++  nsamp=75*nmsg
++  df0=441.0                                 !Tone spacing
++  dt=1.0/11025.0                            !Sample interval
++  df=11025.0/(fdiv*nsamp)
++  ndf=dftol/df
++  sbest=0.
++
++! 1. Loop over idf, idt to find best match to tmsg
++
++  do idf=-ndf,ndf                           !Loop over range of DF
++     xdf=idf*df
++     phi=0.                                 !Initialize phase
++     j0=999
++     do i=1,nsamp                      !Generate conjugate of message waveform
++        j=(i-1)/25 + 1
++        if(j.ne.j0) then
++           freq=882.0 + freezedf + xdf + itone(j)*df0
++           dphi=twopi*freq*dt
++           j0=j
++        endif
++        phi=phi+dphi
++        cz(i)=0.001*cmplx(cos(phi),-sin(phi))
++     enddo
++
++     k=0
++     do idt=0,jz-nsamp,nstep                !Loop over time offset DT
++        k=k+1
++        csum=0.
++        do i=1,nsamp
++           csum=csum + cz(i)*dat(i+idt)
++        enddo
++        s=real(csum)**2 + aimag(csum)**2
++        s1(k)=s
++        if(s.gt.sbest) then
++           sbest=s                          !Save best DF, DT
++           idfpk=idf
++           idtpk=idt
++        endif
++     enddo
++     if(idfpk.eq.idf) s2(1:k)=s1(1:k)       !Save s2=s1 at best idf
++  enddo
++  kz=k
++  xdfpk=idfpk*df
++
++!  do k=1,kz                                 !Write s2 (ccf with tmsg) to disk
++!     write(13,1040) k,s2(k)
++!1040 format(i5,f10.0)
++!  enddo
++
++  do lag=0,2500/nstep                       !Compute acf of s2
++     sum=0.
++     do i=1,kz-lag
++        sum=sum + s2(i)*s2(i+lag)
++     enddo
++     acf(lag)=1.e-3*sum/(kz-lag)
++     tp=lag*nstep/75.0
++!     write(14,1050) lag,tp,acf(lag)         !Write acf to disk
++!1050 format(i5,f10.3,f13.3)
++     if(tp.gt.1.5 .and. acf(lag).gt.acfmax) then
++        acfmax=acf(lag)
++        ppk=tp
++     endif
++  enddo
++
++! 2. If there's a well defined period, do a &quot;folded search&quot; with
++!    incoherent summation over message repetitions.
++
++! 3. Peak up by doing a fine-grained search around idfpk, idtpk ...
++!    or use the peakup() routine for +/- 1 step in each coordinate.
++
++  return
++end subroutine dfdt441
+
+Modified: branches/wsjt8/gen441.f90
+===================================================================
+--- branches/wsjt8/gen441.f90	2009-05-01 15:34:51 UTC (rev 1189)
++++ branches/wsjt8/gen441.f90	2009-05-01 18:08:17 UTC (rev 1190)
+@@ -34,5 +34,19 @@
+      itone(3*i)=mod(n,4)
+   enddo
+ 
++!  do i=1,43
++!     n=ichar(cc(i:i))
++!     if(n.eq.95) n=32
++!     if(n.ge.97 .and. n.le.122) n=n-32   !Promote lower case to upper
++!     if(n.lt.0 .or. n.gt.91) n=32        !Replace illegal char with blank 
++!     n=lookup(n)
++!     m1=n/16
++!     m2=mod(n/4,4)
++!     m3=mod(n,4)
++!     mm=100*m1+10*m2+m3
++!     write(*,3001) i,cc(i:i),mm
++!3001 format(i2,2x,a1,i5.3)
++!  enddo
++
+   return
+ end subroutine gen441
+
+Modified: branches/wsjt8/t441.f90
+===================================================================
+--- branches/wsjt8/t441.f90	2009-05-01 15:34:51 UTC (rev 1189)
++++ branches/wsjt8/t441.f90	2009-05-01 18:08:17 UTC (rev 1190)
+@@ -1,104 +1,30 @@
+ program t441
+ 
+-! Run tests on the &quot;TNX QSO TNX QSO ...&quot; ping in W8WN sample file.
++! Run decoding tests on the &quot;TNX QSO TNX QSO ...&quot; ping in W8WN sample file.
+ 
+   parameter (NPTS=9283)
+   character*28 tmsg
+   character*12 arg
+   real ps(128)                              !Spectrum computed in WSJT
+   real dat(NPTS)                            !Raw data, 11025 S/s
+-  real s1(NPTS)
+-  real s2(NPTS)
+-  real acf(500)
+-  real p(28*3*25)                           !Folded s2
+-  integer itone(3*28)                       !Tones of test message
+-  complex cz(3*28*25)                       !Complex LO for test message
+-  complex csum
+-  data twopi/6.2831853/
+ 
+   nargs=iargc()
+-  if(nargs.ne.3) then
+-     print*,'Usage: t441 &quot;Test message&quot; tstep fdiv'
++  if(nargs.ne.1) then
++     print*,'Usage: t441 &quot;Test message&quot;'
+      go to 999
+   endif
+   call getarg(1,tmsg)
+-  call getarg(2,arg)
+-  read(arg,*) nstep
+-  call getarg(3,arg)
+-  read(arg,*) fdiv
+ 
+-  call gen441(tmsg,nmsg,itone)
+-  nsym=3*nmsg
+-  nsamp=25*nsym
+-
+   open(88,file='dat.88',form='unformatted',status='old')
+   read(88) jjz,ps,f0,(dat(j),j=1,jjz)       !Read raw data saved by WSJT
+   df1=11025.0/256.0                         !df for the ps() spectrum
+ 
+-  df0=441.0                                 !Tone spacing
+-  dt=1.0/11025.0                            !Sample interval
++  jz=NPTS
++  freezedf=0.
++  dftol=441.0/2.0
++  call dfdt441(dat,jz,freezedf,dftol,tmsg,nmsg,xdfpk,idtpk,sbest,ppk)
+ 
+-  df=11025.0/(fdiv*nsamp)
+-  ndf=221.0/df
+-  sbest=0.
++  write(*,1020) tmsg(1:8),nmsg,nint(xdfpk),idtpk,nint(sbest),ppk
++1020 format(a8,'  Nmsg:',i3,'  DF:',i4,'  DT:',i5,'  S:'i6,'  P:',f7.2)
+ 
+-  do idf=-ndf,ndf                           !Loop over allowed range of DF
+-     xdf=idf*df
+-     phi=0.                                 !Initialize phase
+-     j0=999
+-     do i=1,nsamp                      !Generate conjugate of message waveform
+-        j=(i-1)/25 + 1
+-        if(j.ne.j0) then
+-           freq=882.0 + xdf + itone(j)*df0
+-           dphi=twopi*freq*dt
+-           j0=j
+-        endif
+-        phi=phi+dphi
+-        cz(i)=0.001*cmplx(cos(phi),-sin(phi))
+-     enddo
+-
+-     k=0
+-     do idt=0,NPTS-nsamp,nstep             !Loop over time offset DT
+-        k=k+1
+-        csum=0.
+-        do i=1,nsamp
+-           csum=csum + cz(i)*dat(i+idt)
+-        enddo
+-        s=real(csum)**2 + aimag(csum)**2
+-        s1(k)=s
+-        if(s.gt.sbest) then
+-           sbest=s
+-           idfpk=idf
+-           idtpk=idt
+-        endif
+-     enddo
+-     if(idfpk.eq.idf) s2(1:k)=s1(1:k)
+-  enddo
+-  kz=k
+-  xdfpk=idfpk*df
+-
+-  do k=1,kz
+-     write(13,1040) k,s2(k)
+-1040 format(i5,f10.0)
+-  enddo
+-
+-  do lag=0,2500/nstep
+-     sum=0.
+-     do i=1,kz-lag
+-        sum=sum + s2(i)*s2(i+lag)
+-     enddo
+-     acf(lag)=1.e-3*sum/(kz-lag)
+-     tp=lag*nstep/75.0
+-     write(14,1050) lag,tp,acf(lag)
+-1050 format(i5,f10.3,f13.3)
+-     if(tp.gt.1.5 .and. acf(lag).gt.acfmax) then
+-        acfmax=acf(lag)
+-        ppk=tp
+-     endif
+-  enddo
+-
+-  write(*,1020) tmsg(1:8),nmsg,2*ndf+1,kz,nint(xdfpk),idtpk,nint(sbest),ppk
+-1020 format(a8,'  Nmsg:',i3,'  Nf:',i4,'  Nt:',i5,'  DF:',i4,      &amp;
+-            '  DT:',i5,'  S:'i6,'  P:',f7.2)
+-
+ 999 end program t441
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000880.html">[WSJT-SVN] r1189 - branches/wsjt8
+</A></li>
+	<LI>Next message: <A HREF="000882.html">[WSJT-SVN] r1191 - branches/wsjt8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#881">[ date ]</a>
+              <a href="thread.html#881">[ thread ]</a>
+              <a href="subject.html#881">[ subject ]</a>
+              <a href="author.html#881">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

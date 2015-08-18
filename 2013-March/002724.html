@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3032 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3032%20-%20branches/wsjtx&In-Reply-To=%3C20130301212533.8A74155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002723.html">
+   <LINK REL="Next"  HREF="002725.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3032 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3032%20-%20branches/wsjtx&In-Reply-To=%3C20130301212533.8A74155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3032 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Mar  1 22:25:33 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002723.html">[WSJT-SVN] r3031 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002725.html">[WSJT-SVN] r3033 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2724">[ date ]</a>
+              <a href="thread.html#2724">[ thread ]</a>
+              <a href="subject.html#2724">[ subject ]</a>
+              <a href="author.html#2724">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-01 22:25:33 +0100 (Fri, 01 Mar 2013)
+New Revision: 3032
+
+Modified:
+   branches/wsjtx/displaytext.cpp
+   branches/wsjtx/displaytext.h
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Shift-double-click on decoded line does NOT change the frequencies.
+
+
+Modified: branches/wsjtx/displaytext.cpp
+===================================================================
+--- branches/wsjtx/displaytext.cpp	2013-03-01 19:44:41 UTC (rev 3031)
++++ branches/wsjtx/displaytext.cpp	2013-03-01 21:25:33 UTC (rev 3032)
+@@ -10,6 +10,7 @@
+ void DisplayText::mouseDoubleClickEvent(QMouseEvent *e)
+ {
+   bool ctrl = (e-&gt;modifiers() &amp; Qt::ControlModifier);
+-  emit(selectCallsign(ctrl));
++  bool shift = (e-&gt;modifiers() &amp; Qt::ShiftModifier);
++  emit(selectCallsign(shift,ctrl));
+   QTextBrowser::mouseDoubleClickEvent(e);
+ }
+
+Modified: branches/wsjtx/displaytext.h
+===================================================================
+--- branches/wsjtx/displaytext.h	2013-03-01 19:44:41 UTC (rev 3031)
++++ branches/wsjtx/displaytext.h	2013-03-01 21:25:33 UTC (rev 3032)
+@@ -10,7 +10,7 @@
+     explicit DisplayText(QWidget *parent = 0);
+ 
+ signals:
+-  void selectCallsign(bool ctrl);
++  void selectCallsign(bool shift, bool ctrl);
+ 
+ public slots:
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-01 19:44:41 UTC (rev 3031)
++++ branches/wsjtx/mainwindow.cpp	2013-03-01 21:25:33 UTC (rev 3032)
+@@ -72,8 +72,8 @@
+   txMsgButtonGroup-&gt;addButton(ui-&gt;txrb5,5);
+   txMsgButtonGroup-&gt;addButton(ui-&gt;txrb6,6);
+   connect(txMsgButtonGroup,SIGNAL(buttonClicked(int)),SLOT(set_ntx(int)));
+-  connect(ui-&gt;decodedTextBrowser,SIGNAL(selectCallsign(bool)),this,
+-          SLOT(doubleClickOnCall(bool)));
++  connect(ui-&gt;decodedTextBrowser,SIGNAL(selectCallsign(bool,bool)),this,
++          SLOT(doubleClickOnCall(bool,bool)));
+ 
+   setWindowTitle(Program_Title_Version);
+   connect(&amp;soundInThread, SIGNAL(readyForFFT(int)),
+@@ -1253,7 +1253,7 @@
+   m_restart=true;
+ }
+ 
+-void MainWindow::doubleClickOnCall(bool ctrl)
++void MainWindow::doubleClickOnCall(bool shift, bool ctrl)
+ {
+   QTextCursor cursor=ui-&gt;decodedTextBrowser-&gt;textCursor();
+   cursor.select(QTextCursor::LineUnderCursor);
+@@ -1266,10 +1266,12 @@
+   if(i4&gt;60) i4=60;
+   QString t3=t.mid(i1,i4);
+   QStringList t4=t3.split(&quot; &quot;,QString::SkipEmptyParts);
+-  if(t4.length() &lt;7) return;
+-  int nfreq=int(t4.at(4).toFloat());
+-  ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);
+-  g_pWideGraph-&gt;setQSOfreq(nfreq);
++  if(t4.length() &lt;7) return;           //Skip the rest if no decoded text
++  if(!shift) {                         //Don't change freqs if Shift key down
++    int nfreq=int(t4.at(4).toFloat());
++    ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);
++    g_pWideGraph-&gt;setQSOfreq(nfreq);
++  }
+   QString hiscall=t4.at(7);
+   ui-&gt;dxCallEntry-&gt;setText(hiscall);
+   int n = 60*t2.mid(0,2).toInt() + t2.mid(2,2).toInt();
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-01 19:44:41 UTC (rev 3031)
++++ branches/wsjtx/mainwindow.h	2013-03-01 21:25:33 UTC (rev 3032)
+@@ -28,7 +28,7 @@
+   void diskWriteFinished();
+   void freezeDecode(int n);
+   void guiUpdate();
+-  void doubleClickOnCall(bool ctrl);
++  void doubleClickOnCall(bool shift, bool ctrl);
+   void readFromStdout();
+   void readFromStderr();
+   void jt9_error();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002723.html">[WSJT-SVN] r3031 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002725.html">[WSJT-SVN] r3033 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2724">[ date ]</a>
+              <a href="thread.html#2724">[ thread ]</a>
+              <a href="subject.html#2724">[ subject ]</a>
+              <a href="author.html#2724">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

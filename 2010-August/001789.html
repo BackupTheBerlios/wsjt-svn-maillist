@@ -1,0 +1,282 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2097 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2097%20-%20wsjt7a&In-Reply-To=%3C20100808134917.B85A74803E3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001788.html">
+   <LINK REL="Next"  HREF="001790.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2097 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2097%20-%20wsjt7a&In-Reply-To=%3C20100808134917.B85A74803E3%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2097 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug  8 15:49:17 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001788.html">[WSJT-SVN] r2096 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001790.html">[WSJT-SVN] r2098 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1789">[ date ]</a>
+              <a href="thread.html#1789">[ thread ]</a>
+              <a href="subject.html#1789">[ subject ]</a>
+              <a href="author.html#1789">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-08 15:49:17 +0200 (Sun, 08 Aug 2010)
+New Revision: 2097
+
+Modified:
+   wsjt7a/chk441.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/techo.f90
+Log:
+Reduce thresholds in chk441.
+
+
+Modified: wsjt7a/chk441.f90
+===================================================================
+--- wsjt7a/chk441.f90	2010-08-07 18:39:40 UTC (rev 2096)
++++ wsjt7a/chk441.f90	2010-08-08 13:49:17 UTC (rev 2097)
+@@ -1,10 +1,12 @@
+-subroutine chk441(dat,jz,tstart,width,nfreeze,mousedf,dftolerance,nok)
++subroutine chk441(dat,jz,tstart,width,nfreeze,mousedf,             &amp;
++     dftolerance,pick,nok)
+ 
+ ! Experimental FSK441 decoder
+ 
+   parameter (NMAX=512*1024)
+   parameter (MAXFFT=8192)
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
++  logical pick
+   complex cdat(NMAX)                      !Analytic form of signal
+   character frag*28,frag0*29              !Message fragment to be matched
+   complex cfrag(2100)                     !Complex waveform of message fragment
+@@ -29,6 +31,14 @@
+      frag0=frag
+   endif
+ 
++  ccf0=3.0
++  sb0=0.75
++  if(pick) then
++     ccf0=2.5
++     sb0=0.65
++  endif
++
++
+   nsps=25                                  !Initialize variables
+   nsam=nsps*ndits
+   mswidth=10*nint(100.0*width)
+@@ -44,6 +54,8 @@
+   nfft1=2**n
+   df1=11025.0/nfft1
+   nok=0
++  ibest=1
++  sbest=0.
+ 
+   call analytic(dat(i0),npts,nfft1,s,cdat)    !Convert to analytic signal
+ 
+@@ -73,15 +85,12 @@
+   ic=min(nint(220/df1),ia)                    !Baseline range +/- 220 Hz
+   call pctile(ccf(ipk-ic),work,2*ic+1,50,base)
+   ccfmax=ccfmax/base
++  if(ccfmax.lt.ccf0) go to 800                !Reject non-FSK441 signals
+ 
+-  if(ccfmax.lt.4.0) go to 800                 !Reject non-FSK441 signals
+-
+ ! We seem to have an FSK441 ping, and we know DF; now find DT.
+   call tweak1(cdat,npts,-dfx,cdat)            !Mix to standard frequency
+ 
+-  ibest=1
+ ! Look for best match to &quot;frag&quot;, find its DT
+-  sbest=0.
+   fac=1.e-6/base
+   do i=1,npts-nsam
+      z=0.
+@@ -100,7 +109,7 @@
+      endif
+   enddo
+   rr(npts-nsam+1:)=0
+-  if(sbest.lt.0.75) go to 800     !Skip if not decodable FSK441 data
++  if(sbest.lt.sb0) go to 800            !Skip if not decodable FSK441 data
+   nok=1
+ 
+ 800 continue
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-08-07 18:39:40 UTC (rev 2096)
++++ wsjt7a/mtdecode.f	2010-08-08 13:49:17 UTC (rev 2097)
+@@ -122,10 +122,9 @@
+          endif
+ 
+          call chk441(dat,jz,tstart,width,nfreeze,mousedf,
+-     +               dftolerance,nok)
++     +               dftolerance,pick,nok)
+ !         call new441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,
+ !     +              nfreeze,mousedf,dftolerance,mycall,0,nok)
+-
+          if(msglen.eq.0 .or. nok.eq.0) go to 100
+ 
+ C  Discard this ping if DF outside tolerance limits or bauderr too big.
+
+Modified: wsjt7a/techo.f90
+===================================================================
+--- wsjt7a/techo.f90	2010-08-07 18:39:40 UTC (rev 2096)
++++ wsjt7a/techo.f90	2010-08-08 13:49:17 UTC (rev 2097)
+@@ -1,40 +1,44 @@
+ program techo
+ 
+-  parameter (NMAX=44100)            !Length of wave file, 4.0 seconds
+   parameter (NDZ=28672)
+   parameter (NSYNC=24030)
+   parameter (LAGMAX=NDZ-NSYNC)
++  parameter (NFFT=32768,NH=NFFT/2)
+ 
+-  real d(28672)
+-  complex cd(32768)
+-  complex c(32768)
+-  complex csync(24030)
+-  real s(0:16384)
+-  real s2(32768)
++  real d(NDZ)
++  complex cd(NFFT)
++  complex c(NFFT)
++  complex csync(NSYNC)
++  real s(NH)
++  real s2(NFFT)
+   character infile*40,arg*12
+   character*24 fname
++  real*8 dt,pha,dpha,twopi,f,df
+   integer ic27(27)
+   data ic27/1,3,7,15,2,5,11,23,18,8,17,6,13,27,26,24,20,12,25,22,   &amp;
+        16,4,9,19,10,21,14/
+ 
+   nargs=iargc()
+-  if(nargs.ne.2) then
+-     print*,'Usage: techo &lt;infile&gt; nrec'
++  if(nargs.ne.3) then
++     print*,'Usage: techo &lt;infile&gt; nrec nw'
+      go to 999
+   endif
+ 
+   call getarg(1,infile)
+   call getarg(2,arg)
+   read(arg,*) nrec
++  call getarg(3,arg)
++  read(arg,*) nw
+ 
+   twopi=8*atan(1.d0)
+   dt=1.d0/11025.d0
+   df=11025.d0/890.d0
+ 
+   pha=0.d0
++  f=1500.d0
+   k=0
+   do j=1,27
+-     f=1500.d0 + (ic27(j)-14)*df
++     if(nw.ne.0) f=1500.d0 + (ic27(j)-14)*df
+      dpha=twopi*f*dt
+      do i=1,890
+         pha=pha+dpha
+@@ -45,28 +49,28 @@
+ 
+   open(26,file=infile,form='unformatted',status='old')
+ 
+-  npts=28672
+-  nfft1=32768
+-  df1=11025.0/nfft1
++  npts=NDZ
++  df1=11025.0/NFFT
++  fac=1.e-4
+ 
+-
+   do irec=1,999
+      read(26,end=999) fname,ntime,dop0,doppler,d
+      if(irec.lt.nrec) cycle
+      if(irec.gt.nrec) go to 999
+      print*,fname,ntime,dop0,doppler,irec,nrec
+-     call analytic(d,npts,nfft1,s,cd)
++     d=fac+d
++     call analytic(d,npts,NFFT,s,cd)
++     cd(NDZ+1:)=0.
+ 
+-     fac=1.e-4
+      sbest=0.
+-     do lag=0,LAGMAX
++     do lag=0,LAGMAX,10
+         do i=1,NSYNC
+            c(i)=fac*cd(i+lag)*csync(i)
+         enddo
+-        c(i+1:)=0.
+-        call four2a(c,nfft1,1,-1,1)
++        c(NSYNC+1:)=0.
++        call four2a(c,NFFT,1,-1,1)
+         smax=0.
+-        do i=1,nfft1
++        do i=1,NFFT
+            s2(i)=real(c(i))**2 + aimag(c(i))**2
+            if(s2(i).gt.smax) then
+               smax=s2(i)
+@@ -80,17 +84,19 @@
+            ibest=ipk
+            lagbest=lag
+            rewind 13
+-           do i=1,nfft1
++           do i=1,NFFT
+               f=(i-1)*df1
+-              if(i.gt.nfft1/2) f=(i-nfft1-1)*df1
+-              write(13,3001) f,s2(i),db(s2(i))
++              if(i.gt.NFFT/2) f=(i-NFFT-1)*df1
++              if(abs(f).lt.200.0) write(13,3001) f,s2(i),db(s2(i))
+ 3001          format(3f12.3)
+            enddo
+         endif
+      enddo
+   call flush(13)
+   call flush(14)
+-  print*,lagbest,ibest,sbest
++  fbest=(ibest-1)*df1
++  if(ibest.gt.NH+1)   fbest=(ibest-1-NFFT)*df1
++  print*,lagbest,fbest,sbest
+   enddo
+ 
+ 999 end program techo
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001788.html">[WSJT-SVN] r2096 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001790.html">[WSJT-SVN] r2098 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1789">[ date ]</a>
+              <a href="thread.html#1789">[ thread ]</a>
+              <a href="subject.html#1789">[ subject ]</a>
+              <a href="author.html#1789">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

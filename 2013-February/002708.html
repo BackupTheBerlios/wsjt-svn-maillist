@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3016 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3016%20-%20trunk&In-Reply-To=%3C20130226170206.9EF8855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002707.html">
+   <LINK REL="Next"  HREF="002709.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3016 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3016%20-%20trunk&In-Reply-To=%3C20130226170206.9EF8855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3016 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Feb 26 18:02:06 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002707.html">[WSJT-SVN] r3015 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002709.html">[WSJT-SVN] r3017 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2708">[ date ]</a>
+              <a href="thread.html#2708">[ thread ]</a>
+              <a href="subject.html#2708">[ subject ]</a>
+              <a href="author.html#2708">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-26 18:02:06 +0100 (Tue, 26 Feb 2013)
+New Revision: 3016
+
+Modified:
+   trunk/decode4.f90
+   trunk/extract4.f90
+   trunk/getmet4.f90
+   trunk/wsjt.py
+Log:
+Tweak decoding parameters.
+
+
+Modified: trunk/decode4.f90
+===================================================================
+--- trunk/decode4.f90	2013-02-26 14:03:12 UTC (rev 3015)
++++ trunk/decode4.f90	2013-02-26 17:02:06 UTC (rev 3016)
+@@ -13,14 +13,13 @@
+   complex*16 cz,cz1,c0,c1
+   real*4 rsymbol(207,7)
+   real*4 sym(207)
+-  integer nsum(7)
+   integer amp
+   integer mettab(0:255,0:1)             !Metric table
+   integer nch(7)
+   integer npr2(207)
+   common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE),ich1,ich2
+   data mode0/-999/
+-  data nsum/7*0/,rsymbol/1449*0.0/
++  data rsymbol/1449*0.0/
+   data npr2/                                                         &amp;
+        0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,  &amp;
+        0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,  &amp;
+@@ -31,7 +30,7 @@
+        1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
+ 
+   data nch/1,2,4,9,18,36,72/
+-  save mettab,mode0,nsum,rsymbol
++  save mettab,mode0,rsymbol
+ 
+   if(mode.ne.mode0) call getmet4(mode,mettab)
+   mode0=mode
+
+Modified: trunk/extract4.f90
+===================================================================
+--- trunk/extract4.f90	2013-02-26 14:03:12 UTC (rev 3015)
++++ trunk/extract4.f90	2013-02-26 17:02:06 UTC (rev 3016)
+@@ -1,7 +1,7 @@
+ subroutine extract4(sym,nadd,ncount,decoded)
+ 
+   real sym(207)
+-  character decoded*22, submode*1
++  character decoded*22
+   character*72 c72
+   integer*1 symbol(207)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+@@ -17,8 +17,9 @@
+      first=.false.
+   endif
+ 
++  amp=4.0                               !Optimize this (may depend on nadd).
+   do j=1,207
+-     r=sym(j) + 128.
++     r=amp*sym(j) + 128.
+      if(r.gt.255.0) r=255.0
+      if(r.lt.0.0) r=0.0
+      i4=nint(r)
+@@ -28,13 +29,13 @@
+ 
+   nbits=72+31
+   ndelta=50
+-  limit=50000
++  limit=100000
+   ncycles=0
+   ncount=-1
+   decoded='                      '
+-  submode=' '
+ 
+   call interleave4(symbol(2),-1)          !Remove the interleaving
++
+   call fano232(symbol(2),nbits,mettab,ndelta,limit,data1,ncycles,metric,ncount)
+   nlim=ncycles/nbits
+ 
+@@ -52,7 +53,6 @@
+      call cs_unlock
+ 
+      call unpackmsg(data4,decoded)
+-     submode=char(ichar('A')+ich-1)
+      if(decoded(1:6).eq.'000AAA') then
+         decoded='***WRONG MODE?***'
+         ncount=-1
+
+Modified: trunk/getmet4.f90
+===================================================================
+--- trunk/getmet4.f90	2013-02-26 14:03:12 UTC (rev 3015)
++++ trunk/getmet4.f90	2013-02-26 17:02:06 UTC (rev 3016)
+@@ -40,7 +40,7 @@
+        -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
+   save
+ 
+-  bias=0.5
++  bias=0.375                                  !Nominally 0.5
+   scale=10.0
+   do i=0,255
+      mettab(i,0)=nint(scale*(xx0(i)-bias))
+@@ -49,4 +49,3 @@
+ 
+   return
+ end subroutine getmet4
+-
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-02-26 14:03:12 UTC (rev 3015)
++++ trunk/wsjt.py	2013-02-26 17:02:06 UTC (rev 3016)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------ WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002707.html">[WSJT-SVN] r3015 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002709.html">[WSJT-SVN] r3017 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2708">[ date ]</a>
+              <a href="thread.html#2708">[ thread ]</a>
+              <a href="subject.html#2708">[ subject ]</a>
+              <a href="author.html#2708">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

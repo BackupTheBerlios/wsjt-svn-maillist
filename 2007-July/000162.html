@@ -1,0 +1,391 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r477 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r477%20-%20branches/map65&In-Reply-To=%3C200707091614.l69GE5fm024056%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000161.html">
+   <LINK REL="Next"  HREF="000163.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r477 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r477%20-%20branches/map65&In-Reply-To=%3C200707091614.l69GE5fm024056%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r477 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  9 18:14:05 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000161.html">[WSJT-SVN] r476 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000163.html">[WSJT-SVN] r478 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#162">[ date ]</a>
+              <a href="thread.html#162">[ thread ]</a>
+              <a href="subject.html#162">[ subject ]</a>
+              <a href="author.html#162">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-09 18:14:00 +0200 (Mon, 09 Jul 2007)
+New Revision: 477
+
+Modified:
+   branches/map65/display.F90
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/options.py
+Log:
+Added user options for nkeep, dphi, fa, fb, fcal, and savedir.
+Implemented &quot;Find dphi&quot;.
+
+
+Modified: branches/map65/display.F90
+===================================================================
+--- branches/map65/display.F90	2007-07-09 11:45:49 UTC (rev 476)
++++ branches/map65/display.F90	2007-07-09 16:14:00 UTC (rev 477)
+@@ -1,4 +1,4 @@
+-subroutine display
++subroutine display(nkeep)
+ 
+ #ifdef Win32
+   use dfport
+@@ -14,7 +14,6 @@
+   real freqkHz(MAXLINES)
+   integer utc(MAXLINES),utc2(MX),utcz
+   real*8 f0
+-  data nkeep/20/
+ 
+   ftol=0.02
+   rewind 26
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-07-09 11:45:49 UTC (rev 476)
++++ branches/map65/gcom2.f90	2007-07-09 16:14:00 UTC (rev 477)
+@@ -35,6 +35,11 @@
+ integer nfreeze        !Is Freeze checked?                      GUI
+ integer nafc           !Is AFC checked?                         GUI
+ integer newspec        !New spectra in ss(4,322,NSMAX)     GUI,Decoder
++integer nfa            !Low end of map65 search (def 100 kHz)   GUI
++integer nfb            !High end of map65 search (def 160 kHz)  GUI
++integer nfcal          !Calibration offset, Hz                  GUI
++integer idphi          !Phase offset in Y channel (deg)         GUI
++integer nkeep          !Timeout limit for band maps (min)       GUI
+ integer nmode          !Which WSJT mode?                   GUI,Decoder
+ integer mode65         !JT65 sub-mode (A/B/C ==&gt; 1/2/4) GUI,SoundIn,Decoder
+ integer nclip          !Clipping level                          GUI
+@@ -85,6 +90,7 @@
+ character*24 fnameb
+ character*24 decodedfile
+ character*80 AppDir      !WSJT installation directory           GUI
++character*80 SaveDir     !Directory for saved data files        GUI
+ character*80 filetokilla !Filenames (full path)                 Decoder
+ character*80 filetokillb
+ character*12 pttport
+@@ -95,13 +101,14 @@
+      ndecoding,ndecoding0,mousebutton,                                      &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,     &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+-     nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,ndphi,        &amp;
++     nclearave,nfreeze,nafc,newspec,nfa,nfb,nfcal,idphi,nkeep,              &amp;
++     nmode,mode65,nclip,ndebug,ndphi,                                       &amp;
+      nblank,nport,mousedf,mousefqso,neme,nrw26,naggressive,ntx2,nagain,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,         &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,    &amp;
+      ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),         &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,               &amp;
+-     fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport,     &amp;
+-     utcdata
++     fnameb,decodedfile,AppDir,SaveDir,filetokilla,filetokillb,utcdate,     &amp;
++     pttport,utcdata
+ 
+ !### volatile /gcom2/
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-09 11:45:49 UTC (rev 476)
++++ branches/map65/map65.py	2007-07-09 16:14:00 UTC (rev 477)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- MAP65
++#--------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -42,6 +42,7 @@
+ 
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
++g.appdir=appdir
+ isync=1
+ isync_save=0
+ iclip=0
+@@ -1203,6 +1204,31 @@
+     except:
+         Audio.gcom2.idinterval=0
+     Audio.gcom2.ntx2=0
++    try:
++        Audio.gcom2.nkeep=options.nkeep.get()
++    except:
++        Audio.gcom2.nkeep=20
++    try:
++        Audio.gcom2.idphi=options.dphi.get()
++    except:
++        Audio.gcom2.idphi=0
++    try:
++        Audio.gcom2.nfa=options.fa.get()
++    except:
++        Audio.gcom2.nfa=100
++    try:
++        Audio.gcom2.nfb=options.fb.get()
++    except:
++        Audio.gcom2.nfa=160
++    try:
++        Audio.gcom2.nfcal=options.fcal.get()
++    except:
++        Audio.gcom2.nfcal=0
++    t=options.savedir.get() + \
++        '                                        ' + \
++        '                                        '
++    Audio.gcom2.savedir=t[:80]
++    
+ #    Audio.gcom1.rxdelay=float('0'+options.RxDelay.get())
+ #    Audio.gcom1.txdelay=float('0'+options.TxDelay.get())
+     if ntx.get()==1 and noshjt65.get()==1: Audio.gcom2.ntx2=1
+@@ -1679,6 +1705,14 @@
+         elif key == 'AddPrefix': options.addpfx.set(value.replace(&quot;_&quot;,&quot; &quot;).lstrip())
+         elif key == 'AuxRA': options.auxra.set(value)
+         elif key == 'AuxDEC': options.auxdec.set(value)
++        
++        elif key == 'nkeep': options.nkeep.set(value)
++        elif key == 'fa': options.fa.set(value)
++        elif key == 'fb': options.fb.set(value)
++        elif key == 'fcal': options.fcal.set(value)
++        elif key == 'dphi': options.dphi.set(value)
++        elif key == 'savedir': options.savedir.set(value)
++        
+         elif key == 'TxFirst': TxFirst.set(value)
+         elif key == 'KB8RQ': kb8rq.set(value)
+         elif key == 'K2TXB': k2txb.set(value)
+@@ -1762,6 +1796,12 @@
+ if options.auxdec.get()==&quot;&quot;: options.auxdec.set(&quot;0&quot;)
+ f.write(&quot;AuxRA &quot; + options.auxra.get() + &quot;\n&quot;)
+ f.write(&quot;AuxDEC &quot; + options.auxdec.get() + &quot;\n&quot;)
++f.write(&quot;nkeep &quot; + str(options.nkeep.get()) + &quot;\n&quot;)
++f.write(&quot;dphi &quot; + str(options.dphi.get()) + &quot;\n&quot;)
++f.write(&quot;fa &quot; + str(options.fa.get()) + &quot;\n&quot;)
++f.write(&quot;fb &quot; + str(options.fb.get()) + &quot;\n&quot;)
++f.write(&quot;fcal &quot; + str(options.fcal.get()) + &quot;\n&quot;)
++f.write(&quot;SaveDir &quot; + str(options.savedir.get()) + &quot;\n&quot;)
+ f.write(&quot;TxFirst &quot; + str(TxFirst.get()) + &quot;\n&quot;)
+ f.write(&quot;KB8RQ &quot; + str(kb8rq.get()) + &quot;\n&quot;)
+ f.write(&quot;K2TXB &quot; + str(k2txb.get()) + &quot;\n&quot;)
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-09 11:45:49 UTC (rev 476)
++++ branches/map65/map65a.F90	2007-07-09 16:14:00 UTC (rev 477)
+@@ -46,10 +46,13 @@
+ 
+   df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
+   ftol=0.020                          !Frequency tolerance (kHz)
+-  fselect=mousefqso + 1.6
++  foffset=0.001*(1270 + nfcal)
++  fselect=mousefqso + foffset
+   nfilt=1
+-  dphi=310/57.2957795
+-
++  dphi=idphi/57.2957795
++  
++  iloop=0
++1 if(ndphi.eq.1) dphi=30*iloop/57.2957795
+   do nqd=1,0,-1
+      if(nqd.eq.1) then
+         fa=1000.0*(fselect+0.001*mousedf-100.0) - dftolerance
+@@ -57,8 +60,8 @@
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+         ib=nint((fb+23000.0)/df + 1.0)
+      else
+-        fa=0.0
+-        fb=60000.0
++        fa=1000*(nfa-100)
++        fb=1000*(nfb-100)
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+         ib=nint((fb+23000.0)/df + 1.0)
+      endif
+@@ -164,8 +167,9 @@
+ !  Keep only the best candidate within ftol.
+ !  (Am I deleting any good decodes by doing this?)
+               if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.               &amp;
+-                   nkm.eq.1) km=km-1
+-              if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
++                   nkm.eq.1 .and.ndphi.eq.0) km=km-1
++              if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .or.                 &amp;
++                   ndphi.eq.1) then
+                  nflip=nint(flipk)
+                  call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,          &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,      &amp;
+@@ -181,7 +185,7 @@
+                  sig(km,8)=sync2
+                  sig(km,9)=nkv
+                  sig(km,10)=qual
+-!                     sig(km,11)=rms0                  
++!                 sig(km,11)=idphi
+                  sig(km,12)=savg(ipol,i)
+                  sig(km,13)=a(1)
+                  sig(km,14)=a(2)
+@@ -211,6 +215,7 @@
+               sync2=sig(k,8)
+               nkv=sig(k,9)
+               nqual=sig(k,10)
++!              idphi=nint(sig(k,11))
+               if(flip.lt.0.0) then
+                  do i=22,1,-1
+                     if(decoded(i:i).ne.' ') go to 8
+@@ -218,9 +223,9 @@
+                  stop 'Error in message format'
+ 8                if(i.le.18) decoded(i+2:i+4)='OOO'
+               endif
+-              nkHz=nint(freq-1.600)
++              nkHz=nint(freq-foffset)
+               f0=144.0+0.001*nkHz
+-              ndf=nint(1000.0*(freq-1.600-nkHz))
++              ndf=nint(1000.0*(freq-foffset-nkHz))
+ !              ndf0=nint(a(1))
+ !              ndf1=nint(a(2))
+ !              ndf2=nint(a(3))
+@@ -228,8 +233,9 @@
+               nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+               nw=0                                !### Fix this! ###
+               nwrite=nwrite+1
+-              write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
+-1010          format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4)
++              write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,  &amp;
++                   nqual,30*iloop
++1010          format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
+            endif
+         enddo
+         if(nwrite.eq.0) then
+@@ -244,6 +250,10 @@
+ 3002 format('mod65a  2:'i8.2)
+         ndecdone=1
+      endif
++     if(ndphi.eq.1 .and.iloop.lt.12) then
++        iloop=iloop+1
++        go to 1
++     endif
+      if(nagain.eq.1) go to 999
+   enddo
+ 
+@@ -295,9 +305,9 @@
+               stop 'Error in message format'
+ 10            if(i.le.18) decoded(i+2:i+4)='OOO'
+            endif
+-           nkHz=nint(freq-1.600)
++           nkHz=nint(freq-foffset)
+            f0=144.0+0.001*nkHz
+-           ndf=nint(1000.0*(freq-1.600-nkHz))
++           ndf=nint(1000.0*(freq-foffset-nkHz))
+            ndf0=nint(a(1))
+            ndf1=nint(a(2))
+            ndf2=nint(a(3))
+@@ -315,12 +325,13 @@
+      endif
+      j=j+nsiz(n)
+   enddo
+-  call display
++  call display(nkeep)
+   ndecdone=2
+ 
+   if(nsave.gt.0) call savetf2(id(1,1,kbuf),nsave,nutc)
+     
+ 999 close(23)
++  ndphi=0
+   if(kbuf.eq.1) kkdone=60*96000
+   if(kbuf.eq.2 .or. ndiskdat.eq.1) kkdone=0
+   kk=kkdone
+
+Modified: branches/map65/options.py
+===================================================================
+--- branches/map65/options.py	2007-07-09 11:45:49 UTC (rev 476)
++++ branches/map65/options.py	2007-07-09 16:14:00 UTC (rev 477)
+@@ -41,6 +41,12 @@
+ addpfx=StringVar()
+ auxra=StringVar()
+ auxdec=StringVar()
++nkeep=IntVar()
++dphi=IntVar()
++fa=IntVar()
++fb=IntVar()
++fcal=IntVar()
++savedir=StringVar()
+ 
+ mycall=Pmw.EntryField(g1.interior(),labelpos=W,label_text='My Call:',
+         value='K1JT',entry_textvariable=MyCall,entry_width=12)
+@@ -51,7 +57,8 @@
+ ##txdelay=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Tx Delay (s):',
+ ##        value='0.2',entry_textvariable=TxDelay)
+ idinterval=Pmw.EntryField(g1.interior(),labelpos=W,label_text='ID Interval (m):',
+-        value=10,entry_textvariable=IDinterval,entry_width=12)
++        value=10,validate={'validator':'numeric','min':0,'max':60}, \
++        entry_textvariable=IDinterval,entry_width=12)
+ comport=Pmw.EntryField(g1.interior(),labelpos=W,label_text='PTT Port:',
+         value='/dev/ttyS0',entry_textvariable=PttPort,entry_width=12)
+ audioout=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Audio Out:',
+@@ -84,7 +91,20 @@
+     entry_width=9,entry_textvariable=auxra)
+ aux_dec=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Source DEC:',
+     entry_width=9,entry_textvariable=auxdec)
+-widgets = (temp_prefix,aux_ra,aux_dec)
++nkeep_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='nkeep (min):',
++    entry_width=9,value=20,entry_textvariable=nkeep)
++dphi_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Dphi (deg):',
++    entry_width=9,entry_textvariable=dphi)
++fa_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fa (kHz):',
++    entry_width=9,value=100,entry_textvariable=fa)
++fb_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fb (kHz):',
++    entry_width=9,value=160,entry_textvariable=fb)
++fcal_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fcal (Hz):',
++    entry_width=9,entry_textvariable=fcal)
++savedir_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='SaveDir:',
++    entry_width=20,value=g.appdir+'/save',entry_textvariable=savedir)
++widgets = (temp_prefix,aux_ra,aux_dec,nkeep_entry,dphi_entry, \
++           fa_entry,fb_entry,fcal_entry,savedir_entry,)
+ for widget in widgets:
+     widget.pack(padx=10,pady=2)
+ Pmw.alignlabels(widgets)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000161.html">[WSJT-SVN] r476 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000163.html">[WSJT-SVN] r478 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#162">[ date ]</a>
+              <a href="thread.html#162">[ thread ]</a>
+              <a href="subject.html#162">[ subject ]</a>
+              <a href="author.html#162">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2139 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2139%20-%20wsjt7a&In-Reply-To=%3C20100913140243.D0FBC481034%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001830.html">
+   <LINK REL="Next"  HREF="001832.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2139 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2139%20-%20wsjt7a&In-Reply-To=%3C20100913140243.D0FBC481034%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2139 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 13 16:02:43 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001830.html">[WSJT-SVN] r2138 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001832.html">[WSJT-SVN] r2140 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1831">[ date ]</a>
+              <a href="thread.html#1831">[ thread ]</a>
+              <a href="subject.html#1831">[ subject ]</a>
+              <a href="author.html#1831">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-13 16:02:43 +0200 (Mon, 13 Sep 2010)
+New Revision: 2139
+
+Modified:
+   wsjt7a/fivehz.f90
+   wsjt7a/gcom2.f90
+   wsjt7a/wsjt.py
+Log:
+Implement a &quot;Tx both&quot; option.
+
+
+Modified: wsjt7a/fivehz.f90
+===================================================================
+--- wsjt7a/fivehz.f90	2010-09-13 02:26:34 UTC (rev 2138)
++++ wsjt7a/fivehz.f90	2010-09-13 14:02:43 UTC (rev 2139)
+@@ -143,13 +143,18 @@
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   endif
+ 
+-  if(TxFirst.eq.0) then
++  if(TxFirst.eq.0 .and. ntxboth.eq.0) then
+      tx1=tx1+trperiod
+      tx2=tx2+trperiod
+   endif
+ 
+   t=mod(Tsec,2.d0*trperiod)
+-  txtime = t.ge.tx1 .and. t.lt.tx2
++  if(ntxboth.eq.0) then
++     txtime = t.ge.tx1 .and. t.lt.tx2
++  else
++     txtime = (t.ge.tx1 .and. t.lt.tx2) .or.                     &amp;
++          (t.ge.tx1+trperiod .and. t.lt.tx2+trperiod)
++  endif
+ 
+ ! If we're transmitting, freeze the input buffer pointers where they were.
+   receiving=1
+
+Modified: wsjt7a/gcom2.f90
+===================================================================
+--- wsjt7a/gcom2.f90	2010-09-13 02:26:34 UTC (rev 2138)
++++ wsjt7a/gcom2.f90	2010-09-13 14:02:43 UTC (rev 2139)
+@@ -28,6 +28,7 @@
+ integer mantx          !Manual transmission requested?       GUI,SoundIn
+ integer nrestart       !True if transmission should restart  GUI,SoundIn
+ integer ntr            !Are we in 2nd sequence?                 SoundIn
++integer ntxboth        !Transmit both sequqnces?                GUI
+ integer nmsg           !Length of Tx message                    SoundIn
+ integer nsave          !Which files to save?                    GUI
+ integer nadd5          !Prepend 5 sec of 0's before decoding?   GUI 
+@@ -104,7 +105,8 @@
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,dlatency,fecho,iter,iyr,imo,ida,         &amp;
+      ndecoding,ndecoding0,mousebutton,ntc,necho,nfrit,ndither,        &amp;
+-     nsumecho,ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,  &amp;
++     nsumecho,ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,       &amp;
++     ntxboth,nmsg,                                                    &amp;
+      nsave,nadd5,dftolerance,LDecoded,rxdone,monitoring,nzap,         &amp;
+      nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
+      mode4,ndebug,nport,mousedf,                                      &amp;
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-09-13 02:26:34 UTC (rev 2138)
++++ wsjt7a/wsjt.py	2010-09-13 14:02:43 UTC (rev 2139)
+@@ -2085,6 +2085,12 @@
+ except:
+     pass
+ 
++try:
++    f=open(appdir+'/txboth','r')
++    Audio.gcom2.ntxboth=1
++except:
++    Audio.gcom2.ntxboth=0
++
+ if (sys.platform == 'darwin'):
+     mbar.add_cascade(label=&quot;Mode&quot;, menu=modemenu)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001830.html">[WSJT-SVN] r2138 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001832.html">[WSJT-SVN] r2140 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1831">[ date ]</a>
+              <a href="thread.html#1831">[ thread ]</a>
+              <a href="subject.html#1831">[ subject ]</a>
+              <a href="author.html#1831">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3584 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3584%20-%20branches/wsjtx&In-Reply-To=%3C20130928035644.13E8355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003276.html">
+   <LINK REL="Next"  HREF="003278.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3584 - branches/wsjtx</H1>
+    <B>vk3acf at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3584%20-%20branches/wsjtx&In-Reply-To=%3C20130928035644.13E8355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3584 - branches/wsjtx">vk3acf at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 28 05:56:43 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003276.html">[WSJT-SVN] r3583 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003278.html">[WSJT-SVN] r3585 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3277">[ date ]</a>
+              <a href="thread.html#3277">[ thread ]</a>
+              <a href="subject.html#3277">[ subject ]</a>
+              <a href="author.html#3277">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: vk3acf
+Date: 2013-09-28 05:56:43 +0200 (Sat, 28 Sep 2013)
+New Revision: 3584
+
+Modified:
+   branches/wsjtx/displaytext.cpp
+   branches/wsjtx/mainwindow.cpp
+Log:
+1. Fix for the locator being truncated on double click when the call was unexpectly long
+2. Removed commented code left over from previous edits in MainWindow::doubleClickOnCall()
+
+
+
+Modified: branches/wsjtx/displaytext.cpp
+===================================================================
+--- branches/wsjtx/displaytext.cpp	2013-09-28 00:58:36 UTC (rev 3583)
++++ branches/wsjtx/displaytext.cpp	2013-09-28 03:56:43 UTC (rev 3584)
+@@ -72,8 +72,13 @@
+     int charsAvail = _maxDisplayedCharacters;
+ 
+     // the decoder (seems) to always generate 40 chars. For a normal CQ call, the last five are spaces
+-    t1 = t1.left(36);  // reduce trailing white space  TODO this magic 36 is also referenced in MainWindow::doubleClickOnCall()
+-    charsAvail -= 36;
++    // TODO this magic 36 characters is also referenced in MainWindow::doubleClickOnCall()
++    int s3 = t1.indexOf(&quot; &quot;,35);
++    if (s3 &lt; 35)
++        s3 = 35; // we always want at least the characters to position 35
++    s3 += 1; // convert the index into a character count
++    t1 = t1.left(s3);  // reduce trailing white space
++    charsAvail -= s3;
+     if (charsAvail &gt; 4)
+     {
+         if (!countryWorkedBefore) // therefore not worked call either
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-09-28 00:58:36 UTC (rev 3583)
++++ branches/wsjtx/mainwindow.cpp	2013-09-28 03:56:43 UTC (rev 3584)
+@@ -1936,8 +1936,16 @@
+   decodedtext = t1.mid(i1,i2-i1);         //selected line
+ 
+   if (decodedtext.indexOf(&quot; CQ &quot;) &gt; 0)
+-      decodedtext = decodedtext.left(39);  // to remove DXCC entity and worked B4 status. TODO need a better way to do this
++  {
++      // TODO this magic 36 characters is also referenced in DisplayText::_appendDXCCWorkedB4()
++      int s3 = decodedtext.indexOf(&quot; &quot;,35);
++      if (s3 &lt; 35)
++          s3 = 35; // we always want at least the characters to position 35
++      s3 += 1; // convert the index into a character count
++      decodedtext = decodedtext.left(s3);  // remove DXCC entity and worked B4 status. TODO need a better way to do this
++  }
+ 
++
+ //  if(decodedtext.indexOf(&quot;Tx&quot;)==6) return;        //Ignore Tx line
+   int i4=t.mid(i1).length();
+   if(i4&gt;55) i4=55;
+@@ -1954,15 +1962,6 @@
+     m_QSOText=decodedtext;
+   }
+ 
+-  /*
+-    int nfreq=t4.at(3).toInt();
+-    if(t4.at(1)==&quot;Tx&quot;) nfreq=t4.at(2).toInt();
+-    m_wideGraph-&gt;setRxFreq(nfreq);                      //Set Rx freq
+-    if(t4.at(1)==&quot;Tx&quot;) {
+-      if(ctrl) ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);       //Set Tx freq
+-      return;
+-    }
+-  */
+ 
+   int frequency = decodedtext.frequencyOffset();
+   m_wideGraph-&gt;setRxFreq(frequency);                 //Set Rx freq
+@@ -1973,34 +1972,12 @@
+     return;
+   }
+ 
+-  /*
+-    QString firstcall=t4.at(5);
+-    // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
+-    // is true or CTRL is held down or
+-    if((firstcall!=m_myCall) or m_lockTxFreq or ctrl) {
+-      ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);
+-    }
+-  */
+-
+   QString firstcall = decodedtext.call();
+   // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
+   // is true or CTRL is held down
+   if ((firstcall!=m_myCall) or m_lockTxFreq or ctrl)
+     ui-&gt;TxFreqSpinBox-&gt;setValue(frequency);
+ 
+-  /*
+-    if(t4.at(4)==&quot;@&quot;) {
+-      m_modeTx=&quot;JT9&quot;;
+-      ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
+-      m_wideGraph-&gt;setModeTx(m_modeTx);
+-    }
+-    if(t4.at(4)==&quot;#&quot;) {
+-      m_modeTx=&quot;JT65&quot;;
+-      ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+-      m_wideGraph-&gt;setModeTx(m_modeTx);
+-    }
+-  */
+-
+   if (decodedtext.isJT9())
+   {
+     m_modeTx=&quot;JT9&quot;;
+@@ -2014,16 +1991,6 @@
+           ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+           m_wideGraph-&gt;setModeTx(m_modeTx);
+       }
+-/*
+-  QString hiscall=t4.at(6);
+-  QString hisgrid=&quot;&quot;;
+-  if(t4.length()&gt;=8) hisgrid=t4.at(7);
+-  if(hiscall!=ui-&gt;dxCallEntry-&gt;text())   ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
+-  ui-&gt;dxCallEntry-&gt;setText(hiscall);
+-  if(gridOK(hisgrid)) ui-&gt;dxGridEntry-&gt;setText(hisgrid);
+-  if(ui-&gt;dxGridEntry-&gt;text()==&quot;&quot;) lookup();
+-  m_hisGrid=ui-&gt;dxGridEntry-&gt;text();
+-*/
+ 
+   QString hiscall;
+   QString hisgrid;
+@@ -2037,29 +2004,11 @@
+       lookup();
+   m_hisGrid = ui-&gt;dxGridEntry-&gt;text();
+ 
+-/*
+-  int n = 60*decodedtext.mid(0,2).toInt() + decodedtext.mid(2,2).toInt();
+-  int nmod=n%(m_TRperiod/30);
+-  m_txFirst=(nmod!=0);
+-  ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
+-*/
+   int n = decodedtext.timeInSeconds();
+   int nmod=n%(m_TRperiod/30);
+   m_txFirst=(nmod!=0);
+   ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
+ 
+-/*
+-  QString rpt=t4.at(1);
+-  if(rpt.indexOf(&quot;  &quot;)==0) rpt=&quot;+&quot; + rpt.mid(2,2);
+-  if(rpt.indexOf(&quot; -&quot;)==0) rpt=rpt.mid(1,2);
+-  if(rpt.indexOf(&quot; &quot;)==0) rpt=&quot;+&quot; + rpt.mid(1,2);
+-  int nr=rpt.toInt();
+-  if(nr&lt;-50) rpt=&quot;-50&quot;;
+-  if(nr&gt;49) rpt=&quot;+49&quot;;
+-  if(nr&gt;=-9 and nr&lt;=-1) rpt=&quot;-0&quot; + rpt.mid(1);
+-  if(nr&gt;=0 and nr&lt;=9) rpt=&quot;+0&quot; + rpt;
+-  if(nr&gt;=10) rpt=&quot;+&quot; + rpt;
+-*/
+   QString rpt = decodedtext.report();
+   ui-&gt;rptSpinBox-&gt;setValue(rpt.toInt());
+   genStdMsgs(rpt);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003276.html">[WSJT-SVN] r3583 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003278.html">[WSJT-SVN] r3585 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3277">[ date ]</a>
+              <a href="thread.html#3277">[ thread ]</a>
+              <a href="subject.html#3277">[ subject ]</a>
+              <a href="author.html#3277">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

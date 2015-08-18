@@ -1,0 +1,288 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2372 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2372%20-%20trunk&In-Reply-To=%3C20110329163253.5F8C6480AA5%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002063.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2372 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2372%20-%20trunk&In-Reply-To=%3C20110329163253.5F8C6480AA5%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2372 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 29 18:32:53 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002063.html">[WSJT-SVN] r2371 - trunk
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2064">[ date ]</a>
+              <a href="thread.html#2064">[ thread ]</a>
+              <a href="subject.html#2064">[ subject ]</a>
+              <a href="author.html#2064">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-03-29 18:32:53 +0200 (Tue, 29 Mar 2011)
+New Revision: 2372
+
+Modified:
+   trunk/iscat.f90
+   trunk/wsjt.py
+Log:
+Working v9.1, with submodes ISCAT-A and ISCAT-B.
+
+
+Modified: trunk/iscat.f90
+===================================================================
+--- trunk/iscat.f90	2011-03-28 19:55:40 UTC (rev 2371)
++++ trunk/iscat.f90	2011-03-29 16:32:53 UTC (rev 2372)
+@@ -10,14 +10,14 @@
+   character c42*42
+   character msg*28,msg1*28
+   real x(NSZ),x2(NSZ)
+-  complex c(0:512)
+-  real s0(128,NSZ)
+-  real fs0(128,108)                       !108 = 96 + 3*4
++  complex c(0:1024)
++  real s0(256,NSZ)
++  real fs0(256,108)                       !108 = 96 + 3*4
+   real fs1(0:41,30)
+-  real savg(128)
+-  real b(128)
++  real savg(256)
++  real b(256)
+   real ccf(-5:540)
+-  real psavg(450)         !Average spectrum of the whole file
++  real psavg(64)                          !Average spectrum of whole file
+   integer dftolerance
+   integer icos(4)
+   equivalence (x,c)
+@@ -58,8 +58,12 @@
+      call pctile(x,x2,jsym,30,b(i))
+   enddo
+   b(1:10)=b(11)
+-  do i=1,nq/2
+-     psavg(i)=2*db(savg(2*i)) + 10.0
++  do i=1,64
++     if(mode4.eq.1) then
++        psavg(i)=2*db(savg(4*i)+savg(4*i-1)+savg(4*i-2)+savg(4*i-3)) + 1.0
++     else
++        psavg(i)=2*db(savg(2*i)+savg(2*i-1)) + 7.0
++     endif
+   enddo
+ 
+   do j=1,jsym
+@@ -69,47 +73,48 @@
+   fs0=0.
+   jb=(jsym-4*nblk+1)/4
+   jb=4*jb
+-  do j=1,jb                                  !Fold s0 modulo 4*nblk into fs0
++  do j=1,jb                                  !Fold s0 into fs0, modulo 4*nblk 
+      k=mod(j-1,4*nblk)+1
+      fs0(1:nq,k)=fs0(1:nq,k) + s0(1:nq,j)
+   enddo
+ 
+   do j=1,12
+-     fs0(1:nq,96+j)=fs0(1:nq,j)
++     fs0(i:nq,96+j)=fs0(1:nq,j)
+   enddo
+ 
+   i0=2*13
++  if(mode4.eq.1) i0=2*47
+   smax=0.
+   ipk=1
+   jpk=1
+-  ia=-400/df
+-  ib=400/df
++  ia=i0-400/df
++  ib=i0+400/df
+   if(nfreeze.eq.1) then
+-     ia=(mousedf-dftolerance)/df
+-     ib=(mousedf+dftolerance)/df
++     ia=i0+(mousedf-dftolerance)/df
++     ib=i0+(mousedf+dftolerance)/df
+   endif
+-  if(i0+ia.lt.1) ia=1-i0
+-  if(i0+ib+3.gt.128) ib=128-3-i0
++  if(ia.lt.1) ia=1
++  if(ib.gt.nq-3) ib=nq-3
+ 
+   do j=0,4*nblk-1                            !Find sync pattern, lags 0-95
+      do i=ia,ib
+         ss=0.
+         do n=1,4
+            k=j+4*n-3
+-           if(k.gt.4*nblk) k=k-4*nblk
+-           ss=ss + fs0(i0+i+2*icos(n),k)
++!           if(k.gt.4*nblk) k=k-4*nblk
++           ss=ss + fs0(i+2*icos(n),k)
+         enddo
+         if(ss.gt.smax) then
+            smax=ss
+-           ipk=i0+i                          !Frequency offset, DF
++           ipk=i                             !Frequency offset, DF
+            jpk=j+1                           !Time offset, DT
+         endif
+      enddo
+   enddo
+ 
+-  ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)  +        &amp;
+-      fs0(ipk,jpk+4) + fs0(ipk+4,jpk+4) + fs0(ipk+6,jpk+4) +     &amp;
+-      fs0(ipk,jpk+8) + fs0(ipk+2,jpk+8) + fs0(ipk+4,jpk+8) +     &amp;
++  ref=fs0(ipk+2,jpk)  + fs0(ipk+4,jpk)    + fs0(ipk+6,jpk)   +     &amp;
++      fs0(ipk,jpk+4)  + fs0(ipk+4,jpk+4)  + fs0(ipk+6,jpk+4) +     &amp;
++      fs0(ipk,jpk+8)  + fs0(ipk+2,jpk+8)  + fs0(ipk+4,jpk+8) +     &amp;
+       fs0(ipk,jpk+12) + fs0(ipk+2,jpk+12) + fs0(ipk+6,jpk+12)
+   ref=ref/3.0
+ 
+@@ -118,7 +123,7 @@
+      ss=0.
+      do n=1,4
+         k=j+4*n-3
+-        if(k.gt.4*nblk) k=k-4*nblk
++!        if(k.gt.4*nblk) k=k-4*nblk
+         ss=ss + fs0(ipk+2*icos(n),k)
+      enddo
+      kk=kk+1
+@@ -128,8 +133,9 @@
+   tping=jpk*kstep/11025.0
+   xsync=smax/ref
+   nsig=nint(db(smax/ref - 1.0) -15.0)
++  if(mode4.eq.1) nsig=nsig-5
+   if(nsig.lt.-20) nsig=-20
+-  ndf0=nint((ipk-i0) * 11025.0/nfft)
++  ndf0=nint(df*(ipk-i0))
+   if(nsig.lt.MinSigdB) then
+      msglen=0
+      worst=1.
+@@ -137,10 +143,6 @@
+      go to 800
+   endif
+ 
+-  if(ipk.gt.100 .or. jpk.gt.96) then
+-     print*,'ipk:',ipk,'   jpk:',jpk
+-     go to 900
+-  endif
+   smax=0.
+   ja=jpk+16
+   if(ja.gt.4*nblk) ja=ja-4*nblk
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-03-28 19:55:40 UTC (rev 2371)
++++ trunk/wsjt.py	2011-03-29 16:32:53 UTC (rev 2372)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -26,7 +26,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;9.02 r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;9.1 r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;WSJT Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -635,7 +635,7 @@
+     bexclude.pack(side=LEFT,expand=1,fill=X)
+     btxstop.pack(side=LEFT,expand=1,fill=X)
+ 
+-    cbfreeze.grid(column=0,row=2,padx=2,sticky='W')
++    cbfreeze.grid(column=1,row=2,padx=2,sticky='W')
+     cbafc.grid(column=1,row=1,padx=2,sticky='W')
+     if ltxdf: toggletxdf()
+     btxdf.grid_forget()
+@@ -686,17 +686,17 @@
+ #------------------------------------------------------ ModeISCAT_A
+ def ModeISCAT_A(event=NONE):
+     ModeISCAT_B()
+-    mode.set(&quot;ISCAT_A&quot;)
++    mode.set(&quot;ISCAT-A&quot;)
+     Audio.gcom2.mode4=1
+     
+ #------------------------------------------------------ ModeISCAT_B
+ def ModeISCAT_B(event=NONE):
+     global isync,isync_iscat
+-    if g.mode != &quot;ISCAT_B&quot;:
++    if g.mode != &quot;ISCAT-B&quot;:
+         if lauto: toggleauto()
+         cleartext()
+         ModeFSK441()
+-        mode.set(&quot;ISCAT_B&quot;)
++        mode.set(&quot;ISCAT-B&quot;)
+         lab2.configure(text='FileID      Avg dB        DF')
+         isync=isync_iscat
+         lsync.configure(text=slabel+str(isync))
+@@ -2093,8 +2093,8 @@
+ # state=modemenu.entrycget(0,&quot;state&quot;)
+ 
+ modemenu.add_radiobutton(label = 'FSK441', variable=mode,command = ModeFSK441, state=NORMAL)
+-modemenu.add_radiobutton(label = 'ISCAT_A', variable=mode, command = ModeISCAT_A)
+-modemenu.add_radiobutton(label = 'ISCAT_B', variable=mode, command = ModeISCAT_B)
++modemenu.add_radiobutton(label = 'ISCAT-A', variable=mode, command = ModeISCAT_A)
++modemenu.add_radiobutton(label = 'ISCAT-B', variable=mode, command = ModeISCAT_B)
+ modemenu.add_radiobutton(label = 'JT65A', variable=mode, command = ModeJT65A)
+ modemenu.add_radiobutton(label = 'JT65B', variable=mode, command = ModeJT65B)
+ modemenu.add_radiobutton(label = 'JT65C', variable=mode, command = ModeJT65C)
+@@ -2608,9 +2608,9 @@
+                 ModeJT65C()
+             elif value=='CW':
+                 ModeCW()
+-            elif value=='ISCAT_A':
++            elif value=='ISCAT-A':
+                 ModeISCAT_A()
+-            elif value=='ISCAT_B':
++            elif value=='ISCAT-B':
+                 ModeISCAT_B()
+             elif value=='Diana':
+                 ModeDiana()
+@@ -2763,7 +2763,7 @@
+ else:
+     stopmon()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSJT 9.02     by K1JT')
++root.title('  WSJT 9.1     by K1JT')
+ from WsjtMod import astro
+ from WsjtMod import specjt
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002063.html">[WSJT-SVN] r2371 - trunk
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2064">[ date ]</a>
+              <a href="thread.html#2064">[ thread ]</a>
+              <a href="subject.html#2064">[ subject ]</a>
+              <a href="author.html#2064">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

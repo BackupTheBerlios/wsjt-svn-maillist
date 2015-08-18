@@ -1,0 +1,290 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2225 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2225%20-%20branches/wspr&In-Reply-To=%3C20101022172440.148194801E6%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001916.html">
+   <LINK REL="Next"  HREF="001918.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2225 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2225%20-%20branches/wspr&In-Reply-To=%3C20101022172440.148194801E6%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2225 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 22 19:24:39 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001916.html">[WSJT-SVN] r2224 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001918.html">[WSJT-SVN] r2226 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1917">[ date ]</a>
+              <a href="thread.html#1917">[ thread ]</a>
+              <a href="subject.html#1917">[ subject ]</a>
+              <a href="author.html#1917">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-10-22 19:24:39 +0200 (Fri, 22 Oct 2010)
+New Revision: 2225
+
+Removed:
+   branches/wspr/fftw3.dll
+   branches/wspr/fftw3single.lib
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/iqdemod.f90
+   branches/wspr/rx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Remove obsolete fftw files.
+Remove diagnostic print.
+Include buttons for &quot;Tx next&quot;, and (still hidden) provision for &quot;Stop Tx&quot;.
+(This will require changing to a callback routine for non-blocking 
+Portaudio output.)
+Include provision for limiting bandwidth of audio derived in I/Q mode
+to something less than 3 kHz.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-10-20 15:01:33 UTC (rev 2224)
++++ branches/wspr/acom1.f90	2010-10-22 17:24:39 UTC (rev 2225)
+@@ -14,6 +14,6 @@
+        nhandshake,ndebug,idevin,idevout,nsectx,nbfo,iqrxapp,           &amp;
+        ntxdb,txbal,txpha,iwrite,newdat,iqrxadj,gain,phase,reject,      &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+-       ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+-       pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+-       sending,thisfile,pttmode,catport,appdir
++       ntxnext,nstoptx,ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,             &amp;
++       infile,outfile,pttport,cdate,utctime,callsign,grid,grid6,       &amp;
++       rxtime,ctxmsg,sending,thisfile,pttmode,catport,appdir
+
+Deleted: branches/wspr/fftw3.dll
+===================================================================
+(Binary files differ)
+
+Deleted: branches/wspr/fftw3single.lib
+===================================================================
+(Binary files differ)
+
+Modified: branches/wspr/iqdemod.f90
+===================================================================
+--- branches/wspr/iqdemod.f90	2010-10-20 15:01:33 UTC (rev 2224)
++++ branches/wspr/iqdemod.f90	2010-10-22 17:24:39 UTC (rev 2225)
+@@ -1,9 +1,11 @@
+-subroutine iqdemod(kwave,npts,nfiq,iqrx,iqrxapp,gain,phase,iwave)
++subroutine iqdemod(kwave,npts,nfiq,nbfo,iqrx,iqrxapp,gain,phase,iwave)
+ 
++! Convert I/Q data sampled at 48000 Hz to real data sampled at 12000 Hz.
++
+   parameter (NFFT =5760000)
+   parameter (NFFT4=1440000)
+-  integer*2 kwave(2,npts)
+-  integer*2 iwave(npts)
++  integer*2 kwave(2,114*48000)
++  integer*2 iwave(114*12000)
+   real*8 twopi,df,f0,sq
+   real x1(NFFT4)
+   complex c,c1
+@@ -26,7 +28,7 @@
+   enddo
+   c(npts:)=0.
+ 
+-  call four2a(c,NFFT,1,-1,1)
++  call four2a(c,NFFT,1,-1,1)               !Long FFT of entire I/Q dataset
+ 
+   ia=nint(f0/df)
+   ib=nint((f0+3000.d0)/df)
+@@ -59,6 +61,14 @@
+   c1(j+1:)=0.
+   c1(0)=0.
+ 
++  bw=3000.0
++  if(bw.lt.3000.0) then
++     j0=nint(nbfo/df)
++     ja=nint((nbfo-0.5*bw))/df
++     jb=nint((nbfo+0.5*bw))/df
++     c1(:ja-1)=0.
++     c1(jb+1:)=0.
++  endif
+ 
+   call four2a(c1,NFFT4,1,1,-1)
+ 
+
+Modified: branches/wspr/rx.f90
+===================================================================
+--- branches/wspr/rx.f90	2010-10-20 15:01:33 UTC (rev 2224)
++++ branches/wspr/rx.f90	2010-10-22 17:24:39 UTC (rev 2225)
+@@ -19,11 +19,7 @@
+ 
+ 
+   if(iqmode.eq.1) then
+-     call cs_lock('rx_a')
+-     write(*,3001) iqmode,iqrx,iqrxapp,iqrxadj,gain,57.2957795*phase,reject
+-3001 format('Rx: ',4i2,f9.4,2f8.2)
+-     call cs_unlock
+-     call iqdemod(kwave,4*npts,nfiq,iqrx,iqrxapp,gain,phase,iwave)
++     call iqdemod(kwave,4*npts,nfiq,nbfo,iqrx,iqrxapp,gain,phase,iwave)
+   else
+      call fil1(kwave,4*npts,iwave,n2)         !Filter and downsample
+      npts=n2
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-10-20 15:01:33 UTC (rev 2224)
++++ branches/wspr/wspr.py	2010-10-22 17:24:39 UTC (rev 2225)
+@@ -381,6 +381,16 @@
+     btune.configure(bg='yellow')
+ #    balloon.configure(state='none')
+ 
++#------------------------------------------------------ txnext
++def txnext(event=NONE):
++    if ipctx.get()&gt;0:
++        w.acom1.ntxnext=1
++
++###------------------------------------------------------ stoptx
++##def stoptx(event=NONE):
++##    w.acom1.nstoptx=1
++##    w.acom1.ntxnext=0
++
+ #----------------------------------------------------- df_readout
+ # Readout of graphical cursor location
+ def df_readout(event):
+@@ -1333,15 +1343,22 @@
+ balloon.bind(pctscale,&quot;Select desired fraction of sequences to transmit&quot;)
+ ipctx.set(0)
+ g2.pack(side=LEFT,fill=BOTH,expand=0,padx=10,pady=6)
++#------------------------------------------------------ Special controls
+ g3=Pmw.Group(iframe2a,tag_text='Special')
+-bidle=Checkbutton(g3.interior(),text='Idle',justify=RIGHT,variable=idle)
+-bidle.pack(padx=8)
++bidle=Checkbutton(g3.interior(),text='Idle',justify=RIGHT,variable=idle,width=5)
++bidle.grid(row=0,column=0,padx=2,pady=3)
+ balloon.bind(bidle,&quot;Check for no automatic T/R sequences&quot;)
+-btune=Button(g3.interior(), text='Tune',underline=0,command=tune,
+-             width=9,padx=1,pady=2)
+-btune.pack(side=TOP,padx=10,pady=8)
++btune=Button(g3.interior(), text='Tune',underline=0,command=tune,width=9)
++btune.grid(row=1,column=0,padx=2,pady=3)
+ balloon.bind(btune,&quot;Transmit for number of seconds set by Tx fraction slider&quot;)
+-g3.pack(side=LEFT,fill=BOTH,expand=0,padx=10,pady=1)
++
++btxnext=Button(g3.interior(), text='Tx Next',underline=3,command=txnext,width=9)
++btxnext.grid(row=0,column=1,padx=2,pady=3)
++##bstoptx=Button(g3.interior(), text='Stop Tx',underline=0,command=stoptx,width=9)
++##bstoptx.grid(row=1,column=1,padx=2,pady=3)
++
++g3.pack(side=LEFT,fill=X,expand=0,padx=10,pady=1)
++
+ iframe2a.pack(expand=1, fill=X, padx=1)
+ 
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+@@ -1591,6 +1608,8 @@
+ iband0=iband.get()
+ graph1.focus_set()
+ w.acom1.ndevsok=0
++w.acom1.ntxnext=0
++w.acom1.nstoptx=0
+ w.wspr1()
+ t=&quot;%.6f&quot; % (f0.get(),)
+ sf0.set(t)
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-10-20 15:01:33 UTC (rev 2224)
++++ branches/wspr/wspr2.f90	2010-10-22 17:24:39 UTC (rev 2225)
+@@ -34,13 +34,19 @@
+   call random_seed
+   nrx=1
+ 
+-20 call cs_lock('wspr2')
++10 call cs_lock('wspr2')
+   call getutc(cdate,utctime,tsec)
+   nsec=tsec
+   ns120=mod(nsec,120)
+   rxavg=1.0
+   if(pctx.gt.0.0) rxavg=100.0/pctx - 1.0
+   call cs_unlock
++!  if(transmitting .and. nstoptx.eq.1) then
++!     call killtx
++!     nstoptx=0
++!     transmitting=.false.
++!     go to 20
++!  endif
+ 
+   if(nrxdone.gt.0) then
+ 
+@@ -108,13 +114,14 @@
+         ireset=1
+      endif
+   endif
+-  call msleep(200)
+-  go to 20
+ 
++20 call msleep(200)
++  go to 10
++
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+   if(pctx.eq.0.0) nrx=1
+ 
+-  if(nrx.eq.0 .and. ntr.ne.-1) then
++  if(ntxnext.eq.1 .or. (nrx.eq.0 .and. ntr.ne.-1)) then
+ 
+      call cs_lock('wspr2')
+      transmitting=.true.
+@@ -133,6 +140,7 @@
+      ntr=-1
+      nsectx=mod(nsec,86400)
+      ntxdone=0
++     ntxnext=0
+      call cs_unlock
+ 
+      call gmtime2(nt,tsec0)
+@@ -148,7 +156,7 @@
+      endif
+      nrx=nrx-1
+   endif
+-  go to 20
++  go to 10
+ 
+   return
+ end subroutine wspr2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001916.html">[WSJT-SVN] r2224 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001918.html">[WSJT-SVN] r2226 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1917">[ date ]</a>
+              <a href="thread.html#1917">[ thread ]</a>
+              <a href="subject.html#1917">[ subject ]</a>
+              <a href="author.html#1917">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

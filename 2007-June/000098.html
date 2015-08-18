@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r413 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r413%20-%20branches/map65&In-Reply-To=%3C200706241947.l5OJlgoW004933%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000097.html">
+   <LINK REL="Next"  HREF="000099.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r413 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r413%20-%20branches/map65&In-Reply-To=%3C200706241947.l5OJlgoW004933%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r413 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun 24 21:47:42 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000097.html">[WSJT-SVN] r412 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000099.html">[WSJT-SVN] r414 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-24 21:47:35 +0200 (Sun, 24 Jun 2007)
+New Revision: 413
+
+Modified:
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+   branches/map65/specjt.py
+   branches/map65/symspec.f
+Log:
+Fixed freq selection for high-res waterfall.
+Corrected mouse DF readout at top of SpecJT.
+Added AGC based on rxnoise.
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-24 16:31:38 UTC (rev 412)
++++ branches/map65/map65.py	2007-06-24 19:47:35 UTC (rev 413)
+@@ -1086,7 +1086,7 @@
+         t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+         Audio.gcom2.utcdate=t[:12]
+         ldate.configure(text=t)
+-        t=&quot;Rx noise: %.1f&quot; % (Audio.gcom2.rxnoise - 16.0)
++        t=&quot;Rx noise: %.1f&quot; % Audio.gcom2.rxnoise
+         msg5.configure(text=t)
+         root_geom=root.geometry()
+         try:
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-24 16:31:38 UTC (rev 412)
++++ branches/map65/map65a.f90	2007-06-24 19:47:35 UTC (rev 413)
+@@ -39,14 +39,15 @@
+ 1002 format(i4.4)
+   utcdata=utcdata(1:2)//':'//utcdata(3:4)
+ 
++  fselect=mousefqso + 1.6
++
+ !  fselect=126.0 + 1.6 + 0.290                ! K6MYC (NG??)
+ !  nflip=-1
+ !  ip0=1
+ 
+ !  fselect=128.0 + 1.6 + 0.220               ! AA1YN (OK)
+-  fselect=mousefqso + 0.001*mousedf + 1.6
+-  nflip=1
+-  ip0=3
++!  nflip=1
++!  ip0=3
+ 
+ !  fselect=155.0 + 1.6 + 0.454                ! N0AKC (OK)
+ !  nflip=1
+@@ -73,7 +74,7 @@
+ !  nfilt=2 should be faster (but doesn't work right?)
+      nfilt=2                      !nfilt=2 is faster for selected freq
+      do kpol=0,3
+-        freq=fselect
++        freq=fselect + 0.001*mousedf
+         ip0=ip00+kpol
+         if(ip0.gt.4) ip0=ip0-4
+         dt00=2.314240
+@@ -117,7 +118,7 @@
+      short(3,i)=0.
+   enddo
+ 
+-  call symspec(id(1,1,kbuf),nz,savg)
++  call symspec(id(1,1,kbuf),nz,rxnoise,savg)
+   newspec=1
+      
+   freq0=-999.
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-24 16:31:38 UTC (rev 412)
++++ branches/map65/recvpkt.F90	2007-06-24 19:47:35 UTC (rev 413)
+@@ -67,7 +67,7 @@
+                 float(id(1,k,1))**2 + float(id(1,k,1))**2
+         enddo
+         sqave=sqave + u*(sq-sqave)
+-        rxnoise=10.0*log10(sqave) - 32.0
++        rxnoise=10.0*log10(sqave) - 48.0
+      else
+         do i=1,174
+            k=k+1
+@@ -84,7 +84,7 @@
+         mutcm=mod(nsec/60,60)
+         mutc=100*mutch + mutcm
+         ns=mod(nsec,60)
+-!     write(*,1010) mutc,ns,0.001*msec,k
++!     write(*,1010) mutc,ns,0.001*msec,k,rxnoise
+ !1010 format('UTC:',i5.4,'   ns:',i3,'   t:',f10.3,'   k:',i8)
+         nsec0=nsec
+         ntx=ntx+transmitting
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-24 16:31:38 UTC (rev 412)
++++ branches/map65/specjt.py	2007-06-24 19:47:35 UTC (rev 413)
+@@ -116,7 +116,7 @@
+ 
+ def fdf_change2(event):
+     g.DFreq=(2200.0/750.0)*(event.x-375)
+-    t=&quot;Freq: %5.1f kHz&quot; % (g.DFreq,)
++    t=&quot;DF: %d Hz&quot; % int(g.DFreq)
+     fdf2.configure(text=t)
+ 
+ #---------------------------------------------------- set_fqso
+
+Modified: branches/map65/symspec.f
+===================================================================
+--- branches/map65/symspec.f	2007-06-24 16:31:38 UTC (rev 412)
++++ branches/map65/symspec.f	2007-06-24 19:47:35 UTC (rev 413)
+@@ -1,4 +1,4 @@
+-      subroutine symspec(id,nz,savg)
++      subroutine symspec(id,nz,rxnoise,savg)
+ 
+ C  Compute spectra at four polarizations, using half-symbol steps.
+ 
+@@ -12,7 +12,9 @@
+       common/spcom/ip0,ss(4,322,NFFT),ss5(322,NFFT)
+ 
+ !      fac=1.e-4
+-      fac=1.7e-4
++!      fac=1.7e-4
++      fac=0.0002 * 10.0**(0.1*(-rxnoise))
++
+       hsym=2048.d0*96000.d0/11025.d0     !Samples per half symbol
+       npts=hsym                          !Integral samples per half symbol
+       nsteps=322                         !Half symbols per transmission
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000097.html">[WSJT-SVN] r412 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000099.html">[WSJT-SVN] r414 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

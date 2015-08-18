@@ -1,0 +1,277 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3327 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3327%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130604155855.B061455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003018.html">
+   <LINK REL="Next"  HREF="003020.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3327 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3327%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130604155855.B061455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3327 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jun  4 17:58:55 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003018.html">[WSJT-SVN] r3326 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003020.html">[WSJT-SVN] r3328 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3019">[ date ]</a>
+              <a href="thread.html#3019">[ thread ]</a>
+              <a href="subject.html#3019">[ subject ]</a>
+              <a href="author.html#3019">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-04 17:58:55 +0200 (Tue, 04 Jun 2013)
+New Revision: 3327
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/downsam9.f90
+   branches/wsjtx_k1jt_p1/lib/jt9c.f90
+   branches/wsjtx_k1jt_p1/lib/softsym.f90
+   branches/wsjtx_k1jt_p1/lib/symspec.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+Further progress toward a 5 kHz maximum bandwidth.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ss,c0,id2,nstandalone)
++subroutine decoder(ss,id2,nstandalone)
+ 
+ ! Decoder for JT9.
+ 
+@@ -16,7 +16,6 @@
+   logical done(NSMAX)
+   integer*2 id2(NTMAX*12000)
+   integer*1 i1SoftSymbols(207)
+-  complex c0(NDMAX)
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+        kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
+   common/tracer/limtrace,lu
+@@ -124,7 +123,7 @@
+ 
+            call timer('softsym ',0)
+            fpk=1000.0 + df3*(i-1)
+-           call softsym(c0,id2,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,    &amp;
++           call softsym(id2,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,    &amp;
+                 freq,drift,schk,i1SoftSymbols)
+            call timer('softsym ',1)
+ 
+
+Modified: branches/wsjtx_k1jt_p1/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -1,53 +1,65 @@
+-subroutine downsam9(c0,id2,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
++subroutine downsam9(id2,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
+ 
+ !Downsample to nspsd samples per symbol, info centered at fpk
+ 
+-  parameter (NMAX=128*1920)
++  parameter (NMAX=1024*1920)
+   parameter (NTMAX=120)
+   integer*2 id2(0:8*npts8-1)
+-  complex c0(0:npts8-1)
+-  complex c1(0:NMAX-1)
++  real*4 x1(0:NMAX-1)
++  complex c1(0:NMAX/2)
+   complex c2(0:4096-1)
+   real s(1000)
++  equivalence (c1,x1)
+   save
+ 
+-  nfft1=128*nsps8                          !Forward FFT length
++!  nfft1=128*nsps8                          !Forward FFT length
++!  nh1=nfft1/2
++!  df1=1500.0/nfft1
++
++  nfft1=1024*nsps8                          !Forward FFT length
+   nh1=nfft1/2
+-  df1=1500.0/nfft1
++  df1=12000.0/nfft1
++  npts=8*npts8
+ 
+   if(newdat.eq.1) then
+-     write(69,*) npts8,nsps8,nfft1,df1
+-     call flush(69)
++!     write(69,*) npts,nsps8,nfft1,df1
+ 
+-     fac=1.e-4
+-     do i=0,npts8-1,2
+-        c1(i)=fac*conjg(c0(i))
+-        c1(i+1)=-fac*conjg(c0(i+1))
++     fac=1.e-6 * 6.963
++     do i=0,npts-1,2
++!        c1(i)=fac*conjg(c0(i))
++!        c1(i+1)=-fac*conjg(c0(i+1))
++        x1(i)=fac*id2(i)
++        x1(i+1)=fac*id2(i+1)
+      enddo
+-     c1(npts8:)=0.                            !Zero the rest of c1
+-     call four2a(c1,nfft1,1,-1,1)             !Forward FFT
+-     
++     c1(npts:)=0.                             !Zero the rest of c1
++!     call four2a(c1,nfft1,1,-1,1)             !Forward FFT
++     call four2a(x1,nfft1,1,-1,0)             !Forward FFT
++
+      nadd=1.0/df1
+-     j=250/df1
++!     j=250/df1
++     j=1000.0/df1
+      s=0.
+      do i=1,1000
+         do n=1,nadd
+            j=j+1
+            s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
+         enddo
+-!        write(37,3001) i+1000,s(i),db(s(i)),nadd
++!        write(68,3001) i+1000,s(i),db(s(i)),nadd
+ !3001    format(i5,2f12.3,i8)
+      enddo
+      call pctile(s,1000,40,avenoise)
+      newdat=0
+   endif
+ 
+-  ndown=nsps8/16                           !Downsample factor
++!  ndown=nsps8/16                           !Downsample factor
++  ndown=8*nsps8/16                           !Downsample factor
+   nfft2=nfft1/ndown                        !Backward FFT length
+   nh2=nfft2/2
+    
+-  fshift=fpk-1500.0
+-  i0=nh1 + fshift/df1
++!  fshift=fpk-1500.0
++!  i0=nh1 + fshift/df1
++  i0=fpk/df1
++
+   fac=sqrt(1.0/avenoise)
+   do i=0,nfft2-1
+      j=i0+i
+@@ -57,8 +69,11 @@
+ 
+   call four2a(c2,nfft2,1,1,1)              !Backward FFT
+ 
+-  nspsd=nsps8/ndown
+-  nz2=npts8/ndown
++  nspsd=8*nsps8/ndown
++  nz2=8*npts8/ndown
+ 
++!  call flush(68)
++!  call flush(69)
++
+   return
+ end subroutine downsam9
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt9c.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -16,7 +16,7 @@
+   nparams=nparams0                     !Copy parameters into common/npar/
+ 
+   call flush(6)
+-  if(sum(nparams).ne.0) call decoder(ss,c0,id2,0)
++  if(sum(nparams).ne.0) call decoder(ss,id2,0)
+ 
+   return
+ end subroutine jt9c
+
+Modified: branches/wsjtx_k1jt_p1/lib/softsym.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/softsym.f90	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/lib/softsym.f90	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -1,9 +1,8 @@
+-subroutine softsym(c0,id2,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,        &amp;
++subroutine softsym(id2,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,        &amp;
+      freq,drift,schk,i1SoftSymbols)
+ 
+ ! Compute the soft symbols
+ 
+-  complex c0(0:npts8-1)
+   complex c2(0:4096-1)
+   complex c3(0:4096-1)
+   complex c5(0:4096-1)
+@@ -16,7 +15,7 @@
+   ndown=nsps8/nspsd
+ 
+ ! Mix, low-pass filter, and downsample to 16 samples per symbol
+-  call downsam9(c0,id2,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
++  call downsam9(id2,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
+ 
+   call peakdt9(c2,nz2,nsps8,nspsd,c3,nz3,xdt)  !Find DT
+ 
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -86,9 +86,9 @@
+      enddo
+      sq=sq + dot_product(x1,x1)
+ ! Mix at 1500 Hz, lowpass at +/-750 Hz, and downsample to 1500 Hz complex.
+-     x2(106:105+kstep1)=x1(1:kstep1)
+-     call fil3(x2,kstep1+105,c0(k8+1),n2)
+-     x2(1:105)=x1(kstep1-104:kstep1)   !Save 105 trailing samples
++!     x2(106:105+kstep1)=x1(1:kstep1)
++!     call fil3(x2,kstep1+105,c0(k8+1),n2)
++!     x2(1:105)=x1(kstep1-104:kstep1)   !Save 105 trailing samples
+      k1=k1+kstep1
+      k8=k8+kstep1/8
+   enddo
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-04 15:15:10 UTC (rev 3326)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-04 15:58:55 UTC (rev 3327)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003018.html">[WSJT-SVN] r3326 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003020.html">[WSJT-SVN] r3328 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3019">[ date ]</a>
+              <a href="thread.html#3019">[ thread ]</a>
+              <a href="subject.html#3019">[ subject ]</a>
+              <a href="author.html#3019">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

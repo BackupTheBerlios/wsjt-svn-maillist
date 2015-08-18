@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3455 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3455%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130703003152.3470E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003146.html">
+   <LINK REL="Next"  HREF="003148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3455 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3455%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130703003152.3470E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3455 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jul  3 02:31:52 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003146.html">[WSJT-SVN] r3454 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003148.html">[WSJT-SVN] r3456 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3147">[ date ]</a>
+              <a href="thread.html#3147">[ thread ]</a>
+              <a href="subject.html#3147">[ subject ]</a>
+              <a href="author.html#3147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-03 02:31:51 +0200 (Wed, 03 Jul 2013)
+New Revision: 3455
+
+Modified:
+   branches/wsjtx_k1jt_p1/getfile.cpp
+   branches/wsjtx_k1jt_p1/getfile.h
+   branches/wsjtx_k1jt_p1/lib/Makefile.linux
+   branches/wsjtx_k1jt_p1/mainwindow.h
+Log:
+Move the Linux ptt() stuff into getfile.cpp.  No more need for ptt_unix.c.
+
+
+Modified: branches/wsjtx_k1jt_p1/getfile.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/getfile.cpp	2013-07-02 23:40:03 UTC (rev 3454)
++++ branches/wsjtx_k1jt_p1/getfile.cpp	2013-07-03 00:31:51 UTC (rev 3455)
+@@ -1,11 +1,18 @@
+ #include &quot;getfile.h&quot;
+ #include &lt;QDir&gt;
+-#include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;math.h&gt;
+ 
+ #ifdef WIN32
+ #include &lt;windows.h&gt;
++#else
++#include &lt;sys/types.h&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;termios.h&gt;
++#include &lt;fcntl.h&gt;
++#include &lt;sys/ioctl.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;err.h&gt;
+ #endif
+ 
+ void getfile(QString fname, int ntrperiod)
+@@ -165,8 +172,31 @@
+   return 0;
+ #else
+   qDebug() &lt;&lt; &quot;getfile ptt(), line 170:&quot; &lt;&lt; nport &lt;&lt; ntx &lt;&lt; *iptt &lt;&lt; *nopen;
+-  ptt_(nport,ntx, iptt, nopen);
+-  qDebug() &lt;&lt; &quot;getfile ptt(), line 172:&quot; &lt;&lt; nport &lt;&lt; ntx &lt;&lt; *iptt &lt;&lt; *nopen;
++//  ptt_(nport,ntx, iptt, nopen);
++
++//  int control=TIOCM_RTS | TIOCM_DTR;
++  int control = TIOCM_RTS;
++  static int fd;
++
++  if(*nopen==0) {
++    fd=open(&quot;/dev/ttyUSB0&quot;,O_RDWR | O_NONBLOCK);
++    if(fd&lt;0) {
++      return -1;
++    }
++    *nopen=1;
++  }
++
++  if(ntx) {
++    ioctl(fd, TIOCMBIS, &amp;control);
++    *iptt=1;
++    *nopen=1;
++  } else {
++    ioctl(fd, TIOCMBIC, &amp;control);
++    *iptt=0;
++    *nopen=0;
++  }
++
++  if(ntx==0) close(fd);
+   return 0;
+ #endif
+   if((nport+ntx+(*iptt)==-99999)) *nopen=0;   //Silence compiler warning
+
+Modified: branches/wsjtx_k1jt_p1/getfile.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/getfile.h	2013-07-02 23:40:03 UTC (rev 3454)
++++ branches/wsjtx_k1jt_p1/getfile.h	2013-07-03 00:31:51 UTC (rev 3455)
+@@ -10,8 +10,4 @@
+ //int ptt(int* nport, int* ntx, int* iptt);
+ int ptt(int nport, int ntx, int* iptt, int* nopen);
+ 
+-extern &quot;C&quot; {
+-int ptt_(int nport, int ntx, int* iptt, int* nopen);
+-}
+-
+ #endif // GETFILE_H
+
+Modified: branches/wsjtx_k1jt_p1/lib/Makefile.linux
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/Makefile.linux	2013-07-02 23:40:03 UTC (rev 3454)
++++ branches/wsjtx_k1jt_p1/lib/Makefile.linux	2013-07-03 00:31:51 UTC (rev 3455)
+@@ -23,7 +23,7 @@
+ 	grid2k.o unpacktext.o getpfx2.o packmsg.o deg2grid.o \
+ 	packtext.o getpfx1.o packcall.o k2grid.o packgrid.o \
+ 	nchar.o four2a.o grid2deg.o pfxdump.o f77_wisdom.o \
+-	symspec.o analytic.o db.o genjt9.o ptt_unix.o \
++	symspec.o analytic.o db.o genjt9.o \
+ 	packbits.o unpackbits.o encode232.o interleave9.o \
+ 	entail.o fano232.o gran.o sync9.o decode9.o \
+ 	fil3.o decoder.o grid2n.o n2grid.o timer.o \
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.h	2013-07-02 23:40:03 UTC (rev 3454)
++++ branches/wsjtx_k1jt_p1/mainwindow.h	2013-07-03 00:31:51 UTC (rev 3455)
+@@ -378,9 +378,6 @@
+              int len1, int len2);
+ 
+ void morse_(char* msg, int* icw, int* ncw, int len);
+-
+-int ptt_(int nport, int ntx, int* iptt, int* nopen);
+-
+ }
+ 
+ #endif // MAINWINDOW_H
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003146.html">[WSJT-SVN] r3454 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003148.html">[WSJT-SVN] r3456 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3147">[ date ]</a>
+              <a href="thread.html#3147">[ thread ]</a>
+              <a href="subject.html#3147">[ subject ]</a>
+              <a href="author.html#3147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

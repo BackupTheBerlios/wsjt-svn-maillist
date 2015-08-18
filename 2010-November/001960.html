@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2268 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2268%20-%20branches/wspr&In-Reply-To=%3C20101124210049.0FDD9480EF1%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001959.html">
+   <LINK REL="Next"  HREF="001961.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2268 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2268%20-%20branches/wspr&In-Reply-To=%3C20101124210049.0FDD9480EF1%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2268 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 24 22:00:48 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001959.html">[WSJT-SVN] r2267 - branches/wspr/WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001961.html">[WSJT-SVN] r2269 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1960">[ date ]</a>
+              <a href="thread.html#1960">[ thread ]</a>
+              <a href="subject.html#1960">[ subject ]</a>
+              <a href="author.html#1960">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-11-24 22:00:48 +0100 (Wed, 24 Nov 2010)
+New Revision: 2268
+
+Added:
+   branches/wspr/user_hardware.py
+Modified:
+   branches/wspr/wspr.py
+Log:
+Add a call to user_hardware.bat, user_hardware.exe, or user_hardware 
+when a band change is executed.
+Add an example python script user_hardware.py, callable from 
+user_hardware.bat, that switches suitably three antennas at K1JT.
+
+
+Added: branches/wspr/user_hardware.py
+===================================================================
+--- branches/wspr/user_hardware.py	                        (rev 0)
++++ branches/wspr/user_hardware.py	2010-11-24 21:00:48 UTC (rev 2268)
+@@ -0,0 +1,38 @@
++#--------------------------------------------------------------  user_hardware
++import sys
++from ctypes import windll,c_long,byref
++
++iant= [16,32,64]
++ib={600:1,160:2,80:3,60:4,40:5,30:6,20:7,17:8,15:9,12:10,10:11,6:12,4:13}
++vertical=0
++doublet=1
++mosley=2
++band=int(sys.argv[1])
++nant=doublet                    #Default antenna is &quot;doublet&quot;
++if band==160: nant=vertical
++if band==20 or band==15 or band==10:  nant=mosley
++iband=ib[band]
++
++# Fixed paremeters for LabJack:
++idnum = c_long(-1)              #default labjack ID
++demo = c_long(0)                #default 0
++trisD = c_long(65535)
++trisIO = c_long(15)
++updateDigital = c_long(1)
++outputD = c_long(0)
++
++# LabJack band-select and other parameters
++#   stateIO sets 4 bits, IO0 - IO3
++#   stateD sets 16 bits, D0 - D15
++
++iodata2=0
++iodata=iant[nant]
++
++# Other LabJack commands should be OR'd into iodata here:
++
++stateD=c_long(iodata)
++stateIO=c_long(iodata2)
++err = windll.ljackuw.DigitalIO(byref(idnum),demo,byref(trisD),trisIO, \
++            byref(stateD),byref(stateIO),updateDigital,byref(outputD))
++if err!=0:
++    print 'Error executing Labjack command'
+
+
+Property changes on: branches/wspr/user_hardware.py
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-11-23 20:34:58 UTC (rev 2267)
++++ branches/wspr/wspr.py	2010-11-24 21:00:48 UTC (rev 2268)
+@@ -63,6 +63,7 @@
+     from WsprMod import hopping
+ 
+ #------------------------------------------------------ Global variables
++band=[-1,600,160,80,60,40,30,20,17,15,12,10,6,4,2,0]
+ bandmap=[]
+ bm={}
+ f0=DoubleVar()
+@@ -848,6 +849,18 @@
+                 f.write(cmd+'\n')
+                 f.write(str(g.ndevin.get())+'\n')
+                 f.close()
++
++                cmd2=''
++                if os.path.exists('.\user_hardware.bat') or \
++                   os.path.exists('.\user_.exe'):
++                    cmd2='.\user_hardware ' + str(band[iband0])
++                elif os.path.exists('./user_hardware'):
++                    cmd2='./user_hardware ' + str(band[iband0])
++                if cmd2!='':
++                    try:
++                        ierr2=os.system(cmd2)
++                    except:
++                        print 'Execution of &quot;'+cmd2+'&quot; failed.'
+             else:
+                 print 'Error attempting to set rig frequency.\a'
+                 print cmd + '\a'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001959.html">[WSJT-SVN] r2267 - branches/wspr/WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001961.html">[WSJT-SVN] r2269 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1960">[ date ]</a>
+              <a href="thread.html#1960">[ thread ]</a>
+              <a href="subject.html#1960">[ subject ]</a>
+              <a href="author.html#1960">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,538 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r406 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r406%20-%20branches/map65&In-Reply-To=%3C200706222033.l5MKX6gT013312%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000090.html">
+   <LINK REL="Next"  HREF="000092.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r406 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r406%20-%20branches/map65&In-Reply-To=%3C200706222033.l5MKX6gT013312%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r406 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 22 22:33:06 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000090.html">[WSJT-SVN] r405 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000092.html">[WSJT-SVN] r407 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-22 22:32:58 +0200 (Fri, 22 Jun 2007)
+New Revision: 406
+
+Modified:
+   branches/map65/ccf2.f
+   branches/map65/decode1a.f
+   branches/map65/decode65.f
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+   branches/map65/specjt.py
+Log:
+Many changes to make operator interactions useful.
+Quick-decode searches over ipol, DT, and nflip.
+
+
+Modified: branches/map65/ccf2.f
+===================================================================
+--- branches/map65/ccf2.f	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/ccf2.f	2007-06-22 20:32:58 UTC (rev 406)
+@@ -1,6 +1,7 @@
+       subroutine ccf2(ss,nz,nflip,ccfbest,lagpk)
+ 
+-      parameter (LAGMAX=20)
++!      parameter (LAGMAX=20)
++      parameter (LAGMAX=100)
+       real ss(nz)
+       real ccf(-LAGMAX:LAGMAX)
+       integer npr(126)
+
+Modified: branches/map65/decode1a.f
+===================================================================
+--- branches/map65/decode1a.f	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/decode1a.f	2007-06-22 20:32:58 UTC (rev 406)
+@@ -79,9 +79,26 @@
+       i0=nint((a(5)+0.5)*fsample) - 2
+       if(i0.lt.1) i0=1
+       nz=n6+1-i0
++
++      ip0=ipol
++      nflip=1
+       call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
+-     +    ccfbest,dtbest)
++     +     ccfbest,dtbest)
+ 
++      nflip=-1
++      ipol=ip0
++      call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
++     +     ccfbest2,dtbest)
++
++      if(ccfbest2.lt.ccfbest) then
++         nflip=1
++         ipol=ip0
++         call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
++     +        ccfbest,dtbest)
++      else
++         ccfbest=ccfbest
++      endif
++
+       pol=a(4)/57.2957795
+       aa=cos(pol)
+       bb=sin(pol)
+
+Modified: branches/map65/decode65.f
+===================================================================
+--- branches/map65/decode65.f	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/decode65.f	2007-06-22 20:32:58 UTC (rev 406)
+@@ -35,6 +35,7 @@
+       qual=0.
+       if(ndepth.ge.1) call deep65(s3,mode65,neme,
+      +    nsked,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++      print*,ndepth,qual,deepmsg
+ 
+       if(ncount.lt.0) decoded='                      '
+ 
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/gcom2.f90	2007-06-22 20:32:58 UTC (rev 406)
+@@ -42,6 +42,7 @@
+ integer nfrange        !Frequency range of main display         GUI
+ integer nport          !Requested COM port number               GUI
+ integer mousedf        !Mouse-selected freq offset, DF          GUI
++integer mousefqso      !Mouse-selected QSO freq                 GUI
+ integer neme           !EME calls only in deep search?          GUI
+ integer nsked          !Sked mode for deep search?              GUI
+ integer naggressive    !Is &quot;Aggressive decoding&quot; checked?       GUI
+@@ -92,7 +93,7 @@
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+      nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+-     mousedf,neme,nsked,naggressive,ntx2,nagain,nsavelast,     &amp;
++     mousedf,mousefqso,neme,nsked,naggressive,ntx2,nagain,nsavelast,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,  &amp;
+      ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/map65.py	2007-06-22 20:32:58 UTC (rev 406)
+@@ -367,7 +367,7 @@
+     if lauto: toggleauto()
+     Audio.gcom1.txok=0
+     Audio.gcom2.mantx=0
+-    specjt.pal_gray0()
++#    specjt.pal_gray0()      ????
+     
+ #------------------------------------------------------ lookup
+ def lookup(event=NONE):
+@@ -868,13 +868,15 @@
+ 
+ #------------------------------------------------------ right_arrow
+ def right_arrow(event=NONE):
+-    n=5*int(Audio.gcom2.mousedf/5) + 5
++    n=5*int(Audio.gcom2.mousedf/5)
++    if n&gt;0: n=n+5
+     if n==Audio.gcom2.mousedf: n=n+5
+     Audio.gcom2.mousedf=n
+-
++    
+ #------------------------------------------------------ left_arrow
+ def left_arrow(event=NONE):
+     n=5*int(Audio.gcom2.mousedf/5)
++    if n&lt;0: n=n-5
+     if n==Audio.gcom2.mousedf: n=n-5
+     Audio.gcom2.mousedf=n
+     
+@@ -1156,11 +1158,10 @@
+ 
+     msg1.configure(text=&quot;%6.4f&quot; % (samfac_out))
+     msg2.configure(text=mode.get())
+-    t=&quot;Freeze DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+-    if abs(int(Audio.gcom2.mousedf))&gt;600:
+-        msg3.configure(text=t,fg='black',bg='red')
+-    else:
+-        msg3.configure(text=t,fg='black',bg='gray85')    
++    t=&quot;QSO Freq:%4d&quot; % (int(Audio.gcom2.mousefqso),)
++    msg3.configure(text=t)    
++    t=&quot;QSO DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
++    msg4.configure(text=t)    
+     bdecode.configure(bg='gray85',activebackground='gray95')
+     if Audio.gcom2.ndecoding:       #Set button bg=light_blue while decoding
+         bc='#66FFFF'
+@@ -1524,6 +1525,8 @@
+ root.bind_all('&lt;Control-F8&gt;', ModeJT65C)
+ root.bind_all('&lt;F10&gt;', showspecjt)
+ root.bind_all('&lt;Shift-F10&gt;', astro1)
++root.bind_all('&lt;F11&gt;',left_arrow)
++root.bind_all('&lt;F12&gt;',right_arrow)
+ root.bind_all('&lt;Alt-Key-1&gt;',btx1)
+ root.bind_all('&lt;Alt-Key-2&gt;',btx2)
+ root.bind_all('&lt;Alt-Key-3&gt;',btx3)
+@@ -1565,8 +1568,6 @@
+ root.bind_all('&lt;Alt-Z&gt;',toggle_zap)
+ root.bind_all('&lt;Control-l&gt;',lookup_gen)
+ root.bind_all('&lt;Control-L&gt;',lookup_gen)
+-root.bind_all('&lt;Left&gt;',left_arrow)
+-root.bind_all('&lt;Right&gt;',right_arrow)
+ 
+ text.pack(side=LEFT, fill=X, padx=1)
+ sb = Scrollbar(iframe4, orient=VERTICAL, command=text.yview)
+@@ -1747,8 +1748,8 @@
+ msg2.pack(side=LEFT, fill=X, padx=1)
+ msg3=Message(iframe6,width=300,relief=SUNKEN)
+ msg3.pack(side=LEFT, fill=X, padx=1)
+-#msg4=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
+-#msg4.pack(side=LEFT, fill=X, padx=1)
++msg4=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
++msg4.pack(side=LEFT, fill=X, padx=1)
+ #msg5=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
+ #msg5.pack(side=LEFT, fill=X, padx=1)
+ msg7=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
+@@ -1873,6 +1874,7 @@
+ Audio.ftn_init()
+ GenStdMsgs()
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+'        ')[:8]
++Audio.gcom2.mousefqso=125
+ # stopmon()
+ monitor()
+ first=1
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/map65a.f90	2007-06-22 20:32:58 UTC (rev 406)
+@@ -20,7 +20,7 @@
+   common/spcom/ip0,ss(4,322,NFFT),ss5(322,NFFT)
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+-  data nfile/0/,nutc0/-999/,nid/0/
++  data nfile/0/,nutc0/-999/,nid/0/,ip00/1/
+   include 'gcom2.f90'
+   save
+ 
+@@ -43,7 +43,8 @@
+ !  nflip=-1
+ !  ip0=1
+ 
+-  fselect=128.0 + 1.6 + 0.220               ! AA1YN (OK)
++!  fselect=128.0 + 1.6 + 0.220               ! AA1YN (OK)
++  fselect=mousefqso + 0.001*mousedf + 1.6
+   nflip=1
+   ip0=3
+ 
+@@ -71,25 +72,42 @@
+ 
+ !  nfilt=2 should be faster (but doesn't work right?)
+      nfilt=2                      !nfilt=2 is faster for selected freq
+-     freq=fselect
+-     dt=2.314240                  !Not needed?
+-     call decode1a(id(1,1,kbuf),newdat2,nfilt,freq,nflip,ip0,sync2,        &amp;
+-          a,dt,pol,nkv,nhist,qual,decoded)
+-     nsync1=0
+-     nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+-     ndf=nint(a(1))
+-     nw=0
++     do kpol=0,3
++        freq=fselect
++        ip0=ip00+kpol
++        if(ip0.gt.4) ip0=ip0-4
++        dt00=2.314240
++        dt=dt00
++        call decode1a(id(1,1,kbuf),newdat2,nfilt,freq,nflip,ip0,sync2,   &amp;
++             a,dt,pol,nkv,nhist,qual,decoded)
++        nsync1=0
++        nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
++        ndf=nint(a(1)) + mousedf
++        nw=0
++!        write(*,3000) freq,nflip,ip00,ndf,nsync2,nint(pol*57.2957795),   &amp;
++!             dt00,dt,decoded
++!3000    format(f8.3,5i5,2f7.2,2x,a22)
++        if(nkv.gt.0) go to 5
++     enddo
+ 
+-!  Insert 'OOO' if flip&lt;0.
+-!     write(11,1010) nutc,nsync2,dt,ndf,nw,decoded,nkv,nqual
+-!1010 format(i4.4,i4,f5.1,i5,i3,2x,a22,2i3)
++5    ip00=ip0
+      nkHz=nint(freq-1.600)
+-     npol=45*(ipol-1)
+-     write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
++     npol=nint(57.2957795*pol)
++     nqual=qual
++     if(nflip.eq.-1) then                      !Should this be in decode1a ?
++        do i=22,9,-1
++           if(decoded(i:i).ne.' ') then
++              decoded(i+2:i+4)='OOO'
++              go to 6
++           endif
++        enddo
++     endif
++6     write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
+ 1010 format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
+      call flushqqq(11)
+      ndecdone=1
+   endif
++  if(nagain.eq.1) go to 999
+   if(newdat2.eq.0) go to 999
+ 
+   nfilt=1
+@@ -295,5 +313,6 @@
+   ndecdone=2
+     
+ 999 newdat2=0
++  nagain=0
+   return
+ end subroutine map65a
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/recvpkt.F90	2007-06-22 20:32:58 UTC (rev 406)
+@@ -17,9 +17,10 @@
+   common/plrscom/center_freq,msec,fqso,iptr,nblock,userx_no,iusb,buf8(174)
+ !                     8        4     4      4    2       1       1    1392
+   include 'datcom.f90'
++  include 'gcom1.f90'
+   include 'gcom2.f90'
+   equivalence (id,d8)
+-  data nblock0/0/,first/.true./,kb/1/
++  data nblock0/0/,first/.true./,kb/1/,ntx/0/
+   save
+ 
+ ! Open a socket to receive multicast data from Linrad
+@@ -54,10 +55,17 @@
+         nlost=0
+      endif
+ 
+-     do i=1,174
+-        k=k+1
+-        d8(k)=buf8(i)
+-     enddo
++     if(transmitting.eq.0) then
++        do i=1,174
++           k=k+1
++           d8(k)=buf8(i)
++        enddo
++     else
++        do i=1,174
++           k=k+1
++           d8(k)=0.d0
++        enddo
++     endif
+ 
+      npkt=npkt+1
+      if(nsec.ne.nsec0) then
+@@ -68,14 +76,16 @@
+ !     write(*,1010) mutc,ns,0.001*msec,k
+ !1010 format('UTC:',i5.4,'   ns:',i3,'   t:',f10.3,'   k:',i8)
+         nsec0=nsec
++        ntx=ntx+transmitting
++        if(mod(nsec,60).eq.52) then
++           kbuf=kb
++           nutc=mutc
++           klost=nlost
++           if(ntx.lt.20) ndecoding=1
++           ntx=0
++        endif
+      endif
+ 
+-     if(mod(nsec,60).eq.52) then
+-        kbuf=kb
+-        nutc=mutc
+-        klost=nlost
+-        ndecoding=1
+-     endif
+   endif
+   go to 10
+ 
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-22 14:38:03 UTC (rev 405)
++++ branches/map65/specjt.py	2007-06-22 20:32:58 UTC (rev 406)
+@@ -104,22 +104,29 @@
+     im2.putpalette(Colormap2Palette(colormapAFMHot),&quot;RGB&quot;)
+ 
+ #--------------------------------------------------- Command button routines
++
+ #---------------------------------------------------- fdf_change
+ # Readout of graphical cursor location
+ def fdf_change(event):
+-    g.DFreq=df*(event.x-288.7) + fmid - 1500
+-    if nfr.get()==2: g.DFreq=2*df*(event.x-375.5) + fmid - 1270.5
+-    g.Freq=g.DFreq+1270.46
+-#    t=&quot;Freq: %5d    DF: %5d  (Hz)&quot; % (int(g.Freq),int(g.DFreq))
+-    t=&quot;Freq: %5d&quot; % (event.x)
++    df=96.0/750.0
++    fmid=122.8                                # empirical
++    g.Freq=df*(event.x-375) + fmid
++    t=&quot;Freq: %5.1f kHz&quot; % (g.Freq,)
+     fdf.configure(text=t)
+ 
++def fdf_change2(event):
++    g.DFreq=(2200.0/750.0)*(event.x-375)
++    t=&quot;Freq: %5.1f kHz&quot; % (g.DFreq,)
++    fdf2.configure(text=t)
++
++#---------------------------------------------------- set_fqso
++def set_fqso(event):
++    n=int(g.Freq + 0.5)
++    Audio.gcom2.mousefqso=n
++
+ #---------------------------------------------------- set_freezedf
+ def set_freezedf(event):
+-    n=int(df*(event.x-288.7) + fmid - 1500)
+-    if nfr.get()==2: n=int(2*df*(event.x-375.5) + fmid - 1270.5)
+-    if n&lt;-1270: n=-1270
+-    if n&gt;3800: n=3800
++    n=int(g.DFreq + 0.5)
+     Audio.gcom2.mousedf=n
+ 
+ #------------------------------------------------------ ftnstr
+@@ -152,21 +159,21 @@
+             color='red'
+ 
+ #---------------------------------------------------- change_fmid
+-def change_fmid1():
+-    global fmid
+-    fmid=fmid+100
+-    if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
++##def change_fmid1():
++##    global fmid
++##    fmid=fmid+100
++##    if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
++##
++##def change_fmid2():
++##    global fmid
++##    fmid=fmid-100
++##    if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
++##
++##def set_fmid():
++##    global fmid
++##    if nfr.get()==1: fmid=1200
++##    if nfr.get()==2: fmid=2200
+ 
+-def change_fmid2():
+-    global fmid
+-    fmid=fmid-100
+-    if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+-
+-def set_fmid():
+-    global fmid
+-    if nfr.get()==1: fmid=1200
+-    if nfr.get()==2: fmid=2200
+-
+ #---------------------------------------------------- freq_range
+ def freq_range(event):
+ # Move frequency scale left or right in 100 Hz increments
+@@ -179,8 +186,8 @@
+     if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+     if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
+ 
+-def set_frange():
+-    nfr.set(3-nfr.get())
++#def set_frange():
++#    nfr.set(3-nfr.get())
+ 
+ #---------------------------------------------------- freq_center
+ ##def freq_center(event):
+@@ -415,22 +422,24 @@
+ 
+ lab1=Label(mbar,padx=20,bd=0)
+ lab1.pack(side=LEFT)
+-fdf=Label(mbar,width=25,bd=0)
++fdf=Label(mbar,width=15,bd=0)
+ fdf.pack(side=LEFT)
++fdf2=Label(mbar,width=15,bd=0)
++fdf2.pack(side=LEFT)
+ 
+ lab3=Label(mbar,padx=13,bd=0)
+ lab3.pack(side=LEFT)
+-bbw=Button(mbar,text='BW',command=set_frange,padx=1,pady=1)
+-bbw.pack(side=LEFT)
++#bbw=Button(mbar,text='BW',command=set_frange,padx=1,pady=1)
++#bbw.pack(side=LEFT)
+ 
+ lab0=Label(mbar,padx=10,bd=0)
+ lab0.pack(side=LEFT)
+-bfmid1=Button(mbar,text='&lt;',command=change_fmid1,padx=1,pady=1)
+-bfmid2=Button(mbar,text='&gt;',command=change_fmid2,padx=1,pady=1)
+-bfmid3=Button(mbar,text='|',command=set_fmid,padx=3,pady=1)
+-bfmid1.pack(side=LEFT)
+-bfmid3.pack(side=LEFT)
+-bfmid2.pack(side=LEFT)
++#bfmid1=Button(mbar,text='&lt;',command=change_fmid1,padx=1,pady=1)
++#bfmid2=Button(mbar,text='&gt;',command=change_fmid2,padx=1,pady=1)
++#bfmid3=Button(mbar,text='|',command=set_fmid,padx=3,pady=1)
++#bfmid1.pack(side=LEFT)
++#bfmid3.pack(side=LEFT)
++#bfmid2.pack(side=LEFT)
+ 
+ #------------------------------------------------- Speed selection buttons
+ for i in (5, 4, 3, 2, 1):
+@@ -453,7 +462,7 @@
+ Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,fdf_change)
+ #Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,decode_request)
+ #Widget.bind(graph1,&quot;&lt;Button-3&gt;&quot;,decode_request)
+-Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,set_freezedf)
++Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,set_fqso)
+ Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
+ iframe1.pack(expand=1, fill=X)
+ 
+@@ -466,7 +475,7 @@
+ 
+ graph2=Canvas(iframe1, bg='black', width=NX, height=NY,bd=0,cursor='crosshair')
+ graph2.pack(side=TOP)
+-Widget.bind(graph2,&quot;&lt;Motion&gt;&quot;,fdf_change)
++Widget.bind(graph2,&quot;&lt;Motion&gt;&quot;,fdf_change2)
+ #Widget.bind(graph2,&quot;&lt;Button-1&gt;&quot;,decode_request)
+ #Widget.bind(graph2,&quot;&lt;Button-3&gt;&quot;,decode_request)
+ Widget.bind(graph2,&quot;&lt;Button-1&gt;&quot;,set_freezedf)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000090.html">[WSJT-SVN] r405 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000092.html">[WSJT-SVN] r407 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

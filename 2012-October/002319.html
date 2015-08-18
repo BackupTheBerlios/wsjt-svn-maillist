@@ -1,0 +1,561 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2627 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2627%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121002155619.5D60455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002318.html">
+   <LINK REL="Next"  HREF="002320.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2627 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2627%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20121002155619.5D60455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2627 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Oct  2 17:56:19 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002318.html">[WSJT-SVN] r2626 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002320.html">[WSJT-SVN] r2628 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2319">[ date ]</a>
+              <a href="thread.html#2319">[ thread ]</a>
+              <a href="subject.html#2319">[ subject ]</a>
+              <a href="author.html#2319">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-02 17:56:18 +0200 (Tue, 02 Oct 2012)
+New Revision: 2627
+
+Modified:
+   branches/wsjtx/libm65/jt9.f90
+   branches/wsjtx/libm65/jt9sim.f90
+   branches/wsjtx/libm65/symspec.f90
+   branches/wsjtx/libm65/sync9.f90
+   branches/wsjtx/libm65/timf2x.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+jt9 now working up to sync detection.
+
+
+Modified: branches/wsjtx/libm65/jt9.f90
+===================================================================
+--- branches/wsjtx/libm65/jt9.f90	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/libm65/jt9.f90	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -3,6 +3,8 @@
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+ 
++! NB: For unknown reason, ***MUST*** be compiled by g95 with -O0 !!!
++
+   character*80 arg,infile
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+   parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+@@ -12,7 +14,8 @@
+   logical*1 lstrong(0:1023)
+   integer*2 id2
+   complex c0
+-  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),nutc,junk(20)
++  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),    &amp;
++       nutc,npts8,junk(20)
+   common/tracer/limtrace,lu
+ 
+   nargs=iargc()
+@@ -31,6 +34,7 @@
+      go to 999
+   endif
+   read(arg,*) ntrperiod
++
+   ifile1=2
+   limtrace=0
+   lu=12
+@@ -64,6 +68,7 @@
+      if(nsps.eq.0) stop 'Error: bad TRprtiod'
+ 
+      kstep=nsps/2
++     tstep=kstep/12000.0
+      k=0
+      nhsym0=-999
+      npts=(60*ntrperiod-6)*12000
+@@ -82,8 +87,8 @@
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+            call timer('symspec ',0)
+-           call symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,df3,  &amp;
+-                ihsym,nzap,slimit,lstrong)
++           call symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,   &amp;
++                s,f0a,df3,ihsym,nzap,slimit,lstrong)
+            call timer('symspec ',1)
+            nhsym0=nhsym
+            if(ihsym.ge.184) go to 10
+@@ -92,9 +97,21 @@
+ 
+ 10   continue
+ 
++     do i=0,512
++        if(lstrong(i)) print*,'Strong signal at ',12000.0*i/1024.0
++     enddo
++
++     nz=1000.0/df3
++     do i=1,nz
++        freq=f0a + (i-1)*df3
++        write(78,3001) i,freq,savg(i)
++3001    format(i8,2f12.3)
++     enddo
++
++     print*,npts8,npts8/1500.0
+      nutc=nutc0
+      nstandalone=1
+-     call sync9(ss,df3)
++     call sync9(ss,tstep,f0a,df3)
+ !     call decode0(dd,ss,savg,nstandalone,nfsample)
+   enddo
+ 
+
+Modified: branches/wsjtx/libm65/jt9sim.f90
+===================================================================
+--- branches/wsjtx/libm65/jt9sim.f90	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/libm65/jt9sim.f90	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -7,7 +7,7 @@
+   integer*2 iwave                     !Generated waveform (no noise)
+   real*8 f0,f,dt,twopi,phi,dphi,baud,fspan
+   character msg*22,msg0*22,message*22,msgsent*22,arg*8,fname*11
+-  integer*4 d6(85)
++  integer*4 itone(85)
+ 
+   integer*4 mettab(0:255,0:1)
+   integer*4 t0(13)              !72-bit message as 6-bit words
+@@ -64,15 +64,15 @@
+   if(minutes.eq.2)  nsps=15360
+   if(minutes.eq.5)  nsps=40960
+   if(minutes.eq.10) nsps=82944
+-  if(minutes.eq.30) nsps=250880
++  if(minutes.eq.30) nsps=252000
+   if(nsps.eq.0) stop 'Bad value for minutes.'
+   ihdr=0                             !Temporary ###
+   
+   open(12,file='msgs.txt',status='old')
+ 
+ ! Get the metric table
+-  bias=0.37
+-  scale=10                        !Optimize?
++  bias=0.37                          !To be optimized, in decoder program
++  scale=10                           !  ... ditto ...
+   open(19,file='met8.21',status='old')
+ 
+   do i=0,255
+@@ -87,7 +87,7 @@
+             '---------------------------------------------------')
+ 
+   do ifile=1,nfiles
+-     nmin=(ifile-1)*minutes
++     nmin=(ifile-1)*2*minutes
+      ihr=nmin/60
+      imin=mod(nmin,60)
+      write(fname,1002) ihr,imin                !Create the output filenames
+@@ -103,7 +103,7 @@
+      endif
+ 
+      if(msg0.ne.'                      ') then
+-        call genjt9(message,minutes,msgsent,d6)
++        call genjt9(message,minutes,msgsent,itone)
+      endif
+ 
+      rewind 12
+@@ -112,14 +112,14 @@
+         if(msg0.eq.'                      ') then
+            read(12,1004) message
+ 1004       format(a22)
+-           call genjt9(message,minutes,msgsent,d6)
++           call genjt9(message,minutes,msgsent,itone)
+         endif
+ 
+         f=f0
+         if(nsigs.gt.1) f=f0 - 0.5d0*fspan + fspan*(isig-1.d0)/(nsigs-1.d0)
+         snrdbx=snrdb
+ !        if(snrdb.ge.-1.0) snrdbx=-15.0 - 15.0*(isig-1.0)/nsigs
+-        sig=sqrt(2500.0/12000.0) * 10.0**(0.05*snrdbx)
++        sig=sqrt(2500.0/6000.0) * 10.0**(0.05*snrdbx)
+         write(*,1020) ifile,isig,f,snrdbx,msgsent
+ 1020    format(i3,i4,f10.3,f7.1,2x,a22)
+ 
+@@ -127,7 +127,7 @@
+         baud=12000.0/nsps
+         k=12000                             !Start at t = 1 s
+         do isym=1,85
+-           freq=f + d6(isym)*baud
++           freq=f + itone(isym)*baud
+            dphi=twopi*freq*dt
+            do i=1,nsps
+               phi=phi + dphi
+@@ -135,7 +135,7 @@
+               if(phi.gt.twopi) phi=phi-twopi
+               xphi=phi
+               k=k+1
+-              dat(k)=dat(k) + sig*sin(xphi)
++              dat(k)=dat(k) + sig*sin(xphi)  !Use lookup table for i*2 sin(x) ?
+            enddo
+         enddo
+      enddo
+@@ -147,12 +147,12 @@
+      write(10) ihdr,iwave(1:npts)
+      close(10)
+ 
+-! We're done!  Now decode the data in d6, as a test.
++! We're done!  Now decode the data in itone, as a test.
+      j=0
+      do i=1,85
+         if(isync(i).eq.1) cycle
+         j=j+1
+-        t5(j)=d6(i)-1
++        t5(j)=itone(i)-1
+      enddo
+ 
+      call graycode(t5,69,-1,t4)
+
+Modified: branches/wsjtx/libm65/symspec.f90
+===================================================================
+--- branches/wsjtx/libm65/symspec.f90	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/libm65/symspec.f90	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -1,4 +1,4 @@
+-subroutine symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,df3,    &amp;
++subroutine symspecx(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,f0a,df3,    &amp;
+      ihsym,nzap,slimit,lstrong)
+ 
+ ! Input:
+@@ -34,10 +34,11 @@
+   complex cx(MAXFFT3)
+   complex cx00(NFFT1)
+   complex cx0(0:1023),cx1(0:1023)
+-  logical*1 lstrong(0:1023)
++  logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+   complex c0
+-  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),nutc,junk(20)
++  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),     &amp;
++       nutc,npts8,junk(20)
+   equivalence (x2,cx2)
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+@@ -90,18 +91,20 @@
+      do i=1,NFFT1
+         x0(i)=fac*id2(k1+i)
+      enddo
+-!     call timf2x(k,NFFT1,nwindow,nb,peaklimit,faclim,x0,x1,    &amp;
+-!          slimit,lstrong,px,nzap)
+-     x1=x0                                     !###
++     call timf2x(x0,k,NFFT1,nwindow,nb,peaklimit,faclim,x1,   &amp;
++          slimit,lstrong,px,nzap)
++!     x1=x0
+      x2=x1
+      call four2a(x2,NFFT2,1,-1,0)              !Second forward FFT, r2c
+ 
+-     i0=nint(1000.0/df2) + 1
++     i0=nint(1000.0/df2)
++     f0a=i0*df2
+      cx2a(1:NFFT2A/2)=cx2(i0:NFFT2A/2+i0-1)
+      cx2a(NFFT2A/2+1:NFFT2A)=cx2(i0-1-NFFT2A/2:i0-1)
+      call four2a(cx2a,NFFT2A,1,1,1)
+ 
+      c0(k8+1:k8+NFFT2A)=cx2a
++     npts8=k8+NFFT2A
+ 
+ !###                                   Test for gliches at multiples of 128
+ !     if(k8.lt.1000) then
+@@ -139,19 +142,5 @@
+      s(i)=sx
+   enddo
+ 
+-  if(ihsym.eq.168) then
+-     do i=1,iz
+-        write(71,3001) i,i*df3,savg(i),10.0*log10(savg(i))
+-3001    format(i8,3f12.3)
+-     enddo
+-
+-     i0=673
+-     do j=1,ihsym
+-        write(72,3002) j,(ss(j,i),i=i0,i0+8)
+-3002    format(i3,9f8.3)
+-     enddo
+-
+-  endif
+-
+ 999 return
+ end subroutine symspecx
+
+Modified: branches/wsjtx/libm65/sync9.f90
+===================================================================
+--- branches/wsjtx/libm65/sync9.f90	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/libm65/sync9.f90	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -1,4 +1,4 @@
+-subroutine sync9(ss,df3)
++subroutine sync9(ss,tstep,f0a,df3)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
+@@ -24,7 +24,7 @@
+   nz=1000.0/df3
+ 
+   smax=0.
+-  lagmax=10
++  lagmax=2.5/tstep + 0.9999
+   do n=1,nz
+      do lag=-lagmax,lagmax
+         sum=0.
+@@ -35,21 +35,25 @@
+         if(sum.gt.smax) then
+            smax=sum
+            npk=n
++           lagpk=lag
+         endif
+      enddo
+   enddo
+ 
+-  print*,'npk:',npk
+-  n=npk
++  freq=f0a + (npk-1)*df3
++  write(*,1010) lagpk,npk,freq
++1010 format('lagpk:',i4,'   npk:',i6,'   freq:',f8.2)
++
+   do lag=-lagmax,lagmax
+      sum=0.
+      do i=1,16
+         k=ii(i) + lag
+-        if(k.ge.1) sum=sum + ss(k,n)
++        if(k.ge.1) sum=sum + ss(k,npk)
+      enddo
+-     write(*,3000) lag,sum
+-3000 format(i3,f12.3)
++!     write(73,3000) lag,sum
++!3000 format(i3,f12.3)
+   enddo
++  flush(73)
+ 
+   return
+ end subroutine sync9
+
+Modified: branches/wsjtx/libm65/timf2x.f90
+===================================================================
+--- branches/wsjtx/libm65/timf2x.f90	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/libm65/timf2x.f90	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -1,13 +1,15 @@
+-subroutine timf2(k,nfft,nwindow,nb,peaklimit,faclim,cx0,cx1,     &amp;
++subroutine timf2x(x0,k,nfft,nwindow,nb,peaklimit,faclim,x1,     &amp;
+      slimit,lstrong,px,nzap)
+ 
+ ! Sequential processing of time-domain I/Q data, using Linrad-like
+-! &quot;first FFT&quot; and &quot;first backward FFT&quot;.  
++! &quot;first FFT&quot; and &quot;first backward FFT&quot;, treating frequencies with
++! strong signals differently.  Noise blanking is applied to weak
++! signals only.
+ 
+-!  cx0      - complex input data
++!  x0       - real input data
+ !  nfft     - length of FFTs
+ !  nwindow  - 0 for no window, 2 for sin^2 window
+-!  cx1      - output data
++!  x1       - real output data
+ 
+ ! Non-windowed processing means no overlap, so kstep=nfft.  
+ ! Sin^2 window has 50% overlap, kstep=nfft/2.
+@@ -19,19 +21,21 @@
+ 
+   parameter (MAXFFT=1024,MAXNH=MAXFFT/2)
+   parameter (MAXSIGS=100)
+-  complex cx0(0:nfft-1),cx1(0:nfft-1)
++  real x0(0:nfft-1),x1(0:nfft-1)
++  real x(0:MAXFFT-1),xw(0:MAXFFT-1),xs(0:MAXFFT-1)
++  real xwov(0:MAXNH-1),xsov(0:MAXNH-1)
+   complex cx(0:MAXFFT-1),cxt(0:MAXFFT-1)
+-  complex cxs(0:MAXFFT-1),covxs(0:MAXNH-1)     !Strong X signals
+-  complex cxw(0:MAXFFT-1),covxw(0:MAXNH-1)     !Weak X signals
++  complex cxs(0:MAXFFT-1)                     !Strong signals
++  complex cxw(0:MAXFFT-1)                     !Weak signals
+   real*4 w(0:MAXFFT-1)
+-  real*4 s(0:MAXFFT-1),stmp(0:MAXFFT-1)
+-  logical*1 lstrong(0:MAXFFT-1),lprev
++  real*4 s(0:MAXNH),stmp(0:MAXNH)
++  logical*1 lstrong(0:MAXNH),lprev
+   integer ia(MAXSIGS),ib(MAXSIGS)
+-  complex h,u,v
+   logical first
++  equivalence (x,cx),(xw,cxw),(xs,cxs)
+   data first/.true./
+   data k0/99999999/
+-  save w,covxs,covxw,s,ntc,ntot,nh,kstep,fac,first,k0
++  save w,xsov,xwov,s,ntc,ntot,nh,kstep,fac,first,k0
+ 
+   if(first) then
+      pi=4.0*atan(1.0)
+@@ -50,30 +54,28 @@
+   endif
+ 
+   if(k.lt.k0) then
+-     covxs=0.
+-     covxw=0.
++     xsov=0.
++     xwov=0.
+   endif
+   k0=k
+ 
+-  cx(0:nfft-1)=cx0
+-  if(nwindow.eq.2) cx(0:nfft-1)=w(0:nfft-1)*cx(0:nfft-1)
+-  call four2a(cx,nfft,1,1,1)                       !First forward FFT
++  x(0:nfft-1)=x0
++  if(nwindow.eq.2) x(0:nfft-1)=w(0:nfft-1)*x(0:nfft-1)
++  call four2a(x,nfft,1,-1,0)                       !First forward FFT, r2c
++  cxt(0:nh)=cx(0:nh)
+ 
+-  cxt(0:nfft-1)=cx(0:nfft-1)
++! Identify frequencies with strong signals.
+ 
+-! Identify frequencies with strong signals, copy frequency-domain
+-! data into array cs (strong) or cw (weak).
+-
+   ntot=ntot+1
+   if(mod(ntot,128).eq.5) then
+-     call pctile(s,stmp,1024,50,xmedian)
++     call pctile(s,stmp,nh,50,xmedian)
+      slimit=faclim*xmedian
+   endif
+ 
+-  if(ntc.lt.96000/nfft) ntc=ntc+1
++  if(ntc.lt.12000/nfft) ntc=ntc+1
+   uu=1.0/ntc
+   smax=0.
+-  do i=0,nfft-1
++  do i=0,nh
+      p=real(cxt(i))**2 + aimag(cxt(i))**2
+      s(i)=(1.0-uu)*s(i) + uu*p
+      lstrong(i)=(s(i).gt.slimit)
+@@ -84,7 +86,7 @@
+   lprev=.false.
+   iwid=1
+   ib=-99
+-  do i=0,nfft-1
++  do i=0,nh
+      if(lstrong(i) .and. (.not.lprev)) then
+         if(nsigs.lt.MAXSIGS) nsigs=nsigs+1
+         ia(nsigs)=i-iwid
+@@ -92,7 +94,7 @@
+      endif
+      if(.not.lstrong(i) .and. lprev) then
+         ib(nsigs)=i-1+iwid
+-        if(ib(nsigs).gt.nfft-1) ib(nsigs)=nfft-1
++        if(ib(nsigs).gt.nh) ib(nsigs)=nh
+      endif
+      lprev=lstrong(i)
+   enddo
+@@ -101,15 +103,16 @@
+      do i=1,nsigs
+         ja=ia(i)
+         jb=ib(i)
+-        if(ja.lt.0 .or. ja.gt.nfft-1 .or. jb.lt.0 .or. jb.gt.nfft-1) then
++        if(ja.lt.0 .or. ja.gt.nh .or. jb.lt.0 .or. jb.gt.nh) then
+            cycle
+         endif
+-        if(jb.eq.-99) jb=ja + min(2*iwid,nfft-1)
++        if(jb.eq.-99) jb=ja + min(2*iwid,nh)
+         lstrong(ja:jb)=.true.
+      enddo
+   endif
+ 
+-  do i=0,nfft-1
++! Copy frequency-domain data into array cs (strong) or cw (weak).
++  do i=0,nh
+      if(lstrong(i)) then
+         cxs(i)=fac*cxt(i)
+         cxw(i)=0.
+@@ -119,22 +122,22 @@
+      endif
+   enddo
+ 
+-  call four2a(cxw,nfft,1,-1,1)                 !Transform weak and strong X
+-  call four2a(cxs,nfft,1,-1,1)                 !back to time domain, separately
++  call four2a(cxw,nfft,1,1,-1)           !Transform weak and strong back
++  call four2a(cxs,nfft,1,1,-1)           !to time domain, separately (c2r)
+ 
+   if(nwindow.eq.2) then
+-     cxw(0:nh-1)=cxw(0:nh-1)+covxw(0:nh-1)     !Add previous segment's 2nd half
+-     covxw(0:nh-1)=cxw(nh:nfft-1)              !Save 2nd half
+-     cxs(0:nh-1)=cxs(0:nh-1)+covxs(0:nh-1)     !Ditto for strong signals
+-     covxs(0:nh-1)=cxs(nh:nfft-1)
++     xw(0:nh-1)=xw(0:nh-1)+xwov(0:nh-1)     !Add previous segment's 2nd half
++     xwov(0:nh-1)=xw(nh:nfft-1)             !Save 2nd half
++     xs(0:nh-1)=xs(0:nh-1)+xsov(0:nh-1)     !Ditto for strong signals
++     xsov(0:nh-1)=xs(nh:nfft-1)
+   endif
+ 
+ ! Apply noise blanking to weak data
+   if(nb.ne.0) then
+      do i=0,kstep-1
+-        peak=abs(cxw(i))
++        peak=abs(xw(i))
+         if(peak.gt.peaklimit) then
+-           cxw(i)=0.
++           xw(i)=0.
+            nzap=nzap+1
+         endif
+      enddo
+@@ -142,10 +145,10 @@
+ 
+ ! Compute power levels from weak data only
+   do i=0,kstep-1
+-     px=px + real(cxw(i))**2 + aimag(cxw(i))**2
++     px=px + xw(i)*xw(i)
+   enddo
+ 
+-  cx1(0:kstep-1)=cxw(0:kstep-1) + cxs(0:kstep-1)     !Recombine weak + strong
++  x1(0:kstep-1)=xw(0:kstep-1) + xs(0:kstep-1)     !Recombine weak + strong
+ 
+   return
+-end subroutine timf2
++end subroutine timf2x
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-01 20:37:28 UTC (rev 2626)
++++ branches/wsjtx/mainwindow.cpp	2012-10-02 15:56:18 UTC (rev 2627)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------ MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002318.html">[WSJT-SVN] r2626 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002320.html">[WSJT-SVN] r2628 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2319">[ date ]</a>
+              <a href="thread.html#2319">[ thread ]</a>
+              <a href="subject.html#2319">[ subject ]</a>
+              <a href="author.html#2319">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

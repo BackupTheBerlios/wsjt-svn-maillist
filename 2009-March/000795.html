@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1101 - branches/map65iq
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1101%20-%20branches/map65iq&In-Reply-To=%3C200903171446.n2HEktKQ019032%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000794.html">
+   <LINK REL="Next"  HREF="000796.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1101 - branches/map65iq</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1101%20-%20branches/map65iq&In-Reply-To=%3C200903171446.n2HEktKQ019032%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1101 - branches/map65iq">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 17 15:46:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000794.html">[WSJT-SVN] r1100 - branches/map65iq
+</A></li>
+        <LI>Next message: <A HREF="000796.html">[WSJT-SVN] r1102 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#795">[ date ]</a>
+              <a href="thread.html#795">[ thread ]</a>
+              <a href="subject.html#795">[ subject ]</a>
+              <a href="author.html#795">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-03-17 15:46:52 +0100 (Tue, 17 Mar 2009)
+New Revision: 1101
+
+Modified:
+   branches/map65iq/decode1a.f
+   branches/map65iq/map65.py
+   branches/map65iq/map65a.F90
+   branches/map65iq/specjt.py
+Log:
+Update SpecJT frequency scale when Fmin or Fmax changes.
+Correct settings of frequency range in map65a.F90
+
+
+Modified: branches/map65iq/decode1a.f
+===================================================================
+--- branches/map65iq/decode1a.f	2009-03-17 12:13:02 UTC (rev 1100)
++++ branches/map65iq/decode1a.f	2009-03-17 14:46:52 UTC (rev 1101)
+@@ -42,7 +42,6 @@
+          sqa=sqa + real(cx(i))**2 + aimag(cx(i))**2
+       enddo
+       sqa=sqa/n5
+-      sqb=sqb/n5
+ 
+ C  Find best DF, f1, f2, DT.  Start by lpf and downsampling to 344.53125 Hz.
+       call fil6521(cx,n5,c5x,n6)
+
+Modified: branches/map65iq/map65.py
+===================================================================
+--- branches/map65iq/map65.py	2009-03-17 12:13:02 UTC (rev 1100)
++++ branches/map65iq/map65.py	2009-03-17 14:46:52 UTC (rev 1101)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- MAP65-IQ
++#------------------------------------------------------------------- MAP65-IQ
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/map65iq/map65a.F90
+===================================================================
+--- branches/map65iq/map65a.F90	2009-03-17 12:13:02 UTC (rev 1100)
++++ branches/map65iq/map65a.F90	2009-03-17 14:46:52 UTC (rev 1101)
+@@ -73,10 +73,12 @@
+         mh=(nfb-nfa)/2
+         fa=1000*(nfa-msub+mh)
+         fb=1000*(nfb-msub+mh)
+-        fa=max(23000.0,fa)
+-        fb=min(95000.0-23000.0,fb)
++!        fa=max(51.0*df,fa)
++!        fb=min(95000.0-51.0*df,fb)
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+         ib=nint((fb+23000.0)/df + 1.0)
++        ia=max(51,ia)
++        ib=min(32768-51,ib)
+      endif
+ 
+      km=0
+@@ -99,16 +101,7 @@
+ !  Find the local base level; update every 10 bins.
+         if(mod(i-ia,10).eq.0) then
+            do ii=-50,50
+-              iii=i+ii
+-              if(iii.ge.1 .and. iii.le.32768) then
+-                 tavg(ii)=savg(iii)
+-              else
+-!                 print*,'Error in iii:',iii,ia,ib,fa,fb
+-                 write(*,1001) fcenter,1.d-6*fa,1.d-6*fb,iii
+-1001             format('fcenter:',f9.3,'   fa:',f9.3,'   fb:',f9.3,   &amp;
+-                      '   iii:',i10)
+-                 go to 999
+-              endif
++              tavg(ii)=savg(i+ii)
+            enddo
+            call pctile(tavg,tmp,101,50,base)
+         endif
+@@ -126,7 +119,7 @@
+            call ccf65(ss(1,i),nhsym,sync1,dt,flipk,mode65,            &amp;
+                 syncshort,snr2,dt2)
+ !###
+-!           if(sync1.ge.3.0) write(*,4002) freq,sync1,dt,kbuf
++!           if(sync1.ge.1.0) write(*,4002) freq,sync1,dt,kbuf
+ !4002       format(f10.3,2f8.2,i3)
+            if(np1.eq.1) then
+               rewind 51
+@@ -215,6 +208,8 @@
+ !  Use lower thresh1 at fQSO
+            if(nqd.eq.1 .and. dftolerance.le.100) thresh1=0.
+            noffset=0
++!           if(sync1.gt.0.0) print*,nqd,freq,sync1,thresh1
++!           if(abs(freq-122.9).lt.1.0) print*,nqd,freq,sync1,thresh1
+            if(nqd.eq.1) noffset=nint(1000.0*(freq-foffset-mfqso)-mousedf)
+            if(sync1.gt.thresh1 .and. abs(noffset).le.dftolerance) then
+ !  Keep only the best candidate within ftol.
+@@ -254,6 +249,7 @@
+         endif
+ 70      continue
+      enddo
++
+      if(nqd.eq.1) then
+         nwrite=0
+         do k=1,km
+
+Modified: branches/map65iq/specjt.py
+===================================================================
+--- branches/map65iq/specjt.py	2009-03-17 12:13:02 UTC (rev 1100)
++++ branches/map65iq/specjt.py	2009-03-17 14:46:52 UTC (rev 1101)
+@@ -47,6 +47,8 @@
+ fmid0=1500
+ frange=2000
+ frange0=2000
++gfa0=-9999
++gfb0=-9999
+ isec0=-99
+ mode0=&quot;&quot;
+ mousedf0=0
+@@ -259,7 +261,7 @@
+ #---------------------------------------------------- update
+ def update():
+     global a,a2,b0,c0,g0,im,im2,isec0,line0,line02,newMinute,\
+-           nscroll,pim,pim2,nfa0,nfb0,bw, \
++           nscroll,pim,pim2,nfa0,nfb0,bw,gfa0,gfb0, \
+            root_geom,t0,mousedf0,mousefqso0,nfreeze0,tol0,mode0,nmark0, \
+            fmid,fmid0,frange,frange0,dftolerance0,ff0
+     
+@@ -344,9 +346,12 @@
+         if Audio.gcom2.nfreeze: df_mark()
+         nfreeze0=int(Audio.gcom2.nfreeze)
+ 
+-    if Audio.gcom2.fcenter + Audio.gcom2.fadd != ff0:
++    if (Audio.gcom2.fcenter + Audio.gcom2.fadd != ff0) or \
++            g.fa != gfa0 or g.fb != gfb0:
+         draw_axis()
+         ff0=float(Audio.gcom2.fcenter+Audio.gcom2.fadd)
++        gfa0=g.fa
++        gfb0=g.fb
+         msub=int(1000*(ff0-int(ff0))+0.5)
+         try:
+             Audio.gcom2.nfa=msub + g.fa
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000794.html">[WSJT-SVN] r1100 - branches/map65iq
+</A></li>
+	<LI>Next message: <A HREF="000796.html">[WSJT-SVN] r1102 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#795">[ date ]</a>
+              <a href="thread.html#795">[ thread ]</a>
+              <a href="subject.html#795">[ subject ]</a>
+              <a href="author.html#795">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

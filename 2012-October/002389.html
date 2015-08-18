@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2697 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2697%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121027140934.7E0CF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002388.html">
+   <LINK REL="Next"  HREF="002390.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2697 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2697%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121027140934.7E0CF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2697 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Oct 27 16:09:34 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002388.html">[WSJT-SVN] r2696 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002390.html">[WSJT-SVN] r2698 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2389">[ date ]</a>
+              <a href="thread.html#2389">[ thread ]</a>
+              <a href="subject.html#2389">[ subject ]</a>
+              <a href="author.html#2389">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-27 16:09:34 +0200 (Sat, 27 Oct 2012)
+New Revision: 2697
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Add logic for erasing wsjtx_rx.log.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-27 13:22:47 UTC (rev 2696)
++++ branches/wsjtx/lib/decoder.f90	2012-10-27 14:09:34 UTC (rev 2697)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ntrSeconds,c0)
++subroutine decoder(ntrSeconds,nRxLog,c0)
+ 
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+@@ -63,6 +63,10 @@
+      open(14,file='wsjtx_rx.log',status='unknown',position='append')
+      first=.false.
+   endif
++  if(iand(nRxLog,2).ne.0) rewind 14
++  if(iand(nRxLog,1).ne.0) then
++! Write date and time to lu 14     
++  endif
+   write(14,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
+   call flush(14)
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-27 13:22:47 UTC (rev 2696)
++++ branches/wsjtx/mainwindow.cpp	2012-10-27 14:09:34 UTC (rev 2697)
+@@ -859,7 +859,9 @@
+   jt9com_.nfqso=g_pWideGraph-&gt;QSOfreq();
+   m_tol=g_pWideGraph-&gt;Tol();
+   jt9com_.ntol=m_tol;
+-  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod, &amp;c0[0]);
++  if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to wsjtx_rx.log
++  m_nutc0=jt9com_.nutc;
++  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod, &amp;m_RxLog, &amp;c0[0]);
+   watcher3-&gt;setFuture(*future3);
+ }
+ 
+@@ -1342,7 +1344,6 @@
+   f.close();
+ }
+ 
+-/*
+ void MainWindow::on_actionErase_wsjtx_rx_log_triggered()     //Erase Rx log
+ {
+   int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
+@@ -1352,7 +1353,6 @@
+     m_RxLog |= 2;                      // Rewind wsjtx_rx.log
+   }
+ }
+-*/
+ 
+ void MainWindow::on_actionErase_wsjtx_tx_log_triggered()     //Erase Tx log
+ {
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-27 13:22:47 UTC (rev 2696)
++++ branches/wsjtx/mainwindow.h	2012-10-27 14:09:34 UTC (rev 2697)
+@@ -96,7 +96,7 @@
+   void on_genStdMsgsPushButton_clicked();
+   void bumpDF(int n);
+   void on_logQSOButton_clicked();
+-//  void on_actionErase_wsjtx_rx_log_triggered();
++  void on_actionErase_wsjtx_rx_log_triggered();
+   void on_actionErase_wsjtx_tx_log_triggered();
+   void on_actionAFMHot_triggered();
+   void on_actionBlue_triggered();
+@@ -225,7 +225,7 @@
+ 
+ void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+-void decoder_(int* ntrperiod, float c0[]);
++void decoder_(int* ntrperiod, int* mRxLog, float c0[]);
+ 
+ int ptt_(int* nport, int* itx, int* iptt);
+   }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002388.html">[WSJT-SVN] r2696 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002390.html">[WSJT-SVN] r2698 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2389">[ date ]</a>
+              <a href="thread.html#2389">[ thread ]</a>
+              <a href="subject.html#2389">[ subject ]</a>
+              <a href="author.html#2389">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

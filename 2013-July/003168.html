@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3476 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3476%20-%20branches/wsjtx&In-Reply-To=%3C20130710135713.79A7E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003167.html">
+   <LINK REL="Next"  HREF="003169.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3476 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3476%20-%20branches/wsjtx&In-Reply-To=%3C20130710135713.79A7E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3476 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jul 10 15:57:13 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003167.html">[WSJT-SVN] r3475 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003169.html">[WSJT-SVN] r3477 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3168">[ date ]</a>
+              <a href="thread.html#3168">[ thread ]</a>
+              <a href="subject.html#3168">[ subject ]</a>
+              <a href="author.html#3168">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-10 15:57:13 +0200 (Wed, 10 Jul 2013)
+New Revision: 3476
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/rigclass.cpp
+Log:
+Compare dial freq with user's default freq, not the startup default freq.
+Also some minor code cleanup.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-09 22:58:04 UTC (rev 3475)
++++ branches/wsjtx/mainwindow.cpp	2013-07-10 13:57:13 UTC (rev 3476)
+@@ -208,9 +208,8 @@
+   }
+ #endif
+   mem_jt9 = shdmem;
+-
+   readSettings();		             //Restore user's setup params
+-  if(m_dFreq.length()&lt;=1) {
++  if(m_dFreq.length()&lt;=1) {      //Use the startup default frequencies
+     m_dFreq.clear();
+     for(int i=0; i&lt;16; i++) {
+       QString t;
+@@ -239,6 +238,7 @@
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+ 
+   genStdMsgs(m_rpt);
++  if(m_mode!=&quot;JT9&quot; and m_mode!=&quot;JT65&quot; and m_mode!=&quot;JT9+JT65&quot;) m_mode=&quot;JT9&quot;;
+   on_actionWide_Waterfall_triggered();                   //###
+   g_pWideGraph-&gt;setRxFreq(m_rxFreq);
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+@@ -971,13 +971,14 @@
+ 
+ void MainWindow::dialFreqChanged2(double f)
+ {
+-  if(m_band&lt;0 or m_band&gt;15) return;
+   m_dialFreq=f;
++  if(m_band&lt;0 or m_band&gt;15 or m_dFreq.length()&lt;=1) return;
+   QString t;
+   t.sprintf(&quot;%.6f&quot;,m_dialFreq);
+   int n=t.length();
+   t=t.mid(0,n-3) + &quot; &quot; + t.mid(n-3,3);
+-  if(qAbs(m_dialFreq-dFreq[m_band])&lt;0.01) {
++  double fBand=m_dFreq[m_band].toDouble();
++  if(qAbs(m_dialFreq-fBand)&lt;0.01) {
+     ui-&gt;labDialFreq-&gt;setStyleSheet( \
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+   } else {
+@@ -2128,8 +2129,11 @@
+     ui-&gt;tx3-&gt;setText(&quot;&quot;);
+     ui-&gt;tx4-&gt;setText(&quot;&quot;);
+     ui-&gt;tx5-&gt;setText(&quot;&quot;);
+-    t=&quot;CQ &quot; + m_myCall + &quot; &quot; + m_myGrid.mid(0,4);
+-    msgtype(t, ui-&gt;tx6);
++    ui-&gt;tx6-&gt;setText(&quot;&quot;);
++    if(m_myCall!=&quot;&quot; and m_myGrid!=&quot;&quot;) {
++      t=&quot;CQ &quot; + m_myCall + &quot; &quot; + m_myGrid.mid(0,4);
++      msgtype(t, ui-&gt;tx6);
++    }
+     ui-&gt;genMsg-&gt;setText(&quot;&quot;);
+     ui-&gt;freeTextMsg-&gt;setText(&quot;&quot;);
+     return;
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-07-09 22:58:04 UTC (rev 3475)
++++ branches/wsjtx/rigclass.cpp	2013-07-10 13:57:13 UTC (rev 3476)
+@@ -112,13 +112,11 @@
+       }
+     }
+     QString t;
+-//    qint32 nkHz=14076;
+-//    t.sprintf(&quot;&lt;command:10&gt;CmdSetFreq&lt;parameters:17&gt;&lt;xcvrfreq:5&gt;%5d&quot;,nkHz);
+     t=&quot;&lt;command:10&gt;CmdGetFreq&lt;parameters:0&gt;&quot;;
+     QByteArray ba = t.toLocal8Bit();
+     const char* buf=ba.data();
+-    int n=socket-&gt;write(buf);
+-    bool bret=socket-&gt;waitForReadyRead(1000);
++    socket-&gt;write(buf);
++    socket-&gt;waitForReadyRead(1000);
+     QByteArray reply=socket-&gt;read(128);
+     if(reply.indexOf(&quot;&lt;CmdFreq:&quot;)==0) {
+       m_cmndr=true;
+@@ -150,7 +148,7 @@
+ }
+ 
+ int Rig::setFreq(freq_t freq, vfo_t vfo) {
+-#ifdef WIN32	// Ham Radio Deluxe only on Windows
++#ifdef WIN32	// Ham Radio Deluxe (only on Windows)
+   if(m_hrd) {
+     QString t;
+     int nhz=(int)freq;
+@@ -231,7 +229,7 @@
+ freq_t Rig::getFreq(vfo_t vfo)
+ {
+   freq_t freq;
+-#ifdef WIN32	// Ham Radio Deluxe only on Windows
++#ifdef WIN32	// Ham Radio Deluxe (only on Windows)
+   if(m_hrd) {
+     const wchar_t* cmnd = (const wchar_t*) (m_context+&quot;Get Frequency&quot;).utf16();
+     const wchar_t* freqString=HRDInterfaceSendMessage(cmnd);
+@@ -305,7 +303,6 @@
+     const char* buf=ba.data();
+     socket-&gt;write(buf);
+     socket-&gt;waitForBytesWritten(1000);
+-//    qDebug() &lt;&lt; ptt &lt;&lt; buf;
+     return 0;
+   } else
+ #endif
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003167.html">[WSJT-SVN] r3475 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003169.html">[WSJT-SVN] r3477 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3168">[ date ]</a>
+              <a href="thread.html#3168">[ thread ]</a>
+              <a href="subject.html#3168">[ subject ]</a>
+              <a href="author.html#3168">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2664 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2664%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121015191846.1B85355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002355.html">
+   <LINK REL="Next"  HREF="002357.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2664 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2664%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121015191846.1B85355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2664 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Oct 15 21:18:45 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002355.html">[WSJT-SVN] r2663 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002357.html">[WSJT-SVN] r2665 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2356">[ date ]</a>
+              <a href="thread.html#2356">[ thread ]</a>
+              <a href="subject.html#2356">[ subject ]</a>
+              <a href="author.html#2356">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-15 21:18:45 +0200 (Mon, 15 Oct 2012)
+New Revision: 2664
+
+Added:
+   branches/wsjtx/jt9decode.cpp
+   branches/wsjtx/jt9decode.h
+Modified:
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/wsjtx.pro
+Log:
+First successful decode from within WSJT-X.
+
+
+Added: branches/wsjtx/jt9decode.cpp
+===================================================================
+--- branches/wsjtx/jt9decode.cpp	                        (rev 0)
++++ branches/wsjtx/jt9decode.cpp	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -0,0 +1,6 @@
++#include &quot;jt9decode.h&quot;
++
++void JT9DecodeThread::run()
++{
++  qDebug() &lt;&lt; &quot;Decode Thread started&quot;;
++}
+
+Added: branches/wsjtx/jt9decode.h
+===================================================================
+--- branches/wsjtx/jt9decode.h	                        (rev 0)
++++ branches/wsjtx/jt9decode.h	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -0,0 +1,29 @@
++#ifndef JT9DECODE_H
++#define JT9DECODE_H
++#include &lt;QtCore&gt;
++#include &lt;QDebug&gt;
++
++class JT9DecodeThread : public QThread
++{
++  Q_OBJECT
++
++protected:
++  virtual void run();
++
++public:
++// Constructs (but does not start) a JT9DecodeThread
++  JT9DecodeThread()
++    :   quitExecution(false)           // Initialize some private members
++    ,   m_txOK(false)
++  {
++  }
++
++public:
++  bool quitExecution;           //If true, thread exits gracefully
++
++// Private members
++private:
++  bool    m_txOK;               //Enable Tx audio
++};
++
++#endif // JT9DECODE_H
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-15 17:43:49 UTC (rev 2663)
++++ branches/wsjtx/lib/sync9.f90	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -23,7 +23,7 @@
+      if(ia.lt.1) ia=1
+      if(ib.gt.NSMAX) ib=NSMAX
+   endif
+-  print*,ia,ib,df3*ia+1000,df3*ib+1000
++  print*,ia,ib,f0a,df3,ntol,nfqso,df3*ia+1000,df3*ib+1000
+ 
+   sbest=0.
+   lagmax=2.5/tstep + 0.9999
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-15 17:43:49 UTC (rev 2663)
++++ branches/wsjtx/mainwindow.cpp	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -143,6 +143,10 @@
+   watcher2 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
++  future3 = new QFuture&lt;void&gt;;
++  watcher3 = new QFutureWatcher&lt;void&gt;;
++  connect(watcher3, SIGNAL(finished()),this,SLOT(decoderFinished()));
++
+ // Assign input device and start input thread
+   soundInThread.setInputDevice(m_paInDevice);
+   soundInThread.start(QThread::HighestPriority);
+@@ -732,7 +736,13 @@
+ {
+   qDebug() &lt;&lt; &quot;diskWriteFinished&quot;;
+ }
+-                                                        //Delete ../save/*.wav
++
++void MainWindow::decoderFinished()                       //decoderFinished
++{
++  qDebug() &lt;&lt; &quot;Decoder Finished&quot;;
++}
++
++//Delete ../save/*.wav
+ void MainWindow::on_actionDelete_all_wav_files_in_SaveDir_triggered()
+ {
+   int i;
+@@ -804,7 +814,7 @@
+ 
+ void MainWindow::on_DecodeButton_clicked()                    //Decode request
+ {
+-  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; g_pWideGraph-&gt;QSOfreq() &lt;&lt; m_tol;
++  decode();
+ }
+ 
+ void MainWindow::freezeDecode(int n)                          //freezeDecode()
+@@ -814,7 +824,10 @@
+ 
+ void MainWindow::decode()                                       //decode()
+ {
++//  jt9DecodeThread.start(QThread::NormalPriority);
+ 
++  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod);
++  watcher3-&gt;setFuture(*future2);
+ }
+ 
+ 
+@@ -1391,4 +1404,3 @@
+   m_txFreq=n;
+   soundOutThread.setTxFreq(n);
+ }
+-
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-15 17:43:49 UTC (rev 2663)
++++ branches/wsjtx/mainwindow.h	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -7,6 +7,7 @@
+ #include &lt;QHash&gt;
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
++#include &quot;jt9decode.h&quot;
+ #include &quot;commons.h&quot;
+ #include &quot;sleep.h&quot;
+ 
+@@ -32,6 +33,7 @@
+   void dataSink(int k);
+   void diskDat();
+   void diskWriteFinished();
++  void decoderFinished();
+   void freezeDecode(int n);
+   void guiUpdate();
+   void doubleClickOnCall(QString hiscall, bool ctrl);
+@@ -166,8 +168,10 @@
+ 
+     QFuture&lt;void&gt;* future1;
+     QFuture&lt;void&gt;* future2;
++    QFuture&lt;void&gt;* future3;
+     QFutureWatcher&lt;void&gt;* watcher1;
+     QFutureWatcher&lt;void&gt;* watcher2;
++    QFutureWatcher&lt;void&gt;* watcher3;
+ 
+     QProcess proc_m65;
+ 
+@@ -188,6 +192,7 @@
+ 
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
++    JT9DecodeThread jt9DecodeThread;
+ 
+ //---------------------------------------------------- private functions
+     void readSettings();
+@@ -215,8 +220,12 @@
+               int* nb, int* m_NBslider, float* px, float s[], float red[],
+               float* f0a, float* df3, int* nhsym, int* nzap,
+                float* slimit, uchar lstrong[]);
++
+ void genjt9_(char* msg, int* minutes, char* msgsent, int itone[],
+              int len1, int len2);
++
++void decoder_(int* ntrperiod);
++
+ int ptt_(int* nport, int* itx, int* iptt);
+   }
+ 
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-10-15 17:43:49 UTC (rev 2663)
++++ branches/wsjtx/wsjtx.pro	2012-10-15 19:18:45 UTC (rev 2664)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-#CONFIG   += console
++CONFIG   += console
+ 
+ TARGET = wsjtx
+ VERSION = 0.2
+@@ -35,7 +35,8 @@
+ SOURCES += main.cpp mainwindow.cpp plotter.cpp about.cpp \
+     soundin.cpp soundout.cpp devsetup.cpp \
+     widegraph.cpp getfile.cpp \
+-    displaytext.cpp getdev.cpp
++    displaytext.cpp getdev.cpp \
++    jt9decode.cpp
+ 
+ win32 {
+ SOURCES += killbyname.cpp
+@@ -44,6 +45,7 @@
+ HEADERS  += mainwindow.h plotter.h soundin.h soundout.h \
+             about.h devsetup.h widegraph.h getfile.h \
+             commons.h sleep.h displaytext.h \
++    jt9decode.h
+ 
+ DEFINES += __cplusplus
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002355.html">[WSJT-SVN] r2663 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002357.html">[WSJT-SVN] r2665 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2356">[ date ]</a>
+              <a href="thread.html#2356">[ thread ]</a>
+              <a href="subject.html#2356">[ subject ]</a>
+              <a href="author.html#2356">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

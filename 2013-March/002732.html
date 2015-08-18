@@ -1,0 +1,449 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3040 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3040%20-%20branches/wsprx&In-Reply-To=%3C20130308210414.5427355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002731.html">
+   <LINK REL="Next"  HREF="002733.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3040 - branches/wsprx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3040%20-%20branches/wsprx&In-Reply-To=%3C20130308210414.5427355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3040 - branches/wsprx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Fri Mar  8 22:04:14 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002731.html">[WSJT-SVN] r3039 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002733.html">[WSJT-SVN] r3041 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2732">[ date ]</a>
+              <a href="thread.html#2732">[ thread ]</a>
+              <a href="subject.html#2732">[ subject ]</a>
+              <a href="author.html#2732">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-03-08 22:04:13 +0100 (Fri, 08 Mar 2013)
+New Revision: 3040
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/wsprnet.cpp
+   branches/wsprx/wsprnet.h
+Log:
+Implemented HTTP GET method for uploading spots to WSPRnet
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-03-06 20:42:30 UTC (rev 3039)
++++ branches/wsprx/mainwindow.cpp	2013-03-08 21:04:13 UTC (rev 3040)
+@@ -210,8 +210,8 @@
+   ui-&gt;legendLabel-&gt;setText(&quot; UTC   dB    DT        Freq   DF   Call          Grid    dBm&quot;);
+ 
+   wsprNet = new WSPRNet(this);
+-  //connect( ui-&gt;wsprnet_pushButton, SIGNAL(clicked()), this, SLOT(uploadSpots()));
+-  connect( wsprNet, SIGNAL(wsprNetResponse(QString)), this, SLOT(wsprNetResponse(QString)));
++  connect( ui-&gt;wsprnet_pushButton, SIGNAL(clicked()), this, SLOT(uploadSpots()));
++  connect( wsprNet, SIGNAL(uploadStatus(QString)), this, SLOT(uploadResponse(QString)));
+ 
+   freezeDecode(2);
+ }                                          // End of MainWindow constructor
+@@ -599,7 +599,7 @@
+ 
+   lab3 = new QLabel(&quot;&quot;);
+   lab3-&gt;setAlignment(Qt::AlignHCenter);
+-  lab3-&gt;setMinimumSize(QSize(120,18));
++  lab3-&gt;setMinimumSize(QSize(150,18));
+   lab3-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab3);
+ }
+@@ -848,22 +848,37 @@
+ {
+     if(m_uploading)
+         return;
+-    wsprNet-&gt;upload(m_myCall, m_myGrid, m_appDir + &quot;/wsprd.out&quot;);
++
++    QString rfreq = QString(&quot;%1&quot;).arg(m_dialFreq + 0.001500, 0, 'f', 6);
++    QString tfreq = QString(&quot;%1&quot;).arg(0.000001 * m_txFreq + m_dialFreq, 0, 'f', 6);
++
++    wsprNet-&gt;upload(m_myCall,
++                    m_myGrid,
++                    rfreq,
++                    tfreq,
++                    QString::number(m_TxOK ? m_pctx : 0),
++                    QString::number(m_dBm),
++                    Version,
++                    m_appDir + &quot;/wsprd.out&quot;);
+     loggit(&quot;Start WSPRNet Upload&quot;);
+     m_uploading = true;
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:yellow}&quot;);
+     lab3-&gt;setText(&quot;Uploading Spots&quot;);
+ }
+ 
+-void MainWindow::wsprNetResponse(QString serverResponse)
++void MainWindow::uploadResponse(QString response)
+ {
+-    qDebug() &lt;&lt; serverResponse;
+-    m_uploading=false;
+-    if(serverResponse.indexOf(&quot;spot(s) added&quot;) &gt; 0) {
+-      QFile::remove(m_appDir + &quot;/wsprd.out&quot;);
++    if (response == &quot;done&quot;) {
++        m_uploading=false;
++        lab3-&gt;setStyleSheet(&quot;&quot;);
++        lab3-&gt;setText(&quot;&quot;);
++    } else if (response == &quot;Upload Failed&quot;) {
++        m_uploading=false;
++        lab3-&gt;setStyleSheet(&quot;&quot;);
++        lab3-&gt;setText(response);
++    } else {
++        lab3-&gt;setText(response);
+     }
+-    lab3-&gt;setStyleSheet(&quot;&quot;);
+-    lab3-&gt;setText(&quot;&quot;);
+ }
+ 
+ void MainWindow::p2Start()
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-03-06 20:42:30 UTC (rev 3039)
++++ branches/wsprx/mainwindow.h	2013-03-08 21:04:13 UTC (rev 3040)
+@@ -89,7 +89,7 @@
+   void on_actionSave_c2_triggered();
+   void on_actionSave_all_triggered();
+   void uploadSpots();
+-  void wsprNetResponse(QString serverResponse);
++  void uploadResponse(QString response);
+ 
+ private:
+     Ui::MainWindow *ui;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-03-06 20:42:30 UTC (rev 3039)
++++ branches/wsprx/mainwindow.ui	2013-03-08 21:04:13 UTC (rev 3040)
+@@ -198,6 +198,13 @@
+       &lt;item&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
+         &lt;item&gt;
++         &lt;widget class=&quot;QPushButton&quot; name=&quot;wsprnet_pushButton&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;PushButton&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;widget class=&quot;QLabel&quot; name=&quot;labUTC&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+
+Modified: branches/wsprx/wsprnet.cpp
+===================================================================
+--- branches/wsprx/wsprnet.cpp	2013-03-06 20:42:30 UTC (rev 3039)
++++ branches/wsprx/wsprnet.cpp	2013-03-08 21:04:13 UTC (rev 3040)
+@@ -7,53 +7,201 @@
+ WSPRNet::WSPRNet(QObject *parent) :
+     QObject(parent)
+ {
+-  wsprNetUrl = &quot;<A HREF="http://wsprnet.org/meptspots.php">http://wsprnet.org/meptspots.php</A>&quot;;
++  wsprNetUrl = &quot;<A HREF="http://wsprnet.org/post?">http://wsprnet.org/post?</A>&quot;;
++  //wsprNetUrl = &quot;<A HREF="http://127.0.0.1/post.php?">http://127.0.0.1/post.php?</A>&quot;;
+   networkManager = new QNetworkAccessManager(this);
+-  connect( networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkReply(QNetworkReply*)) );
++  connect(networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkReply(QNetworkReply*)));
++
++  uploadTimer = new QTimer(this);
++  connect( uploadTimer, SIGNAL(timeout()), this, SLOT(work()));
+ }
+ 
+-void WSPRNet::upload( QString call, QString grid, QString fileName )
++void WSPRNet::upload(QString call, QString grid, QString rfreq, QString tfreq, QString tpct, QString dbm, QString version, QString fileName)
+ {
++    m_call = call;
++    m_grid = grid;
++    m_rfreq = rfreq;
++    m_tfreq = tfreq;
++    m_tpct = tpct;
++    m_dbm = dbm;
++    m_vers = version;
++    m_file = fileName;
++
+     // Open the wsprd.out file
+     QFile wsprdOutFile(fileName);
+-    if (!wsprdOutFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+-        qDebug() &lt;&lt; &quot;Failed to open &quot; + fileName;
++    if (!wsprdOutFile.open(QIODevice::ReadOnly | QIODevice::Text) || wsprdOutFile.size() == 0) {
++        urlQueue.enqueue( wsprNetUrl + urlEncodeNoSpot());
++        m_uploadType = 1;
++        uploadTimer-&gt;start(50);
++        return;
+     }
+ 
+     // Read the contents
+-    QByteArray wsprdOutData;
+     while (!wsprdOutFile.atEnd()) {
+-        wsprdOutData.append(wsprdOutFile.readLine());
++        QHash&lt;QString,QString&gt; query;
++        if ( decodeLine(wsprdOutFile.readLine(), query) ) {
++           urlQueue.enqueue( wsprNetUrl + urlEncodeSpot(query));
++           m_uploadType = 2;
++           uploadTimer-&gt;start(50);
++        }
+     }
++    m_urlQueueSize = urlQueue.size();
++}
+ 
+-    // WSPRnet URL
+-    QUrl url(wsprNetUrl);
+-    QNetworkRequest request(url);
++void WSPRNet::networkReply(QNetworkReply *reply)
++{
++    QString serverResponse = reply-&gt;readAll();
++    QString response;
++    if( m_uploadType == 2) {
++        if (serverResponse.contains(QRegExp(&quot;spot\\(s\\) added&quot;))) {
++            response = &quot;Uploading Spot &quot; + QString::number(m_urlQueueSize - urlQueue.size()) + &quot;/&quot;+ QString::number(m_urlQueueSize);
++            emit uploadStatus(response);
++        } else {
++            emit uploadStatus(&quot;Upload Failed&quot;);
++            urlQueue.clear();
++            uploadTimer-&gt;stop();
++        }
++    }
+ 
+-    QString boundary = &quot;--------------------WSPRnet_Boundary_$&quot;;
+-    request.setHeader( QNetworkRequest::ContentTypeHeader, QString(&quot;multipart/form-data, boundary=&quot; + boundary));
++    if (urlQueue.isEmpty()) {
++        emit uploadStatus(&quot;done&quot;);
++        QFile::remove(m_file);
++        uploadTimer-&gt;stop();
++    }
+ 
+-    QByteArray data(QString(&quot;--&quot; + boundary + &quot;\r\n&quot;).toAscii());
+-    data += &quot;Content-Disposition: form-data; name=\&quot;allmept\&quot;; filename=\&quot;&quot; + wsprdOutFile.fileName() + &quot;\&quot;\r\n&quot;;
+-    data += &quot;Content-Type: application/octet-stream\r\n\r\n&quot;;
+-    data += wsprdOutData + &quot;\r\n&quot;;
+-    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
+-    data += &quot;Content-Disposition: form-data; name=\&quot;call\&quot;\r\n\r\n&quot;;
+-    data += call + &quot;\r\n&quot;;
+-    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
+-    data += &quot;Content-Disposition: form-data; name=\&quot;grid\&quot;\r\n\r\n&quot;;
+-    data += grid + &quot;\r\n&quot;;
+-    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
++    //qDebug() &lt;&lt; serverResponse;
++}
+ 
+-    qDebug() &lt;&lt; &quot;Uploading spots to WSPRNet: &quot; &lt;&lt; url;
+-    networkManager-&gt;post( request, data );
++bool WSPRNet::decodeLine(QString line, QHash&lt;QString,QString&gt; &amp;query)
++{
++    //qDebug() &lt;&lt; line;
++    // 130223 2256 7    -21 -0.3  14.097090  DU1MGA PK04 37          0    40    0
++    // Date   Time Sync dBm  DT   Freq       Msg
++    // 1      2    3     4   5     6         -------7------          8     9    10
++    QRegExp rx(&quot;^(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+([+-]?\\d+)\\s+([+-]?\\d+\\.\\d+)\\s+(\\d+\\.\\d+)\\s+(.*)\\s+([+-]?\\d+)\\s+([+-]?\\d+)\\s+([+-]?\\d+)&quot;);
++    if (rx.indexIn(line) != -1) {
++        int msgType = 0;
++        QString msg = rx.cap(7);
++        msg.remove(QRegExp(&quot;\\s+$&quot;));
++        msg.remove(QRegExp(&quot;^\\s+&quot;));
++        QString call, grid, dbm;
++
++        // Prevent reporting data ouside of the current frequency band
++        float f = fabs(m_rfreq.toFloat() - rx.cap(6).toFloat());
++        qDebug() &lt;&lt; &quot;Freq Delta = &quot; &lt;&lt; f;
++        if (f &gt; 0.0002)
++            return false;
++
++        QRegExp msgRx;
++
++        // Check for Message Type 1
++        msgRx.setPattern(&quot;^([A-Z0-9]{3,6})\\s+([A-Z]{2}\\d{2})\\s+(\\d+)&quot;);
++        if (msgRx.indexIn(msg) != -1) {
++            //qDebug() &lt;&lt; &quot;Type 1&quot; &lt;&lt; msgRx.cap(1) &lt;&lt; msgRx.cap(2) &lt;&lt; msgRx.cap(3);
++            msgType = 1;
++            call = msgRx.cap(1);
++            grid = msgRx.cap(2);
++            dbm = msgRx.cap(3);
++        }
++
++        // Check for Message Type 2
++        msgRx.setPattern(&quot;^([A-Z0-9/]+)\\s+(\\d+)&quot;);
++        if (msgRx.indexIn(msg) != -1) {
++            //qDebug() &lt;&lt; &quot;Type 2&quot; &lt;&lt; msgRx.cap(1) &lt;&lt; msgRx.cap(2);
++            msgType = 2;
++            call = msgRx.cap(1);
++            grid = &quot;&quot;;
++            dbm = msgRx.cap(2);
++        }
++
++        // Check for Message Type 3
++        msgRx.setPattern(&quot;^&lt;([A-Z0-9/]+)&gt;\\s+([A-Z]{2}\\d{2}[A-Z]{2})\\s+(\\d+)&quot;);
++        if (msgRx.indexIn(msg) != -1) {
++            //qDebug() &lt;&lt; &quot;Type 3&quot; &lt;&lt; msgRx.cap(1) &lt;&lt; msgRx.cap(2) &lt;&lt; msgRx.cap(3);
++            msgType = 3;
++            call = msgRx.cap(1);
++            grid = msgRx.cap(2);
++            dbm = msgRx.cap(3);
++        }
++
++        // Unknown message format
++        if (!msgType) {
++            return false;
++        }
++
++        query[&quot;function&quot;] = &quot;wspr&quot;;
++        query[&quot;rcall&quot;] = m_call;
++        query[&quot;rgrid&quot;] = m_grid;
++        query[&quot;rqrg&quot;] = m_rfreq;
++        query[&quot;date&quot;] = rx.cap(1);
++        query[&quot;time&quot;] = rx.cap(2);
++        query[&quot;sig&quot;] = rx.cap(4);
++        query[&quot;dt&quot;] = rx.cap(5);
++        query[&quot;drift&quot;] = rx.cap(10);
++        query[&quot;tqrg&quot;] = rx.cap(6);
++        query[&quot;tcall&quot;] = call;
++        query[&quot;tgrid&quot;] = grid;
++        query[&quot;dbm&quot;] = dbm;
++        query[&quot;version&quot;] = m_vers;
++
++    } else {
++        return false;
++    }
++    return true;
+ }
+ 
+-void WSPRNet::networkReply( QNetworkReply *reply )
++QString WSPRNet::urlEncodeNoSpot()
+ {
+-    QString serverResponse = reply-&gt;readAll();
+-    emit wsprNetResponse(serverResponse);
++    QString queryString;
++
++    queryString += &quot;function=wsprstat&amp;&quot;;
++    queryString += &quot;rcall=&quot; + m_call + &quot;&amp;&quot;;
++    queryString += &quot;rgrid=&quot; + m_grid + &quot;&amp;&quot;;
++    queryString += &quot;rqrg=&quot; + m_rfreq + &quot;&amp;&quot;;
++    queryString += &quot;tpct=&quot; + m_tpct + &quot;&amp;&quot;;
++    queryString += &quot;tqrg=&quot; + m_tfreq + &quot;&amp;&quot;;
++    queryString += &quot;dbm=&quot; + m_dbm + &quot;&amp;&quot;;
++    queryString += &quot;version=&quot; +  m_vers;
++
++    qDebug() &lt;&lt; queryString;
++
++    return queryString;;
+ }
+ 
++QString WSPRNet::urlEncodeSpot(QHash&lt;QString,QString&gt; query)
++{
++    QString queryString;
+ 
++    queryString += &quot;function=&quot; + query[&quot;function&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;rcall=&quot; + query[&quot;rcall&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;rgrid=&quot; + query[&quot;rgrid&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;rqrg=&quot; + query[&quot;rqrg&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;date=&quot; + query[&quot;date&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;time=&quot; + query[&quot;time&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;sig=&quot; + query[&quot;sig&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;dt=&quot; + query[&quot;dt&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;drift=&quot; + query[&quot;drift&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;tqrg=&quot; + query[&quot;tqrg&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;tcall=&quot; + query[&quot;tcall&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;tgrid=&quot; + query[&quot;tgrid&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;dbm=&quot; + query[&quot;dbm&quot;] + &quot;&amp;&quot;;
++    queryString += &quot;version=&quot; + query[&quot;version&quot;];
+ 
++    qDebug() &lt;&lt; queryString;
++
++    return queryString;
++}
++
++void WSPRNet::work()
++{
++    if (!urlQueue.isEmpty()) {
++        QUrl url(urlQueue.dequeue());
++        QNetworkRequest request(url);
++        networkManager-&gt;get(request);
++    } else {
++        uploadTimer-&gt;stop();
++    }
++}
++
++
++
+
+Modified: branches/wsprx/wsprnet.h
+===================================================================
+--- branches/wsprx/wsprnet.h	2013-03-06 20:42:30 UTC (rev 3039)
++++ branches/wsprx/wsprnet.h	2013-03-08 21:04:13 UTC (rev 3040)
+@@ -9,17 +9,27 @@
+ Q_OBJECT
+ public:
+     explicit WSPRNet(QObject *parent = 0);
+-    void upload(QString call, QString grid, QString fileName);
++    void upload(QString call, QString grid, QString rfreq, QString tfreq, QString tpct, QString dbm, QString version, QString fileName);
+ 
+ signals:
+-    void wsprNetResponse(QString);
++    void uploadStatus(QString);
+ 
+ public slots:
+-    void networkReply( QNetworkReply * );
++    void networkReply(QNetworkReply *);
++    void work();
+ 
+ private:
+     QNetworkAccessManager *networkManager;
+     QString wsprNetUrl;
++    QString m_call, m_grid, m_rfreq, m_tfreq, m_tpct, m_dbm, m_vers, m_file;
++    QQueue&lt;QString&gt; urlQueue;
++    QTimer *uploadTimer;
++    int m_urlQueueSize;
++    int m_uploadType;
++
++    bool decodeLine(QString line, QHash&lt;QString,QString&gt; &amp;query);
++    QString urlEncodeNoSpot();
++    QString urlEncodeSpot(QHash&lt;QString,QString&gt; spot);
+ };
+ 
+ #endif // WSPRNET_H
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002731.html">[WSJT-SVN] r3039 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002733.html">[WSJT-SVN] r3041 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2732">[ date ]</a>
+              <a href="thread.html#2732">[ thread ]</a>
+              <a href="subject.html#2732">[ subject ]</a>
+              <a href="author.html#2732">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

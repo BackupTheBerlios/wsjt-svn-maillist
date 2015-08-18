@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2510 - in branches/jtms3: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2510%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120713150024.557B655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002201.html">
+   <LINK REL="Next"  HREF="002203.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2510 - in branches/jtms3: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2510%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120713150024.557B655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2510 - in branches/jtms3: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jul 13 17:00:24 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002201.html">[WSJT-SVN] r2509 - in branches/jtms3: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002203.html">[WSJT-SVN] r2511 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2202">[ date ]</a>
+              <a href="thread.html#2202">[ thread ]</a>
+              <a href="subject.html#2202">[ subject ]</a>
+              <a href="author.html#2202">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-13 17:00:23 +0200 (Fri, 13 Jul 2012)
+New Revision: 2510
+
+Modified:
+   branches/jtms3/libm65/specjtms.f90
+   branches/jtms3/mainwindow.cpp
+   branches/jtms3/mainwindow.ui
+   branches/jtms3/plotter.cpp
+Log:
+Some cleanup of GUI.
+
+
+Modified: branches/jtms3/libm65/specjtms.f90
+===================================================================
+--- branches/jtms3/libm65/specjtms.f90	2012-07-13 13:37:50 UTC (rev 2509)
++++ branches/jtms3/libm65/specjtms.f90	2012-07-13 15:00:23 UTC (rev 2510)
+@@ -37,6 +37,12 @@
+   rms=sqrt(sq)
+   px=db(sq) - 23.0
+   pxsmo=db(sqsmo) - 23.0
++
++  do i=i0,ia-1
++     d=id(i)
++     sq=sq + d*d
++  enddo
++  sq0=sq
+ !  write(13,1010) t,rms,sq,px,pxsmo
+ !1010 format(5f12.3)
+   if(k.lt.nfft) return
+@@ -65,20 +71,25 @@
+   
+   call four2a(cx2,nfft,1,-1,1)                   !Forward c2c FFT of cx2
+ 
+-  spk0=0.
+   j0=nint(2.0*1428.57/df)
+   ja=j0-107
+   jb=j0+107
+   do j=ja,jb
+-     sq=1.e-4*(real(cx2(j))**2 + aimag(cx2(j))**2)
+-     s2(j-ja+1)=sq
+-     if(sq.gt.spk0) then
+-        spk0=sq
+-        f=(j-1)*df
++     s2(j-ja+1)=1.e-4*(real(cx2(j))**2 + aimag(cx2(j))**2)
++  enddo
++
++  spk0=0.
++  fac=(5e8/sq0)**2
++  s2=fac*s2
++  do j=1,215
++     if(s2(j).gt.spk0) then
++        spk0=s2(j)
++        f=(j+ja-1)*df
+         f0=0.5*(f-3000.0)
+         phi0=0.5*atan2(aimag(cx2(j)),real(cx2(j)))
+      endif
+   enddo
++
+   spk0=0.5*db(spk0) - 7.0
+   kline=k/2048
+ !  write(14,3001) k/2048,spk0,f0,phi0
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-13 13:37:50 UTC (rev 2509)
++++ branches/jtms3/mainwindow.cpp	2012-07-13 15:00:23 UTC (rev 2510)
+@@ -420,8 +420,22 @@
+   float pxave=10.0*log10(sqave/2048.0) - 23.0;
+ 
+   specjtms_(&amp;k,&amp;px,&amp;pxsmo,&amp;spk0,&amp;f0);
+-//  if(spk0 &gt; 3.0) qDebug() &lt;&lt; (k-2048.0)/48000.0 &lt;&lt; spk0 &lt;&lt; f0;
+   QString t;
++  if(spk0 &gt; 2.0) {
++    qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
++    int isec=ms/1000;
++    int imin=ms/60000;
++    int ihr=imin/60;
++    imin=imin % 60;
++    isec=isec % 60;
++    if(isec&lt;30) isec=0;
++    if(isec&gt;30) isec=30;
++    int nutc=10000*ihr + 100*imin + isec;
++    t.sprintf(&quot;%6.6d  %4.1f   %4.1f   %4d&quot;,nutc,(k-2048.0)/48000.0,
++              spk0,int(f0));
++    ui-&gt;decodedTextBrowser-&gt;append(t);
++  }
++
+   t.sprintf(&quot; Rx noise: %5.1f &quot;,pxave);
+   lab2-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);                      //Update the Thermo
+
+Modified: branches/jtms3/mainwindow.ui
+===================================================================
+--- branches/jtms3/mainwindow.ui	2012-07-13 13:37:50 UTC (rev 2509)
++++ branches/jtms3/mainwindow.ui	2012-07-13 15:00:23 UTC (rev 2510)
+@@ -53,7 +53,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;title&quot;&gt;
+-         &lt;string&gt;   Freq        DF      Pol      UTC         DT        dB                                                                        KV       DS          TxPol&lt;/string&gt;
++         &lt;string&gt;         UTC              T                dB                DF&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+          &lt;item&gt;
+
+Modified: branches/jtms3/plotter.cpp
+===================================================================
+--- branches/jtms3/plotter.cpp	2012-07-13 13:37:50 UTC (rev 2509)
++++ branches/jtms3/plotter.cpp	2012-07-13 15:00:23 UTC (rev 2510)
+@@ -1,6 +1,7 @@
+ #include &quot;plotter.h&quot;
+ #include &lt;math.h&gt;
+ #include &lt;QDebug&gt;
++#include &lt;algorithm&gt;
+ 
+ #define MAX_SCREENSIZE 2048
+ 
+@@ -141,9 +142,9 @@
+     if(2*i &lt; 215) {
+       if(m_2Dspec) {
+         y=10.0*log10(0.5*(mscom_.s2[2*i-1] + mscom_.s2[2*i]));
+-        y1 = 5.0*gain*(y + 13 - m_plotZero);
++        y1 = 5.0*gain*(y + 20 - m_plotZero);
+       } else {
+-        y=10.0*log10(0.5*(mscom_.s1[2*i-1] + mscom_.s1[2*i]));
++        y=10.0*log10(std::max(mscom_.s1[2*i-1],mscom_.s1[2*i]));
+         y1 = 5.0*gain*(y + 55 - m_plotZero);
+       }
+     } else {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002201.html">[WSJT-SVN] r2509 - in branches/jtms3: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002203.html">[WSJT-SVN] r2511 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2202">[ date ]</a>
+              <a href="thread.html#2202">[ thread ]</a>
+              <a href="subject.html#2202">[ subject ]</a>
+              <a href="author.html#2202">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

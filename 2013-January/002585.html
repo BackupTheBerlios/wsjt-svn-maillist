@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2893 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2893%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130105185917.6D50855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002584.html">
+   <LINK REL="Next"  HREF="002586.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2893 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2893%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130105185917.6D50855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2893 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jan  5 19:59:17 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002584.html">[WSJT-SVN] r2892 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002586.html">[WSJT-SVN] r2894 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2585">[ date ]</a>
+              <a href="thread.html#2585">[ thread ]</a>
+              <a href="subject.html#2585">[ subject ]</a>
+              <a href="author.html#2585">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-05 19:59:17 +0100 (Sat, 05 Jan 2013)
+New Revision: 2893
+
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/symspec.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Now saving array 'c2', for use by decoder wspr0.exe.
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2013-01-05 16:31:48 UTC (rev 2892)
++++ branches/wsprx/lib/Makefile	2013-01-05 18:59:17 UTC (rev 2893)
+@@ -31,7 +31,7 @@
+ 	mept162.o mix162.o spec162.o sync162.o twkfreq.o \
+ 	decode162.o getutc.o set.o xfft.o four2a.o flat3.o ps162.o \
+ 	pctile.o fchisq.o db.o fano232.o sort.o ssort.o ccf2.o \
+-	genwsprx.o
++	genwsprx.o savec2.o
+ 
+ libwspr.a: $(OBJS1)
+ 	ar cr libwspr.a $(OBJS1) 
+
+Modified: branches/wsprx/lib/symspec.f90
+===================================================================
+--- branches/wsprx/lib/symspec.f90	2013-01-05 16:31:48 UTC (rev 2892)
++++ branches/wsprx/lib/symspec.f90	2013-01-05 18:59:17 UTC (rev 2893)
+@@ -2,7 +2,6 @@
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+-!  ntrperiod T/R sequence length, minutes
+ !  nsps      samples per symbol (12000 Hz)
+ !  ndiskdat  0/1 to indicate if data from disk
+ !  nb        0/1 status of noise blanker (off/on)
+@@ -31,10 +30,9 @@
+   integer*2 id2
+   complex c0
+   common/datcom/nutc,ndiskdat,id2(NMAX),savg(NSMAX),c0(NDMAX)
+-  data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
++  data rms/999.0/,k0/99999999/,nfft3z/0/
+   save
+ 
+-!  nfft3=2048
+   nfft3=nsps/4
+   jstep=nsps/16
+   if(k.gt.NMAX) go to 999
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-05 16:31:48 UTC (rev 2892)
++++ branches/wsprx/mainwindow.cpp	2013-01-05 18:59:17 UTC (rev 2893)
+@@ -353,6 +353,10 @@
+             t2 + &quot;.wav&quot;;
+       *future2 = QtConcurrent::run(savewav, m_fname, m_TRseconds);
+       watcher2-&gt;setFuture(*future2);
++      int len1=m_fname.indexOf(&quot;.wav&quot;)+4;
++      char fname[80];
++      strcpy(fname,m_fname.toAscii());
++      savec2_(fname,&amp;m_TRseconds,&amp;m_dialFreq,len1);
+     }
+ 
+     m_decodedList.clear();
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-05 16:31:48 UTC (rev 2892)
++++ branches/wsprx/mainwindow.h	2013-01-05 18:59:17 UTC (rev 2893)
+@@ -207,6 +207,7 @@
+ void symspec_(int* k, int* nsps, int* ingain, float* px, float s[],
+               float* df3, int* nhsym);
+ void genwsprx_(char* msg, int itone[], int len1);
++void savec2_(char* fname, int* m_TRseconds, double* m_dialFreq, int len1);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002584.html">[WSJT-SVN] r2892 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002586.html">[WSJT-SVN] r2894 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2585">[ date ]</a>
+              <a href="thread.html#2585">[ thread ]</a>
+              <a href="subject.html#2585">[ subject ]</a>
+              <a href="author.html#2585">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

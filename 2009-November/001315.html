@@ -1,0 +1,902 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1624 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1624%20-%20branches/wspr&In-Reply-To=%3C200911041824.nA4IONDx012734%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001314.html">
+   <LINK REL="Next"  HREF="001316.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1624 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1624%20-%20branches/wspr&In-Reply-To=%3C200911041824.nA4IONDx012734%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1624 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov  4 19:24:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001314.html">[WSJT-SVN] r1623 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001316.html">[WSJT-SVN] r1625 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1315">[ date ]</a>
+              <a href="thread.html#1315">[ thread ]</a>
+              <a href="subject.html#1315">[ subject ]</a>
+              <a href="author.html#1315">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-04 19:24:08 +0100 (Wed, 04 Nov 2009)
+New Revision: 1624
+
+Added:
+   branches/wspr/thcvf.f90
+   branches/wspr/thnix.f90
+Removed:
+   branches/wspr/afc2.f90
+   branches/wspr/packmept.f
+Modified:
+   branches/wspr/decode.F90
+   branches/wspr/ftn_quit.f90
+   branches/wspr/genwspr.F90
+   branches/wspr/getfile.F90
+   branches/wspr/mept162.F
+   branches/wspr/packcall.f
+   branches/wspr/packgrid.f
+   branches/wspr/rx.F90
+   branches/wspr/spec162.F
+   branches/wspr/tx.F90
+   branches/wspr/unpackgrid.f
+   branches/wspr/wfile5.F
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+   branches/wspr/wspr1.F90
+   branches/wspr/wspr2.F90
+Log:
+Implemented &quot;critical section&quot; locks around all Fortran I/O.
+Removed two unused routines.
+
+
+Deleted: branches/wspr/afc2.f90
+===================================================================
+--- branches/wspr/afc2.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/afc2.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -1,209 +0,0 @@
+-subroutine afc2(c4)
+-
+-  complex c4(45000)
+-  complex c5(45000)
+-  complex c6(45000)
+-  complex c(0:4095)
+-  complex cc(-16:48,0:163)
+-  complex ct
+-  complex wshift(-16:48)
+-  complex*16 w,ws,wt
+-  real fpk(162),spk(162)
+-  real f2(162),s2(162)
+-  real ww(-5:5)
+-  real sqn(-16:16,0:7)
+-  real*8 dt,f,dphi,twopi
+-  integer npr3(162)
+-  common/ccom/rr(162)
+-  data npr3/                                   &amp;
+-      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
+-      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
+-      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1, &amp;
+-      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1, &amp;
+-      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0, &amp;
+-      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1, &amp;
+-      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1, &amp;
+-      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0, &amp;
+-      0,0/
+-
+-  dt=1.0/375
+-  nsps=256
+-  nsym=162
+-  twopi=8.d0*atan(1.d0)
+-  dftone=12000.d0/8192.d0                     !1.46484375 Hz
+-
+-! At this point we have established pretty good time and frequency 
+-! synchronization.  Now remove the sync modulation.
+-  k=0
+-  w=1.0
+-  do j=1,nsym
+-!     f=dftone*(npr3(j)+2*symbol(j)-1.5)
+-     f=dftone*(npr3(j)-1.5)
+-     dphi=twopi*dt*f
+-     ws=dcmplx(cos(dphi),-sin(dphi))
+-     do i=1,nsps
+-        w=w*ws
+-        k=k+1
+-        c5(k)=w*c4(k)
+-     enddo
+-  enddo
+-  kz=k 
+-! At this point c5 has only data modulation, with 2-FSK frequency steps 
+-! of size 2*dftone = 2.9296875 Hz.
+-
+-! Compute oversampled complex spectra of each symbol at frequencies 
+-! from about -1.5 to +4.5 Hz.
+-  nft=2048
+-  df1=375.0/nft
+-  ia=-dftone/df1
+-  ib=-3*ia
+-  do j=1,nsym
+-     do i=ia,ib
+-        w=1.0
+-        dphi=i*twopi/nft
+-        ws=dcmplx(cos(dphi),-sin(dphi))
+-        m=(j-1)*nsps
+-        ct=0.
+-        do k=1,nsps
+-           m=m+1
+-           ct=ct + w*c5(m)
+-           w=w*ws
+-        enddo
+-        wshift(i)=w
+-        cc(i,j)=ct
+-     enddo
+-        do i=ia,ib
+-           sq=real(cc(i,j))**2 + aimag(cc(i,j))**2
+-           pha=atan2(aimag(wshift(i)),real(wshift(i)))
+-!           write(51,3002) i*df1,sq,pha
+-!3002       format(3f10.3)
+-        enddo
+-  enddo
+-
+-! Combine the complex coeffs to produce coherent spectra over groups
+-! of three successive symbols.  Loop over all 8 possible tone combinations
+-! to find the best-fit value for the central symbol.
+-
+-  cc(ia:ib,0)=0.
+-  cc(ia:ib,163)=0.
+-  do j=1,nsym
+-     smax=0.
+-     do n=0,7
+-        i1=0
+-        if(n.eq.2 .or. n.eq.3  .or. n.eq.6  .or. n.eq.7) i1=16
+-        i2=0
+-        if(n.ge.4) i2=16
+-        i3=0
+-        if(mod(n,2).eq.1) i3=16
+-        do i=ia/2,-ia/2
+-           ct=conjg(wshift(i1+i))*cc(i1+i,j-1) + cc(i2+i,j) + &amp;
+-                wshift(i3+i)*cc(i3+i,j+1)
+-           sq=real(ct)**2 + aimag(ct)**2
+-           sqn(i,n)=sq
+-           if(sq.gt.smax) then
+-              smax=sq
+-              nmax=n
+-              ipk=i
+-           endif
+-        enddo
+-     enddo
+-     if(nmax.lt.4) rsym=sqn(ipk,nmax+4)-smax
+-     if(nmax.ge.4) rsym=smax-sqn(ipk,nmax-4)
+-!     rr(j)=0.004*rsym
+-
+-     smax=0.
+-!     do i=ia/2,-ia/2
+-     do i=-3,3
+-        do n=1,3
+-           sqn(i,0)=sqn(i,0)+sqn(i,n)
+-           sqn(i,4)=sqn(i,4)+sqn(i,n+4)
+-        enddo
+-        sq=abs(sqn(i,4)-sqn(i,0))
+-        if(sq.gt.abs(smax)) then
+-           smax=sqn(i,4)-sqn(i,0)
+-           ipk=i
+-        endif
+-     enddo
+-     rr(j)=0.002*smax
+-
+-     write(52,3001) j,rr(j)
+-3001 format(i3,f12.3)
+-
+-  enddo
+-
+-! Do coherent FFTs over several symbols.  Find peak freq and subtract 
+-! 2*dftone if it was the upper one of two.  Save fpk and smax centered 
+-! on each symbol.  (May want to play with nd and nfft.)
+-
+-  nd=3
+-  ndat=nd*nsps
+-  nfft=1024
+-  df=375.0/nfft
+-  ia=2*dftone/df
+-  noff=nint(0.5*nd*nsps)
+-  c6(1:noff)=0.
+-  c6(noff+1:noff+kz)=c5(1:kz)
+-
+-  k=1-nsps
+-  do j=1,nsym
+-     k=k+nsps
+-     c(0:ndat-1)=c6(k:k+ndat)
+-     c(ndat:nfft-1)=0.
+-     call four2a(c,nfft,1,-1,1)
+-     smax=0.
+-     do i=-ia,ia
+-        k1=i
+-        if(k1.lt.0) k1=k1+nfft
+-        s=real(c(k1))**2 + aimag(c(k1))**2 
+-        if(s.gt.smax) then
+-           ipk=i
+-           if(ipk.gt.ia/2) ipk=ipk-ia
+-           if(ipk.lt.-ia/2) ipk=ipk+ia
+-           smax=s
+-        endif
+-     enddo
+-     fpk(j)=ipk*df
+-     spk(j)=smax
+-  enddo
+-
+-  ww(0)=1.0
+-  do i=1,5
+-     x=(i/3.0)**2
+-     ww(i)=exp(-x)
+-     ww(-i)=exp(-x)
+-  enddo
+-
+-  do j=1,nsym
+-     sum=0.
+-     sumw=0.
+-     do i=-5,5
+-        if(j+i.ge.1 .and. j+i.le.162) then
+-           wgt=ww(i)*spk(j+i)
+-           sumw=sumw + wgt
+-           sum=sum + wgt*fpk(j+i)
+-        endif
+-     enddo
+-     f2(j)=sum/sumw
+-  enddo
+-
+-!  do j=1,nsym
+-!     write(54,3201) j,fpk(j),0.000015*spk(j),f2(j)
+-!3201 format(i3,3f10.3)
+-!  enddo
+-!  write(54,3201) 163,-4.0,0.0,0.0
+-!  write(54,3201)   0,-4.0,0.0,0.0
+-
+-!  k=0
+-!  w=1.0
+-!  do j=1,nsym
+-!     dphi=twopi*dt*f2(j)
+-!     ws=dcmplx(cos(dphi),-sin(dphi))
+-!     do i=1,nsps
+-!        w=w*ws
+-!        k=k+1
+-!        c4(k)=w*c4(k)
+-!     enddo
+-!  enddo
+-
+-  return
+-end subroutine afc2
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/decode.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -27,13 +27,13 @@
+            smax=s
+            fpeak=i*df
+         endif
+-!        write(71,3001) i*df,1.e-12*s
+-!3001    format(2f12.3)
+      enddo
+      calfac=(1.d7 + (fpeak-1500.d0))/1.d7
++     call cs_lock('decode')
+      write(*,1002) fpeak,calfac,f0*calfac
+ 1002 format('Fpeak:',f10.3,' Hz'/'Calibration factor:',f11.8/     &amp;
+           'Set USB dial frequency to:',f11.6,' MHz')
++     call cs_unlock
+      ncal=0
+   else
+      minsync=1
+@@ -46,10 +46,12 @@
+      endif
+   endif
+ 
++  call cs_lock('decode')
+   write(14,1100)
+ 1100 format('$EOF')
+   call flush(14)
+   rewind 14
++  call cs_unlock
+   ndecdone=1
+   ndiskdat=0
+   ndecoding=0
+
+Modified: branches/wspr/ftn_quit.f90
+===================================================================
+--- branches/wspr/ftn_quit.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/ftn_quit.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -1,11 +1,14 @@
+ subroutine ftn_quit
+ 
++  call cs_lock('ftn_quit')
+   rewind 17
+   call export_wisdom_to_file(17)
+   close(17)
+   write(*,1000) 
+ 1000 format('Exported FFTW wisdom')
+   call four2a(a,-1,1,1,1)                  !Destroy the FFTW plans
++  call cs_unlock
++  call cs_destroy
+ 
+   return
+ end subroutine ftn_quit
+
+Modified: branches/wspr/genwspr.F90
+===================================================================
+--- branches/wspr/genwspr.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/genwspr.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -47,6 +47,7 @@
+ 
+   call wqdecode(data0,msg2,ntype2)
+ 
++  call cs_lock('genwspr')
+ #ifdef CVF
+   open(13,file='ALL_WSPR.TXT',status='unknown',                   &amp;
+        position='append',share='denynone')
+@@ -57,6 +58,7 @@
+   write(13,1010) line
+ 1010 format(a75)
+   close(13)
++  call cs_unlock
+ 
+ ! Set up necessary constants
+   tsymbol=8192.d0/12000.d0
+
+Modified: branches/wspr/getfile.F90
+===================================================================
+--- branches/wspr/getfile.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/getfile.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -24,6 +24,7 @@
+   i=0
+ 10  continue
+ 
++  call cs_lock('getfile')
+ #ifdef CVF
+   open(10,file=fname,form='binary',status='old')
+ #else
+@@ -32,6 +33,8 @@
+   read(10) hdr
+   npts=114*12000
+   read(10) (iwave(i),i=1,npts)
++  close(10)
++  call cs_unlock
+   n4=1
+   if (n1.eq.1) goto 8                     !skip byteswap if little endian
+   do i=1,npts
+@@ -44,6 +47,5 @@
+   outfile=fname
+   nrxdone=1
+ 
+-  close(10)
+   return
+ end subroutine getfile
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/mept162.F	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -78,6 +78,7 @@
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+             nf1=nint(-a(2))
++            call cs_lock('mept162a')
+ 
+ #ifdef CVF
+             open(13,file='ALL_WSPR.TXT',status='unknown',
+@@ -93,6 +94,7 @@
+      +           ncycles/81,ii
+  1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
+             i1=index(message,' ')
++            call cs_unlock
+          endif
+  24      continue
+       enddo
+
+Modified: branches/wspr/packcall.f
+===================================================================
+--- branches/wspr/packcall.f	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/packcall.f	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -3,8 +3,9 @@
+ C  Pack a valid callsign into a 28-bit integer.
+ 
+       parameter (NBASE=37*36*10*27*27*27)
+-      character callsign*6,c*1,tmp*6
++      character callsign*6,c*1,tmp*6,digit*10
+       logical text
++      data digit/'0123456789'/
+ 
+       text=.false.
+ 
+@@ -16,7 +17,9 @@
+          if(callsign(4:4).ge.'0' .and. callsign(4:4).le.'9' .and. 
+      +      callsign(5:5).ge.'0' .and. callsign(5:5).le.'9' .and. 
+      +      callsign(6:6).ge.'0' .and. callsign(6:6).le.'9') then
+-            read(callsign(4:6),*) nfreq
++            nfreq=100*(ichar(callsign(4:4))-48) + 
++     +             10*(ichar(callsign(5:5))-48) +
++     +                 ichar(callsign(6:6))-48
+             ncall=NBASE + 3 + nfreq
+          endif
+          return
+
+Modified: branches/wspr/packgrid.f
+===================================================================
+--- branches/wspr/packgrid.f	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/packgrid.f	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -9,11 +9,11 @@
+ 
+ C  Test for numerical signal report, etc.
+       if(grid(1:1).eq.'-') then
+-         read(grid(2:3),*,err=1,end=1) n
++         n=10*(ichar(grid(2:2))-48) + ichar(grid(3:3)) - 48
+  1       ng=NGBASE+1+n
+          go to 100
+       else if(grid(1:2).eq.'R-') then
+-         read(grid(3:4),*,err=2,end=2) n
++         n=10*(ichar(grid(3:3))-48) + ichar(grid(4:4)) - 48
+  2       if(n.eq.0) go to 90
+          ng=NGBASE+31+n
+          go to 100
+
+Deleted: branches/wspr/packmept.f
+===================================================================
+--- branches/wspr/packmept.f	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/packmept.f	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -1,61 +0,0 @@
+-      subroutine packmept(msg,dat)
+-
+-      character*22 msg
+-      integer dat(12)
+-      character*12 c1,c2
+-      character*4 c3
+-      character*6 grid6
+-      logical text1,text2,text3
+-
+-C  Convert all letters to upper case
+-      do i=1,22
+-         if(msg(i:i).ge.'a' .and. msg(i:i).le.'z') 
+-     +     msg(i:i)= char(ichar(msg(i:i))+ichar('A')-ichar('a'))
+-      enddo
+-
+-      do i=1,22
+-         if(msg(i:i).eq.' ') go to 1       !Get 1st blank
+-      enddo 
+-      go to 10                             !Bad message
+-      
+- 1    ia=i
+-      c1=msg(1:ia-1)
+-      do i=ia+1,22
+-         if(msg(i:i).eq.' ') go to 2       !Get 2nd blank
+-      enddo
+-      go to 10                             !Bad message
+-
+- 2    ib=i
+-      c2=msg(ia+1:ib-1)
+-
+-      do i=ib+1,22
+-         if(msg(i:i).eq.' ') go to 3       !Get 3rd blank
+-      enddo
+-      go to 10                             !Bad message
+-
+- 3    ic=i
+-      c3='    '
+-      if(ic.ge.ib+1) c3=msg(ib+1:ic)
+-      call packcall(c1,nc1,text1)
+-      call packgrid(c2,ng,text2)
+-      read(c3,*,err=10) ndbm
+-      if((.not.text1) .and. (.not.text2) .and.
+-     +   (ndbm.ge.-64) .and. (ndbm.le.63)) go to 20
+-
+- 10   print*,'Error: Badly structured MEPT_JT message.'
+-      stop
+-
+-C  Encode data into 6-bit words
+- 20   n2=64*iand(ng,65534) + ndbm + 64
+-      dat(1)=iand(ishft(nc1,-22),63)                !6 bits
+-      dat(2)=iand(ishft(nc1,-16),63)                !6 bits
+-      dat(3)=iand(ishft(nc1,-10),63)                !6 bits
+-      dat(4)=iand(ishft(nc1, -4),63)                !6 bits
+-      dat(5)=4*iand(nc1,15)+iand(ishft(n2,-20),3)   !4+2 bits
+-      dat(6)=iand(ishft(n2,-14),63)                 !6 bits
+-      dat(7)=iand(ishft(n2,-8),63)                  !6 bits
+-      dat(8)=iand(ishft(n2,-2),63)                  !6 bits
+-      dat(9)=16*iand(n2,3)                          !2 bits
+-
+-      return
+-      end
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/rx.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -20,10 +20,6 @@
+      stop
+   endif
+   nsec2=time()
+-  if(ndebug.ne.0) then
+-     write(*,1010) mod(nsec1,120),mod(nsec2,120),nsec2-nsec1
+-1010 format('Rx: '3i5)
+-  endif
+   call getrms(iwave,npts,ave,rms)
+   nrxdone=1
+ 
+
+Modified: branches/wspr/spec162.F
+===================================================================
+--- branches/wspr/spec162.F	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/spec162.F	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -23,12 +23,14 @@
+       istep=nfft/2
+       nsteps=(jz-nfft)/(nadd*istep)
+ 
++      call cs_lock('spec162')
+ #ifdef CVF
+       open(16,file='pixmap.dat',form='binary',status='unknown',err=1)
+ #else
+       open(16,file='pixmap.dat',access='stream',status='unknown',err=1)
+ #endif
+       read(16,end=1) a
++      call cs_unlock
+       go to 2
+  1    call zero(a,NX*NY/2)
+ 
+@@ -88,9 +90,11 @@
+          enddo
+       enddo
+ 
++      call cs_lock('spec162')
+       rewind 16
+       write(16) a
+       close(16)
++      call cs_unlock
+ 
+       return
+       end
+
+Added: branches/wspr/thcvf.f90
+===================================================================
+--- branches/wspr/thcvf.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/thcvf.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -0,0 +1,64 @@
++subroutine cs_init
++  use dfmt
++  type (RTL_CRITICAL_SECTION) ncrit1
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  ltrace=0
++  mtx=loc(ncrit1)
++  mtxstate=0
++  csub0='**unlocked**'
++  call InitializeCriticalSection(mtx)
++  return
++end subroutine cs_init
++
++subroutine cs_destroy
++  use dfmt
++  type (RTL_CRITICAL_SECTION) ncrit1
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  call DeleteCriticalSection(mtx)
++  return
++end subroutine cs_destroy
++
++subroutine th_create(sub)
++  use dfmt
++  external sub
++  ith=CreateThread(0,0,sub,0,0,id)
++  return
++end subroutine th_create
++
++subroutine th_exit
++  use dfmt
++  ncode=0
++  call ExitThread(ncode)
++  return
++end subroutine th_exit
++
++subroutine cs_lock(csub)
++  use dfmt
++  character*(*) csub
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  n=TryEnterCriticalSection(mtx)
++  if(n.eq.0) then
++! Another thread has already locked the mutex
++     call EnterCriticalSection(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested the mutex when &quot;',  &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
++  return
++end subroutine cs_lock
++
++subroutine cs_unlock
++  use dfmt
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++  if(ltrace.ge.3) print*,'Mutex unlocked'
++  call LeaveCriticalSection(mtx)
++  return
++end subroutine cs_unlock
+
+Added: branches/wspr/thnix.f90
+===================================================================
+--- branches/wspr/thnix.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/thnix.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -0,0 +1,54 @@
++subroutine cs_init
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  ltrace=0
++  mtxstate=0
++  csub0='**unlocked**'
++  call fthread_mutex_init(mtx)
++  return
++end subroutine cs_init
++
++subroutine cs_destroy
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  call fthread_mutex_destroy(mtx)
++  return
++end subroutine cs_destroy
++
++subroutine th_create(sub)
++  call fthread_create(sub,id)
++  return
++end subroutine th_create
++
++subroutine th_exit
++  call fthread_exit
++  return
++end subroutine th_exit
++
++subroutine cs_lock(csub)
++  character*(*) csub
++  character*12 csub0
++  integer fthread_mutex_lock,fthread_mutex_trylock
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  n=fthread_mutex_trylock(mtx)
++  if(n.ne.0) then
++! Another thread has already locked the mutex
++     n=fthread_mutex_lock(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested mutex when &quot;',   &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
++  return
++end subroutine cs_lock
++
++subroutine cs_unlock
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  if(ltrace.ge.3) print*,'Mutex unlocked,',ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++  call fthread_mutex_unlock(mtx)
++  return
++end subroutine cs_unlock
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/tx.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -25,10 +25,12 @@
+   ierr=0
+   call1=callsign
+   if(pttmode.eq.'CAT') then
++     call cs_lock('tx')
+      write(crig,'(i6)') nrig
+      write(cbaud,'(i6)') nbaud
+      write(cdata,'(i1)') ndatabits
+      write(cstop,'(i1)') nstopbits
++     call cs_unlock
+      chs='None'
+      if(nhandshake.eq.1) chs='XONXOFF'
+      if(nhandshake.eq.2) chs='Hardware'
+@@ -48,7 +50,9 @@
+      if(nport.gt.0 .or. pttport(1:4).eq.'/dev') ierr=ptt(nport,pttport,1,iptt)
+   endif
+ 
++  call cs_lock('tx')
+   write(cdbm,'(i3)'),ndbm
++  call cs_unlock
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+ 
+
+Modified: branches/wspr/unpackgrid.f
+===================================================================
+--- branches/wspr/unpackgrid.f	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/unpackgrid.f	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -1,24 +1,27 @@
+       subroutine unpackgrid(ng,grid)
+ 
+       parameter (NGBASE=180*180)
+-      character grid*4,grid6*6
++      character grid*4,grid6*6,digit*10
++      data digit/'0123456789'/
+ 
+       grid='    '
+       if(ng.ge.32400) go to 10
+       dlat=mod(ng,180)-90
+       dlong=(ng/180)*2 - 180 + 2
+       call deg2grid(dlong,dlat,grid6)
+-      grid=grid6
++      grid=grid6(1:4) !XXX explicitly truncate this -db
+       go to 100
+ 
+  10   n=ng-NGBASE-1
+       if(n.ge.1 .and.n.le.30) then
+-         write(grid,1012) -n
+- 1012    format(i3.2)
++         grid(1:1)='-'
++         grid(2:2)=char(48+n/10)
++         grid(3:3)=char(48+mod(n,10))
+       else if(n.ge.31 .and.n.le.60) then
+          n=n-30
+-         write(grid,1022) -n
+- 1022    format('R',i3.2)
++         grid(1:2)='R-'
++         grid(3:3)=char(48+n/10)
++         grid(4:4)=char(48+mod(n,10))
+       else if(n.eq.61) then
+          grid='RO'
+       else if(n.eq.62) then
+
+Modified: branches/wspr/wfile5.F
+===================================================================
+--- branches/wspr/wfile5.F	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/wfile5.F	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -30,6 +30,7 @@
+       nbytes=ndata+44
+       nchunk=nbytes-8
+ 
++      call cs_lock('wfile5')
+ #ifdef CVF
+       open(12,file=outfile,form='binary',status='unknown')
+ #else
+@@ -44,6 +45,7 @@
+       write(12) hdr
+       write(12) iwave
+       close(12)
++      call cs_unlock
+ 
+       return
+       end
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/wqdecode.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -11,6 +11,7 @@
+   data first/.true./
+   save first,dcall
+ 
++  call cs_lock('wqdecode')
+ ! May want to have a timeout (say, one hour?) on calls fetched 
+ ! from the hash table.
+ 
+@@ -66,6 +67,7 @@
+         message='&lt;...&gt; '//grid6//' '//cdbm
+      endif
+   endif
++  call cs_unlock
+ 
+   return
+ end subroutine wqdecode
+
+Modified: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/wqencode.f90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -11,6 +11,7 @@
+   integer nu(0:9)
+   data nu/0,-1,1,0,-1,2,1,0,-1,1/
+ 
++  call cs_lock('wqencode')
+ ! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   i1=index(msg,' ')
+   i2=index(msg,'/')
+@@ -60,5 +61,6 @@
+   go to 900
+ 
+ 900 continue
++  call cs_unlock
+   return
+ end subroutine wqencode
+
+Modified: branches/wspr/wspr1.F90
+===================================================================
+--- branches/wspr/wspr1.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/wspr1.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -25,6 +25,8 @@
+ !     THREAD_PRIORITY_HIGHEST            2
+ !     THREAD_PRIORITY_TIME_CRITICAL     15
+ 
++  call cs_init
++
+   nrxdone=0
+   fcal=1.d0
+   m0=SetPriorityClass(GetCurrentProcess(),NORMAL_PRIORITY_CLASS)
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-04 16:51:28 UTC (rev 1623)
++++ branches/wspr/wspr2.F90	2009-11-04 18:24:08 UTC (rev 1624)
+@@ -21,6 +21,7 @@
+   data receiving/.false./,transmitting/.false./
+   data decoding/.false./,ns1200/-999/
+ 
++  call cs_lock('wspr2')
+ #ifdef CVF
+   open(14,file='decoded.txt',status='unknown',share='denynone')
+ #else
+@@ -30,6 +31,7 @@
+ 1002 format('$EOF')
+   call flush(14)
+   rewind 14
++  call cs_unlock
+ 
+   npatience=1
+   call random_seed
+@@ -96,11 +98,13 @@
+      transmitting=.true.
+      call random_number(x)
+      nrx=nint(rxavg + rr*(x-0.5))
++     call cs_lock('wspr2')
+      write(cdbm,'(i4)') ndbm
+      message=callsign//grid//cdbm
+      call msgtrim(message,msglen)
+      write(linetx,1030) cdate(3:8),utctime(1:4),ftx
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ')
++     call cs_unlock
+      ntr=-1
+      nsectx=mod(nsec,86400)
+      if(ndevsok.eq.1) call starttx
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001314.html">[WSJT-SVN] r1623 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001316.html">[WSJT-SVN] r1625 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1315">[ date ]</a>
+              <a href="thread.html#1315">[ thread ]</a>
+              <a href="subject.html#1315">[ subject ]</a>
+              <a href="author.html#1315">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,458 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r836 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r836%20-%20trunk&In-Reply-To=%3C200806041919.m54JJvB3019023%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000523.html">
+   <LINK REL="Next"  HREF="000525.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r836 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r836%20-%20trunk&In-Reply-To=%3C200806041919.m54JJvB3019023%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r836 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun  4 21:19:57 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000523.html">[WSJT-SVN] r835 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000525.html">[WSJT-SVN] r837 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#524">[ date ]</a>
+              <a href="thread.html#524">[ thread ]</a>
+              <a href="subject.html#524">[ subject ]</a>
+              <a href="author.html#524">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-06-04 21:19:51 +0200 (Wed, 04 Jun 2008)
+New Revision: 836
+
+Added:
+   trunk/sync64.f
+   trunk/wsjt64.f
+Modified:
+   trunk/decode1.F90
+   trunk/savedata.F90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+Log:
+First parts of a JT64 decoder: sync now works, with 100% synchronization
+at -29 dB.
+
+
+Modified: trunk/decode1.F90
+===================================================================
+--- trunk/decode1.F90	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/decode1.F90	2008-06-04 19:19:51 UTC (rev 836)
+@@ -1,5 +1,3 @@
+-
+-!---------------------------------------------------- decode1
+ subroutine decode1(iarg)
+ 
+ ! Get data and parameters from gcom, then call the decoders when needed.
+@@ -25,7 +23,8 @@
+ 
+ 10 continue
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4'  &amp;
+-       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR') then
++       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR' .or.               &amp;
++       mode(1:4).eq.'JT64') then
+      if(rxdone) then
+         call savedata
+         rxdone=.false.
+
+Modified: trunk/savedata.F90
+===================================================================
+--- trunk/savedata.F90	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/savedata.F90	2008-06-04 19:19:51 UTC (rev 836)
+@@ -12,7 +12,8 @@
+   save
+ 
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4'   &amp;
+-       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR') then
++       .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR' .or.                &amp;
++       mode(1:4).eq.'JT64') then
+      call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+      ibuf1=ibuf0
+      ibuf2=ibuf
+@@ -33,10 +34,11 @@
+   if(jza.gt.120*11025) go to 999         !Don't save if something's fishy
+   k=2048*(ibuf1-1)
+   if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT4'   &amp;
+-       .and. mode(1:4).ne.'WSPR' .and. mode(1:2).ne.'CW') k=k+3*2048
++       .and. mode(1:4).ne.'WSPR' .and. mode(1:2).ne.'CW' .and.               &amp;
++       mode(1:4).ne.'JT64') k=k+3*2048
+   if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT4'   &amp;
+        .and. mode(1:4).ne.'WSPR' .and. mode(1:2).ne.'CW' .and.               &amp;
+-       jza.gt.30*11025) then
++       mode(1:4).ne.'JT64' .and. jza.gt.30*11025) then
+      k=k + (jza-30*11025)
+      if(k.gt.NRxMax) k=k-NRxMax
+      jza=30*11025
+@@ -128,7 +130,8 @@
+   endif
+ 
+ 999 if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT2' &amp;
+-         .and. mode(1:3).ne.'JT4' .and. mode(1:2).ne.'CW') then
++         .and. mode(1:3).ne.'JT4' .and. mode(1:2).ne.'CW' .and.              &amp;
++         mode(1:4).ne.'JT64') then
+      ibuf0z=ibuf0
+      call get_fname(hiscall,ntime,trperiod,lauto,fname0)
+   endif
+
+Added: trunk/sync64.f
+===================================================================
+--- trunk/sync64.f	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/sync64.f	2008-06-04 19:19:51 UTC (rev 836)
+@@ -0,0 +1,135 @@
++      subroutine sync64(dat,jz,DFTolerance,NFreeze,MouseDF,
++     +  mode64,dtx,dfx,snrx,snrsync,ccfblue,ccfred1,flip,width)
++
++C  Synchronizes JT64 data, finding the best-fit DT and DF.  
++C  NB: at this stage, submodes ABC are processed in the same way.
++
++      parameter (NP2=30*11025)         !Size of data array
++      parameter (NFFTMAX=4096)         !Max length of FFTs
++      parameter (NHMAX=NFFTMAX/2)      !Max length of power spectra
++      parameter (NSMAX=160)            !Max number of half-symbol steps
++      integer DFTolerance              !Range of DF search
++      real dat(jz)
++      real psavg(NHMAX)                !Average spectrum of whole record
++      real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++      real ccfblue(-5:540)             !CCF with pseudorandom sequence
++
++C  The value 450 is empirical:
++      real ccfred(-450:450)            !Peak of ccfblue, as function of freq
++      real ccfred1(-224:224)           !Peak of ccfblue, as function of freq
++      real ccf64(-224:224)
++      real tmp(450)
++      integer ic6(6)
++      integer isync(63)
++      data ic6/0,1,4,3,5,2/,idum/-1/
++      save
++
++C  Do FFTs of symbol length, stepped by half symbols.  Note that we have
++C  already downsampled the data by factor of 2.
++      nsym=63
++      nfft=4096
++      nsteps=2*jz/nfft - 1
++      nh=nfft/2
++      df=0.5*11025.0/nfft
++! Set up the JT64 sync pattern
++      isync=-1
++      do n=1,3
++         i0=11
++         if(n.eq.2) i0=28
++         if(n.eq.3) i0=46
++         do i=1,6
++            isync(i0+i)=ic6(i) + 6*(n-1)
++         enddo
++      enddo
++
++C  Compute power spectrum for each step and get average
++      call zero(psavg,nh)
++      do j=1,nsteps
++         k=(j-1)*nh + 1
++         call limit(dat(k),nfft)
++         call ps(dat(k),nfft,s2(1,j))
++         if(mode64.eq.4) call smooth(s2(1,j),nh)
++         call add(psavg,s2(1,j),psavg,nh)
++      enddo
++
++!      call flat1(psavg,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten the spectra
++!      do i=1,nh
++!         write(42,4001) i*df,psavg(i)
++! 4001    format(2f10.3)
++!      enddo
++
++C  Find the best frequency channel for CCF
++      famin=3.
++      fbmax=2700.
++
++      fa=famin
++      fb=fbmax
++      if(NFreeze.eq.1) then
++         fa=max(famin,1270.46+MouseDF-DFTolerance)
++         fb=min(fbmax,1270.46+MouseDF+DFTolerance)
++      else
++         fa=max(famin,1270.46+MouseDF-600)
++         fb=min(fbmax,1270.46+MouseDF+600)
++      endif
++      ia=fa/df
++      ib=fb/df
++      i0=nint(1270.46/df)
++      syncbest=-1.e30
++      call zero(ccfred,745)
++      nsync=18
++
++C### Code from here to (almost) end of sync65 was deleted.  Must replace
++C### with code modified for JT64.
++
++      do i=ia,ib
++         do lag=-20,20
++            sum=0.
++            do j=1,nsym
++               if(isync(j).ge.0) then
++                  j0=2*j -1 + lag
++                  if(j0.ge.1 .and. j0.le.nsteps) then
++                     sum=sum + s2(2*isync(j)+i,j0)
++                  endif
++               endif
++            enddo
++            ccf64(lag)=sum/nsync
++            if(ccf64(lag).gt.syncbest) then
++               ipk=i
++               syncbest=ccf64(lag)
++            endif
++         enddo
++      enddo
++
++! Once more, at the best frequency
++      i=ipk
++      syncbest=-1.e30
++      rewind 41
++
++      dtstep=0.37151927
++      do lag=-20,20
++         sum=0.
++         do j=1,nsym
++            if(isync(j).ge.0) then
++               j0=2*j - 1 + lag
++               if(j0.ge.1 .and. j0.le.nsteps) then
++                  sum=sum + s2(2*isync(j)+i,j0)
++               endif
++            endif
++         enddo
++         ccf64(lag)=sum/nsync
++            if(ccf64(lag).gt.syncbest) then
++               lagpk=lag
++               syncbest=ccf64(lag)
++            endif
++         write(41,3001) lag,dtstep*lag,ccf64(lag)
++ 3001    format(i5,2f10.3)
++         ccfred1(lag)=ccf64(lag)
++      enddo
++
++      dtbest=dtstep*lagpk
++      write(*,3002) syncbest,dtbest,(ipk-i0)*df
++ 3002 format('Sync:',f6.1,'  DT:',f6.1,'   DF:',f6.1)
++
++      return
++      end
++
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/wsjt.py	2008-06-04 19:19:51 UTC (rev 836)
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python
++-#!/usr/bin/env python
+ #---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/wsjt1.F	2008-06-04 19:19:51 UTC (rev 836)
+@@ -304,7 +304,43 @@
+  	   goto 900
+  	endif
+ 
++!  JT64 mode:
++  	if(mode.eq.9) then
++	   mode64=1
++ 	   nstest=0
++ 	   if(ntx2.ne.1) call short65(dat,jz,NFreeze,MouseDF,
++     +        DFTolerance,mode64,nspecial,nstest,dfsh,iderrsh,
++     +        idriftsh,snrsh,ss1,ss2,nwsh,idfsh)
++!  Lowpass filter and decimate by 2
++ 	   call lpf1(dat,jz,jz2,MouseDF,MouseDF2)
++	   idf=mousedf-mousedf2
++ 	   jz=jz2
++ 	   nadd=1
++ 	   fzap(1)=0.
++ 	   if(nzap.eq.1) call avesp2(dat,jz,nadd,mode,NFreeze,MouseDF2,
++     +       DFTolerance,fzap)
++    	   if(nzap.eq.1.and.nstest.eq.0) call bzap(dat,jz,nadd,mode,fzap)
+ 
++ 	   i=index(MyCall,char(0))
++	   if(i.le.0) i=index(MyCall,' ')
++ 	   mycall=MyCall(1:i-1)//'            '
++ 	   i=index(HisCall,char(0))
++	   if(i.le.0) i=index(HisCall,' ')
++ 	   hiscall=HisCall(1:i-1)//'            '
++
++!  Offset data by about 1 s.
++! 	    jztest=126*2048
++	   jztest=11025*ntdecode/2 - 2755
++ 	   if(jz.ge.jztest) call wsjt64(dat(4097),jz-4096,cfile6,
++     +        NClearAve,MinSigdB,DFTolerance,NFreeze,NAFC,mode64,Nseg,
++     +        MouseDF2,NAgain,ndepth,nchallenge,neme,idf,idfsh,
++     +        mycall,hiscall,hisgrid,lumsg,lcum,nspecial,ndf,
++     +        nstest,dfsh,snrsh,
++     +        NSyncOK,ccf,psavg,ndiag,nwsh)
++ 	   goto 900
++
++ 	endif
++
+ !  We're in FSK441 mode. Compute the 2D spectrum.
+ 	df=11025.0/256.0            !FFT resolution ~43 Hz
+ 	dtbuf=nstep/11025.0
+
+Added: trunk/wsjt64.f
+===================================================================
+--- trunk/wsjt64.f	2008-06-04 15:35:39 UTC (rev 835)
++++ trunk/wsjt64.f	2008-06-04 19:19:51 UTC (rev 836)
+@@ -0,0 +1,113 @@
++      subroutine wsjt64(dat,npts,cfile6,NClearAve,MinSigdB,
++     +  DFTolerance,NFreeze,NAFC,mode64,Nseg,MouseDF,NAgain,
++     +  ndepth,nchallenge,neme,idf,idfsh,mycall,hiscall,hisgrid,
++     +  lumsg,lcum,nspecial,ndf,nstest,dfsh,
++     +  snrsh,NSyncOK,ccfblue,ccfred,ndiag,nwsh)
++
++C  Orchestrates the process of decoding JT64 messages, using data that
++C  have been 2x downsampled.  The search for shorthand messages has
++C  already been done.
++
++      real dat(npts)                        !Raw data
++      integer DFTolerance
++      logical first
++      logical lcum
++      character decoded*22,cfile6*6,special*5,cooo*3
++      character*22 avemsg1,avemsg2,deepmsg
++      character*67 line,ave1,ave2
++      character*1 csync,c1
++      character*12 mycall
++      character*12 hiscall
++      character*6 hisgrid
++      real ccfblue(-5:540),ccfred(-224:224)
++      integer itf(2,9)
++      include 'avecom.h'
++      data first/.true./,ns10/0/,ns20/0/
++      data itf/0,0, 1,0, -1,0, 0,-1, 0,1, 1,-1, 1,1, -1,-1, -1,1/
++      save
++
++      if(first) then
++         nsave=0
++         first=.false.
++         ave1=' '
++         ave2=' '
++      endif
++
++      naggressive=0
++      if(ndepth.ge.2) naggressive=1
++      nq1=3
++      nq2=6
++      if(naggressive.eq.1) nq1=1
++
++      if(NClearAve.ne.0) then
++         nsave=0                        !Clear the averaging accumulators
++         ns10=0
++         ns20=0
++         ave1=' '
++         ave2=' '
++      endif
++      if(MinSigdB.eq.99 .or. MinSigdB.eq.-99) then
++         ns10=0                         !For Include/Exclude ?
++         ns20=0
++      endif
++
++C  Attempt to synchronize: look for sync tone, get DF and DT.
++      call sync64(dat,npts,DFTolerance,NFreeze,MouseDF,
++     +    mode64,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
++      csync=' '
++      decoded='                      '
++      deepmsg='                      '
++      special='     '
++      cooo='   '
++      ncount=-1             !Flag for RS decode of current record
++      ncount1=-1            !Flag for RS Decode of ave1
++      ncount2=-1            !Flag for RS Decode of ave2
++      NSyncOK=0
++      nqual1=0
++      nqual2=0
++
++      if(nsave.lt.MAXAVE .and. (NAgain.eq.0 .or. NClearAve.eq.1)) 
++     +  nsave=nsave+1
++      if(nsave.le.0) go to 900          !Prevent bounds error
++
++      nflag(nsave)=0                    !Clear the &quot;good sync&quot; flag
++      iseg(nsave)=Nseg                  !Set the RX segment to 1 or 2
++      nsync=nint(snrsync-3.0)
++      nsnr=nint(snrx)
++      if(nsnr.lt.-30 .or. nsync.lt.0) nsync=0
++      nsnrlim=-32
++
++C  Good Sync takes precedence over a shorthand message:
++      if(nsync.ge.MinSigdB .and. nsnr.ge.nsnrlim .and.
++     +   nsync.ge.nstest) nstest=0
++
++      if(nstest.gt.0) then
++         dfx=dfsh
++         nsync=nstest
++         nsnr=snrsh
++         dtx=1.
++         ccfblue(-5)=-999.0
++         if(nspecial.eq.1) special='ATT  '
++         if(nspecial.eq.2) special='RO   '
++         if(nspecial.eq.3) special='RRR  '
++         if(nspecial.eq.4) special='73   '
++         NSyncOK=1              !Mark this RX file as good (for &quot;Save Decoded&quot;)
++         if(NFreeze.eq.0 .or. DFTolerance.ge.200) special(5:5)='?'
++         width=nwsh
++         idf=idfsh
++         go to 200
++      endif
++
++      if(nsync.lt.MinSigdB .or. nsnr.lt.nsnrlim) go to 200
++
++C  If we get here, we have achieved sync!
++
++C### From here onward, code from wsjt65.f was deleted.  Must restore
++C### and modify.
++
++ 200  continue
++
++ 900  continue
++
++      return
++      end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000523.html">[WSJT-SVN] r835 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000525.html">[WSJT-SVN] r837 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#524">[ date ]</a>
+              <a href="thread.html#524">[ thread ]</a>
+              <a href="subject.html#524">[ subject ]</a>
+              <a href="author.html#524">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

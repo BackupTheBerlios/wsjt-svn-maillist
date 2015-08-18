@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2289 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2289%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101213201154.DDBC848019C%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001980.html">
+   <LINK REL="Next"  HREF="001982.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2289 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2289%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101213201154.DDBC848019C%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2289 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Dec 13 21:11:54 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001980.html">[WSJT-SVN] r2288 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001982.html">[WSJT-SVN] r2290 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1981">[ date ]</a>
+              <a href="thread.html#1981">[ thread ]</a>
+              <a href="subject.html#1981">[ subject ]</a>
+              <a href="author.html#1981">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-13 21:11:54 +0100 (Mon, 13 Dec 2010)
+New Revision: 2289
+
+Modified:
+   branches/wspr/WSPR.iss
+   branches/wspr/WsprMod/options.py
+   branches/wspr/decode.f90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+   branches/wspr/wspr.py
+Log:
+Some general cleanup in preparation for release of WSPR 3.0.
+Add message capability for power levels down to 1 microwatt.  
+(NB: ndbm &lt; 0 not available with alternate message formats.)
+Update URL to point to WSPR 3.0 User's Guide.
+Fix a bug that prevented bandmap display of callsigns from data 
+read from recorded disk files.
+F9 displays the Frequency Hopping dialog.
+
+
+Modified: branches/wspr/WSPR.iss
+===================================================================
+--- branches/wspr/WSPR.iss	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/WSPR.iss	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=WSPR
+-AppVerName=WSPR Version 2.11 r2287
++AppVerName=WSPR Version 2.11 r2289
+ 
+ AppCopyright=Copyright (C) 2008-2010 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSPR
+
+Modified: branches/wspr/WsprMod/options.py
+===================================================================
+--- branches/wspr/WsprMod/options.py	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/WsprMod/options.py	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -17,14 +17,19 @@
+ 
+ #------------------------------------------------------ dbm_balloon
+ def dbm_balloon():
+-    mW=int(round(math.pow(10.0,0.1*dBm.get())))
+-    if(mW&lt;1000):
+-        if mW==501: mW=500
+-        t=&quot;%d mW&quot; % (mW,)
++    if dBm.get()&lt;0:
++        uW=int(round(math.pow(10.0,0.1*(30+dBm.get()))))
++        if uW==501: uW=500
++        t=&quot;%d uW&quot; % (uW,)
+     else:
+-        W=int(0.001*mW + 0.5)
+-        if W==501: W=500
+-        t=&quot;%d W&quot; % (W,)
++        mW=int(round(math.pow(10.0,0.1*dBm.get())))
++        if(mW&lt;1000):
++            if mW==501: mW=500
++            t=&quot;%d mW&quot; % (mW,)
++        else:
++            W=int(0.001*mW + 0.5)
++            if W==501: W=500
++            t=&quot;%d W&quot; % (W,)
+     balloon.bind(cbpwr,t)
+ 
+ def options2(t):
+@@ -66,7 +71,8 @@
+ pttlist=(&quot;CAT&quot;,&quot;DTR&quot;,&quot;RTS&quot;,&quot;VOX&quot;)
+ baudlist=(1200,4800,9600,19200,38400,57600)
+ hslist=(&quot;None&quot;,&quot;XONXOFF&quot;,&quot;Hardware&quot;)
+-pwrlist=(0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
++pwrlist=(-30,-27,-23,-20,-17,-13,-10,-7,-3,   \
++         0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
+ 
+ if g.Win32:
+     serialportlist=(&quot;None&quot;,&quot;COM1&quot;,&quot;COM2&quot;,&quot;COM3&quot;,&quot;COM4&quot;,&quot;COM5&quot;,&quot;COM6&quot;, \
+
+Modified: branches/wspr/decode.f90
+===================================================================
+--- branches/wspr/decode.f90	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/decode.f90	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -55,7 +55,6 @@
+   call flush(14)
+   rewind 14
+   ndecdone=1
+-  ndiskdat=0
+   ndecoding=0
+   call cs_unlock
+ 
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/wqdecode.f90	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -25,19 +25,30 @@
+   call unpackcall(n1,callsign)
+   i1=index(callsign,' ')
+   call unpackgrid(n2/128,grid4)
+-  ntype=iand(n2,127) -64
++  ntype=iand(n2,127) - 64
++  isign=1
++  if(iand(n2,64).eq.0) then
++     n=iand(n2,63)
++     nu=mod(n,10)
++     if(nu.eq.0 .or. nu.eq.3 .or. nu.eq.7) then    
++        isign=-1
++        ntype=ntype+64
++     endif
++  endif
+ 
+-! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   if(ntype.ge.0 .and. ntype.le.62) then
+      nu=mod(ntype,10)
+      if(nu.eq.0 .or. nu.eq.3 .or. nu.eq.7) then
+-        write(cdbm,'(i3)'),ntype
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
++        write(cdbm,'(i3)'),isign*ntype
+         if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+         if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+         message=callsign(1:i1)//grid4//' '//cdbm
+         call hash(callsign,i1-1,ih)
+         dcall(ih)=callsign(:i1)
++
+      else
++! Compound callsign
+         nadd=nu
+         if(nu.gt.3) nadd=nu-3
+         if(nu.gt.7) nadd=nu-7
+@@ -52,7 +63,9 @@
+         call hash(callsign,i2-1,ih)
+         dcall(ih)=callsign(:i2)
+      endif
++
+   else if(ntype.lt.0) then
++! Hash-coded callsign
+      ndbm=-(ntype+1)
+      grid6=callsign(6:6)//callsign(1:5)
+      ih=(n2-ntype-64)/128
+
+Modified: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/wqencode.f90	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -12,7 +12,6 @@
+   data nu/0,-1,1,0,-1,2,1,0,-1,1/
+ 
+   call cs_lock('wqencode')
+-! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   i1=index(msg,' ')
+   i2=index(msg,'/')
+   i3=index(msg,'&lt;')
+@@ -22,17 +21,27 @@
+   call packcall(call1,n1,lbad1)
+   call packgrid(grid4,ng,lbad2)
+   if(lbad1 .or. lbad2) go to 10
++
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   ndbm=0
+   read(msg(i1+5:),*) ndbm
+-  if(ndbm.lt.0) ndbm=0
++  if(ndbm.ge.0) then
++     isign=1
++  else
++     isign=-1
++     ndbm=-ndbm
++  endif
+   if(ndbm.gt.60) ndbm=60
+   ndbm=ndbm+nu(mod(ndbm,10))
+-  n2=128*ng + (ndbm+64)
++  n2=128*ng + ndbm
++  if(isign.eq.1) n2=n2+64
+   call pack50(n1,n2,data0)
+   ntype=ndbm
+   go to 900
+ 
+ 10 if(i2.ge.2 .and. i3.lt.1) then
++
++! Compound callsign
+      call packpfx(call1,n1,ng,nadd)
+      ndbm=0
+      read(msg(i1+1:),*) ndbm
+@@ -42,7 +51,10 @@
+      ntype=ndbm + 1 + nadd
+      n2=128*ng + ntype + 64
+      call pack50(n1,n2,data0)
++
+   else if(i3.eq.1) then
++
++! Hash-coded callsign
+      i4=index(msg,'&gt;')
+      call1=msg(2:i4-1)
+      call hash(call1,i4-2,ih)
+@@ -58,7 +70,6 @@
+      n2=128*ih + ntype + 64
+      call pack50(n1,n2,data0)
+   endif
+-  go to 900
+ 
+ 900 continue
+   call cs_unlock
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-12 21:13:52 UTC (rev 2288)
++++ branches/wspr/wspr.py	2010-12-13 20:11:54 UTC (rev 2289)
+@@ -29,7 +29,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;2.21_r&quot; + &quot;$Rev$&quot;[6:-2]
++Version=&quot;3.00_r&quot; + &quot;$Rev$&quot;[6:-2]
+ print &quot;******************************************************************&quot;
+ print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
+@@ -133,7 +133,8 @@
+ g.DevinName=StringVar()
+ g.DevoutName=StringVar()
+ 
+-pwrlist=(0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
++pwrlist=(-30,-27,-23,-20,-17,-13,-10,-7,-3,   \
++         0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
+ freq0=[0,0.5024,1.8366,3.5926,5.2872,7.0386,10.1387,14.0956,18.1046,\
+        21.0946,24.9246,28.1246,50.2930,70.0286,144.4890,0.1360]
+ freqtx=[0,0.5024,1.8366,3.5926,5.2872,7.0386,10.1387,14.0956,18.1046,\
+@@ -351,14 +352,9 @@
+ 
+ #------------------------------------------------------ usersguide
+ def usersguide(event=NONE):
+-    url='<A HREF="http://physics.princeton.edu/pulsar/K1JT/WSPR_2.0_User.pdf">http://physics.princeton.edu/pulsar/K1JT/WSPR_2.0_User.pdf</A>'
++    url='<A HREF="http://physics.princeton.edu/pulsar/K1JT/WSPR_3.0_User.pdf">http://physics.princeton.edu/pulsar/K1JT/WSPR_3.0_User.pdf</A>'
+     thread.start_new_thread(browser,(url,))
+ 
+-#------------------------------------------------------ usersupp
+-def usersupp(event=NONE):
+-    url='<A HREF="http://physics.princeton.edu/pulsar/K1JT/WSPR_2.1_Supplement.pdf">http://physics.princeton.edu/pulsar/K1JT/WSPR_2.1_Supplement.pdf</A>'
+-    thread.start_new_thread(browser,(url,))
+-
+ #------------------------------------------------------ fmtguide
+ def fmtguide(event=NONE):
+     url='<A HREF="http://physics.princeton.edu/pulsar/K1JT/FMT_User.pdf">http://physics.princeton.edu/pulsar/K1JT/FMT_User.pdf</A>'
+@@ -582,6 +578,7 @@
+             tdiff=tmin-tdecoded
+             if tdiff&lt;0: tdiff=tdiff+1440
+ # Insert info in &quot;bandmap&quot; only if age is less than one hour
++            if w.acom1.ndiskdat==1: tdiff=2
+             if tdiff &lt; 60:                        #60 minutes 
+                 bandmap.append((ndf,callsign,tdecoded))
+     
+@@ -604,6 +601,7 @@
+         if nage==1: attr='age1'
+         if nage==2: attr='age2'
+         if nage&gt;=3: attr='age3'
++        if w.acom1.ndiskdat==1: attr='age0'
+         text1.insert(END,t+&quot;\n&quot;,attr)
+     text1.configure(state=DISABLED)
+     text1.see(END)
+@@ -1019,6 +1017,7 @@
+     if w.acom1.ndecdone:
+         get_decoded()
+         w.acom1.ndecdone=0
++        w.acom1.ndiskdat=0
+ 
+ # Display the waterfall
+     try:
+@@ -1273,7 +1272,8 @@
+               accelerator='F7')
+ setupmenu.add('command', label = 'IQ Mode', command = iq1,
+               accelerator='F8')
+-setupmenu.add('command', label = 'Frequency Hopping', command = hopping1) # Sivan
++setupmenu.add('command', label = 'Frequency Hopping', command = hopping1,
++              accelerator='F9')              
+ setupmenu.add_separator()
+ setupmenu.add_checkbutton(label = 'Always start in Idle mode',
+                           variable=start_idle)
+@@ -1341,7 +1341,6 @@
+ helpmenu.add('command',label='Help',command=help,accelerator='F1')
+ helpmenu.add('command',label=&quot;Online WSPR User's Guide&quot;,command=usersguide, \
+         accelerator='F3')
+-helpmenu.add('command',label=&quot;Online WSPR 2.1 Supplement&quot;,command=usersupp)
+ helpmenu.add('command',label=&quot;Online FMT User's Guide&quot;,command=fmtguide)
+ helpmenu.add('command',label=&quot;WSPRnet.org&quot;,command=wsprnet, \
+         accelerator='F4')
+@@ -1352,11 +1351,12 @@
+ root.bind_all('&lt;F2&gt;', options1)
+ root.bind_all('&lt;F3&gt;', usersguide)
+ root.bind_all('&lt;F4&gt;', wsprnet)
++root.bind_all('&lt;Alt-F4&gt;', quit)
+ root.bind_all('&lt;F5&gt;', about)
+-root.bind_all('&lt;Alt-F4&gt;', quit)
+ root.bind_all('&lt;F6&gt;', opennext)
+ root.bind_all('&lt;F7&gt;', advanced1)
+ root.bind_all('&lt;F8&gt;', iq1)
++root.bind_all('&lt;F9&gt;', hopping1)
+ root.bind_all('&lt;Shift-F6&gt;', decodeall)
+ root.bind_all('&lt;Control-o&gt;',openfile)
+ root.bind_all('&lt;Control-O&gt;',openfile)
+@@ -1681,7 +1681,7 @@
+ draw_axis()
+ erase()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSPR 2.21     by K1JT')
++root.title('  WSPR 3.0     by K1JT')
+ 
+ put_params()
+ try:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001980.html">[WSJT-SVN] r2288 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001982.html">[WSJT-SVN] r2290 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1981">[ date ]</a>
+              <a href="thread.html#1981">[ thread ]</a>
+              <a href="subject.html#1981">[ subject ]</a>
+              <a href="author.html#1981">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

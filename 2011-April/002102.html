@@ -1,0 +1,275 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2410 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2410%20-%20trunk&In-Reply-To=%3C20110422153040.3AE2F48134B%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002101.html">
+   <LINK REL="Next"  HREF="002103.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2410 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2410%20-%20trunk&In-Reply-To=%3C20110422153040.3AE2F48134B%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2410 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 22 17:30:39 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002101.html">[WSJT-SVN] r2409 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002103.html">[WSJT-SVN] r2411 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2102">[ date ]</a>
+              <a href="thread.html#2102">[ thread ]</a>
+              <a href="subject.html#2102">[ subject ]</a>
+              <a href="author.html#2102">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-22 17:30:39 +0200 (Fri, 22 Apr 2011)
+New Revision: 2410
+
+Modified:
+   trunk/decdiana.f90
+   trunk/diana.f90
+   trunk/specdiana.f90
+   trunk/syncdiana.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Diana decoder now uses complex data downsampled by 9/32.
+Use average rather than median for sprecrum normalization -- works much
+better, and is *much* faster.
+
+
+Modified: trunk/decdiana.f90
+===================================================================
+--- trunk/decdiana.f90	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/decdiana.f90	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -1,7 +1,7 @@
+ subroutine decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
+ 
+   parameter (NSZ=646)
+-  real s0(1024,NSZ)
++  real s0(1152,NSZ)
+   real fs1(0:41,28)
+   real tmp(1176)
+   real tmp2(1176)
+
+Modified: trunk/diana.f90
+===================================================================
+--- trunk/diana.f90	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/diana.f90	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -1,32 +1,29 @@
+-subroutine diana(dat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,       &amp;
++subroutine diana(cdat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,       &amp;
+      MouseDF,nafc,ccfblue,ccfred)
+ 
+ ! Decode a Diana signal
+ 
+-  parameter (NMAX=512*1024)
+   parameter (NSZ=646)                     !Quarter-symbols in 30 s
+-  real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
++  complex cdat(93024)                     !Raw signal, 30 s at 11025*9/32 sps
+   character cfile6*6                      !File time
+   character msg*28
+-  real s0(1024,NSZ)
++  real s0(1152,NSZ)
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   integer dftolerance
+   common/tracer/ limtrace,lu
+-  data nsps/2048/,nsync/4/,nlen/2/,ndat/18/
++  data nsps/576/,nsync/4/,nlen/2/,ndat/18/
+ 
+   lu=99
+   call timer('diana   ',0)
+   nsym=npts/nsps                      !Total symbol intervals in file
+   nblk=nsync+nlen+ndat                !Frame size
+-  nfft=4096
+-  nq=nfft/4
+-  df=11025.0/nfft
++  df=11025.0/4096.0
+   kstep=nsps/4
+ 
+ ! Get symbol spectra, fold for sync
+   call timer('specdian',0)
+-  call specdiana(dat,npts,s0,jsym)
++  call specdiana(cdat,npts,s0,jsym)
+   call timer('specdian',1)
+ 
+ ! Get sync: DF, DT, msglen
+
+Modified: trunk/specdiana.f90
+===================================================================
+--- trunk/specdiana.f90	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/specdiana.f90	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -1,46 +1,53 @@
+-subroutine specdiana(dat,npts,s0,jsym)
++subroutine specdiana(cdat,npts,s0,jsym)
+ 
+   parameter (NSZ=646)
+-  real dat(npts)                          !Raw signal, 30 s at 11025 sps
+-  real x(4096),x2(4096)
+-  complex c(0:4096)
+-  real s0(1024,NSZ)                       !Symbol spectra at 1/4-symbol steps
+-  real b(1024)
++  complex cdat(93024)                     !Raw signal, 30 s at 11025*9/32 sps
++  complex ct(1152)
++  real x(1152),x2(1152)
++  real savg(1152)
++!  complex c(0:4096)
++  real s0(1152,NSZ)                       !Symbol spectra at 1/4-symbol steps
+   equivalence (x,c)
+ 
+-  nsps=2048
+   nblk=24
++  nsps=576                            !2048*9/32
+   nsym=npts/nsps                      !Total symbol intervals in file
+-  nfft=4096                           !Do FFTs at twice the symbol length
++  nfft=2*nsps                         !Do FFTs at twice the symbol length
+   kstep=nsps/4                        !Step by 1/4 symbol
+   nq=nfft/4
+   fac=1.0/1000.0                      !Somewhat arbitrary
++  savg=0.
+ 
++  call timer('ffts    ',0)
+   ia=1-kstep
+   do j=1,4*nsym                       !Compute symbol spectra
+      ia=ia+kstep
+      ib=ia+nsps-1
+-     if(ib.gt.npts) go to 10
+-     x(1:nsps)=fac*dat(ia:ib)
+-     x(nsps+1:nfft)=0.
+-     call four2a(x,nfft,1,-1,0)
+-     do i=1,nq
+-        s0(i,j)=real(c(i))**2 + aimag(c(i))**2
++     if(ib.gt.npts) exit
++     ct(1:nsps)=fac*cdat(ia:ib)
++     ct(nsps+1:nfft)=0.
++     call four2a(ct,nfft,1,-1,1)
++     do i=1,nfft
++        s0(i,j)=real(ct(i))**2 + aimag(ct(i))**2
++        savg(i)=savg(i) + s0(i,j)
+      enddo
+   enddo
++  jsym=4*nsym
++  savg=savg/jsym
++  call timer('ffts    ',1)
+ 
+-10 jsym=j-1
+-
+-  do i=1,nq                           !Find baseline
+-     x(1:jsym)=s0(i,1:jsym)
+-     call pctile(x,x2,jsym,30,b(i))
++  do i=1,nfft                                 !Normalize the symbol spectra
++     fac=1.0/savg(i)
++     if(i.lt.11) fac=1.0/savg(11)
++     do j=1,jsym
++        s0(i,j)=fac*s0(i,j)
++     enddo
+   enddo
+-  b(1:10)=b(11)
+-  nadd=51
+-  call smo(b,nq,x2,nadd)              !Smooth the baseline
+ 
+-  do j=1,jsym                         !Normalize the spectra
+-     s0(1:nq,j)=s0(1:nq,j)/b(1:nq)
++  df=11025.0*(9.0/32.0)/nfft
++  do i=1,nfft
++     write(41,3001) i,i*df,savg(i)
++3001 format(i8,f10.3,f12.1)
+   enddo
+ 
+   return
+
+Modified: trunk/syncdiana.f90
+===================================================================
+--- trunk/syncdiana.f90	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/syncdiana.f90	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -2,9 +2,9 @@
+      ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,ccfblue,ccfred)
+ 
+   parameter (NSZ=646)                     !Quarter-symbols in 30 s
+-  real s0(1024,NSZ)
+-  real fs0(1024,96)                       !Folded-for-sync spectra
+-  real fs00(1024,96)
++  real s0(1152,NSZ)
++  real fs0(1152,96)                       !Folded-for-sync spectra
++  real fs00(1152,96)
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   character msg*28,msgbest*28
+@@ -132,7 +132,7 @@
+   snrx=snrbest
+ 
+   dfx=(ipk-i0)*df
+-  dtx=jpk*kstep/11025.0 - 1.4
++  dtx=jpk*kstep/(11025.0*9.0/32.0) - 1.4
+   nsnr=nint(snrx)
+   if(nsnr.le.-27) then
+      nsnr=-27
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/wsjt.py	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------ WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-22 15:03:01 UTC (rev 2409)
++++ trunk/wsjt1.f90	2011-04-22 15:30:39 UTC (rev 2410)
+@@ -252,8 +252,9 @@
+ 
+   if(mode.eq.10) then
+      jza=min(jz,11025*30)
+-!     write(74) jza,cfile6,(dat(j),j=1,jza)
+-     call diana(dat,jza,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,     &amp;
++     call ana932(dat,jza,cdat,npts)          !Make downsampled analytic signal
++!     write(74) npts,cfile6,(cdat(j),j=1,npts)
++     call diana(cdat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,     &amp;
+           nafc,ccf,psavg)
+      go to 900
+   endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002101.html">[WSJT-SVN] r2409 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002103.html">[WSJT-SVN] r2411 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2102">[ date ]</a>
+              <a href="thread.html#2102">[ thread ]</a>
+              <a href="subject.html#2102">[ subject ]</a>
+              <a href="author.html#2102">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

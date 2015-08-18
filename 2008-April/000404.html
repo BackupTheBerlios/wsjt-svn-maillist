@@ -1,0 +1,217 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r716 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r716%20-%20branches/wspr&In-Reply-To=%3C200804130920.m3D9K9Ad001111%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000403.html">
+   <LINK REL="Next"  HREF="000405.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r716 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r716%20-%20branches/wspr&In-Reply-To=%3C200804130920.m3D9K9Ad001111%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r716 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr 13 11:20:09 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000403.html">[WSJT-SVN] r715 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000405.html">[WSJT-SVN] r717 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#404">[ date ]</a>
+              <a href="thread.html#404">[ thread ]</a>
+              <a href="subject.html#404">[ subject ]</a>
+              <a href="author.html#404">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-13 11:20:06 +0200 (Sun, 13 Apr 2008)
+New Revision: 716
+
+Modified:
+   branches/wspr/mept162.f
+   branches/wspr/startdec.f90
+   branches/wspr/starttx.f90
+   branches/wspr/wspr.py
+Log:
+Adjusted priorities: tx and rx &quot;above normal&quot;, decode &quot;below normal.
+Added drift to decoded text.
+&quot;Escape&quot; to stop a &quot;decode all&quot; loop.
+Adjusted &quot;xxx Hz&quot; label position.
+
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-04-13 08:14:33 UTC (rev 715)
++++ branches/wspr/mept162.f	2008-04-13 09:20:06 UTC (rev 716)
+@@ -143,9 +143,12 @@
+ #endif
+                write(13,1010) datetime,nsync,nsnrx,dtx,freq,message
+                close(13)
+-               write(14,1010) datetime,nsync,nsnrx,dtx,freq,message,
+-     +               -a(1),-a(2),-a(3)
+  1010          format(a11,i4,i4,f6.1,f11.6,2x,a15,3f7.2)
++
++               nf1=nint(-2.0*a(2))
++               write(14,1012) datetime,nsnrx,dtx,freq,nf1,message,
++     +               -a(3)
++ 1012          format(a11,i4,f6.1,f11.6,i4,2x,a15,f7.2)
+             endif
+             if(message(1:6).ne.'      ') skip=.true.
+          endif
+
+Modified: branches/wspr/startdec.f90
+===================================================================
+--- branches/wspr/startdec.f90	2008-04-13 08:14:33 UTC (rev 715)
++++ branches/wspr/startdec.f90	2008-04-13 09:20:06 UTC (rev 716)
+@@ -28,7 +28,7 @@
+   m0=SetPriorityClass(GetCurrentProcess(),NORMAL_PRIORITY_CLASS)
+ ! Start a thread for playing audio data
+   Thread3=CreateThread(0,0,decode,0,CREATE_SUSPENDED,id1)
+-  m1=SetThreadPriority(Thread3,THREAD_PRIORITY_NORMAL)
++  m1=SetThreadPriority(Thread3,THREAD_PRIORITY_BELOW_NORMAL)
+   m2=ResumeThread(Thread3)
+ #else
+   ierr=th_decode()
+
+Modified: branches/wspr/starttx.f90
+===================================================================
+--- branches/wspr/starttx.f90	2008-04-13 08:14:33 UTC (rev 715)
++++ branches/wspr/starttx.f90	2008-04-13 09:20:06 UTC (rev 716)
+@@ -27,7 +27,7 @@
+   m0=SetPriorityClass(GetCurrentProcess(),NORMAL_PRIORITY_CLASS)
+ ! Start a thread for playing audio data
+   Thread2=CreateThread(0,0,tx,0,CREATE_SUSPENDED,id1)
+-  m1=SetThreadPriority(Thread2,THREAD_PRIORITY_NORMAL)
++  m1=SetThreadPriority(Thread2,THREAD_PRIORITY_ABOVE_NORMAL)
+   m2=ResumeThread(Thread2)
+ #else
+   ierr=th_tx()
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-13 08:14:33 UTC (rev 715)
++++ branches/wspr/wspr.py	2008-04-13 09:20:06 UTC (rev 716)
+@@ -54,7 +54,6 @@
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
+ bandmap=[]
+-bandmap2=[]
+ bm={}
+ f0=DoubleVar()
+ ftx=DoubleVar()
+@@ -159,6 +158,11 @@
+     os.chdir(appdir)
+     ipctx.set(0)
+ 
++#------------------------------------------------------ stop_loopall
++def stop_loopall(event=NONE):
++    global loopall
++    loopall=0
++    
+ #------------------------------------------------------ opennext
+ def opennext(event=NONE):
+     global ncall,fileopened,loopall,mrudir,tw
+@@ -294,7 +298,7 @@
+ 
+ #------------------------------------------------------ erase
+ def erase(event=NONE):
+-    global bandmap,bandmap2,bm
++    global bandmap,bm
+     text.configure(state=NORMAL)
+     text.delete('1.0',END)
+     text.configure(state=DISABLED)
+@@ -302,7 +306,6 @@
+     text1.delete('1.0',END)
+     text1.configure(state=DISABLED)
+     bandmap=[]
+-    bandmap2=[]
+     bm={}
+ 
+ #----------------------------------------------------- df_readout
+@@ -386,7 +389,7 @@
+ 
+ #------------------------------------------------------ get_decoded
+ def get_decoded():
+-    global bandmap,bandmap2,bm,newdat,loopall
++    global bandmap,bm,newdat,loopall
+     
+ # Get lines from decoded.txt
+     try:
+@@ -414,7 +417,7 @@
+                 callsign=callsign[:i1]
+                 nseq=1440*int(lines[i][4:6]) + 60*int(lines[i][7:9]) + \
+                       int(lines[i][9:11])
+-                ndf=int(lines[i][33:36])
++                ndf=int(lines[i][29:32])
+                 bm[callsign]=(ndf,nseq)
+ #                bandmap.append((ndf,callsign,nseq))
+         text.configure(state=DISABLED)
+@@ -695,6 +698,7 @@
+ helpmenu.add('command', label = 'Help', command = help, accelerator='F1')
+ helpmenu.add('command', label = 'About WSPR', command = about)
+ 
++root.bind_all('&lt;Escape&gt;', stop_loopall)
+ root.bind_all('&lt;F1&gt;', help)
+ root.bind_all('&lt;F2&gt;', options1)
+ root.bind_all('&lt;Alt-F4&gt;', quit)
+@@ -732,10 +736,11 @@
+ sc2=Scale(iframe2,from_=-100.0,to_=100.0,orient='horizontal',
+     showvalue=0,sliderlength=5)
+ sc2.pack(side=LEFT)
++bupload=Checkbutton(iframe2,text='Upload spots',justify=RIGHT,variable=upload)
++bupload.place(x=400,y=12, anchor='e')
++#bupload.pack(side=LEFT)
+ lab02=Label(iframe2, text='')
+-lab02.pack(side=LEFT,padx=40)
+-bupload=Checkbutton(iframe2,text='Upload spots',justify=RIGHT,variable=upload)
+-bupload.pack(side=LEFT)
++lab02.place(x=500,y=10, anchor='e')
+ lab00=Label(iframe2, text='Band Map').place(x=623,y=10, anchor='e')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+@@ -772,7 +777,7 @@
+ iframe2a.pack(expand=1, fill=X, padx=1)
+ 
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+-lab2=Label(iframe2, text='DATE         UTC      Sync      dB          DT            Freq')
++lab2=Label(iframe2, text='DATE         UTC         dB          DT              Freq             Drift')
+ lab2.place(x=160,y=6, anchor='w')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000403.html">[WSJT-SVN] r715 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000405.html">[WSJT-SVN] r717 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#404">[ date ]</a>
+              <a href="thread.html#404">[ thread ]</a>
+              <a href="subject.html#404">[ subject ]</a>
+              <a href="author.html#404">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,317 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3374 - branches/wsjtx_k1jt_p1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3374%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130611204445.F017ABF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003065.html">
+   <LINK REL="Next"  HREF="003067.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3374 - branches/wsjtx_k1jt_p1</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3374%20-%20branches/wsjtx_k1jt_p1&In-Reply-To=%3C20130611204445.F017ABF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3374 - branches/wsjtx_k1jt_p1">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jun 11 22:44:45 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003065.html">[WSJT-SVN] r3373 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003067.html">[WSJT-SVN] r3375 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3066">[ date ]</a>
+              <a href="thread.html#3066">[ thread ]</a>
+              <a href="subject.html#3066">[ subject ]</a>
+              <a href="author.html#3066">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-11 22:44:45 +0200 (Tue, 11 Jun 2013)
+New Revision: 3374
+
+Modified:
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/mainwindow.h
+   branches/wsjtx_k1jt_p1/mainwindow.ui
+   branches/wsjtx_k1jt_p1/rigclass.cpp
+   branches/wsjtx_k1jt_p1/rigclass.h
+   branches/wsjtx_k1jt_p1/soundout.cpp
+   branches/wsjtx_k1jt_p1/widegraph.cpp
+   branches/wsjtx_k1jt_p1/widegraph.h
+Log:
+XIT implemented and working well.  Doen not actually use XIT commands,
+but rather split Rx/Tx frequencies.  Rx=VFO A, Tx=VFO B.
+
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -1054,6 +1054,8 @@
+             SLOT(freezeDecode(int)));
+     connect(g_pWideGraph, SIGNAL(f11f12(int)),this,
+             SLOT(bumpFqso(int)));
++    connect(g_pWideGraph, SIGNAL(setXIT2(int)),this,
++            SLOT(setXIT(int)));
+ //    connect(g_pWideGraph, SIGNAL(dialFreqChanged(double)),this,
+ //            SLOT(dialFreqChanged2(double)));
+   }
+@@ -1266,6 +1268,7 @@
+ 
+ void MainWindow::decode()                                       //decode()
+ {
++  if(!m_dataAvailable) return;
+   ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+   if(jt9com_.nagain==0 &amp;&amp; (!m_diskData)) {
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+@@ -1534,7 +1537,6 @@
+   static char message[29];
+   static char msgsent[29];
+   static int nsendingsh=0;
+-  int khsym=0;
+   int ret=0;
+   QString rt;
+ 
+@@ -1790,7 +1792,6 @@
+       }
+     }
+ 
+-    m_hsym0=khsym;
+     m_sec0=nsec;
+   }
+ 
+@@ -1989,10 +1990,12 @@
+   if(t4.at(4)==&quot;-&quot;) {
+     m_modeTx=&quot;JT9&quot;;
+     ui-&gt;pbTxMode-&gt;setText(&quot;TX &quot; + m_modeTx);
++    g_pWideGraph-&gt;setModeTx(m_modeTx);
+   }
+   if(t4.at(4)==&quot;#&quot;) {
+     m_modeTx=&quot;JT65&quot;;
+     ui-&gt;pbTxMode-&gt;setText(&quot;TX &quot; + m_modeTx);
++    g_pWideGraph-&gt;setModeTx(m_modeTx);
+   }
+   g_pWideGraph-&gt;setQSOfreq(nfreq);       //Set Rx freq
+   QString firstcall=t4.at(5);
+@@ -2452,7 +2455,7 @@
+ void MainWindow::on_actionJT9_JT65_triggered()
+ {
+   m_mode=&quot;JT9+JT65&quot;;
+-  if(m_modeTx!=&quot;JT9&quot;) on_pbTxMode_clicked();
++//  if(m_modeTx!=&quot;JT9&quot;) on_pbTxMode_clicked();
+   statusChanged();
+   m_TRperiod=60;
+   m_nsps=6912;
+@@ -2901,3 +2904,18 @@
+   ui-&gt;pbTxMode-&gt;setText(t);
+   g_pWideGraph-&gt;setModeTx(m_modeTx);
+ }
++
++void MainWindow::setXIT(int n)
++{
++  if(m_bRigOpen) {
++    int xit=-1000;
++    if(n&gt;1000) xit=0;
++    if(n&gt;2000) xit=1000;
++    if(n&gt;3000) xit=2000;
++    if(n&gt;4000) xit=3000;
++//    ret=rig-&gt;setXit((shortfreq_t)xit,RIG_VFO_TX);
++//    int ret=rig-&gt;setSplitFreq(MHz(m_dialFreq)+xit,RIG_VFO_B);
++    rig-&gt;setSplitFreq(MHz(m_dialFreq)+xit,RIG_VFO_B);
++//    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; ret &lt;&lt; RIG_VFO_A &lt;&lt; RIG_VFO_B &lt;&lt; n &lt;&lt; xit;
++  }
++}
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -43,6 +43,7 @@
+   void readFromStdout();
+   void readFromStderr();
+   void jt9_error();
++  void setXIT(int n);
+ 
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
+@@ -182,7 +183,7 @@
+     qint32  m_RxLog;
+     qint32  m_nutc0;
+     qint32  m_nrx;
+-    qint32  m_hsym0;
++    qint32  m_hsym;
+     qint32  m_paInDevice;
+     qint32  m_paOutDevice;
+     qint32  m_TRperiod;
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.ui
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.ui	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/mainwindow.ui	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -1834,10 +1834,10 @@
+          &lt;string&gt;Tx +&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;minimum&quot;&gt;
+-         &lt;number&gt;500&lt;/number&gt;
++         &lt;number&gt;200&lt;/number&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;maximum&quot;&gt;
+-         &lt;number&gt;20000&lt;/number&gt;
++         &lt;number&gt;5000&lt;/number&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;value&quot;&gt;
+          &lt;number&gt;1500&lt;/number&gt;
+@@ -2227,7 +2227,6 @@
+     &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;actionMonitor_OFF_at_startup&quot;/&gt;
+     &lt;addaction name=&quot;actionF4_sets_Tx6&quot;/&gt;
+-    &lt;addaction name=&quot;actionLog_JT9_without_submode&quot;/&gt;
+     &lt;addaction name=&quot;actionConvert_JT9_x_to_RTTY&quot;/&gt;
+     &lt;addaction name=&quot;actionLog_dB_reports_to_Comments&quot;/&gt;
+     &lt;addaction name=&quot;actionPrompt_to_log_QSO&quot;/&gt;
+
+Modified: branches/wsjtx_k1jt_p1/rigclass.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/rigclass.cpp	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/rigclass.cpp	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -141,10 +141,26 @@
+ 
+ int Rig::setXit(shortfreq_t xit, vfo_t vfo)
+ {
+-  qDebug() &lt;&lt;&quot;A&quot; &lt;&lt; int(vfo) &lt;&lt; int(xit);
+   return rig_set_xit(theRig, vfo, xit);
+ }
+ 
++int Rig::setVFO(vfo_t vfo)
++{
++  return rig_set_vfo(theRig, vfo);
++}
++
++ vfo_t Rig::getVFO()
++ {
++   vfo_t vfo;
++   rig_get_vfo(theRig, &amp;vfo);
++   return vfo;
++ }
++
++ int Rig::setSplitFreq(freq_t tx_freq, vfo_t vfo)
++ {
++   return rig_set_split_freq(theRig, vfo, tx_freq);
++ }
++
+ freq_t Rig::getFreq(vfo_t vfo)
+ {
+   freq_t freq;
+@@ -174,18 +190,6 @@
+   return mode;
+ }
+ 
+-int Rig::setVFO(vfo_t vfo)
+-{
+-  return rig_set_vfo(theRig, vfo);
+-}
+-
+-vfo_t Rig::getVFO()
+-{
+-  vfo_t vfo;
+-  rig_get_vfo(theRig, &amp;vfo);
+-  return vfo;
+-}
+-
+ int Rig::setPTT(ptt_t ptt, vfo_t vfo)
+ {
+ #ifdef WIN32	// Ham Radio Deluxe only on Windows
+
+Modified: branches/wsjtx_k1jt_p1/rigclass.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/rigclass.h	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/rigclass.h	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -60,7 +60,7 @@
+   int setVFO(vfo_t);
+   vfo_t getVFO();
+   int setXit(shortfreq_t xit, vfo_t vfo);
+-
++  int setSplitFreq(freq_t tx_freq, vfo_t vfo = RIG_VFO_CURR);
+   int setPTT (ptt_t ptt, vfo_t vfo = RIG_VFO_CURR);
+   ptt_t getPTT (vfo_t vfo = RIG_VFO_CURR);
+ 
+
+Modified: branches/wsjtx_k1jt_p1/soundout.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/soundout.cpp	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/soundout.cpp	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -50,8 +50,11 @@
+   static short int i2;
+   int isym,nspd;
+ 
+-  int xit=0;
+-  if(udata-&gt;ntxfreq&gt;2500) xit=2000;
++  int xit=-1000;
++  if(udata-&gt;ntxfreq&gt;1000) xit=0;
++  if(udata-&gt;ntxfreq&gt;2000) xit=1000;
++  if(udata-&gt;ntxfreq&gt;3000) xit=2000;
++  if(udata-&gt;ntxfreq&gt;4000) xit=2000;
+ 
+   udata-&gt;ncall++;
+   if(udata-&gt;bRestart) {
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -247,6 +247,7 @@
+ 
+ void WideGraph::setTxFreq(int n)
+ {
++  emit setXIT2(n);
+   ui-&gt;widePlot-&gt;setTxFreq(n);
+ }
+ 
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.h	2013-06-11 18:00:02 UTC (rev 3373)
++++ branches/wsjtx_k1jt_p1/widegraph.h	2013-06-11 20:44:45 UTC (rev 3374)
+@@ -39,6 +39,7 @@
+ signals:
+   void freezeDecode2(int n);
+   void f11f12(int n);
++  void setXIT2(int n);
+ 
+ public slots:
+   void wideFreezeDecode(int n);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003065.html">[WSJT-SVN] r3373 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003067.html">[WSJT-SVN] r3375 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3066">[ date ]</a>
+              <a href="thread.html#3066">[ thread ]</a>
+              <a href="subject.html#3066">[ subject ]</a>
+              <a href="author.html#3066">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

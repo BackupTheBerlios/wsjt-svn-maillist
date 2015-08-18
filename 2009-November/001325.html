@@ -1,0 +1,313 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1634 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1634%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911052107.nA5L7jOP012911%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001324.html">
+   <LINK REL="Next"  HREF="001326.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1634 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1634%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911052107.nA5L7jOP012911%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1634 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  5 22:07:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001324.html">[WSJT-SVN] r1633 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001326.html">[WSJT-SVN] r1635 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1325">[ date ]</a>
+              <a href="thread.html#1325">[ thread ]</a>
+              <a href="subject.html#1325">[ subject ]</a>
+              <a href="author.html#1325">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-05 22:07:40 +0100 (Thu, 05 Nov 2009)
+New Revision: 1634
+
+Modified:
+   branches/wspr/WsprMod/options.py
+   branches/wspr/acom1.f90
+   branches/wspr/decode.F90
+   branches/wspr/mept162.F
+   branches/wspr/spec162.F
+   branches/wspr/tx.F90
+   branches/wspr/wspr.py
+Log:
+Starting to prepend &quot;appdir&quot; for filenames opened in Fortran.
+Put cs_lock calls arounf spec162; it's *not* in the python thread!
+*** Check this ***
+
+
+Modified: branches/wspr/WsprMod/options.py
+===================================================================
+--- branches/wspr/WsprMod/options.py	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/WsprMod/options.py	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -60,7 +60,7 @@
+ outbad=IntVar()
+ 
+ pttmode.set('DTR')
+-serial_handshake.set('NONE')
++serial_handshake.set('None')
+ 
+ pttlist=(&quot;CAT&quot;,&quot;DTR&quot;,&quot;RTS&quot;)
+ baudlist=(1200,4800,9600,19200,38400,57600)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/acom1.f90	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -4,15 +4,15 @@
+   logical ltest,receiving,transmitting
+   character*80 infile,outfile,pttport,thisfile
+   character cdate*8,utctime*10,rxtime*4,catport*12
+-  character pttmode*3
++  character pttmode*3,appdir*80
+   character callsign*12,grid*4,grid6*6,ctxmsg*22,sending*22
+   integer*2 iwave,kwave
+   common/acom1/ f0,ftx,fcal,calfac,rms,pctx,igrid6,nsec,ndevin,        &amp;
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+-       receiving,transmitting,nrig,                                    &amp;
++       receiving,transmitting,nrig,nappdir,                            &amp;
+        nhandshake,ndebug,idevin,idevout,idsec,nsectx,nbfo,             &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,rms1,xdb1,infile,outfile,pttport,      &amp;
+        cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,sending,        &amp;
+-       thisfile,pttmode,catport
++       thisfile,pttmode,catport,appdir
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/decode.F90	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -11,7 +11,6 @@
+   real x(65536)
+   complex c(0:32768)
+   equivalence (x,c)
+-
+   include 'acom1.f90'
+ 
+   if(ncal.eq.2) then
+@@ -38,7 +37,7 @@
+   else
+      minsync=1
+      if(nsave.gt.0 .and. ndiskdat.eq.0) jwave=iwave(1:114*12000)
+-     call mept162(thisfile,f0,minsync,iwave,NMAX,nbfo,ierr)
++     call mept162(thisfile,appdir,nappdir,f0,minsync,iwave,NMAX,nbfo,ierr)
+      if(nsave.gt.0 .and. ndiskdat.eq.0 .and. ierr.eq.0) then
+         savefile='save/'//thisfile
+         npts=114*12000
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/mept162.F	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -1,11 +1,12 @@
+-      subroutine mept162(outfile,f0,minsync,id,npts,nbfo,ierr)
++      subroutine mept162(outfile,appdir,nappdir,f0,minsync,id,npts,
++     +  nbfo,ierr)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+ 
+       integer*2 id(npts)
+       character*22 message
+-      character*80 outfile
++      character*80 outfile,appdir,alltxt
+       character*11 datetime
+       character cdate*8,ctime*10
+       real*8 f0,freq,tsec
+@@ -19,7 +20,9 @@
+       call mix162(id,npts,nbfo,c2,jz,ps)
+ 
+ C  Compute pixmap.dat
+-      call spec162(c2,jz)
++      call cs_lock('spec162')
++      call spec162(c2,jz,appdir,nappdir)
++      call cs_unlock
+ 
+ C  Look for sync patterns, get DF and DT
+       call sync162(c2,jz,ps,sstf,kz)
+@@ -80,12 +83,12 @@
+             nf1=nint(-a(2))
+             call cs_lock('mept162a')
+ 
++            alltxt=appdir(:nappdir)//'/ALL_WSPR.TXT'
+ #ifdef CVF
+-            open(13,file='ALL_WSPR.TXT',status='unknown',
+-     +                position='append',share='denynone')
++            open(13,file=alltxt,status='unknown',position='append',
++     +           share='denynone')
+ #else
+-            open(13,file='ALL_WSPR.TXT',status='unknown',
+-     +                position='append')
++            open(13,file=alltxt,status='unknown',position='append')
+ #endif
+             write(13,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
+      +           ncycles/81,ii
+
+Modified: branches/wspr/spec162.F
+===================================================================
+--- branches/wspr/spec162.F	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/spec162.F	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -1,8 +1,9 @@
+-      subroutine spec162(c2,jz)
++      subroutine spec162(c2,jz,appdir,nappdir)
+ 
+       parameter(NX=500,NY=160)
+       complex c2(65536)
+       complex c(0:255)
++      character*80 appdir,pixmap
+       real s(120,0:255)
+       real ss(0:255)
+       real w(0:255)
+@@ -23,10 +24,11 @@
+       istep=nfft/2
+       nsteps=(jz-nfft)/(nadd*istep)
+ 
++      pixmap=appdir(:nappdir)//'/pixmap.dat'
+ #ifdef CVF
+-      open(16,file='pixmap.dat',form='binary',status='unknown',err=1)
++      open(16,file=pixmap,form='binary',status='unknown',err=1)
+ #else
+-      open(16,file='pixmap.dat',access='stream',status='unknown',err=1)
++      open(16,file=pixmap,access='stream',status='unknown',err=1)
+ #endif
+       read(16,end=1) a
+       go to 2
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/tx.F90	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -25,33 +25,35 @@
+ 
+   ierr=0
+   call1=callsign
++  call cs_lock('tx')
+   if(pttmode.eq.'CAT') then
+-     call cs_lock('tx')
+      write(crig,'(i6)') nrig
+      write(cbaud,'(i6)') nbaud
+      write(cdata,'(i1)') ndatabits
+      write(cstop,'(i1)') nstopbits
+-     call cs_unlock
+      chs='None'
+      if(nhandshake.eq.1) chs='XONXOFF'
+      if(nhandshake.eq.2) chs='Hardware'
+      cmnd='rigctl '//'-m'//crig//' -r'//catport//' -s'//cbaud//           &amp;
+           ' -C data_bits='//cdata//' -C stop_bits='//cstop//              &amp;
+           ' -C serial_handshake='//chs//' T 1'
++
+ ! Example rigctl command:
+-! rigctl -m 1608 -r /dev/USB0 -s 57600 -C data_bits=8 -C stop_bits=1 \
++! rigctl -m 1608 -r /dev/ttyUSB0 -s 57600 -C data_bits=8 -C stop_bits=1 \
+ !   -C serial_handshake=Hardware T 1
+-
+ #ifdef CVF
+      iret=runqq('rigctl.exe',cmnd(8:))
+ #else
+      iret=system(cmnd)
+ #endif
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set Tx mode:'
++        print*,cmnd
++     endif
+   else
+      if(nport.gt.0 .or. pttport(1:4).eq.'/dev') ierr=ptt(nport,pttport,1,iptt)
+   endif
+ 
+-  call cs_lock('tx')
+   write(cdbm,'(i3)'),ndbm
+   call cs_unlock
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+@@ -119,11 +121,17 @@
+      cmnd='rigctl '//'-m'//crig//' -r'//catport//' -s'//cbaud//           &amp;
+           ' -C data_bits='//cdata//' -C stop_bits='//cstop//              &amp;
+           ' -C serial_handshake='//chs//' T 0'
++     call cs_lock('tx')
+ #ifdef CVF
+      iret=runqq('rigctl.exe',cmnd(8:))
+ #else
+      iret=system(cmnd)
+ #endif
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set Rx mode:'
++        print*,cmnd
++     endif
++     call cs_unlock
+   else
+      if(nport.gt.0 .or. pttport(1:4).eq.'/dev') ierr=ptt(nport,pttport,0,iptt)
+   endif
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-05 19:29:55 UTC (rev 1633)
++++ branches/wspr/wspr.py	2009-11-05 21:07:40 UTC (rev 1634)
+@@ -52,6 +52,8 @@
+ 
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
++w.acom1.nappdir=len(appdir)
++w.acom1.appdir=(appdir+(' '*80))[:80]
+ bandmap=[]
+ bm={}
+ f0=DoubleVar()
+@@ -669,10 +671,14 @@
+         sftx.set(t)
+         if options.cat_enable.get():
+             nHz=int(1000000.0*f0.get()+0.5)
+-            cmd=&quot;rigctl -m %d -s %d -C serial_handshake=%s F %d&quot; % \
+-                 (options.rignum.get(), options.serial_rate.get(), \
+-                  options.serial_handshake.get(), nHz)
++            cmd=&quot;rigctl -m %d -r %s -s %d -C data_bits=%s -C stop_bits=%s -C serial_handshake=%s F %d&quot; % \
++                 (options.rignum.get(),options.CatPort.get(), \
++                  options.serial_rate.get(),options.databits.get(), \
++                  options.stopbits.get(),options.serial_handshake.get(), nHz)
+             ierr=os.system(cmd)
++            if ierr!=0:
++                print 'Error executing rigctl command to set frequency:'
++                print cmd            
+         bandmap=[]
+         bm={}
+         text1.configure(state=NORMAL)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001324.html">[WSJT-SVN] r1633 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001326.html">[WSJT-SVN] r1635 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1325">[ date ]</a>
+              <a href="thread.html#1325">[ thread ]</a>
+              <a href="subject.html#1325">[ subject ]</a>
+              <a href="author.html#1325">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

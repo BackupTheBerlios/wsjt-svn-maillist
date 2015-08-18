@@ -1,0 +1,404 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2648 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2648%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121005171322.295A255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002339.html">
+   <LINK REL="Next"  HREF="002341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2648 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2648%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121005171322.295A255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2648 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Oct  5 19:13:21 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002339.html">[WSJT-SVN] r2647 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002341.html">[WSJT-SVN] r2649 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-05 19:13:21 +0200 (Fri, 05 Oct 2012)
+New Revision: 2648
+
+Modified:
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/timf2.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+Log:
+Many changes.  Waterfall plots now pretty much OK.  (May want to limit 
+displayed range to 1000 Hz.)  Noise blanking may be working -- needs
+tests.  Tx has been implemented.
+
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/lib/symspec.f90	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -70,7 +70,7 @@
+   k0=k
+  
+   nzap=0
+-  sigmas=1.5*(10.0**(0.01*nbslider)) + 0.7
++  sigmas=1.0*(10.0**(0.01*nbslider)) + 0.7
+   peaklimit=sigmas*max(10.0,rms)
+   faclim=3.0
+   px=0.
+@@ -104,7 +104,7 @@
+ !###
+ !  if(nzap/178.lt.50 .and. (ndiskdat.eq.0 .or. ihsym.lt.280)) then
+   if(nsum.le.0) nsum=1
+-  rms=sqrt(0.5*px/nsum)
++  rms=sqrt(px/nsum)
+ !  endif
+   pxdb=0.
+   if(rms.gt.0.0) pxdb=20.0*log10(rms)
+
+Modified: branches/wsjtx/lib/timf2.f90
+===================================================================
+--- branches/wsjtx/lib/timf2.f90	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/lib/timf2.f90	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -66,23 +66,31 @@
+   cxt(0:nh)=cx(0:nh)
+ 
+ ! Identify frequencies with strong signals.
+-
+-  ntot=ntot+1
+-  if(mod(ntot,128).eq.5) then
+-     call pctile(s,stmp,nh,50,xmedian)
+-     slimit=faclim*xmedian
+-  endif
+-
+-  if(ntc.lt.12000/nfft) ntc=ntc+1
+-  uu=1.0/ntc
+-  smax=0.
++!###
+   do i=0,nh
+      p=real(cxt(i))**2 + aimag(cxt(i))**2
+-     s(i)=(1.0-uu)*s(i) + uu*p
+-     lstrong(i)=(s(i).gt.slimit)
+-     if(s(i).gt.smax) smax=s(i)
++     s(i)=p
+   enddo
++  ave=sum(s(0:nh))/nh
++  lstrong(0:nh)=s(0:nh).gt.10.0*ave
++!###
+ 
++!  ntot=ntot+1
++!  if(mod(ntot,128).eq.5) then
++!     call pctile(s,stmp,nh,50,xmedian)
++!     slimit=faclim*xmedian
++!  endif
++
++!  if(ntc.lt.12000/nfft) ntc=ntc+1
++!  uu=1.0/ntc
++!  smax=0.
++!  do i=0,nh
++!     p=real(cxt(i))**2 + aimag(cxt(i))**2
++!     s(i)=(1.0-uu)*s(i) + uu*p
++!     lstrong(i)=(s(i).gt.slimit)
++!     if(s(i).gt.smax) smax=s(i)
++!  enddo
++
+   nsigs=0
+   lprev=.false.
+   iwid=1
+@@ -146,7 +154,7 @@
+ 
+ ! Compute power levels from weak data only
+   do i=0,kstep-1
+-     px=px + xw(i)*xw(i)
++     px=px + xw(i)**2
+   enddo
+ 
+   x1(0:kstep-1)=xw(0:kstep-1) + xs(0:kstep-1)     !Recombine weak + strong
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/mainwindow.cpp	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -8,7 +8,7 @@
+ #include &quot;sleep.h&quot;
+ #include &lt;portaudio.h&gt;
+ 
+-short int iwave[30*48000];            //Wave file for Tx audio
++int itone[85];                        //Tx audio tones for 85 symbols
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+ double outputLatency;                 //Latency in seconds
+@@ -675,7 +675,7 @@
+     m_diskData=true;
+     int dbDgrd=0;
+     *future1 = QtConcurrent::run(getfile, fname, m_TRperiod);
+-    watcher1-&gt;setFuture(*future1);
++    watcher1-&gt;setFuture(*future1);         // call diskDat() when done
+   }
+ }
+ 
+@@ -848,7 +848,8 @@
+   int khsym=0;
+ 
+   double tx1=0.0;
+-  double tx2=m_TRperiod;
++//  double tx2=m_TRperiod;
++  double tx2=1.0 + 85.0*m_nsps/12000.0;
+ 
+   if(!m_txFirst) {
+     tx1 += m_TRperiod;
+@@ -892,8 +893,9 @@
+ 
+     ba2msg(ba,message);
+     ba2msg(ba,msgsent);
+-    int len1=28;
+-//    genjt9_(message,iwave,&amp;nwave,len1);
++    int len1=22;
++    int len2=22;
++    genjt9_(message,&amp;m_TRperiod,msgsent,itone,len1,len2);
+     if(m_restart) {
+       QFile f(&quot;wsjtx_tx.log&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+@@ -983,7 +985,7 @@
+     ui-&gt;labUTC-&gt;setText(utc);
+     if(!m_monitoring and !m_diskData) {
+       ui-&gt;xThermo-&gt;setValue(0.0);                      // Set Rx level to 20
+-      lab2-&gt;setText(&quot; Rx noise:    0.0 &quot;);
++//      lab4-&gt;setText(&quot; Rx noise:    0.0 &quot;);
+     }
+     m_hsym0=khsym;
+     m_sec0=nsec;
+@@ -1362,7 +1364,7 @@
+ {
+   m_mode=&quot;JT9-30&quot;;
+   m_TRperiod=1800;
+-  m_nsps=250880;
++  m_nsps=252000;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/mainwindow.h	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -221,7 +221,7 @@
+               int* nb, int* m_NBslider, float* px, float s[],
+               float* f0a, float* df3, int* nhsym, int* nzap,
+                float* slimit, uchar lstrong[]);
+-void genJT9_(char* msg, char* msgsent, short itone[], int* nsym,
++void genjt9_(char* msg, int* minutes, char* msgsent, int itone[],
+              int len1, int len2);
+ int ptt_(int* nport, int* itx, int* iptt);
+   }
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/plotter.cpp	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -142,7 +142,7 @@
+   m_line++;
+   if(m_line == 13) {
+     UTCstr();
+-    painter1.setPen(Qt::white);
++    painter1.setPen(Qt::red);
+     painter1.drawText(5,10,m_sutc);
+   }
+   update();                              //trigger a new paintEvent
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/soundin.cpp	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -138,13 +138,15 @@
+     k=udata.kin;
+     if(m_monitoring) {
+       int kstep=m_nsps/2;
+-      m_step=k/kstep;
++//      m_step=k/kstep;
++      m_step=(k-1)/kstep;
+       if(m_step != nstep0) {
+         if(m_dataSinkBusy) {
+           nBusy++;
+         } else {
+ //          m_dataSinkBusy=true;
+-          emit readyForFFT(k);         //Signal to compute new FFTs
++//          emit readyForFFT(k);         //Signal to compute new FFTs
++          emit readyForFFT(k-1);         //Signal to compute new FFTs
+         }
+         nstep0=m_step;
+       }
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/soundout.cpp	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -7,14 +7,16 @@
+ }
+ 
+ extern float gran();                  //Noise generator (for tests only)
+-extern short int iwave[120*12000];     //Wave file for Tx audio
+-extern int nwave;
+-extern bool btxok;
++extern int itone[85];                 //Tx audio tones for 85 symbols
+ extern double outputLatency;
+ 
+ typedef struct   //Parameters sent to or received from callback function
+ {
+-  int dummy;
++  int nsps;
++  int ntrperiod;
++  bool txOK;
++  bool txMute;
++  bool bRestart;
+ } paUserData;
+ 
+ //--------------------------------------------------------------- d2aCallback
+@@ -26,20 +28,50 @@
+ {
+   paUserData *udata=(paUserData*)userData;
+   short *wptr = (short*)outputBuffer;
+-  unsigned int i;
++
++  static double twopi=6.283185307;
++  static double baud=12000.0/udata-&gt;nsps;
++  static double phi=0.0;
++  static double dphi;
++  static double freq;
+   static int ic=0;
++  static short int i2;
+ 
+-  for(i=0 ; i&lt;framesToProcess; i++ )  {
+-    short int i2=iwave[ic];
+-    if(ic &gt; nwave) i2=0;
++  if(udata-&gt;bRestart) {
++ // Time according to this computer
++    qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
++    int mstr = ms % (1000*udata-&gt;ntrperiod );
++    if(mstr&lt;1000) return 0;
++    ic=(mstr-1000)*12;
++    qDebug() &lt;&lt; &quot;Start at:&quot; &lt;&lt; 0.001*mstr;
++    udata-&gt;bRestart=false;
++  }
++  int isym=ic/udata-&gt;nsps;
++  if(isym&gt;=85) return 0;
++  freq=1500.0 + itone[isym]*baud;
++  dphi=twopi*freq/12000.0;
++/*
++  if(ic&lt;10000) qDebug() &lt;&lt; &quot;a&quot; &lt;&lt; ic &lt;&lt; udata-&gt;nsps &lt;&lt; itone[0]
++                        &lt;&lt; itone[1] &lt;&lt; itone[2] &lt;&lt; itone[3] &lt;&lt; itone[4]
++                        &lt;&lt; itone[5] &lt;&lt; itone[6] &lt;&lt; itone[7] &lt;&lt; itone[8]
++                        &lt;&lt; itone[9] &lt;&lt; itone[10] &lt;&lt; itone[11] &lt;&lt; itone[12]
++                        &lt;&lt; itone[13] &lt;&lt; itone[14] &lt;&lt; itone[15] &lt;&lt; itone[16];
++                        */
++//  qDebug() &lt;&lt; ic &lt;&lt; isym &lt;&lt; freq &lt;&lt; dphi &lt;&lt; phi &lt;&lt; i2;
++
++  for(int i=0 ; i&lt;framesToProcess; i++ )  {
++    phi += dphi;
++    if(phi&gt;twopi) phi -= twopi;
++    i2=32767.0*sin(phi);
+ //      i2 = 500.0*(i2/32767.0 + 5.0*gran());      //Add noise (tests only!)
+-    if(!btxok) i2=0;
++    /*
++    if(udata-&gt;txMute) i2=0;
++    if(!udata-&gt;txOK)  i2=0;
++    if(ic &gt; 85*udata-&gt;nsps) i2=0;
++    */
+     *wptr++ = i2;                   //left
+     ic++;
+   }
+-  if(ic &gt;= nwave) {
+-    ic=0;
+-  }
+   return 0;
+ }
+ 
+@@ -64,8 +96,11 @@
+     return;
+   }
+ 
+-//  udata.nwave=m_nwave;
+-//  udata.btxok=false;
++  udata.nsps=m_nsps;
++  udata.ntrperiod=m_TRperiod;
++  udata.txOK=false;
++  udata.txMute=m_txMute;
++  udata.bRestart=true;
+ 
+   paerr=Pa_OpenStream(&amp;outStream,           //Output stream
+         NULL,                               //No input parameters
+@@ -89,9 +124,11 @@
+   while (!qe) {
+     qe = quitExecution;
+     if (qe) break;
+-//    udata.nwave=m_nwave;
+-//    if(m_txOK) udata.btxok=1;
+-//    if(!m_txOK) udata.btxok=0;
++
++    udata.nsps=m_nsps;
++    udata.ntrperiod=m_TRperiod;
++    udata.txOK=m_txOK;
++    udata.txMute=m_txMute;
+     msleep(100);
+   }
+   Pa_StopStream(outStream);
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2012-10-04 21:39:48 UTC (rev 2647)
++++ branches/wsjtx/soundout.h	2012-10-05 17:13:21 UTC (rev 2648)
+@@ -33,7 +33,7 @@
+   qint32  m_nDevOut;            //Output device number
+   bool    m_txOK;               //Enable Tx audio
+   bool    m_txMute;             //Mute temporarily
+-  qint32  m_TRperiod;           //T/R period (30 or 60 s)
++  qint32  m_TRperiod;           //T/R period (s)
+   qint32  m_nsps;               //Samples per symbol (at 12000 Hz)
+ };
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002339.html">[WSJT-SVN] r2647 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002341.html">[WSJT-SVN] r2649 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

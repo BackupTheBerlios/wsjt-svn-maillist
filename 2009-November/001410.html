@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1718 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1718%20-%20branches/map65&In-Reply-To=%3C200911271557.nARFvtd6006706%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001409.html">
+   <LINK REL="Next"  HREF="001411.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1718 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1718%20-%20branches/map65&In-Reply-To=%3C200911271557.nARFvtd6006706%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1718 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Nov 27 16:57:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001409.html">[WSJT-SVN] r1717 - trunk
+</A></li>
+        <LI>Next message: <A HREF="001411.html">[WSJT-SVN] r1719 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1410">[ date ]</a>
+              <a href="thread.html#1410">[ thread ]</a>
+              <a href="subject.html#1410">[ subject ]</a>
+              <a href="author.html#1410">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-27 16:57:50 +0100 (Fri, 27 Nov 2009)
+New Revision: 1718
+
+Modified:
+   branches/map65/deep65.F
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+Log:
+Recompute deep search messages after change of neme status and after
+adding a callsign to CALL3.TXT.
+
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2009-11-22 02:10:09 UTC (rev 1717)
++++ branches/map65/deep65.F	2009-11-27 15:57:50 UTC (rev 1718)
+@@ -14,6 +14,7 @@
+       integer ncode(63,2*MAXCALLS + 2 + MAXRPT)
+       real pp(2*MAXCALLS + 2 + MAXRPT)
+       common/mrscom/ mrs(63),mrs2(63)
++      common/c3com/ mcall3a
+ 
+       data neme0/-99/
+       data rpt/'-01','-02','-03','-04','-05',
+@@ -31,10 +32,11 @@
+      +         'RO','RRR','73'/
+       save
+ 
+-      modified=0                              !@@@
+       if(mycall.eq.mycall0 .and. hiscall.eq.hiscall0 .and. 
+-     +   hisgrid.eq.hisgrid0 .and. modified.eq.modified0) go to 30
++     +   hisgrid.eq.hisgrid0 .and. mcall3a.eq.0 .and.
++     +   neme.eq.neme0) go to 30
+ 
++      mcall3a=0
+       call cs_lock('deep65a')
+       rewind 23
+       k=0
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2009-11-22 02:10:09 UTC (rev 1717)
++++ branches/map65/gcom2.f90	2009-11-27 15:57:50 UTC (rev 1718)
+@@ -15,6 +15,7 @@
+ real dgain             !Digital audio gain setting              GUI
+ integer ndecoding      !Decoder status (see decode2.f90)     GUI,Decoder
+ integer ndecoding0     !Status on previous decode            GUI,Decoder
++integer mcall3         !CALL3.TXT has been modified          GUI,Decoder
+ integer mousebutton    !Which button was clicked?               GUI
+ integer multicast      !1 for multicast data, 0 for unicast     GUI
+ integer ndecdone       !Is decoder finished?                 GUI,Decoder
+@@ -104,7 +105,7 @@
+ 
+ common/gcom2/fcenter,ps0(431),psavg(450),s2(64,3100),ccf(-5:540),           &amp;
+      green(500),fselect,pctlost,pctblank,rxnoise,dphi,ngreen,dgain,         &amp;
+-     ndecoding,ndecoding0,mousebutton,multicast,nsetftx,ierr,               &amp;
++     ndecoding,ndecoding0,mcall3,mousebutton,multicast,nsetftx,ierr,        &amp;
+      ndecdone,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,                    &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+      nclearave,nfreeze,nafc,ncsmin,newspec,nfa,nfb,nfcal,idphi,nkeep,       &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2009-11-22 02:10:09 UTC (rev 1717)
++++ branches/map65/map65.py	2009-11-27 15:57:50 UTC (rev 1718)
+@@ -542,6 +542,7 @@
+             if os.path.exists(&quot;CALL3.OLD&quot;): os.remove(&quot;CALL3.OLD&quot;)
+             os.rename(&quot;CALL3.TXT&quot;,&quot;CALL3.OLD&quot;)
+             os.rename(&quot;CALL3.TMP&quot;,&quot;CALL3.TXT&quot;)
++            Audio.gcom2.mcall3=1
+ 
+ #-------------------------------------------------------- clrToRadio
+ def clrToRadio(event):
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2009-11-22 02:10:09 UTC (rev 1717)
++++ branches/map65/map65a.F90	2009-11-27 15:57:50 UTC (rev 1718)
+@@ -18,11 +18,15 @@
+   real qphi(12)
+   include 'gcom2.f90'
+   include 'datcom.f90'
++  common/c3com/ mcall3a
++  
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+   data nfile/0/,nutc0/-999/,nid/0/,ip000/1/,ip001/1/,mousefqso0/-999/
+   save
+ 
++  mcall3a=mcall3
++  if(mcall3.eq.1) mcall3=0
+   if(mousefqso.ne.mousefqso0 .and. nagain.eq.1) newspec=2
+   mousefqso0=mousefqso
+   nfoffset=nint(1000*(fcenter-144.125d0))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001409.html">[WSJT-SVN] r1717 - trunk
+</A></li>
+	<LI>Next message: <A HREF="001411.html">[WSJT-SVN] r1719 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1410">[ date ]</a>
+              <a href="thread.html#1410">[ thread ]</a>
+              <a href="subject.html#1410">[ subject ]</a>
+              <a href="author.html#1410">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

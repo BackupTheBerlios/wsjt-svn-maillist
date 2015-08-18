@@ -1,0 +1,878 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3635 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3635%20-%20trunk&In-Reply-To=%3C20140114152509.DD3EF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003328.html">
+   <LINK REL="Next"  HREF="003330.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3635 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3635%20-%20trunk&In-Reply-To=%3C20140114152509.DD3EF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3635 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 14 16:25:09 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003328.html">[WSJT-SVN] r3634 - trunk
+</A></li>
+        <LI>Next message: <A HREF="003330.html">[WSJT-SVN] r3636 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3329">[ date ]</a>
+              <a href="thread.html#3329">[ thread ]</a>
+              <a href="subject.html#3329">[ subject ]</a>
+              <a href="author.html#3329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-14 16:25:09 +0100 (Tue, 14 Jan 2014)
+New Revision: 3635
+
+Removed:
+   trunk/decdiana.f90
+   trunk/diana.f90
+   trunk/gendiana.f90
+   trunk/specdiana.f90
+   trunk/syncdiana.f90
+Modified:
+   trunk/decode3.f90
+   trunk/fivehz.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt9.iss
+   trunk/wsjtgen.f90
+Log:
+Make JTMS mode visible, remove Diana mode entirely.
+Bump Version number to 9.7.
+
+
+Deleted: trunk/decdiana.f90
+===================================================================
+--- trunk/decdiana.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/decdiana.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,78 +0,0 @@
+-subroutine decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
+-
+-  parameter (NSZ=646)
+-  real s0(1152,NSZ)
+-  real fs1(0:41,28)
+-  real tmp(1176)
+-  real tmp2(1176)
+-  character msg*28
+-  character c42*42
+-  data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?+-'/
+-
+-  nblk=24
+-  jb=jsym
+-  fs1=0.
+-  k=0
+-  n=0
+-  do j=jpk,jpk+4*125,4                !Fold from s0 into fs1, modulo msglen
+-     k=k+1
+-     km=mod(k-1,nblk)+1
+-     if(km.gt.6) then    !Use only message symbols
+-        n=n+1
+-        m=mod(n-1,msglen)+1
+-        iblk=(j-jpk)/(4*nblk)         !iblk runs from 0 to 4
+-        ioffset=7*iblk
+-        ii=nint(idfpk*float(j-jb/2)/float(jb))
+-        do i=0,41
+-           iii=i+ioffset
+-           if(iii.ge.42) iii=iii-42
+-           i3=ipk + 2*iii + ii
+-           fs1(i,m)=fs1(i,m) + s0(i3,j)
+-        enddo
+-     endif
+-  enddo
+-
+-  k=0
+-  do j=1,msglen
+-     do i=0,41
+-        k=k+1
+-        tmp(k)=fs1(i,j)
+-     enddo
+-  enddo
+-  kz=k
+-  call pctile(tmp,tmp2,kz,47,base)
+-  fs1=fs1/base - 1.0
+-
+-  msg='                            '
+-  worst=9999.
+-  sum1=0.
+-  sum2=0.
+-  do m=1,msglen                           !Read out message contents
+-     smax1=0.
+-     do i=0,41
+-        if(fs1(i,m).gt.smax1) then         !Find highest peak
+-           smax1=fs1(i,m)
+-           ipk3=i
+-        endif
+-     enddo
+-     sum1=sum1+smax1
+-
+-     smax2=0.
+-     do i=0,41
+-        if(fs1(i,m).gt.smax2 .and. i.ne.ipk3) then  !Find 2nd highest peak
+-           smax2=fs1(i,m)
+-        endif
+-     enddo
+-     sum2=sum2+smax2
+-     rr=smax1/smax2                       !Reliability indicator
+-     if(rr.lt.worst) worst=rr
+-     msg(m:m)=c42(ipk3+1:ipk3+1)          !Insert decoded char in msg
+-  enddo
+-  
+-  ave1=sum1/msglen                        !Average signal
+-  ave2=sum2/msglen                        !Average second-best
+-  avg=sum1/sum2                        !Average reliability indicator
+-  snrx=db(ave1) - 26.7 + 1.0              !Last number is empirical
+-
+-  return
+-end subroutine decdiana
+
+Modified: trunk/decode3.f90
+===================================================================
+--- trunk/decode3.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/decode3.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -25,7 +25,6 @@
+   if(mode(1:3).eq.'JT4') nmode=7
+   if(mode(1:4).eq.'JTMS') nmode=8
+   if(mode(1:5).eq.'ISCAT') nmode=9
+-  if(mode(1:5).eq.'Diana') nmode=10
+   sum=0.
+   do i=1,jz
+      sum=sum+d2(i)
+@@ -81,7 +80,7 @@
+   
+   nclearave=0
+   nagain=0
+-  if(mode(1:4).eq.'JT65' .or. mode(1:5).eq.'Diana' .or. mode(1:3).eq.'JT4') then
++  if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT4') then
+      call pix2d65(d2d,jz)
+   else if(mode.eq.'FSK441' .or. mode(1:4).eq.'JTMS') then
+      nz=s2(1,1)
+
+Deleted: trunk/diana.f90
+===================================================================
+--- trunk/diana.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/diana.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,43 +0,0 @@
+-subroutine diana(cdat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,       &amp;
+-     MouseDF,nafc,ccfblue,ccfred)
+-
+-! Decode a Diana signal
+-
+-  parameter (NSZ=646)                     !Quarter-symbols in 30 s
+-  complex cdat(93024)                     !Raw signal, 30 s at 11025*9/32 sps
+-  character cfile6*6                      !File time
+-  character msg*28
+-  real s0(1152,NSZ)
+-  real ccfblue(-5:540)
+-  real ccfred(-224:224)
+-  integer dftolerance
+-  complex cfft
+-  common/down932/cfft(147456),nfft2,df932
+-  data nsps/576/,nsync/4/,nlen/2/,ndat/18/
+-
+-  nsym=npts/nsps                      !Total symbol intervals in file
+-  nblk=nsync+nlen+ndat                !Frame size
+-  df=11025.0/4096.0
+-  kstep=nsps/4
+-
+-! Get symbol spectra, fold for sync
+-  call specdiana(cdat,npts,s0,jsym)
+-
+-! Get sync: DF, DT, msglen
+-  call syncdiana(s0,jsym,kstep,nfreeze,mousedf,dftolerance,minsigdb,      &amp;
+-       nafc,xsync,ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,      &amp;
+-       ccfblue,ccfred)
+-
+-  jdf=nint(dfx)
+-  nfdot=nint(idfpk*df)
+-  isync=xsync
+-
+-  call cs_lock('iscat')
+-!  write(*,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+-  write(11,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+-  write(21,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+-1020 format(a6,i3,i5,f5.1,i5,i4,7x,a28,i5,2i3)
+-  call cs_unlock
+-
+-  return
+-end subroutine diana
+
+Modified: trunk/fivehz.f90
+===================================================================
+--- trunk/fivehz.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/fivehz.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -146,10 +146,6 @@
+      endif
+      tx2=txdelay + nwave/11025.0
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+-  else if(mode(1:5).eq.'Diana') then
+-     if(nwave.lt.126*2048) nwave=126*2048
+-     tx2=txdelay + nwave/11025.0
+-     if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   endif
+ 
+   if(TxFirst.eq.0 .and. ntxboth.eq.0) then
+
+Deleted: trunk/gendiana.f90
+===================================================================
+--- trunk/gendiana.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/gendiana.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,85 +0,0 @@
+-subroutine gendiana(msg,msglen,samfac,iwave,nwave,msgsent,sendingsh)
+-
+-! Generate waveform for Diana mode.
+-
+-  parameter (NMAX=30*11025,NSZ=126)
+-  character msg*28,msgsent*28
+-  integer*2 iwave(NMAX)
+-  integer imsg(28)
+-  integer itone(NSZ)
+-  character c42*42
+-  real*8 twopi,dt,f0,f,df,pha,dpha,samfac
+-  integer isync(4)                              !Sync pattern
+-  integer sendingsh
+-  data isync/8,16,32,24/
+-  data nsync/4/,nlen/2/,ndat/18/
+-  data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?+-'/
+-
+-  twopi=8.d0*atan(1.d0)
+-  nsps=2048
+-  df=11025.d0/NSPS                     !5.383 Hz
+-  dt=1.d0/(samfac*11025.d0)
+-  f0=236*df                            !1270.46 Hz
+-  nsym=126                             !Total symbols in whole transmission
+-  nblk=nsync+nlen+ndat
+-
+-  nspecial=0
+-  if(msg.eq.'CQ                          ') nspecial=1
+-  if(msg.eq.'RO                          ') nspecial=2
+-  if(msg.eq.'RRR                         ') nspecial=3
+-  if(msg.eq.'73                          ') nspecial=4
+-  if(nspecial.gt.0) then
+-     nsym=16
+-     nsps=16384
+-  endif
+-
+-  k=0
+-  kk=1
+-  do i=1,msglen                        !Define tone sequence for user message
+-     imsg(i)=index(c42,msg(i:i))-1     !Get character index from c42
+-     if(imsg(i).lt.0) imsg(i)=36       !Default char is &lt;space&gt;
+-  enddo
+-
+-  do i=1,nsym
+-     j=mod(i-1,nblk)+1
+-     if(j.le.nsync) then
+-        itone(i)=isync(j)
+-     else if(j.gt.nsync .and. j.le.nsync+nlen) then
+-        itone(i)=msglen
+-        if(j.ge.nsync+2) then
+-           n=msglen + 5*(j-nsync-1)
+-           if(n.gt.41) n=n-42
+-           itone(i)=n
+-        endif
+-     else
+-        k=k+1
+-        kk=mod(k-1,msglen)+1
+-        irpt=(i-1)/nblk
+-        itone(i)=mod(imsg(kk) + 7*irpt,42)
+-     endif
+-  enddo
+-  msgsent=msg
+-
+-  k=0
+-  pha=0.
+-!  f1=0.3*twopi/(11025.d0**2)                        !###
+-!  kh=(nsym*nsps)/2                              !###
+-  do m=1,nsym                                    !Generate iwave
+-     if(nspecial.eq.0) then
+-        f=f0 + itone(m)*df
+-     else
+-        f=f0 + mod(m-1,2)*10*nspecial*df
+-     endif
+-     dpha=twopi*f*dt
+-     do i=1,NSPS
+-        k=k+1
+-        pha=pha+dpha
+-!        pha=pha+dpha + f1*(k-kh)                      !###
+-        iwave(k)=nint(32767.0*sin(pha))
+-     enddo
+-  enddo
+-  nwave=k
+-  iwave(k:)=0
+-
+-  return
+-end subroutine gendiana
+
+Deleted: trunk/specdiana.f90
+===================================================================
+--- trunk/specdiana.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/specdiana.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,45 +0,0 @@
+-subroutine specdiana(cdat,npts,s0,jsym)
+-
+-  parameter (NSZ=646)
+-  complex cdat(93024)                     !Raw signal, 30 s at 11025*9/32 sps
+-  complex ct(1152)
+-  real x(1152),x2(1152)
+-  real savg(1152)
+-  real s0(1152,NSZ)                       !Symbol spectra at 1/4-symbol steps
+-  equivalence (x,c)
+-
+-  nblk=24
+-  nsps=576                            !2048*9/32
+-  nsym=npts/nsps                      !Total symbol intervals in file
+-  nfft=2*nsps                         !Do FFTs at twice the symbol length
+-  kstep=nsps/4                        !Step by 1/4 symbol
+-  nq=nfft/4
+-  fac=1.0/1000.0                      !Somewhat arbitrary
+-  savg=0.
+-
+-  ia=1-kstep
+-  do j=1,4*nsym                       !Compute symbol spectra
+-     ia=ia+kstep
+-     ib=ia+nsps-1
+-     if(ib.gt.npts) exit
+-     ct(1:nsps)=fac*cdat(ia:ib)
+-     ct(nsps+1:nfft)=0.
+-     call four2a(ct,nfft,1,-1,1)
+-     do i=1,nfft
+-        s0(i,j)=real(ct(i))**2 + aimag(ct(i))**2
+-        savg(i)=savg(i) + s0(i,j)
+-     enddo
+-  enddo
+-  jsym=4*nsym
+-  savg=savg/jsym
+-
+-  do i=1,nfft                                 !Normalize the symbol spectra
+-     fac=1.0/savg(i)
+-     if(i.lt.11) fac=1.0/savg(11)
+-     do j=1,jsym
+-        s0(i,j)=fac*s0(i,j)
+-     enddo
+-  enddo
+-
+-  return
+-end subroutine specdiana
+
+Deleted: trunk/syncdiana.f90
+===================================================================
+--- trunk/syncdiana.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/syncdiana.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,169 +0,0 @@
+-subroutine syncdiana(s0,jsym,kstep,nfreeze,mousedf,dftolerance,minsigdb,    &amp;
+-     nafc,xsync,ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,          &amp;
+-     ccfblue,ccfred)
+-  
+-  parameter (NSZ=646)                     !Quarter-symbols in 30 s
+-  real s0(1152,NSZ)
+-  real fs0(1152,96)                       !Folded-for-sync spectra
+-  real fs00(1152,96)
+-  real ccfblue(-5:540)
+-  real ccfred(-224:224)
+-  character msg*28,msgbest*28
+-  integer dftolerance
+-  integer isync(4)
+-  data isync/8,16,32,24/
+-
+-  df=11025.0/4096.0
+-  nblk=24
+-  i0=2*236
+-  xsyncbest=0.
+-  bigworst=0.
+-  ipk=9999
+-  jpk=9999
+-  nq=1024
+-  jb=(jsym-4*nblk+1)/4
+-  jb=4*jb
+-
+-  idfmax=0
+-  if(nafc.eq.1) idfmax=10
+-  do idf=-idfmax,idfmax,2
+-
+-     fs0=0.
+-     do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
+-        k=mod(j-1,4*nblk)+1
+-        ii=nint(idf*float(j-jb/2)/float(jb))
+-        i1=max(1,1-ii)
+-        i2=min(nq,nq-ii)
+-        fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
+-     enddo
+-
+-     ia=nint(-600.0/df)
+-     ib=nint(600.0/df)
+-     if(nfreeze.eq.1) then
+-        ia=nint((mousedf-dftolerance)/df)
+-        ib=nint((mousedf+dftolerance)/df)
+-     endif
+-
+-     smax=0.
+-     do i=ia,ib                          !Search over DF range
+-        sm1=0.
+-        do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
+-           ss=0.
+-           do n=1,4                      !Sum the four sync tones
+-              k=j+4*n-3
+-              if(k.gt.4*nblk) k=k-4*nblk
+-              ss=ss + fs0(i0+i+2*isync(n),k)
+-           enddo
+-           if(ss.gt.sm1) then
+-              sm1=ss
+-              jpk1=j+1
+-           endif
+-        enddo
+-        if(sm1.gt.smax) then
+-           smax=sm1
+-           ipk=i0+i                   !Frequency offset, DF
+-           jpk=jpk1
+-           idfpk=idf
+-        endif
+-     enddo
+-
+-     ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)
+-     j=jpk+4
+-     if(j.gt.96) j=j-96
+-     ref=ref + fs0(ipk,j) + fs0(ipk+4,j) + fs0(ipk+6,j)
+-     j=jpk+8
+-     if(j.gt.96) j=j-96
+-     ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+4,j)
+-     j=jpk+12
+-     if(j.gt.96) j=j-96
+-     ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+6,j)
+-
+-     ref=ref/3.0                         !Reference level near (DF,DT)
+-     xsync=smax/ref - 1.0
+-
+-     smax=0.
+-     j1=jpk+16
+-     if(j1.gt.4*nblk) j1=j1-4*nblk
+-     j2=jpk+20
+-     if(j2.gt.4*nblk) j2=j2-4*nblk
+-     do i=ipk+2,ipk+56,2                         !Find User's message length
+-        ss=fs0(i,j1) + fs0(i+10,j2)
+-        if(ss.gt.smax) then
+-           smax=ss
+-           ipk2=i
+-        endif
+-     enddo
+-     msglen=(ipk2-ipk)/2
+-
+-     call decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
+-
+-     if(worst.gt.bigworst) then
+-        bigworst=worst
+-        bigavg=avg
+-        xsyncbest=xsync
+-        ipkbest=ipk
+-        jpkbest=jpk
+-        idfpkbest=idfpk
+-        msglenbest=msglen
+-        msgbest=msg
+-        snrbest=snrx
+-        fs00=fs0
+-     endif
+-
+-  enddo
+-
+-  worst=bigworst
+-  avg=bigavg
+-  xsync=xsyncbest
+-  ipk=ipkbest
+-  jpk=jpkbest
+-  idfpk=idfpkbest
+-  msglen=msglenbest
+-  msg=msgbest
+-  snrx=snrbest
+-
+-  dfx=(ipk-i0)*df
+-  dtx=jpk*kstep/(11025.0*9.0/32.0) - 1.4
+-  nsnr=nint(snrx)
+-  nsnr=max(nsnr,-26)
+-  if(int(xsync).lt.MinSigdB) msg=' '
+-
+-  nworst=10.0*(worst-1.0)
+-  navg=10.0*(avg-1.0)
+-  if(nworst.gt.10) nworst=10
+-  if(navg.gt.10) navg=10
+-  if(navg.le.0) msg=' '
+-
+-! Compute ccfred
+-  do i=ia,ib                          !Search over DF range
+-     sm1=0.
+-     do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
+-        ss=0.
+-        do n=1,4                      !Sum the four sync tones
+-           k=j+4*n-3
+-           if(k.gt.4*nblk) k=k-4*nblk
+-           ss=ss + fs00(i0+i+2*isync(n),k)
+-        enddo
+-        if(ss.gt.sm1) then
+-           sm1=ss
+-           jpk1=j+1
+-        endif
+-        if(abs(i).le.224) ccfred(i)=sm1
+-     enddo
+-  enddo
+-  ccfred=0.5*ccfred/ref - 1.0
+-
+-! Compute ccfblue using idfpk and ipk
+-  do j=0,4*nblk-1
+-     ss=0.
+-     do n=1,4
+-        k=j+4*n-3
+-        if(k.gt.4*nblk) k=k-4*nblk
+-        ss=ss + fs00(ipk+2*isync(n),k)
+-     enddo
+-     jj=mod(j+80,96) - 5
+-     ccfblue(jj)=0.5*(ss/ref - 1.0)
+-  enddo
+-
+-  return
+-end subroutine syncdiana
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/wsjt.py	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -26,14 +26,14 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;9.6 r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;9.7 r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;WSJT Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+       &quot;$Date$&quot;[7:-1]
+ print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
+ 
+-Title=&quot;  WSJT 9.6    r&quot; + &quot;$Rev$&quot;[6:-1] + &quot;     by K1JT&quot;
++Title=&quot;  WSJT 9.7    r&quot; + &quot;$Rev$&quot;[6:-1] + &quot;     by K1JT&quot;
+ 
+ #See if we are running in Windows
+ g.Win32=0
+@@ -242,9 +242,6 @@
+ def dbl_click_text(event):
+     t=text.get('1.0',END)           #Entire contents of text box
+     t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
+-    if mode.get()=='Diana':
+-        report.delete(0,END)
+-        report.insert(0,'OOO')
+     if mode.get()[:3]=='JT4':
+         dbl_click3_text(event)
+     else:
+@@ -261,13 +258,11 @@
+         if rpt[:1]=='-' and len(rpt)==2: rpt=rpt[0:1]+'0'+rpt[1:2]
+         dbl_click_call(t,t1,rpt,event)
+ 
+-    elif mode.get()[:5]=='ISCAT' or mode.get()=='Diana':
++    elif mode.get()[:5]=='ISCAT':
+         t=text.get('1.0',END)           #Entire contents of text box
+         t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
+         n=t1.rfind(&quot;\n&quot;)
+         rpt=t1[n+12:n+15]
+-        if mode.get()=='Diana':
+-            rpt=t1[n+12:n+16]
+         if rpt[0:1] == &quot; &quot;: rpt=rpt[1:]
+         report.delete(0,END)
+         report.insert(0,rpt)
+@@ -748,20 +743,6 @@
+         GenStdMsgs()
+         erase()        
+ 
+-#------------------------------------------------------ ModeDiana
+-def ModeDiana(event=NONE):
+-    global isync,isync_iscat
+-    if g.mode != &quot;Diana&quot;:
+-        if lauto: toggleauto()
+-        ModeJT65()
+-        Audio.gcom1.trperiod=30
+-        mode.set(&quot;Diana&quot;)
+-        lab2.configure(text='FileID      Sync      dB        DT       DF    F1')
+-        isync=1
+-        lsync.configure(text=slabel+str(isync))
+-        report.delete(0,END)
+-        report.insert(0,'-20')
+-
+ #------------------------------------------------------ ModeCW
+ def ModeCW(event=NONE):
+     if g.mode != &quot;CW&quot;:
+@@ -1200,7 +1181,7 @@
+ def erase(event=NONE):
+     graph1.delete(ALL)
+     if mode.get()[:4]!=&quot;JT65&quot; and mode.get()[:2]!=&quot;CW&quot; and \
+-            mode.get()[:3]!='JT4' and mode.get()!='Diana':
++            mode.get()[:3]!='JT4':
+         graph2.delete(ALL)
+     text.configure(state=NORMAL)
+     text.delete('1.0',END)
+@@ -1271,13 +1252,10 @@
+ #----------------------------------------------------- dtdf_change
+ # Readout of graphical cursor location
+ def dtdf_change(event):
+-    if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4' or mode.get()=='Diana':
++    if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4':
+         if event.y&lt;40 and Audio.gcom2.nspecial==0:
+             lab1.configure(text='Time (s)',bg=&quot;#33FFFF&quot;)   #light blue
+-            if mode.get()=='Diana':
+-                t=&quot;%.1f&quot; % (4.458*event.x/500.0-0.6,)
+-            else:
+-                t=&quot;%.1f&quot; % (12.0*event.x/500.0-2.0,)
++            t=&quot;%.1f&quot; % (12.0*event.x/500.0-2.0,)
+             lab6.configure(text=t,bg=&quot;#33FFFF&quot;)
+         elif (event.y&gt;=40 and event.y&lt;95) or \
+                  (event.y&lt;95 and Audio.gcom2.nspecial&gt;0):
+@@ -1293,10 +1271,7 @@
+                 lab6.configure(text=t,bg=&quot;red&quot;)
+         else:
+             lab1.configure(text='Time (s)',bg='green')
+-            if mode.get()=='Diana':
+-                t=&quot;%.1f&quot; % (event.x*30.0/500.0,)
+-            else:
+-                t=&quot;%.1f&quot; % (53.0*event.x/500.0,)
++            t=&quot;%.1f&quot; % (53.0*event.x/500.0,)
+             lab6.configure(text=t,bg=&quot;green&quot;)
+     elif mode.get()=='Echo':
+         lab1.configure(text='DF (Hz)',bg='red')
+@@ -1311,8 +1286,7 @@
+ def mouse_click_g1(event):
+     global nopen
+     if not nopen:
+-        if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4' or \
+-           mode.get()[:5]=='Diana':
++        if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4':
+             Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)
+         else:
+             if Audio.gcom2.ndecoding==0:              #If decoder is busy, ignore
+@@ -1328,8 +1302,7 @@
+ 
+ #------------------------------------------------------ double-click_g1
+ def double_click_g1(event):
+-    if (mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4' or \
+-        mode.get()[:5]=='Diana') and Audio.gcom2.ndecoding==0:
++    if(mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4'):
+         g.freeze_decode=1
+     
+ #------------------------------------------------------ mouse_up_g1
+@@ -1370,7 +1343,7 @@
+     for m in (tx1, tx2, tx3, tx4, tx5, tx6):
+         m.delete(0,99)
+     if mode.get()==&quot;FSK441&quot; or mode.get()[:5]==&quot;ISCAT&quot; or \
+-       mode.get()=='JTMS' or mode.get()=='Diana' or mode.get()[:3]=='JT4':
++       mode.get()=='JTMS' or mode.get()[:3]=='JT4':
+         r=report.get()
+         tx1.insert(0,setmsg(options.tx1.get(),r))
+         tx2.insert(0,setmsg(options.tx2.get(),r))
+@@ -1433,7 +1406,7 @@
+     ToRadio.insert(0,t)
+     if k2txb.get()!=0: ntx.set(1)
+     Audio.gcom2.hiscall=(ToRadio.get()+(' '*12))[:12]
+-    if (mode.get()[:4]=='JT65' or mode.get()=='Diana' or \
++    if (mode.get()[:4]=='JT65' or \
+         mode.get()[:3]=='JT4') and ToRadio.get().find(&quot;/&quot;) == -1 and \
+                options.MyCall.get().find(&quot;/&quot;) == -1:
+         for m in (tx1, tx2, tx3, tx4, tx5, tx6):
+@@ -1553,10 +1526,7 @@
+         for i in range(ngreen):             #Make xy list for green curve
+             green=Audio.gcom2.green[i]
+             n=int(105.0-yfac*green)
+-            if mode.get()=='Diana':
+-                xy.append(2*i)
+-            else:
+-                xy.append(i)
++            xy.append(i)
+             xy.append(n)
+         graph1.create_line(xy,fill=&quot;green&quot;)
+ 
+@@ -1636,8 +1606,6 @@
+         if Audio.gcom2.ccf[0] != -9999.0:
+             y=[]
+             iz=65
+-            if mode.get()=='Diana':
+-                iz=96
+             fac=500.0/iz
+             for i in range(iz):             #Find ymax for blue curve
+                 ccf=Audio.gcom2.ccf[i]
+@@ -1779,7 +1747,7 @@
+ 
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4'\
+                or mode.get()[:2]=='CW' or mode.get()=='Echo' \
+-               or mode.get()=='Diana' or mode.get()=='Measure':
++               or mode.get()=='Measure':
+             graph2.delete(ALL)
+             graph2.create_text(80,13,anchor=CENTER,text=&quot;Moon&quot;,font=g2font)
+             graph2.create_text(13,37,anchor=W, text=&quot;Az: %6.2f&quot; % g.AzMoon,font=g2font)
+@@ -1799,8 +1767,7 @@
+         else:
+             nmeas=0
+ 
+-    if (mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4' \
+-        or mode.get()=='Diana') and g.freeze_decode:
++    if (mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4') and g.freeze_decode:
+         itol=2
+         ltol.configure(text='Tol    '+str(50))
+         Audio.gcom2.dftolerance=50
+@@ -1842,8 +1809,6 @@
+             msg2.configure(bg='#00FF00')
+         elif mode.get()[:5]==&quot;ISCAT&quot;:
+             msg2.configure(bg='#CCFFFF')
+-        elif mode.get()[:5]==&quot;Diana&quot;:
+-            msg2.configure(bg='#CCFF00')
+         elif mode.get()[:4]==&quot;JTMS&quot;:
+             msg2.configure(bg='#CC4444')
+         elif mode.get()[:3]==&quot;JT4&quot;:
+@@ -2006,8 +1971,7 @@
+ 
+         if mode.get()=='Echo':
+             plot_echo()
+-        elif mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4' or \
+-                 mode.get()=='Diana':
++        elif mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4':
+             plot_large()
+         else:
+             im.putdata(Audio.gcom2.b)
+@@ -2095,9 +2059,6 @@
+             Audio.gcom2.ntdecode=48
+         else:
+             Audio.gcom2.ntdecode=52
+-##    if mode.get()=='Diana':
+-##        Audio.gcom2.ntdecode=26
+-
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+     except:
+@@ -2247,19 +2208,12 @@
+ modemenu.add_radiobutton(label = 'JT4E', variable=mode, command = ModeJT4E)
+ modemenu.add_radiobutton(label = 'JT4F', variable=mode, command = ModeJT4F)
+ modemenu.add_radiobutton(label = 'JT4G', variable=mode, command = ModeJT4G)
++modemenu.add_radiobutton(label = 'JTMS', variable=mode, command = ModeJTMS)
+ modemenu.add_radiobutton(label = 'CW', variable=mode, command = ModeCW)
+ modemenu.add_radiobutton(label = 'Echo', variable=mode, command = ModeEcho)
+ modemenu.add_radiobutton(label = 'Measure', variable=mode, command = ModeMeasure)
+ 
+ try:
+-    f=open(appdir+'/experimental','r')
+-    modemenu.add_separator()
+-    modemenu.add_radiobutton(label = 'JTMS', variable=mode, command = ModeJTMS)
+-    modemenu.add_radiobutton(label = 'Diana', variable=mode, command = ModeDiana)
+-except:
+-    pass
+-
+-try:
+     f=open(appdir+'/txboth','r')
+     Audio.gcom2.ntxboth=1
+ except:
+@@ -2782,8 +2736,6 @@
+                 ModeISCAT_A()
+             elif value=='ISCAT-B':
+                 ModeISCAT_B()
+-            elif value=='Diana':
+-                ModeDiana()
+             elif value=='JTMS':
+                 ModeJTMS()
+             elif value[:3]=='JT4':
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/wsjt1.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -254,20 +254,8 @@
+           NFreeze,MouseDF,mousebutton,mode4,nafc,ndebug,psavg)
+      psavg(65:)=0.
+      go to 800
+-  endif
++  endif     
+ 
+-  if(mode.eq.10) then
+-     jza=min(jz,11025*30)
+-!     call dtrim(dat,jza,dat2,jzb)
+-     call ana932(dat,jza,cdat,npts)          !Make downsampled analytic signal
+-!     write(74) npts,cfile6,(cdat(j),j=1,npts)
+-!     write(75) npts2,cfile6,(cfft(j),j=1,npts2)
+-     call diana(cdat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,     &amp;
+-          nafc,ccf,psavg)
+-     go to 900
+-  endif
+-     
+-
+ ! We're in FSK441 or JTMS mode. Compute the 2D spectrum.
+   MinWidth=40                            !Minimum width of pings, ms
+   df=11025.0/256.0            !FFT resolution ~43 Hz
+
+Modified: trunk/wsjt9.iss
+===================================================================
+--- trunk/wsjt9.iss	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/wsjt9.iss	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=WSJT
+-AppVerName=WSJT Version 9.5 r3619
++AppVerName=WSJT Version 9.6 r3634
+ AppCopyright=Copyright (C) 2001-2014 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSJT9
+ DefaultGroupName=WSJT9
+
+Modified: trunk/wsjtgen.f90
+===================================================================
+--- trunk/wsjtgen.f90	2014-01-13 15:56:24 UTC (rev 3634)
++++ trunk/wsjtgen.f90	2014-01-14 15:25:09 UTC (rev 3635)
+@@ -115,8 +115,7 @@
+   LTone=2
+ 
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT4' .or.                &amp;
+-       mode(1:5).eq. 'ISCAT' .or. mode(1:4).eq.'JTMS' .or.           &amp;
+-       mode(1:5).eq. 'Diana') then
++       mode(1:5).eq. 'ISCAT' .or. mode(1:4).eq.'JTMS') then
+      if(mode(1:4).eq.'JT65') then
+ !  We're in JT65 mode.
+         if(mode(5:5).eq.'A') mode65=1
+@@ -144,8 +143,6 @@
+         call gen4(msg,mode4,samfacout,ntxdf,iwave,nwave,                  &amp;
+              sendingsh,msg22,nmsg0)
+         msgsent=msg22
+-     else if(mode(1:5).eq.'Diana') then
+-        call gendiana(msg,nmsg,samfacout,iwave,nwave,msgsent,sendingsh)
+      else
+         stop 'Unknown Tx mode requested.'
+      endif
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003328.html">[WSJT-SVN] r3634 - trunk
+</A></li>
+	<LI>Next message: <A HREF="003330.html">[WSJT-SVN] r3636 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3329">[ date ]</a>
+              <a href="thread.html#3329">[ thread ]</a>
+              <a href="subject.html#3329">[ subject ]</a>
+              <a href="author.html#3329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

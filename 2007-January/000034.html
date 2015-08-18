@@ -1,0 +1,742 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r349 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r349%20-%20branches/map65&In-Reply-To=%3C200701132021.l0DKLiRK021038%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000033.html">
+   <LINK REL="Next"  HREF="000035.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r349 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r349%20-%20branches/map65&In-Reply-To=%3C200701132021.l0DKLiRK021038%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r349 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Jan 13 21:21:44 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000033.html">[WSJT-SVN] r348 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000035.html">[WSJT-SVN] r350 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#34">[ date ]</a>
+              <a href="thread.html#34">[ thread ]</a>
+              <a href="subject.html#34">[ subject ]</a>
+              <a href="author.html#34">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-13 21:21:32 +0100 (Sat, 13 Jan 2007)
+New Revision: 349
+
+Modified:
+   branches/map65/filbig.f
+   branches/map65/ftn_init.F90
+   branches/map65/ftn_quit.f90
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+   branches/map65/ssort.f
+Log:
+Many changes.  GUI version of MAP65 is beginning to tske shape.
+
+
+Modified: branches/map65/filbig.f
+===================================================================
+--- branches/map65/filbig.f	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/filbig.f	2007-01-13 20:21:32 UTC (rev 349)
+@@ -22,6 +22,7 @@
+      +  5.89886379,1.59355187,-2.49138308,0.60910773,-0.04248129/
+       save
+ 
++      if(nmax.lt.0) go to 900
+       if(first) then
+          npatience=FFTW_ESTIMATE
+ !         npatience=FFTW_MEASURE
+@@ -99,6 +100,13 @@
+       call sfftw_execute_(plan3)
+       call sfftw_execute_(plan4)
+       n4=min(nmax/64,NFFT2)
++      go to 999
+ 
+-      return
++ 900  call sfftw_destroy_plan_(plan1)
++      call sfftw_destroy_plan_(plan2)
++      call sfftw_destroy_plan_(plan3)
++      call sfftw_destroy_plan_(plan4)
++      call sfftw_destroy_plan_(plan5)
++
++ 999  return
+       end
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/ftn_init.F90	2007-01-13 20:21:32 UTC (rev 349)
+@@ -97,8 +97,8 @@
+        status='unknown')
+ #endif
+ 
+-!  open(24,file=appdir(:iz)//'/tmp24.txt',status='unknown',                 &amp;
+-!       share='denynone')
++  open(24,file=appdir(:iz)//'/tmp24.txt',status='unknown',                 &amp;
++       share='denynone')
+   open(26,file=appdir(:iz)//'/tmp26.txt',status='unknown',                 &amp;
+        share='denynone')
+ 
+
+Modified: branches/map65/ftn_quit.f90
+===================================================================
+--- branches/map65/ftn_quit.f90	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/ftn_quit.f90	2007-01-13 20:21:32 UTC (rev 349)
+@@ -2,7 +2,8 @@
+ subroutine ftn_quit
+   include 'gcom1.f90'
+   ngo=0
++! Destroy the FFTW plans
+   call four2a(a,-1,1,1,1)
+-!  @@@ Should also terminate the plans created in filbig!
++  call filbig(id,-1,f0,newdat,c4a,c4b,n4)
+   return
+ end subroutine ftn_quit
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/gcom2.f90	2007-01-13 20:21:32 UTC (rev 349)
+@@ -5,6 +5,7 @@
+ real s2                !2d spectrum for horizontal waterfall    GUI
+ real ccf               !CCF in time (blue curve)                Decoder
+ real green             !Data for green line                     GUI
++real fselect           !Specified QSO frequency                 GUI
+ integer ngreen         !Length of green                         GUI
+ real dgain             !Digital audio gain setting              GUI
+ integer iter           !(why is this here??)
+@@ -87,7 +88,7 @@
+ character*12 pttport
+ 
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+-     green(500),ngreen,dgain,iter,ndecoding,ndecoding0,mousebutton,   &amp;
++     green(500),fselect,ngreen,dgain,iter,ndecoding,ndecoding0,mousebutton,   &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+      nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/map65.py	2007-01-13 20:21:32 UTC (rev 349)
+@@ -41,6 +41,7 @@
+ 
+ 
+ #------------------------------------------------------ Global variables
++nfile=0
+ appdir=os.getcwd()
+ isync=1
+ isync_save=0
+@@ -171,8 +172,8 @@
+     bm.geometry(bm_geom)
+     if g.Win32: bm.iconbitmap(&quot;wsjt.ico&quot;)
+     iframe_bm1 = Frame(bm, bd=1, relief=SUNKEN)
+-    bmtext=Text(iframe_bm1, height=35, width=45, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+-    bmtext.pack(side=LEFT, fill=X, padx=1)
++    bmtext=Text(iframe_bm1, height=35, width=41, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
++    bmtext.pack(side=LEFT, fill=X, padx=1, pady=3)
+     bmsb = Scrollbar(iframe_bm1, orient=VERTICAL, command=bmtext.yview)
+     bmsb.pack(side=RIGHT, fill=Y)
+     bmtext.configure(yscrollcommand=bmsb.set)
+@@ -347,10 +348,6 @@
+     else:
+         lab7.configure(bg='gray85',fg='gray85')
+ 
+-#------------------------------------------------------ savelast
+-def savelast(event=NONE):
+-    Audio.gcom2.nsavelast=1
+-
+ #------------------------------------------------------ MsgBox
+ def MsgBox(t):
+     msg=Pmw.MessageDialog(root,buttons=('OK',),message_text=t)
+@@ -602,7 +599,6 @@
+ Alt+O	Tx Stop
+ Alt+Q	Log QSO
+ Alt+S	Stop Monitoring or Decoding
+-Alt+V	Save Last
+ Alt+X	Exclude
+ Alt+Z	Toggle Zap
+ Right/Left Arrow	Increase/decrease Freeze DF
+@@ -1091,7 +1087,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom
++           bm_geom,nfile
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -1265,14 +1261,16 @@
+                 lines=&quot;&quot;
+             bmtext.configure(state=NORMAL)
+             bmtext.delete('1.0',END)
+-            bmtext.insert(END,' Freq     DF Pol  UTC\n')
+-            bmtext.insert(END,'--------------------------------------------\n')
++            bmtext.insert(END,'Freq  DF Pol  UTC\n')
++            bmtext.insert(END,'----------------------------------------\n')
+             for i in range(len(lines)):
+                 bmtext.insert(END,lines[i])
+             bmtext.see(END)
++            Audio.gcom2.ndecdone=0
++            nfile=nfile+1
++            if(nfile&lt;11):
++                decode()
+ 
+-            Audio.gcom2.ndecdone=3
+-        
+         if g.cmap != cmap0:
+             im.putpalette(g.palette)
+             cmap0=g.cmap
+@@ -1562,8 +1560,6 @@
+ root.bind_all('&lt;Alt-Q&gt;',logqso)
+ root.bind_all('&lt;Alt-s&gt;',stopmon)
+ root.bind_all('&lt;Alt-S&gt;',stopmon)
+-root.bind_all('&lt;Alt-v&gt;',savelast)
+-root.bind_all('&lt;Alt-V&gt;',savelast)
+ root.bind_all('&lt;Alt-x&gt;',decode_exclude)
+ root.bind_all('&lt;Alt-X&gt;',decode_exclude)
+ root.bind_all('&lt;Alt-z&gt;',toggle_zap)
+@@ -1594,8 +1590,6 @@
+                 padx=1,pady=1)
+ bmonitor=Button(iframe4c, text='Monitor',underline=0,command=monitor,
+                 padx=1,pady=1)
+-bsavelast=Button(iframe4c, text='Save',underline=2,command=savelast,
+-                padx=1,pady=1)
+ bdecode=Button(iframe4c, text='Decode',underline=0,command=decode,
+                 padx=1,pady=1)
+ berase=Button(iframe4c, text='Erase',underline=0,command=erase,
+@@ -1613,7 +1607,6 @@
+ #bplay.pack(side=LEFT,expand=1,fill=X)
+ bstop.pack(side=LEFT,expand=1,fill=X)
+ bmonitor.pack(side=LEFT,expand=1,fill=X)
+-bsavelast.pack(side=LEFT,expand=1,fill=X)
+ bdecode.pack(side=LEFT,expand=1,fill=X)
+ berase.pack(side=LEFT,expand=1,fill=X)
+ bclravg.pack(side=LEFT,expand=1,fill=X)
+@@ -1682,7 +1675,7 @@
+ Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+ Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
+ 
+-f5b.pack(side=LEFT,expand=0,fill=BOTH)
++f5b.pack(side=LEFT,expand=1,fill=BOTH)
+ 
+ #------------------------------------------------------ Tx params and msgs
+ f5c=Frame(iframe5,bd=2,relief=GROOVE)
+@@ -1700,7 +1693,6 @@
+ sked.grid(column=0,row=3,sticky='W',padx=4)
+ genmsg.grid(column=0,row=4,sticky='W',padx=4)
+ auto.grid(column=0,row=5,sticky='EW',padx=4)
+-#txstop.grid(column=0,row=6,sticky='EW',padx=4)
+ 
+ ntx=IntVar()
+ tx1=Entry(f5c,width=24)
+@@ -1745,7 +1737,7 @@
+ rb6.grid(column=2,row=5)
+ b6.grid(column=3,row=5)
+ 
+-f5c.pack(side=LEFT,fill=BOTH)
++f5c.pack(side=LEFT,expand=1,fill=BOTH)
+ iframe5.pack(expand=1, fill=X, padx=4)
+ 
+ #------------------------------------------------------------ Status Bar
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/map65a.f90	2007-01-13 20:21:32 UTC (rev 349)
+@@ -20,7 +20,7 @@
+   logical done(MAXMSG)
+   integer rfile3
+   character decoded*22,blank*22,cbad*1
+-  common/spcom/ss(4,322,NFFT)                !169 MB: half-symbol spectra
++  common/spcom/ip0,ss(4,322,NFFT)                !169 MB: half-symbol spectra
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+   data nfile/0/
+@@ -30,17 +30,30 @@
+ 
+   rewind 11
+   rewind 12
+-  nfile=nfile+1
++1 nfile=nfile+1
+   nutc=0744+nfile
++  if(nutc.eq.0747) go to 1
++  if(nutc.eq.0749) go to 1
++  if(nutc.eq.0751) go to 1
++  if(nutc.eq.0753) go to 1
+   infile='061111.0745'
+   write(infile(8:11),1001) nutc
+ 1001 format(i4.4)
+ !  read(infile(8:11),*) nutc
+ 
+   tskip=0.
+-  fselect=0.
+-  fselect=104.5303
+-  nmin=1
++!  fselect=126.0 + 1.6 + 0.290
++!  nflip=-1
++!  ip0=1
++  fselect=128.0 + 1.6 + 0.220
++  nflip=1
++  ip0=3
++!  fselect=155.0 + 1.6 + 0.454
++!  nflip=1
++!  ip0=2
++!  fselect=103 + 1.6 - 0.07
++!  nflip=-1                     !May need to try both +/- 1
++!  ip0=4                       !Try all four?
+ 
+   open(23,file='CALL3.TXT',status='unknown')
+ 
+@@ -60,16 +73,14 @@
+   if(fselect.gt.0.0) then
+ 
+ !  nfilt=2 should be faster (but doesn't work right?)
+-     nfilt=1                      !nfilt=2 is faster for selected freq
+-!            freq=fselect+1.600
++     nfilt=2                      !nfilt=2 is faster for selected freq
+      freq=fselect
+-     nflip=-1                     !May need to try both +/- 1
+-     ipol=4                       !Try all four?
+      dt=2.314240                  !Not needed?
+-
+-     call decode1a(id,newdat,nfilt,freq,nflip,ipol,sync2,        &amp;
++     call decode1a(id,newdat,nfilt,freq,nflip,ip0,sync2,        &amp;
+           a,dt,pol,nkv,nhist,qual,decoded)
++     nsync1=0
+      nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
++     ndf=nint(a(1))
+      nw=0
+ !  Insert 'OOO' if flip&lt;0.
+      write(11,1010) nutc,nsync1,nsync2,dt,ndf,nw,decoded,        &amp;
+@@ -181,6 +192,8 @@
+               nflip=nint(flipk)
+               call decode1a(id,newdat,nfilt,freq,nflip,ipol,         &amp;
+                    sync2,a,dt,pol,nkv,nhist,qual,decoded)
++!              i9=index(decoded,'AA1YN')
++!              if(i9.gt.0) print*,i,i9,fselect,freq,decoded
+               kk=kk+1
+               sig(kk,1)=nfile
+               sig(kk,2)=nutc
+@@ -273,8 +286,8 @@
+ !     +                    nkv,nqual
+ !                  endif
+ 
+-           write(19,1012) f0,ndf,npol,nutc,decoded
+-1012       format(f7.3,i5,i4,i5.4,2x,a22)
++!           write(19,1012) f0,ndf,npol,nutc,decoded
++!1012       format(f7.3,i5,i4,i5.4,2x,a22)
+            
+            write(26,1014) f0,ndf,ndf0,ndf1,ndf2,dt,npol,nsync1,       &amp;
+                 nsync2,nutc,decoded,nkv,nqual,nhist
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/spec.f90	2007-01-13 20:21:32 UTC (rev 349)
+@@ -1,4 +1,4 @@
+-subroutine spec(brightness,contrast,logmap,ngain,nspeed,a)
++subroutine spec(brightness,contrast,ngain,nspeed,a,a2)
+ 
+   parameter (NX=750,NY=130,NTOT=NX*NY,NFFT=32768)
+ 
+@@ -9,58 +9,77 @@
+ 
+ ! Output:
+   integer*2 a(NTOT)             !Pixel values for NX x NY array
++  integer*2 a2(NTOT)            !Pixel values for NX x NY array
+ 
+   logical first
+-  integer nstep(4)
++  integer nstep(5)
+   integer b0,c0
+-  real s(NX,NY)
+-  common/spcom/ss(4,322,NFFT)                !169 MB: half-symbol spectra
++  real s(NFFT,NY)
++  common/spcom/ip0,ss(4,322,NFFT)                !169 MB: half-symbol spectra
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+   include 'gcom4.f90'
+   data first/.true./
+-  data nstep/16,10,5,3/       !Integration limits
++  data nstep/40,20,10,5,3/       !Integration limits
+   save
+ 
+   if(first) then
+      df=96000.0/nfft
+      call zero(a,NX*NY/2)
++     call zero(a2,NX*NY/2)
+      first=.false.
+   endif
+ 
+   nadd=nstep(nspeed)
+   nlines=322/nadd
+-  call zero(s,NX*NY)
++  call zero(s,NFFT*NY)
+   k=0
+-  ia=9001
+-  ib=9750
+-  do j=1,nlines
+-     k=k+1
+-     do i=ia,ib
+-        s(i,j)=s(i,j) + ss(1,k,i) + ss(3,k,i)
++  imid=nint(1000.0*(fselect-125.0+48.0)/df)
++  ia=imid-374
++  ib=ia+749
++
++  do n=1,nadd
++     do j=1,nlines
++        k=k+1
++        do i=1,NFFT
++           s(i,j)=s(i,j) + ss(3,k,i)
++        enddo
+      enddo
+   enddo
+ 
+   newpts=NX*nlines
+   do i=newpts+1,NX*NY
+      a(i)=a(i-newpts)
++     a2(i)=a2(i-newpts)
+   enddo
+ 
+   gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
+   gamma=1.3 + 0.01*contrast
+   offset=(brightness+64.0)/2
+   k=0
++  fac=20.0/nadd
++  nbpp=NFFT/NX                        !Bins per pixel in wide waterfall
+   do j=1,nlines
+-     do i=ia,ib
++     do i=1,NX
+         k=k+1
++
+         n=0
+-        x=s(i,j)
+-!        if(s(i).gt.0.0 .and. logmap.eq.1) n=gain*log10(0.001*s(i)) &amp;
+-!             + offset + 20
+-        if(x.gt.0.0 .and. logmap.eq.0) n=(20.0*x)**gamma + offset
++        x=0.
++        do ii=(i-1)*nbpp+1,i*nbpp
++           x=max(x,s(ii,j))
++        enddo
++        x=fac*x
++        if(x.gt.0.0) n=(2.0*x)**gamma + offset
+         n=min(252,max(0,n))
+         a(k)=n
++
++        n=0
++        x=fac*s(ia+i-1,j)
++        if(x.gt.0.0) n=(3.0*x)**gamma + offset
++        n=min(252,max(0,n))
++        a2(k)=n
++
+      enddo
+   enddo
+ 
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/specjt.py	2007-01-13 20:21:32 UTC (rev 349)
+@@ -41,10 +41,6 @@
+ frange=2000
+ frange0=2000
+ isec0=-99
+-logmap=IntVar()
+-logmap.set(0)
+-logm0=0
+-minsep=IntVar()
+ mode0=&quot;&quot;
+ mousedf0=0
+ naxis=IntVar()
+@@ -86,21 +82,27 @@
+ def pal_gray0():
+     g.cmap=&quot;gray0&quot;
+     im.putpalette(Colormap2Palette(colormapgray0),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapgray0),&quot;RGB&quot;)
+ def pal_gray1():
+     g.cmap=&quot;gray1&quot;
+     im.putpalette(Colormap2Palette(colormapgray1),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapgray1),&quot;RGB&quot;)
+ def pal_linrad():
+     g.cmap=&quot;Linrad&quot;
+     im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+ def pal_blue():
+     g.cmap=&quot;blue&quot;
+     im.putpalette(Colormap2Palette(colormapblue),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapblue),&quot;RGB&quot;)
+ def pal_Hot():
+     g.cmap=&quot;Hot&quot;
+     im.putpalette(Colormap2Palette(colormapHot),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapHot),&quot;RGB&quot;)
+ def pal_AFMHot():
+     g.cmap=&quot;AFMHot&quot;
+     im.putpalette(Colormap2Palette(colormapAFMHot),&quot;RGB&quot;)
++    im2.putpalette(Colormap2Palette(colormapAFMHot),&quot;RGB&quot;)
+ 
+ #--------------------------------------------------- Command button routines
+ #---------------------------------------------------- fdf_change
+@@ -224,8 +226,9 @@
+ 
+ #---------------------------------------------------- update
+ def update():
+-    global a,b0,c0,g0,im,isec0,line0,newMinute,nscroll,pim, \
+-           root_geom,t0,mousedf0,nfreeze0,tol0,mode0,nmark0,logm0, \
++    global a,a2,b0,c0,g0,im,im2,isec0,line0,line02,newMinute,\
++           nscroll,pim,pim2, \
++           root_geom,t0,mousedf0,nfreeze0,tol0,mode0,nmark0, \
+            fmid,fmid0,frange,frange0
+     
+     utc=time.gmtime(time.time()+0.1*Audio.gcom1.ndsec)
+@@ -245,47 +248,55 @@
+     nspeed=nspeed0.get()                        #Waterfall update rate
+     brightness=sc1.get()
+     contrast=sc2.get()
+-    logm=logmap.get()
+     g0=sc3.get()
+ 
+     newspec=Audio.gcom2.newspec                   #True if new data available
+     if newspec:
+-        Audio.spec(brightness,contrast,logm,g0,nspeed,a) #Call Fortran routine spec
+-        pass
++        Audio.spec(brightness,contrast,g0,nspeed,a,a2) #Call Fortran routine spec
+ 
+-    if newspec or brightness!=b0 or contrast!=c0 or logm!=logm0:
+-        if brightness==b0 and contrast==c0 and logm==logm0:
++    if newspec or brightness!=b0 or contrast!=c0:
++        if brightness==b0 and contrast==c0:
+             n=Audio.gcom2.nlines
+-            box=(0,0,NX,300-n)                 #Define region
++            box=(0,0,NX,130-n)                  #Define region
+             region=im.crop(box)                 #Get all but last line(s)
++            region2=im2.crop(box)               #Get all but last line(s)
+             try:
+                 im.paste(region,(0,n))          #Move waterfall down
++                im2.paste(region2,(0,n))        #Move waterfall down
+             except:
+                 print &quot;Images did not match, continuing anyway.&quot;
+             for i in range(n):
+-                line0.putdata(a[NX*i:NX*(i+1)])   #One row of pixels to line0
+-                im.paste(line0,(0,i))               #Paste in new top line
++                line0.putdata(a[NX*i:NX*(i+1)]) #One row of pixels to line0
++                im.paste(line0,(0,i))           #Paste in new top line(s)
++                line02.putdata(a2[NX*i:NX*(i+1)])#One row of pixels to line0
++                im2.paste(line02,(0,i))         #Paste in new top line(s)
+             nscroll=nscroll+n
+         else:                                   #A scale factor has changed
+             im.putdata(a)                       #Compute whole new image
++            im2.putdata(a2)                     #Compute whole new image
+             b0=brightness                       #Save scale values
+             c0=contrast
+-            logm0=logm
+ 
+     if newspec:
+         if Audio.gcom2.monitoring:
+-            if minsep.get() and newMinute:
++            if newMinute:
+                 draw.line((0,0,749,0),fill=128)     #Draw the minute separator
++                draw2.line((0,0,749,0),fill=128)    #Draw the minute separator
+             if nscroll == 13:
+                 draw.text((5,2),t0[0:5],fill=253)   #Insert time label
++                draw2.text((5,2),t0[0:5],fill=253)  #Insert time label
+         else:
+-            if minsep.get():
+-                draw.line((0,0,749,0),fill=128)     #Draw the minute separator
++            draw.line((0,0,749,0),fill=128)     #Draw the minute separator
++            draw2.line((0,0,749,0),fill=128)    #Draw the minute separator
+ 
+         pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
+         graph1.delete(ALL)
++        pim2=ImageTk.PhotoImage(im2)            #Convert Image to PhotoImage
++        graph2.delete(ALL)
+         #For some reason, top two lines are invisible, so we move down 2
+         graph1.create_image(0,0+2,anchor='nw',image=pim)
++        graph2.create_image(0,0+2,anchor='nw',image=pim2)
++
+         newMinute=0
+         Audio.gcom2.newspec=0
+ 
+@@ -328,33 +339,23 @@
+ 
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+-    xmid=fmid
+-    if naxis.get(): xmid=xmid-1270.46
+     c.delete(ALL)
+-# Draw the frequency or DF tick marks
+-    if(frange==2000):
+-        for ix in range(-1300,5001,20):
+-            i=374.5 + (ix-xmid)/df
+-            j=20
+-            if (ix%100)==0 :
+-                j=16
+-                x=i-2
+-                if ix&lt;1000 : x=x+2
+-                y=8
+-                c.create_text(x,y,text=str(ix))
+-            c.create_line(i,25,i,j,fill='black')
+-
+-    if(frange==4000):
+-        for ix in range(-2600,5401,50):
+-            i=374.5 + (ix-xmid)/(2*df)
+-            j=20
+-            if (ix%200)==0 :
+-                j=16
+-                x=i-2
+-                if ix&lt;1000 : x=x+2
+-                y=8
+-                c.create_text(x,y,text=str(ix))
+-            c.create_line(i,25,i,j,fill='black')
++    xmid=125.0
++    bw=96.0
++    x1=int(xmid-0.5*bw)
++    x2=int(xmid+0.5*bw)
++    xdf=bw/NX
++    for ix in range(x1,x2,1):
++        i=0.5*NX + (ix-xmid)/xdf
++        j=20
++        if (ix%5)==0: j=16
++        if (ix%10)==0 :
++            j=16
++            x=i-1
++            if ix&lt;100: x=x+1
++            y=8
++            c.create_text(x,y,text=str(ix))
++        c.create_line(i,25,i,j,fill='black')
+             
+     dx=288.7 + (1500-fmid)/df
+     dff=df
+@@ -369,7 +370,27 @@
+         x1=(Audio.gcom2.mousedf-tol)/dff + dx
+         x2=(Audio.gcom2.mousedf+tol)/dff + dx
+     c.create_line(x1,25,x2,25,fill='green',width=2)
+-            
++
++    c2.delete(ALL)
++    xmid2=0
++    bw2=750.0*96000.0/32768.0                     #approx 2197.27 Hz
++    x1=int(xmid-0.5*bw2)/100 - 1
++    x1=100*x1
++    x2=int(xmid+0.5*bw2)
++    xdf2=bw2/NX
++    for ix in range(x1,x2,20):
++        i=0.5*NX + (ix-xmid2)/xdf2
++        j=20
++#        if (ix%5)==0: j=16
++        if (ix%100)==0 :
++            j=16
++            x=i-1
++            if ix&lt;1000: x=x+2
++            if ix&lt;0: x=x-2
++            y=8
++            c2.create_text(x,y,text=str(ix))
++        c2.create_line(i,25,i,j,fill='black')
++
+ #-------------------------------------------------------- Create GUI widgets
+ 
+ #-------------------------------------------------------- Menu bar
+@@ -384,7 +405,6 @@
+ setupbutton.pack(side = LEFT)
+ setupmenu = Menu(setupbutton, tearoff=1)
+ setupbutton['menu'] = setupmenu
+-setupmenu.add_checkbutton(label = 'Mark T/R boundaries',variable=minsep)
+ setupmenu.add_checkbutton(label='Flatten spectra',variable=nflat)
+ setupmenu.add_checkbutton(label='Mark JT65 tones only if Freeze is checked',
+             variable=nmark)
+@@ -429,7 +449,7 @@
+ bfmid2.pack(side=LEFT)
+ 
+ #------------------------------------------------- Speed selection buttons
+-for i in (4, 3, 2, 1):
++for i in (5, 4, 3, 2, 1):
+     t=str(i)
+     Radiobutton(mbar,text=t,value=i,variable=nspeed0).pack(side=RIGHT)
+ nspeed0.set(1)
+@@ -508,11 +528,9 @@
+         elif key == 'Brightness': sc1.set(value)
+         elif key == 'Contrast': sc2.set(value)
+         elif key == 'DigitalGain': sc3.set(value)
+-        elif key == 'MinuteSeparators': minsep.set(value)
+         elif key == 'AxisLabel': naxis.set(value)
+         elif key == 'MarkTones': nmark.set(value)
+         elif key == 'Flatten': nflat.set(value)
+-        elif key == 'LogMap': logmap.set(value)
+         elif key == 'Palette': g.cmap=value
+         elif key == 'Frange': nfr.set(value)
+         elif key == 'Fmid': fmid=int(value)
+@@ -574,11 +592,9 @@
+ f.write(&quot;Brightness &quot; + str(b0)+ &quot;\n&quot;)
+ f.write(&quot;Contrast &quot; + str(c0)+ &quot;\n&quot;)
+ f.write(&quot;DigitalGain &quot; + str(g0)+ &quot;\n&quot;)
+-f.write(&quot;MinuteSeparators &quot; + str(minsep.get()) + &quot;\n&quot;)
+ f.write(&quot;AxisLabel &quot; + str(naxis.get()) + &quot;\n&quot;)
+ f.write(&quot;MarkTones &quot; + str(nmark.get()) + &quot;\n&quot;)
+ f.write(&quot;Flatten &quot; + str(nflat.get()) + &quot;\n&quot;)
+-f.write(&quot;LogMap &quot; + str(logmap.get()) + &quot;\n&quot;)
+ f.write(&quot;Palette &quot; + g.cmap + &quot;\n&quot;)
+ f.write(&quot;Frange &quot; + str(nfr.get()) + &quot;\n&quot;)
+ f.write(&quot;Fmid &quot; + str(fmid) + &quot;\n&quot;)
+
+Modified: branches/map65/ssort.f
+===================================================================
+--- branches/map65/ssort.f	2007-01-12 21:32:22 UTC (rev 348)
++++ branches/map65/ssort.f	2007-01-13 20:21:32 UTC (rev 349)
+@@ -19,8 +19,10 @@
+ c            = -2  means sort x in decreasing order and carry y along.
+ 
+       integer kflag, n
+-      real x(n), y(n)
+-      real r, t, tt, tty, ty
++!      real x(n), y(n)
++!      real r, t, tt, tty, ty
++      integer x(n), y(n)
++      integer r, t, tt, tty, ty
+       integer i, ij, j, k, kk, l, m, nn
+       integer il(21), iu(21)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000033.html">[WSJT-SVN] r348 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000035.html">[WSJT-SVN] r350 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#34">[ date ]</a>
+              <a href="thread.html#34">[ thread ]</a>
+              <a href="subject.html#34">[ subject ]</a>
+              <a href="author.html#34">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

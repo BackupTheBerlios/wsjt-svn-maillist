@@ -1,0 +1,408 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2332 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2332%20-%20branches/wspr&In-Reply-To=%3C20110204194107.9E4D8481359%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002025.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2332 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2332%20-%20branches/wspr&In-Reply-To=%3C20110204194107.9E4D8481359%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2332 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Feb  4 20:41:07 CET 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002025.html">[WSJT-SVN] r2333 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2024">[ date ]</a>
+              <a href="thread.html#2024">[ thread ]</a>
+              <a href="subject.html#2024">[ subject ]</a>
+              <a href="author.html#2024">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-04 20:41:07 +0100 (Fri, 04 Feb 2011)
+New Revision: 2332
+
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/hftoa.f90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+   branches/wspr/write_wav.f90
+   branches/wspr/wspr.py
+Log:
+Add MyCall and MyGrid to info written to file fmt.ini.
+More user-friendly version of hftoa.
+Revert to old version of wqencode/wqdecode: no negative dBm values.
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/Makefile.MinGW	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -100,6 +100,12 @@
+ 	$(FC) -o wspr0 $(FFLAGS) $(OBJS1) libportaudio.a \
+ 	   c:\MinGW\lib\libwinmm.a libfftw3f_win.a
+ 
++OBJS4 = hftoa.o write_wav.o sound.o fil1.o getutc.o gmtime2.o
++
++hftoa.exe: $(OBJS4)
++	$(FC) -o hftoa.exe $(FFLAGS) $(OBJS4) libportaudio.a \
++	   c:\MinGW\lib\libwinmm.a
++
+ sound.o: sound.c
+ 	$(CC) -c sound.c
+ gmtime2.o: gmtime2.c
+
+Modified: branches/wspr/hftoa.f90
+===================================================================
+--- branches/wspr/hftoa.f90	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/hftoa.f90	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -1,28 +1,35 @@
+ program hftoa
+ 
+-! Record soundcard data for the HF Time-of-Arrival project.
++! Record soundcard data for HF Time-of-Arrival project.
+ 
+   parameter (NMAX=300*48000)                 !Max length of data
+-  integer*2 idat(NMAX)                       !Sampled data
++  integer*2 id1(NMAX)                        !Raw data, 48 kHz
++  integer*2 id2(NMAX/4)                      !Downsampled data, 12 kHz
+   character arg*12                           !Command-line arg
+   character label*7                          !Label for filename
+   character cdate*8                          !CCYYMMDD
+   character ctime*10                         !HHMMSS.SSS
++  character hdr_ctime*10                     !HHMMSS.SSS
+   character start_time*4                     !Requested start time (HHMM)
+   character outfile*40                       !Output filename
+   character cmnd*120                         !Command to set rig frequency
++  character*4 mode,hdrmode
++  character*6 mycall,mygrid,hdrcall,hdrgrid
++  real*8 fkhz,hdrfreq,tsec,hdrtsec
+   integer soundin
++  common/toacom/hdrtsec,hdrfreq,hdrcall,hdrgrid,hdrmode,hdr_ctime
++  equivalence (id2,hdrfreq)
+ 
+   nargs=iargc()
+   if(nargs.ne.4) then
+-     print*,'Usage:   hftoa  &lt;label&gt; &lt;fs&gt; &lt;nsec&gt; &lt;tstart&gt;'
+-     print*,'Example: hftoa    K1JT  22050  300    2145'
++     print*,'Usage:   hftoa &lt;f_kHz&gt; &lt;mode&gt; &lt;nsec&gt; &lt;tstart&gt;'
++     print*,'Example: hftoa   3990    AM     300    2145'
+      go to 999
+   endif
++
+   call getarg(1,arg)
+-  read(arg,*) label                    !Label for filename
+-  call getarg(2,arg)
+-  read(arg,*) nfsample                 !Sample rate (Hz)
++  read(arg,*) fkhz                     !Frequency in kHz
++  call getarg(2,mode)                  !Rx mode, e.g. AM, USB
+   call getarg(3,arg)
+   read(arg,*) nsec                     !Duration of recording (s)
+   call getarg(4,arg)
+@@ -31,44 +38,85 @@
+   open(10,file='fmt.ini',status='old',err=910)
+   read(10,'(a120)') cmnd              !Get rigctl command to set frequency
+   read(10,*) ndevin
++  read(10,*) mycall
++  read(10,*) mygrid
+   close(10)
+ 
+-  call date_and_time(date=cdate,time=ctime)
++  nHz=nint(1000.d0*fkhz)
++  i1=index(cmnd,' F ')
++  write(cmnd(i1+2:),*) nHz                   !Insert desired frequency
++  iret=system(cmnd)                          !Set Rx frequency
++  if(iret.ne.0) then
++     print*,'Error executing rigctl command to set frequency:'
++     print*,cmnd
++     go to 999
++  endif
++
++  if(mode.eq.'am  ') mode='AM  '
++  if(mode.eq.'usb ') mode='USB '
++  cmnd(i1+1:)='M '//mode//' 0'
++  iret=system(cmnd)                          !Set Rx mode
++  if(iret.ne.0) then
++     print*,'Error executing rigctl command to set Rx mode:'
++     print*,cmnd
++     go to 999
++  endif
++
++  nchan=1
++  nfsample=48000
++
++  call soundinit                             !Initialize Portaudio
++
++  call getutc(cdate,ctime,tsec)
++  if(start_time(1:1).ne.'-') then
++     do while (ctime(1:4).ne.start_time)
++        call getutc(cdate,ctime,tsec)
++        call msleep(100)
++     enddo
++  endif
++
++  label=mycall
+   label(7:7)=' '
+   i1=index(label,' ')
+-  outfile=label(1:i1-1)//'_'//cdate(3:8)//'_'//start_time//'00.wav'
++  outfile=label(1:i1-1)//'_'//cdate(3:8)//'_'//ctime(:6)//'.wav'
+   open(12,file=outfile,access='stream',status='unknown')
++  write(*,1010) cdate,ctime
++1010 format('UTC start time: ',a8,1x,a10)
+ 
+-  call soundinit                             !Initialize Portaudio
+-
+-  do while (ctime(1:4).ne.start_time)
+-     call date_and_time(date=cdate,time=ctime)
+-     call msleep(100)
+-  enddo
+-
+   npts=nfsample*nsec
+-  nchan=1
+-  ierr=soundin(ndevin,nfsample,idat,npts,nchan-1)   !Get audio data
++  ierr=soundin(ndevin,nfsample,id1,npts,nchan-1)   !Get audio data
+   if(ierr.ne.0) then
+      print*,'Error in soundin',ierr
+      stop
+   endif
+ 
+-  call write_wav(12,idat,npts,nfsample,nchan)       !Write wav file to disk
++  call fil1(id1,npts,id2,ntot)                     !Downsample to 12 kHz
+ 
+-  sq=0.
++  hdrtsec=tsec
++  hdrfreq=fkhz               !Copy hdr info over the first few samples in id2
++  hdrcall=mycall
++  hdrgrid=mygrid
++  hdrmode=mode
++  hdr_ctime=ctime
++  call write_wav(12,id2,ntot,nfsample/4,nchan)     !Write wav file to disk
++
+   sum=0.
+-  xmax=0.
+-  do i=1,npts
+-     x=idat(i)
++  xmax1=0.
++  do i=1,ntot
++     x=id2(i)
+      sum=sum + x
++     xmax1=max(xmax1,abs(x))
++  enddo
++  ave1=sum/ntot
++  sq=0.
++  do i=1,ntot
++     x=id2(i)-ave1
+      sq=sq + x*x
+-     xmax=max(xmax,abs(x))
+   enddo
+-  ave=sum/npts
+-  rms=sqrt(sq/npts)
+-  write(*,1100) ave,rms,xmax
+-1100 format('Ave:',f8.1,'   Rms:',f8.1,'   Max:',f8.1)
++  rms1=sqrt(sq/(ntot-1))
++
++  write(*,1100) ave1,rms1,xmax1
++1100 format('Ave:',f8.1,'   Rms:',f8.1,'   MaxAbs:',f8.1)
+   go to 999
+ 
+ 910 print*,'Cannot open file: fmt.ini'
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/wqdecode.f90	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -25,30 +25,19 @@
+   call unpackcall(n1,callsign)
+   i1=index(callsign,' ')
+   call unpackgrid(n2/128,grid4)
+-  ntype=iand(n2,127) - 64
+-  isign=1
+-  if(iand(n2,64).eq.0) then
+-     n=iand(n2,63)
+-     nu=mod(n,10)
+-     if(nu.eq.0 .or. nu.eq.3 .or. nu.eq.7) then    
+-        isign=-1
+-        ntype=ntype+64
+-     endif
+-  endif
++  ntype=iand(n2,127) -64
+ 
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   if(ntype.ge.0 .and. ntype.le.62) then
+      nu=mod(ntype,10)
+      if(nu.eq.0 .or. nu.eq.3 .or. nu.eq.7) then
+-! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+-        write(cdbm,'(i3)'),isign*ntype
++        write(cdbm,'(i3)'),ntype
+         if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+         if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+         message=callsign(1:i1)//grid4//' '//cdbm
+         call hash(callsign,i1-1,ih)
+         dcall(ih)=callsign(:i1)
+-
+      else
+-! Compound callsign
+         nadd=nu
+         if(nu.gt.3) nadd=nu-3
+         if(nu.gt.7) nadd=nu-7
+@@ -63,9 +52,7 @@
+         call hash(callsign,i2-1,ih)
+         dcall(ih)=callsign(:i2)
+      endif
+-
+   else if(ntype.lt.0) then
+-! Hash-coded callsign
+      ndbm=-(ntype+1)
+      grid6=callsign(6:6)//callsign(1:5)
+      ih=(n2-ntype-64)/128
+
+Modified: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/wqencode.f90	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -12,6 +12,7 @@
+   data nu/0,-1,1,0,-1,2,1,0,-1,1/
+ 
+   call cs_lock('wqencode')
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   i1=index(msg,' ')
+   i2=index(msg,'/')
+   i3=index(msg,'&lt;')
+@@ -21,27 +22,17 @@
+   call packcall(call1,n1,lbad1)
+   call packgrid(grid4,ng,lbad2)
+   if(lbad1 .or. lbad2) go to 10
+-
+-! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   ndbm=0
+   read(msg(i1+5:),*) ndbm
+-  if(ndbm.ge.0) then
+-     isign=1
+-  else
+-     isign=-1
+-     ndbm=-ndbm
+-  endif
++  if(ndbm.lt.0) ndbm=0
+   if(ndbm.gt.60) ndbm=60
+   ndbm=ndbm+nu(mod(ndbm,10))
+-  n2=128*ng + ndbm
+-  if(isign.eq.1) n2=n2+64
++  n2=128*ng + (ndbm+64)
+   call pack50(n1,n2,data0)
+   ntype=ndbm
+   go to 900
+ 
+ 10 if(i2.ge.2 .and. i3.lt.1) then
+-
+-! Compound callsign
+      call packpfx(call1,n1,ng,nadd)
+      ndbm=0
+      read(msg(i1+1:),*) ndbm
+@@ -51,10 +42,7 @@
+      ntype=ndbm + 1 + nadd
+      n2=128*ng + ntype + 64
+      call pack50(n1,n2,data0)
+-
+   else if(i3.eq.1) then
+-
+-! Hash-coded callsign
+      i4=index(msg,'&gt;')
+      call1=msg(2:i4-1)
+      call hash(call1,i4-2,ih)
+@@ -70,6 +58,7 @@
+      n2=128*ih + ntype + 64
+      call pack50(n1,n2,data0)
+   endif
++  go to 900
+ 
+ 900 continue
+   call cs_unlock
+
+Modified: branches/wspr/write_wav.f90
+===================================================================
+--- branches/wspr/write_wav.f90	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/write_wav.f90	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -1,8 +1,8 @@
+-subroutine write_wav(lu,idat,npts,nfsample,nchan)
++subroutine write_wav(lu,idat,ntot,nfsample,nchan)
+ 
+ ! Write a wavefile to logical unit lu.
+ 
+-  integer*2 idat(npts)
++  integer*2 idat(ntot)
+   integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
+   character*4 ariff,awave,afmt,adata
+   integer*1 hdr(44)
+@@ -22,7 +22,7 @@
+   nsamrate=nfsample                     !Sample rate
+   nbytesec=nfsample*nchan2*nbitsam2/8   !Bytes per second
+   nbytesam2=nchan2*nbitsam2/8           !Block-align               
+-  ndata=npts*nchan2*nbitsam2/8
++  ndata=ntot*nbitsam2/8
+   nbytes=ndata+44
+   nchunk=nbytes-8
+ 
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2011-01-06 17:03:23 UTC (rev 2331)
++++ branches/wspr/wspr.py	2011-02-04 19:41:07 UTC (rev 2332)
+@@ -299,7 +299,7 @@
+ a digital soundcard mode optimized for beacon-like
+ transmissions on the LF, MF, and HF bands.
+ 
+-Copyright (c) 2008-2010 by Joseph H. Taylor, Jr., K1JT, with
++Copyright (c) 2008-2011 by Joseph H. Taylor, Jr., K1JT, with
+ contributions from VA3DB, G4KLA, W1BW, and 4X6IZ.  WSPR is
+ Open Source software, licensed under the GNU General Public
+ License (GPL).  Source code and programming information may
+@@ -869,6 +869,8 @@
+                 f=open(appdir+'/fmt.ini',mode='w')
+                 f.write(cmd+'\n')
+                 f.write(str(g.ndevin.get())+'\n')
++                f.write(options.MyCall.get()+'\n')
++                f.write(options.MyGrid.get()+'\n')
+                 f.close()
+ 
+                 cmd2=''
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002025.html">[WSJT-SVN] r2333 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2024">[ date ]</a>
+              <a href="thread.html#2024">[ thread ]</a>
+              <a href="subject.html#2024">[ subject ]</a>
+              <a href="author.html#2024">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

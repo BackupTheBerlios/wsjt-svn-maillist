@@ -1,0 +1,343 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1005 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1005%20-%20branches/map65&In-Reply-To=%3C200809091729.m89HTGJG009979%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000695.html">
+   <LINK REL="Next"  HREF="000697.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1005 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1005%20-%20branches/map65&In-Reply-To=%3C200809091729.m89HTGJG009979%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1005 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep  9 19:29:16 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000695.html">[WSJT-SVN] r1004 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000697.html">[WSJT-SVN] r1006 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#696">[ date ]</a>
+              <a href="thread.html#696">[ thread ]</a>
+              <a href="subject.html#696">[ subject ]</a>
+              <a href="author.html#696">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-09-09 19:29:14 +0200 (Tue, 09 Sep 2008)
+New Revision: 1005
+
+Added:
+   branches/map65/plrs.F90
+Removed:
+   branches/map65/plrs.f90
+Modified:
+   branches/map65/Makefile.in
+Log:
+Changed filename extension of plrs.F90.
+
+
+Modified: branches/map65/Makefile.in
+===================================================================
+--- branches/map65/Makefile.in	2008-09-03 15:40:52 UTC (rev 1004)
++++ branches/map65/Makefile.in	2008-09-09 17:29:14 UTC (rev 1005)
+@@ -45,7 +45,7 @@
+ SRCS2F90 = astro0.F90 audio_init.F90 azdist0.f90 \
+ 	decode1.F90 ftn_init.F90 ftn_quit.f90 wsjtgen.F90 \
+ 	runqqq.F90 fivehz.F90 flushqqq.F90 \
+-	rfile.f90 rfile3a.f90 spec.f90 map65a.F90 display.F90 \
++	rfile.f90 rfile3a.F90 spec.f90 map65a.F90 display.F90 \
+ 	getfile.F90 getfile2.F90 recvpkt.F90 savetf2.F90 \
+ 	symspec.f90 sec_midn.F90 getdphi.f90
+ 
+@@ -109,8 +109,9 @@
+ plrr:   plrr.f90 sec_midn.F90 plrr_subs.c cutil.c
+ 	$(FC) -o plrr plrr.f90 sec_midn.F90 plrr_subs.c cutil.c
+ 
+-plrs:   plrs.f90 sec_midn.F90 plrs_subs.c cutil.c
+-	$(FC) -o plrs plrs.f90 sec_midn.F90 plrs_subs.c cutil.c
++plrs:   plrs.F90 sec_midn.F90 plrs_subs.c cutil.c
++	$(CC) -c plrs_subs.c cutil.c
++	$(FC) -o plrs plrs.F90 sec_midn.F90 plrs_subs.o cutil.o
+ 
+ .PHONY : clean
+ clean:
+
+Added: branches/map65/plrs.F90
+===================================================================
+--- branches/map65/plrs.F90	2008-09-03 15:40:52 UTC (rev 1004)
++++ branches/map65/plrs.F90	2008-09-09 17:29:14 UTC (rev 1005)
+@@ -0,0 +1,115 @@
++program plrs
++
++! Pseudo-Linrad &quot;Send&quot; program.  Reads recorded Linrad data from &quot;*.tf2&quot;
++! files, and multicasts it as Linrad would do for timf2 data.
++
++  integer RMODE
++  parameter(RMODE=0)
++  parameter (NBPP=1392)
++  parameter (NZ=60*96000)
++  parameter (NBYTES=8*NZ)
++  parameter (NPPR=NBYTES/NBPP)
++  integer*1 userx_no,iusb
++  integer*2 nblock
++  real*8 d(NZ),buf8
++  integer fd
++  integer open,read,close
++  integer nm(11)
++  character*8 fname,arg,cjunk*1
++  logical fast,pause
++  real*8 center_freq,dmsec,dtmspacket,tmsec
++  common/plrscom/center_freq,msec2,fsample,iptr,nblock,userx_no,iusb,buf8(174)
++  data nm/45,46,48,50,52,54,55,56,57,58,59/
++  data nblock/0/,fast/.false./,pause/.false./
++
++  nargs=iargc()
++  if(nargs.ne.4) then
++     print*,'Usage: plrs &lt;fast|pause|slow&gt; &lt;minutes&gt; &lt;iters&gt; &lt;iwait&gt;'
++     go to 999
++  endif
++
++  call getarg(1,arg)
++  if(arg(1:1).eq.'f' .or. arg(1:1).eq.'p') fast=.true.
++  if(arg(1:1).eq.'p') pause=.true.
++  call getarg(2,arg)
++  read(arg,*) nfiles
++  call getarg(3,arg)
++  read(arg,*) iters
++  call getarg(4,arg)
++  read(arg,*) iwait
++
++  if(iwait.ne.0) then
++1    if(mod(int(sec_midn()),60).eq.0) go to 2
++     call sleep_msec(100)
++     go to 1
++  endif
++
++2 fname=&quot;all.tf2&quot;//char(0)
++  userx_no=0
++  iusb=1
++  center_freq=144.125d0
++  dtmspacket=1000.d0*NBPP/(8.d0*96000.d0)
++  fsample=96000.0
++  npkt=0
++
++  call setup_ssocket                       !Open a socket for multicasting
++
++  do iter=1,iters
++#ifdef CVF
++     open(10,file=fname,form='binary',status='old')
++#else
++     fd=open(fname,RMODE)                  !Open file for reading
++#endif
++     dmsec=-dtmspacket
++     nsec0=sec_midn()
++
++     do ifile=1,nfiles
++        ns0=0
++        tmsec=1000*(3600*7 + 60*nm(ifile))-dtmspacket
++        k=0
++        do ipacket=1,NPPR
++           dmsec=dmsec+dtmspacket
++           tmsec=tmsec+dtmspacket
++           msec2=nint(tmsec)
++           msec=nint(dmsec)
++
++#ifdef CVF
++           read(10) buf8
++#else
++           nr=read(fd,buf8,NBPP)
++           if(nr.ne.NBPP) then
++              print*,'Error reading file all.tf2'
++              go to 999
++           endif
++#endif
++           nblock=nblock+1
++           call send_pkt(center_freq)
++           npkt=npkt+1
++              
++           if(mod(npkt,100).eq.0) then
++              nsec=int(sec_midn())-nsec0
++              nwait=msec-1000*nsec
++!  Pace the data at close to its real-time rate
++              if(nwait.gt.0 .and. .not.fast) call sleep_msec(nwait)
++           endif
++           ns=mod(msec2/1000,60)
++           if(ns.ne.ns0) write(*,1010) ns,center_freq,0.001*msec2,sec_midn()
++1010       format('ns:',i3,'   f0:',f10.3,'   t1:',f10.3,'   t2:',f10.3)
++           ns0=ns
++        enddo
++        if(pause) then
++           print*,'Type anything to continue:'
++           read(*,*) cjunk,pause,fast
++        endif
++     enddo
++#ifdef CVF
++     close(10)
++#else
++     i=close(fd)
++#endif
++  enddo
++
++
++999 end program plrs
++
++! To compile: % gfortran -o plrs plrs.f90 plrs_subs.c cutil.c
+
+Deleted: branches/map65/plrs.f90
+===================================================================
+--- branches/map65/plrs.f90	2008-09-03 15:40:52 UTC (rev 1004)
++++ branches/map65/plrs.f90	2008-09-09 17:29:14 UTC (rev 1005)
+@@ -1,115 +0,0 @@
+-program plrs
+-
+-! Pseudo-Linrad &quot;Send&quot; program.  Reads recorded Linrad data from &quot;*.tf2&quot;
+-! files, and multicasts it as Linrad would do for timf2 data.
+-
+-  integer RMODE
+-  parameter(RMODE=0)
+-  parameter (NBPP=1392)
+-  parameter (NZ=60*96000)
+-  parameter (NBYTES=8*NZ)
+-  parameter (NPPR=NBYTES/NBPP)
+-  integer*1 userx_no,iusb
+-  integer*2 nblock
+-  real*8 d(NZ),buf8
+-  integer fd
+-  integer open,read,close
+-  integer nm(11)
+-  character*8 fname,arg,cjunk*1
+-  logical fast,pause
+-  real*8 center_freq,dmsec,dtmspacket,tmsec
+-  common/plrscom/center_freq,msec2,fsample,iptr,nblock,userx_no,iusb,buf8(174)
+-  data nm/45,46,48,50,52,54,55,56,57,58,59/
+-  data nblock/0/,fast/.false./,pause/.false./
+-
+-  nargs=iargc()
+-  if(nargs.ne.4) then
+-     print*,'Usage: plrs &lt;fast|pause|slow&gt; &lt;minutes&gt; &lt;iters&gt; &lt;iwait&gt;'
+-     go to 999
+-  endif
+-
+-  call getarg(1,arg)
+-  if(arg(1:1).eq.'f' .or. arg(1:1).eq.'p') fast=.true.
+-  if(arg(1:1).eq.'p') pause=.true.
+-  call getarg(2,arg)
+-  read(arg,*) nfiles
+-  call getarg(3,arg)
+-  read(arg,*) iters
+-  call getarg(4,arg)
+-  read(arg,*) iwait
+-
+-  if(iwait.ne.0) then
+-1    if(mod(int(sec_midn()),60).eq.0) go to 2
+-     call sleep_msec(100)
+-     go to 1
+-  endif
+-
+-2 fname=&quot;all.tf2&quot;//char(0)
+-  userx_no=0
+-  iusb=1
+-  center_freq=144.125d0
+-  dtmspacket=1000.d0*NBPP/(8.d0*96000.d0)
+-  fsample=96000.0
+-  npkt=0
+-
+-  call setup_ssocket                       !Open a socket for multicasting
+-
+-  do iter=1,iters
+-#ifdef CVF
+-     open(10,file=fname,form='binary',status='old')
+-#else
+-     fd=open(fname,RMODE)                  !Open file for reading
+-#endif
+-     dmsec=-dtmspacket
+-     nsec0=sec_midn()
+-
+-     do ifile=1,nfiles
+-        ns0=0
+-        tmsec=1000*(3600*7 + 60*nm(ifile))-dtmspacket
+-        k=0
+-        do ipacket=1,NPPR
+-           dmsec=dmsec+dtmspacket
+-           tmsec=tmsec+dtmspacket
+-           msec2=nint(tmsec)
+-           msec=nint(dmsec)
+-
+-#ifdef CVF
+-           read(10) buf8
+-#else
+-           nr=read(fd,buf8,NBPP)
+-           if(nr.ne.NBPP) then
+-              print*,'Error reading file all.tf2'
+-              go to 999
+-           endif
+-#endif
+-           nblock=nblock+1
+-           call send_pkt(center_freq)
+-           npkt=npkt+1
+-              
+-           if(mod(npkt,100).eq.0) then
+-              nsec=int(sec_midn())-nsec0
+-              nwait=msec-1000*nsec
+-!  Pace the data at close to its real-time rate
+-              if(nwait.gt.0 .and. .not.fast) call sleep_msec(nwait)
+-           endif
+-           ns=mod(msec2/1000,60)
+-           if(ns.ne.ns0) write(*,1010) ns,center_freq,0.001*msec2,sec_midn()
+-1010       format('ns:',i3,'   f0:',f10.3,'   t1:',f10.3,'   t2:',f10.3)
+-           ns0=ns
+-        enddo
+-        if(pause) then
+-           print*,'Type anything to continue:'
+-           read(*,*) cjunk,pause,fast
+-        endif
+-     enddo
+-#ifdef CVF
+-     close(10)
+-#else
+-     i=close(fd)
+-#endif
+-  enddo
+-
+-
+-999 end program plrs
+-
+-! To compile: % gfortran -o plrs plrs.f90 plrs_subs.c cutil.c
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000695.html">[WSJT-SVN] r1004 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000697.html">[WSJT-SVN] r1006 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#696">[ date ]</a>
+              <a href="thread.html#696">[ thread ]</a>
+              <a href="subject.html#696">[ subject ]</a>
+              <a href="author.html#696">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

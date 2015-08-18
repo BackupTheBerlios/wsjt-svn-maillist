@@ -1,0 +1,396 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2859 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2859%20-%20branches/wspr&In-Reply-To=%3C20121227180618.3308A55B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002550.html">
+   <LINK REL="Next"  HREF="002552.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2859 - branches/wspr</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2859%20-%20branches/wspr&In-Reply-To=%3C20121227180618.3308A55B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2859 - branches/wspr">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Dec 27 19:06:18 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002550.html">[WSJT-SVN] r2858 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002552.html">[WSJT-SVN] r2860 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2551">[ date ]</a>
+              <a href="thread.html#2551">[ thread ]</a>
+              <a href="subject.html#2551">[ subject ]</a>
+              <a href="author.html#2551">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-27 19:06:17 +0100 (Thu, 27 Dec 2012)
+New Revision: 2859
+
+Modified:
+   branches/wspr/g1.bat
+   branches/wspr/g2.bat
+   branches/wspr/genmept.f90
+   branches/wspr/mept162.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr0.f90
+   branches/wspr/wspr0_tx.f90
+   branches/wspr/wspr0init.f90
+Log:
+WSPR0 is now pretty much working...
+
+
+Modified: branches/wspr/g1.bat
+===================================================================
+--- branches/wspr/g1.bat	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/g1.bat	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -1 +1,2 @@
+-g95 -o fmt.exe fmt.f90 fil1.f90 four2a.f peakup.f db.f sound.o libportaudio.a c:\MinGW\lib\libwinmm.a libfftw3f_win.a
++wspr0 -t s -22 -n 3
++wspr0 -r 00001.wav 00002.wav 00003.wav
+
+Modified: branches/wspr/g2.bat
+===================================================================
+--- branches/wspr/g2.bat	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/g2.bat	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -1 +1,2 @@
+-g95 -o hftoa.exe -Wall -fno-second-underscore -Wno-precision-loss -ftrace=full hftoa.f90 write_wav.f90 sound.o libportaudio.a c:\MinGW\lib\libwinmm.a 
++wspr0 -m -t s -22 -n 3 -a 1615
++wspr0 -m 00001.wav 00002.wav 00003.wav
+
+Modified: branches/wspr/genmept.f90
+===================================================================
+--- branches/wspr/genmept.f90	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/genmept.f90	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -1,9 +1,9 @@
+-subroutine genmept(message,ntxdf,snrdb,iwave)
++subroutine genmept(message,ntxdf,ntrminutes,multi,list,snrdb,iwave)
+ 
+ ! Encode a WSPR message and generate the corresponding wavefile.
+ 
+   character*22 message
+-  parameter (NMAX=120*12000)     !Max length of wave file
++  parameter (NMAX=900*12000)     !Max length of wave file
+   integer*2 iwave(NMAX)          !Generated wave file
+   parameter (MAXSYM=176)
+   integer*1 symbol(MAXSYM)
+@@ -43,24 +43,31 @@
+ 
+ ! Set up necessary constants
+   tsymbol=8192.d0/12000.d0
++  if(ntrminutes.eq.15) tsymbol=65536.d0/12000.d0
++  nz=60*ntrminutes*12000
+   dt=1.d0/12000.d0
+   f0=1500 + ntxdf
+-  dfgen=12000.d0/8192.d0                     !1.4649 Hz
++  dfgen=1.d0/tsymbol                          !1.4649 Hz or 0.1831 Hz
+   nsigs=1
+-  if(snrdb.eq.10.0) nsigs=10
++  if(multi.ne.0) nsigs=10
+   do isig=1,nsigs
+-     if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
++     if(nsigs.eq.1) snr=10.0**(0.05*snrdb)
+      fac=3000.0
+      if(snr.gt.1.0) fac=3000.0/snr
+      if(nsigs.eq.10) then
+-        snr=10.0**(0.05*(-20-isig))
+-        f0=1390 + 20*isig
++        if(ntrminutes.eq.2) then
++           snr=10.0**(0.05*(-20-isig))
++           f0=1390 + 20*isig
++        else
++           snr=10.0**(0.05*(-29-isig))
++           f0=1612.5 + 2.5*(isig-5.5)
++        endif
+      endif
+      t=-2.d0 - 0.1*(isig-1)
+      phi=0.d0
+      j0=0
+ 
+-     do i=1,NMAX
++     do i=1,nz
+         t=t+dt
+         j=int(t/tsymbol) + 1                          !Symbol number
+         sig=0.
+@@ -68,7 +75,7 @@
+            if(j.ne.j0) then
+               f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
+               j0=j
+-              if(snrdb.eq.11.0) then
++              if(list.ne.0) then
+                  k=npr3(j) + 2*symbol(j)
+                  write(*,1000) j,k,f
+ 1000             format(i3,i3,f10.3)
+@@ -98,4 +105,3 @@
+ 
+   return
+ end subroutine genmept
+-
+
+Modified: branches/wspr/mept162.f90
+===================================================================
+--- branches/wspr/mept162.f90	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/mept162.f90	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -52,12 +52,21 @@
+ 
+      minsync=1                                   !####
+      nsync=nint(snrsync)
+-     nsnrx=nint(snrx)
+-     if(nsnrx.lt.-33) nsnrx=-33
+      if(nsync.lt.0) nsync=0
+-     freq=f0 + 1.d-6*(dfx+nbfo)
++     if(npts.le.120*12000) then
++        minsnr=-33
++        nsnrx=nint(snrx)                         !WSPR-2
++        if(nsnrx.lt.minsnr) nsnrx=minsnr
++        freq=f0 + 1.d-6*(dfx+nbfo)
++     else
++        minsnr=-42
++        nsnrx=nint(snrx-9.0)                     !WSPR-15
++        if(nsnrx.lt.minsnr) nsnrx=minsnr
++        dfx=dfx/8
++        freq=f0 + 1.d-6*(dfx+nbfo+112.5d0)
++     endif
+      message='                      '
+-     if(nsync.ge.minsync .and. nsnrx.ge.-33) then      !### -31 dB limit?
++     if(nsync.ge.minsync .and. nsnrx.ge.minsnr) then
+ 
+         dt=1.0/375
+         do idt=0,128
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/wspr.py	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -465,15 +465,16 @@
+ #----------------------------------------------------- set_tx_freq
+ def set_tx_freq(event):
+     global fmid
+-    df=12000/8192.0
+-    if ntrminutes.get()==15: df=12000/65536.0
+-    nftx=int(1000000.0*fmid + (80.0-event.y)*df) + 2
+-    fmhz=0.000001*nftx
+-    t=&quot;Please confirm setting Tx frequency to &quot; + &quot;%.06f MHz&quot; % fmhz
+-    result=tkMessageBox.askyesno(message=t)
+-    if result:
+-        ftx.set(0.000001*nftx)
+-        sftx.set('%.06f' % ftx.get())
++    if ntrminutes.get()==2:
++        df=12000/8192.0
++        if ntrminutes.get()==15: df=12000/65536.0
++        nftx=int(1000000.0*fmid + (80.0-event.y)*df) + 2
++        fmhz=0.000001*nftx
++        t=&quot;Please confirm setting Tx frequency to &quot; + &quot;%.06f MHz&quot; % fmhz
++        result=tkMessageBox.askyesno(message=t)
++        if result:
++            ftx.set(0.000001*nftx)
++            sftx.set('%.06f' % ftx.get())
+ 
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+@@ -1680,7 +1681,7 @@
+ 
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+ lab2=Label(iframe2, text='UTC        dB        DT             Freq             Drift')
+-lab2.place(x=180,y=6, anchor='w')
++lab2.place(x=210,y=6, anchor='w')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+ #-------------------------------------------------------- UTC, etc
+
+Modified: branches/wspr/wspr0.f90
+===================================================================
+--- branches/wspr/wspr0.f90	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/wspr0.f90	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -12,9 +12,8 @@
+   character*3 month(12)
+   data month/'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'/
+ 
+-  call wspr0init(ntrminutes,nrxtx,nport,nfiles,snrdb,pctx,f0,ftx,    &amp;
+-       call12,grid6,ndbm,outfile)
+-  print*,'A2',ntrminutes,nrxtx,nport,nfiles,snrdb,f0,ftx,call12,grid6,ndbm
++  call wspr0init(ntrminutes,nrxtx,nport,nfiles,multi,list,snrdb,       &amp;
++       pctx,f0,ftx,call12,grid6,ndbm,outfile)
+ 
+   ntr=0
+   nsec0=999999
+@@ -29,7 +28,7 @@
+      call wspr0_rx(ntrminutes,nrxtx,nfiles,f0)
+ 
+   else if(nrxtx.eq.2) then                       !Transmit only
+-     call wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,        &amp;
++     call wspr0_tx(ntrminutes,nport,nfiles,multi,list,snrdb,f0,ftx,    &amp;
+           call12,grid6,ndbm,outfile,ntr)
+   else if(nrxtx.eq.3) then                       !Tx and Rx, choosen randomly
+      call random_seed
+@@ -48,7 +47,7 @@
+ 
+      call random_number(x)
+      if(100.0*x.lt.pctx) then
+-        call wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,      &amp;
++        call wspr0_tx(ntrminutes,nport,nfiles,multi,list,snrdb,f0,ftx,   &amp;
+              call12,grid6,ndbm,outfile,ntr)
+      else
+         call wspr0_rx(ntrminutes,f0,ntr)
+
+Modified: branches/wspr/wspr0_tx.f90
+===================================================================
+--- branches/wspr/wspr0_tx.f90	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/wspr0_tx.f90	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -1,4 +1,4 @@
+-subroutine wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,      &amp;
++subroutine wspr0_tx(ntrminutes,nport,nfiles,multi,list,snrdb,f0,ftx,    &amp;
+      call12,grid6,ndbm,outfile,ntr)
+ 
+ !  Read command-line arguments and generate Tx data for the MEPT_JT mode.
+@@ -14,9 +14,15 @@
+   integer ptt,soundout
+ 
+   ntxdf=nint(1.d6*(ftx-f0))-1500
+-  if(abs(ntxdf).gt.100) then
+-     print*,'Error: ftx must be above f0 by 1400 to 1600 Hz'
+-     stop
++  txdf2=1.d6*(ftx-f0)-1612.5d0
++  if(multi.eq.0 .and. list.eq.0) then
++     if(ntrminutes.eq.2 .and. abs(ntxdf).gt.100) then
++        print*,'Error: ftx must be above f0 by 1400 to 1600 Hz'
++        stop
++     else if(ntrminutes.eq.15 .and. abs(txdf2).gt.12.5) then
++        print*,'Error: ftx must be above f0 by 1600 to 1625 Hz'
++        stop
++     endif
+   endif
+ 
+   i1=index(call12,' ')
+@@ -30,10 +36,11 @@
+   do ifile=1,nfiles
+      if(nfiles.gt.1 .or. outfile(1:1).eq.' ') write(outfile,1010) ifile
+ 1010 format(i5.5,'.wav')
+-     call genmept(message,ntxdf,snrdb,iwave)
+-     if(snrdb.eq.11.0) go to 999
++     call genmept(message,ntxdf,ntrminutes,multi,list,snrdb,iwave)
++     if(list.ne.0) go to 999
+      if(outfile.ne.&quot;&quot;) then
+-        call wfile5(iwave,NMAX,12000,outfile)
++        nz=60*ntrminutes*12000
++        call wfile5(iwave,nz,12000,outfile)
+         write(*,1020) f0,ftx,snrdb,message,outfile(1:24)
+ 1020    format(2f11.6,f6.1,2x,a22,2x,a24)
+      else
+
+Modified: branches/wspr/wspr0init.f90
+===================================================================
+--- branches/wspr/wspr0init.f90	2012-12-26 21:22:21 UTC (rev 2858)
++++ branches/wspr/wspr0init.f90	2012-12-27 18:06:17 UTC (rev 2859)
+@@ -1,7 +1,7 @@
+-subroutine wspr0init(ntrminutes,nrxtx,nport,nfiles,snrdb,pctx,f0,ftx,   &amp;
+-     call12,grid6,ndbm,outfile)
++subroutine wspr0init(ntrminutes,nrxtx,nport,nfiles,multi,list,snrdb,   &amp;
++     pctx,f0,ftx,call12,grid6,ndbm,outfile)
+ 
+-  real*8 f0,ftx
++  real*8 f0,ftx,txaudio
+   character*12 arg
+   character*12 call12
+   character*6 grid6
+@@ -39,6 +39,8 @@
+      print*,'       -p n   PTT port'
+      print*,'       -P n   Transmitting percent (default=25)'
+      print*,'       -s x   SNR of generated data, dB (default 100)'
++     print*,'       -x     Generate wavefile(s) with 10 signals'
++     print*,'       -X     Generate list of Tx tones'
+      print*,' '
+      print*,'Examples:'
+      print*,'       wspr0 -t                      #Transmit default message'
+@@ -63,16 +65,21 @@
+   ndbm=37
+   pctx=25.
+   outfile=&quot; &quot;
+-  f0=10.1387
+-  ftx=10.1402
++  f0=10.138700d0
++  ftx=10.140200d0
++  txaudio=0.d0
+   mfiles=0
+   k=0
++  multi=0
++  list=0
+ 
+   do n=1,99
+      k=k+1
+      call getarg(k,arg)
+      if(arg(1:2).eq.'-m') then
+         ntrminutes=15
++     else if(arg(1:2).eq.'-r') then
++        nrxtx=1
+      else if(arg(1:2).eq.'-t') then
+         nrxtx=2
+      else if(arg(1:2).eq.'-b') then
+@@ -95,6 +102,10 @@
+         k=k+1
+         call getarg(k,arg)
+         read(arg,*) ftx
++     else if(arg(1:2).eq.'-a') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) txaudio
+      else if(arg(1:2).eq.'-n') then
+         k=k+1
+         call getarg(k,arg)
+@@ -115,6 +126,11 @@
+      else if(arg(1:2).eq.'-o') then
+         k=k+1
+         call getarg(k,outfile)
++     else if(arg(1:2).eq.'-x') then
++        multi=1
++        snrdb=0.
++     else if(arg(1:2).eq.'-X') then
++        list=1
+      else
+         mfiles=mfiles+1
+      endif
+@@ -123,6 +139,7 @@
+ 
+   if(outfile(1:1).ne.' ') nfiles=1
+   if(nrxtx.eq.1) nfiles=mfiles
++  if(txaudio.ne.0.d0) ftx=f0 + 1.d-6*txaudio
+   
+   return
+ end subroutine wspr0init
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002550.html">[WSJT-SVN] r2858 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002552.html">[WSJT-SVN] r2860 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2551">[ date ]</a>
+              <a href="thread.html#2551">[ thread ]</a>
+              <a href="subject.html#2551">[ subject ]</a>
+              <a href="author.html#2551">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

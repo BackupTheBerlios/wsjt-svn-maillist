@@ -1,0 +1,716 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2997 - trunk/jt4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2997%20-%20trunk/jt4&In-Reply-To=%3C20130220135551.C786255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002688.html">
+   <LINK REL="Next"  HREF="002690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2997 - trunk/jt4</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2997%20-%20trunk/jt4&In-Reply-To=%3C20130220135551.C786255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2997 - trunk/jt4">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Feb 20 14:55:51 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002688.html">[WSJT-SVN] r2996 - in trunk: . jt4
+</A></li>
+        <LI>Next message: <A HREF="002690.html">[WSJT-SVN] r2998 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2689">[ date ]</a>
+              <a href="thread.html#2689">[ thread ]</a>
+              <a href="subject.html#2689">[ subject ]</a>
+              <a href="author.html#2689">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-20 14:55:51 +0100 (Wed, 20 Feb 2013)
+New Revision: 2997
+
+Added:
+   trunk/jt4/bessi.f90
+   trunk/jt4/bessi0.f90
+   trunk/jt4/bessi1.f90
+   trunk/jt4/factrl.f90
+   trunk/jt4/fskprob.f90
+   trunk/jt4/getmu.f90
+   trunk/jt4/interleave4a.f90
+   trunk/jt4/pdfChisq.f90
+Modified:
+   trunk/jt4/Makefile
+   trunk/jt4/encode4.f90
+   trunk/jt4/fano232.f90
+   trunk/jt4/jt4metrics.f90
+   trunk/jt4/simjt4.f90
+Log:
+Playing with JT4 decoding procedures...
+
+
+Modified: trunk/jt4/Makefile
+===================================================================
+--- trunk/jt4/Makefile	2013-02-05 16:16:31 UTC (rev 2996)
++++ trunk/jt4/Makefile	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -20,12 +20,14 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libjt.a jt4metrics.exe simsync.exe jt4code.exe simjt4.exe
++all:    libjt.a jt4metrics.exe simsync.exe jt4code.exe simjt4.exe fskprob.exe
+ 
+ OBJS1 = chkmsg.o deg2grid.o encode232.o encode4.o entail.o fano232.o \
+ 	getmet4.o getpfx1.o getpfx2.o gran.o grid2deg.o grid2k.o \
+ 	interleave4.o k2grid.o nchar.o packcall.o packgrid.o packmsg.o \
+-	packtext.o unpackcall.o unpackgrid.o unpackmsg.o unpacktext.o
++	packtext.o unpackcall.o unpackgrid.o unpackmsg.o unpacktext.o \
++	interleave4a.o getmu.o bessi.o bessi0.o bessi1.o derf.o \
++	gammp.o gcf.o gser.o gammln.o factrl.o pdfChisq.o
+ 
+ libjt.a: $(OBJS1)
+ 	ar cr libjt.a $(OBJS1) 
+@@ -47,7 +49,11 @@
+ simjt4.exe: $(OBJS5)
+ 	$(FC) -o simjt4.exe $(FFLAGS) $(OBJS5) libjt.a 
+ 
++OBJS6 = fskprob.o libjt.a 
++fskprob.exe: $(OBJS6)
++	$(FC) -o fskprob.exe $(FFLAGS) $(OBJS6) libjt.a 
++
+ .PHONY : clean
+ 
+ clean:
+-	rm -f *.o jt4metrics.exe simsync.exe jt4code.exe simjt4.exe
++	rm -f *.o jt4metrics.exe simsync.exe jt4code.exe simjt4.exe fskprob.exe
+
+Added: trunk/jt4/bessi.f90
+===================================================================
+--- trunk/jt4/bessi.f90	                        (rev 0)
++++ trunk/jt4/bessi.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,29 @@
++real*8 FUNCTION bessi(n,x)
++  implicit real*8 (a-h,o-z)
++  PARAMETER (IACC=40,BIGNO=1.0e10,BIGNI=1.0e-10)
++  if (n.lt.2) pause 'bad argument n in bessi'
++  if (x.eq.0.d0) then
++     bessi=0.
++  else
++     tox=2.d0/abs(x)
++     bip=0.d0
++     bi=1.d0
++     bessi=0.d0
++     m=2*((n+int(sqrt(float(IACC*n)))))
++     do j=m,1,-1
++        bim=bip+float(j)*tox*bi
++        bip=bi
++        bi=bim
++        if (abs(bi).gt.BIGNO) then
++           bessi=bessi*BIGNI
++           bi=bi*BIGNI
++           bip=bip*BIGNI
++        endif
++        if (j.eq.n) bessi=bip
++     enddo
++     bessi=bessi*bessi0(x)/bi
++     if (x.lt.0..and.mod(n,2).eq.1) bessi=-bessi
++  endif
++
++  return
++END FUNCTION bessi
+
+Added: trunk/jt4/bessi0.f90
+===================================================================
+--- trunk/jt4/bessi0.f90	                        (rev 0)
++++ trunk/jt4/bessi0.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,19 @@
++real*8 FUNCTION bessi0(x)
++  implicit real*8 (a-h,o-z)
++  SAVE p1,p2,p3,p4,p5,p6,p7,q1,q2,q3,q4,q5,q6,q7,q8,q9
++  DATA p1,p2,p3,p4,p5,p6,p7/1.0d0,3.5156229d0,3.0899424d0,              &amp;
++       1.2067492d0,0.2659732d0,0.360768d-1,0.45813d-2/
++  DATA q1,q2,q3,q4,q5,q6,q7,q8,q9/0.39894228d0,0.1328592d-1,            &amp;
++       0.225319d-2,-0.157565d-2,0.916281d-2,-0.2057706d-1,0.2635537d-1, &amp;
++       -0.1647633d-1,0.392377d-2/
++  if (abs(x).lt.3.75d0) then
++     y=(x/3.75d0)**2
++     bessi0=p1+y*(p2+y*(p3+y*(p4+y*(p5+y*(p6+y*p7)))))
++  else
++     ax=abs(x)
++     y=3.75d0/ax
++     bessi0=(exp(ax)/sqrt(ax))*(q1+y*(q2+y*(q3+y*(q4+y*(q5+y*(q6+y*     &amp;
++          (q7+y*(q8+y*q9))))))))
++  endif
++  return
++END FUNCTION bessi0
+
+Added: trunk/jt4/bessi1.f90
+===================================================================
+--- trunk/jt4/bessi1.f90	                        (rev 0)
++++ trunk/jt4/bessi1.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,20 @@
++real*8 FUNCTION bessi1(x)
++  implicit real*8 (a-h,o-z)
++  SAVE p1,p2,p3,p4,p5,p6,p7,q1,q2,q3,q4,q5,q6,q7,q8,q9
++  DATA p1,p2,p3,p4,p5,p6,p7/0.5d0,0.87890594d0,0.51498869d0,              &amp;
++       0.15084934d0,0.2658733d-1,0.301532d-2,0.32411d-3/
++  DATA q1,q2,q3,q4,q5,q6,q7,q8,q9/0.39894228d0,-0.3988024d-1,             &amp;
++       -0.362018d-2,0.163801d-2,-0.1031555d-1,0.2282967d-1,-0.2895312d-1, &amp;
++       0.1787654d-1,-0.420059d-2/
++  if (abs(x).lt.3.75d0) then
++     y=(x/3.75d0)**2
++     bessi1=x*(p1+y*(p2+y*(p3+y*(p4+y*(p5+y*(p6+y*p7))))))
++  else
++     ax=abs(x)
++     y=3.75d0/ax
++     bessi1=(exp(ax)/sqrt(ax))*(q1+y*(q2+y*(q3+y*(q4+y*(q5+y*(q6+y*       &amp;
++          (q7+y*(q8+y*q9))))))))
++     if(x.lt.0.d0)bessi1=-bessi1
++  endif
++  return
++END FUNCTION bessi1
+
+Modified: trunk/jt4/encode4.f90
+===================================================================
+--- trunk/jt4/encode4.f90	2013-02-05 16:16:31 UTC (rev 2996)
++++ trunk/jt4/encode4.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -4,9 +4,10 @@
+   integer ncode(206)
+   character*22 message          !Message to be generated
+   character*3 cok               !'   ' or 'OOO'
+-  integer dgen(13)
++  integer dgen
+   integer*1 data0(13),symbol(216)
+   logical text
++  common/jt4com1/dgen(13)
+ 
+   call chkmsg(message,cok,nspecial,flip)
+   call packmsg(message,dgen,text)  !Pack 72-bit message into 12 six-bit symbols
+
+Added: trunk/jt4/factrl.f90
+===================================================================
+--- trunk/jt4/factrl.f90	                        (rev 0)
++++ trunk/jt4/factrl.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,21 @@
++real*8 FUNCTION factrl(n)
++  implicit real*8 (a-h,o-z)
++  real*8 a(33)
++  SAVE ntop,a
++  DATA ntop,a(1)/0,1./
++  if (n.lt.0) then
++     stop 'negative factorial in factrl'
++  else if (n.le.ntop) then
++     factrl=a(n+1)
++  else if (n.le.32) then
++     do j=ntop+1,n
++        a(j+1)=j*a(j)
++     enddo
++     ntop=n
++     factrl=a(n+1)
++  else
++     factrl=exp(gammln(n+1.0d0))
++  endif
++
++  return
++END FUNCTION factrl
+
+Modified: trunk/jt4/fano232.f90
+===================================================================
+--- trunk/jt4/fano232.f90	2013-02-05 16:16:31 UTC (rev 2996)
++++ trunk/jt4/fano232.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -1,5 +1,5 @@
+-subroutine fano232(symbol,nbits,mettab,ndelta,maxcycles,dat,     &amp;
+-     ncycles,metric,ierr)
++subroutine fano232(symbol,sym,nadd,nmet,amp,iknown,imsg,nbits,mettab,    &amp;
++     ndelta,maxcycles,dat,ncycles,metric,ierr)
+ 
+ ! Sequential decoder for K=32, r=1/2 convolutional code using 
+ ! the Fano algorithm.  Translated from C routine for same purpose
+@@ -8,6 +8,9 @@
+   parameter (MAXBITS=103)
+   parameter (MAXBYTES=(MAXBITS+7)/8)
+   integer*1 symbol(0:2*MAXBITS-1)  !Soft symbols (as unsigned i*1)
++  real sym(0:1,0:205)
++  integer imsg(72)
++  logical iknown(72)
+   integer*1 dat(MAXBYTES)          !Decoded user data, 8 bits per byte
+   integer mettab(0:255,0:1)        !Metric table
+ 
+@@ -21,22 +24,39 @@
+   logical noback
+   include 'conv232.f90'            !Polynomials defined here
+ 
+-  ntail=nbits-31
+-
+ ! Compute all possible branch metrics for each symbol pair.
+ ! This is the only place we actually look at the raw input symbols
+   i4a=0
+   i4b=0
+   do np=0,nbits-1
+      j=2*np
+-     i4a=symbol(j)
+-     i4b=symbol(j+1)
+-     if (i4a.lt.0) i4a=i4a+256
+-     if (i4b.lt.0) i4b=i4b+256
+-     metrics(0,np) = mettab(i4a,0) + mettab(i4b,0)
+-     metrics(1,np) = mettab(i4a,0) + mettab(i4b,1)
+-     metrics(2,np) = mettab(i4a,1) + mettab(i4b,0)
+-     metrics(3,np) = mettab(i4a,1) + mettab(i4b,1)
++ !    if(nmet.eq.0) then
++        i4a=symbol(j)
++        i4b=symbol(j+1)
++        if (i4a.lt.0) i4a=i4a+256
++        if (i4b.lt.0) i4b=i4b+256
++        metrics(0,np) = mettab(i4a,0) + mettab(i4b,0)
++        metrics(1,np) = mettab(i4a,0) + mettab(i4b,1)
++        metrics(2,np) = mettab(i4a,1) + mettab(i4b,0)
++        metrics(3,np) = mettab(i4a,1) + mettab(i4b,1)
++ !    else
++
++        n=min(2*nadd,18)                                     !### limit ??
++        call getmu(sym(0,j),sym(1,j),n,amp,mu0j0,mu1j0)
++        call getmu(sym(0,j+1),sym(1,j+1),n,amp,mu0j1,mu1j1)
++        m0 = mu0j0 + mu0j1
++        m1 = mu0j0 + mu1j1
++        m2 = mu1j0 + mu0j1
++        m3 = mu1j0 + mu1j1
++
++     write(72,3101) np,metrics(0:3,np),m0,m1,m2,m3
++3101 format(i3,4i6,4x,4i6)
++        if(nmet.ne.0) then
++           metrics(0,np) = m0
++           metrics(1,np) = m1
++           metrics(2,np) = m2
++           metrics(3,np) = m3
++        endif
+   enddo
+ 
+   np=0
+@@ -64,7 +84,22 @@
+   nt=0
+ 
+   do i=1,nbits*maxcycles                     !Start the Fano decoder
++!     write(71,3001) i,np,nstate(np),gamma(np),tm(0:1,np),ii(np)
++!3001 format(i9,i4,1x,b32.32,i5,2i5,i2)
++     ibit=iand(nstate(np),1)
++     ierr=0
++     if(np.le.71 .and. ibit.ne.imsg(np+1)) ierr=1
++!     write(71,3001) i,np,ibit,ierr,gamma(np),tm(0:1,np),ii(np)
++!3001 format(i9,i4,2i3,i5,2i5,i3)
+      ngamma=gamma(np) + tm(ii(np),np)        !Look forward
++     if(np.le.71 .and. iknown(np+1)) then
++        if(ierr.eq.0) then
++           ngamma=ngamma + 10
++        else
++           ngamma=ngamma - 20
++        endif
++     endif
++
+      if(ngamma.ge.nt) then
+ ! Node is acceptable.  If first time visiting this node, tighten threshold:
+         if(gamma(np).lt.(nt+ndelta)) nt=nt + ndelta * ((ngamma-nt)/ndelta)
+@@ -80,8 +115,9 @@
+         n=ieor(n,ishft(n,-16))
+         lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
+             
+-        if(np.ge.ntail) then
++        if(np.ge.nbits-31) then
+            tm(0,np)=metrics(lsym,np)      !We're in the tail, now all zeros
++           tm(1,np)=0                     !Added for plots: not used
+         else
+            m0=metrics(lsym,np)
+            m1=metrics(ieor(3,lsym),np)
+@@ -113,7 +149,7 @@
+            endif
+ 
+            np=np-1                       !Back up
+-           if(np.lt.ntail .and. ii(np).ne.1) then
++           if(np.lt.(nbits-31) .and. ii(np).ne.1) then
+               ii(np)=ii(np)+1            !Search the next best branch
+               nstate(np)=ieor(nstate(np),1)
+               exit
+
+Added: trunk/jt4/fskprob.f90
+===================================================================
+--- trunk/jt4/fskprob.f90	                        (rev 0)
++++ trunk/jt4/fskprob.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,51 @@
++program fskprob
++
++! Compute probability distributions for power values in non-coherent FSK
++!   p0 - pdf for channel(s) with no signal
++!   p1 - pdf for channel with signal
++
++! Assume average power is normalized to 1.0 in the no-signal channels
++
++  character*12 arg
++
++  nargs=iargc()
++  if(nargs.ne.2) then
++     print*,'Usage: fskprob nadd amp'
++     go to 999
++  endif
++
++  call getarg(1,arg)
++  read(arg,*) nadd
++  call getarg(2,arg)
++  read(arg,*) amp
++
++  n=2*nadd
++  s=amp*sqrt(float(nadd))
++  a1=-0.5*n*log(2.0) - gammln(0.5d0*n)
++  sum0=0.
++  sum1=0.
++  p1z=-999.
++
++  do i=0,100000
++     y=0.01*i
++     p0=pdfChisq(y,n,0.0)
++     p1=pdfChisq(y,n,s)
++
++     if(p1.le.p0) then
++        sum0=sum0+p0
++        sum1=sum1+p1
++     endif
++
++     write(70,1010) y/n,p0,p1,sum0,sum1
++1010 format(f10.6,4e15.6)
++     if(p1.lt.p1z .and. p1.lt.1.e-6) exit
++     p1z=p1
++  enddo
++
++  sum0=0.01*sum0
++  sum1=0.01*sum1
++  ber=sum1/sum0
++  write(*,1020) ber
++1020 format('2-FSK BER:',f8.3)
++
++999 end program fskprob
+
+Added: trunk/jt4/getmu.f90
+===================================================================
+--- trunk/jt4/getmu.f90	                        (rev 0)
++++ trunk/jt4/getmu.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,24 @@
++subroutine getmu(s0,s1,n,sig,mu0,mu1)
++
++  parameter (NMAX=100)
++!  real*8 pdfChisq
++  real log2
++  common/pspncom/ps(0:NMAX),pn(0:NMAX),scale
++  log2(x)=log(x)/log(2.0)
++
++  ps0=pdfChisq(n*s0,n,sig)
++  pn1=pdfChisq(n*s1,n,0.0)
++
++  ps1=pdfChisq(n*s1,n,sig)
++  pn0=pdfChisq(n*s0,n,0.0)
++
++  p0=ps0*pn1/(ps0+pn1)
++  p1=ps1*pn0/(ps1+pn0)
++
++  mu0=nint(scale*(log2(2.0*p0/(p0+p1)) - 0.5))
++  mu1=nint(scale*(log2(2.0*p1/(p0+p1)) - 0.5))
++!  write(*,3001) s0,s1,p0,p1,mu0,mu1
++!3001 format(2f8.1,2e12.3,2i6)
++
++  return
++end subroutine getmu
+
+Added: trunk/jt4/interleave4a.f90
+===================================================================
+--- trunk/jt4/interleave4a.f90	                        (rev 0)
++++ trunk/jt4/interleave4a.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,46 @@
++subroutine interleave4a(sym,ndir)
++  real sym(0:1,0:205),tmp(0:1,0:205)
++  integer j0(0:205)
++  logical first
++  data first/.true./
++  save first,j0
++
++  if(first) then
++     k=-1
++     do i=0,255
++        m=i
++        n=iand(m,1)
++        n=2*n + iand(m/2,1)
++        n=2*n + iand(m/4,1)
++        n=2*n + iand(m/8,1)
++        n=2*n + iand(m/16,1)
++        n=2*n + iand(m/32,1)
++        n=2*n + iand(m/64,1)
++        n=2*n + iand(m/128,1)
++        if(n.le.205) then
++           k=k+1
++           j0(k)=n
++        endif
++     enddo
++     first=.false.
++  endif
++
++  if(ndir.eq.1) then
++     do i=0,205
++        tmp(0,j0(i))=sym(0,i)
++        tmp(1,j0(i))=sym(1,i)
++     enddo
++  else
++     do i=0,205
++        tmp(0,i)=sym(0,j0(i))
++        tmp(1,i)=sym(1,j0(i))
++     enddo
++  endif
++
++  do i=0,205
++     sym(0,i)=tmp(0,i)
++     sym(1,i)=tmp(1,i)
++  enddo
++
++  return
++end subroutine interleave4a
+
+Modified: trunk/jt4/jt4metrics.f90
+===================================================================
+--- trunk/jt4/jt4metrics.f90	2013-02-05 16:16:31 UTC (rev 2996)
++++ trunk/jt4/jt4metrics.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -61,10 +61,12 @@
+   write(*,1000) avg0,avg00,ber
+ 1000 format('Avg noise:',f8.3,'   Est noise:',f8.3,'   BER:',f8.3)
+ 
++  fac=4.93/nadd
+   do i=0,NMAX
+      pn(i)=hn(i)/xiters
+      ps(i)=hs(i)/xiters
+-     write(13,1010) 0.01*i,pn(i),ps(i)
++     y=float(i)/(NMAX/10.0)
++     write(13,1010) y,fac*pn(i),fac*ps(i)
+ 1010 format(f8.2,2f15.12)
+   enddo
+ 
+
+Added: trunk/jt4/pdfChisq.f90
+===================================================================
+--- trunk/jt4/pdfChisq.f90	                        (rev 0)
++++ trunk/jt4/pdfChisq.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -0,0 +1,31 @@
++real*4 function pdfChisq(y,n,s)
++
++! Compute differential probability of measuring power y from a chi-squared
++! distribution with n degrees of freedom.  Noise level is assumed normalized
++! to 1.0; signal level is s.  (s=0 means a central chisq distribution; 
++! nonzero s means a noncentral distribution.)
++
++  real*8 bess,bessi,bessi0,bessi1,x8
++  save a1,n0
++  data n0/-99/
++
++  if(n.ne.n0) then
++     a1=-0.5*n*log(2.0) - gammln(0.5d0*n)
++     n0=n
++  endif
++
++  if(s.eq.0.0) then
++     p0log=a1 + (n/2-1)*log(y) -0.5*y
++     pdfChisq=exp(max(p0log,-40.0))
++  else
++     x8=sqrt(y)*s
++     bess=1.d0
++     if(n/2-1.eq.0) bess=bessi0(x8)
++     if(n/2-1.eq.1) bess=bessi1(x8)
++     if(n/2-1.gt.1) bess=bessi(n/2-1,x8)
++     p1log=-log(2.0) + 0.25*(n-2)*log(y/s**2) -0.5*(s**2+y) + log(bess)
++     pdfChisq=exp(max(p1log,-40.0))
++  endif
++
++  return
++end function pdfChisq
+
+Modified: trunk/jt4/simjt4.f90
+===================================================================
+--- trunk/jt4/simjt4.f90	2013-02-05 16:16:31 UTC (rev 2996)
++++ trunk/jt4/simjt4.f90	2013-02-20 13:55:51 UTC (rev 2997)
+@@ -1,25 +1,25 @@
+ program simjt4
+ 
+   parameter (NMAX=100)
+-  real*4 ps(0:NMAX)
+-  real*4 pn(0:NMAX)
+-  real*4 sym(0:1,207)
++  real*4 sym(0:1,206)
+   real*8 sum0,sum1,sumcycles
+   character arg*12,c72*72
+   character*22 msg,decoded
+   integer icode(206)
+-  integer*1 icode1(206),i10,i11
++  integer imsg(72)
++  logical iknown(72)
+   integer mettab(0:255,0:1)             !Metric table
+   integer*1 symbol(206)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+-  real log2
+-  log2(x)=log(x)/log(2.0)
++  common/pspncom/ps(0:NMAX),pn(0:NMAX),scale
++  common/jt4com1/imsg6(12)
+ 
+   nargs=iargc()
+-  if(nargs.ne.7) then
+-     print*,'Usage: simjt4 nadd scale ndelta limit known snr iters'
++  if(nargs.ne.9) then
++     print*,'Usage: simjt4 nadd scale ndelta limit known snr nmet amp iters'
++     print*,'               1    10.0   30   10000   0    0    1   3   100'
+      go to 999
+   endif
+ 
+@@ -36,25 +36,39 @@
+   call getarg(6,arg)
+   read(arg,*) snrdb
+   call getarg(7,arg)
++  read(arg,*) nmet
++  call getarg(8,arg)
++  read(arg,*) amp
++  call getarg(9,arg)
+   read(arg,*) iters
+ 
++  iknown=.false.
++  xi=1.0
++  do i=1,known
++     iknown(int(xi))=.true.
++     xi=xi + 72.0/known
++  enddo     
++
+   do i=0,NMAX
+      read(13,*) x,pn(i),ps(i)
++     if(pn(i).eq.0.0) pn(i)=1.e-6
++     if(ps(i).eq.0.0) ps(i)=1.e-6
+   enddo
+   call getmet4(7,mettab)
+ 
+   write(*,1010) 
+ 1010 format(/                                                              &amp;
+-  '  EsNo  EbNo  db65    false    fcopy  cycles    ber    ave0    ave1'/  &amp;
+-  '--------------------------------------------------------------------')
++  '  EsNo  EbNo  db65    false    fcopy  cycles    ber    ave0    ave1    time'/  &amp;
++  '----------------------------------------------------------------------------')
+ 
+   msg='CQ K1JT FN20'
+   call encode4(msg,icode)
+-  icode1=icode
+-  call interleave4(icode1,-1)
++  write(c72,1002) imsg6
++1002 format(12b6.6)
++  read(c72,1004) imsg
++1004 format(72i1)
+ 
+-  rate=0.350
+-  baud=nadd*11025.0/2520.0
++  rate=72.0/206.0
+   nbits=72+31
+   maxlim=0
+ 
+@@ -65,7 +79,7 @@
+      EsNo=idb
+      if(snrdb.ne.0.0) EsNo=snrdb
+      EbNo=EsNo - 10.0*log10(rate)
+-     db65=EsNo - 10.0*log10(2500.0/baud)
++     db65=EsNo - 10.0*log10(2500.0/(nadd*11025.0/2520.0))
+      sig=sqrt(10.0**(0.1*EsNo))                !Signal level
+ 
+      ngood=0
+@@ -74,6 +88,8 @@
+      sumcycles=0.d0
+      sum0=0.d0
+      sum1=0.d0
++     ttotal=0.
++
+      do iter=1,iters
+         do j=1,206                            !Simulate received 2-FSK symbols
+            s0=0.
+@@ -110,28 +126,18 @@
+            if(icode(j).eq.1 .and. sym(1,j).lt.sym(0,j)) nb=nb+1
+            if(icode(j).eq.0 .and. sym(1,j).ge.sym(0,j)) nb=nb+1
+         enddo
+-        call interleave4(symbol,-1)         !Remove interleaving
++        call interleave4(symbol,-1)                !Remove interleaving
++        call interleave4a(sym,-1)
+ 
+-        if(known.gt.0) then
+-           i10=64
+-           i11=-64
+-!           do j=1,2*known
+-           kused=0
+-           nalt=103/known
+-           do j=1,206,2*nalt
+-              if(icode1(j).eq.0) symbol(j)=i10
+-              if(icode1(j).eq.1) symbol(j)=i11
+-              if(icode1(j+1).eq.0) symbol(j+1)=i10
+-              if(icode1(j+1).eq.1) symbol(j+1)=i11
+-              kused=kused+1
+-              if(kused.ge.known) exit
+-           enddo
+-        endif
+-        call fano232(symbol,nbits,mettab,ndelta,limit,data1,ncycles,   &amp;
+-             metric,ncount)
+-        nlim=ncycles/nbits
+-        maxlim=max(maxlim,nlim)
+-        sumcycles=sumcycles+nlim
++        call cpu_time(t0)
++        call fano232(symbol,sym,nadd,nmet,amp,iknown,imsg,nbits,mettab,   &amp;
++             ndelta,limit,data1,ncycles,metric,ncount)
++        call cpu_time(t1)
++        ttotal=ttotal + (t1-t0)
++
++        nAvgCycles=ncycles/nbits
++        maxlim=max(maxlim,nAvgCycles)
++        sumcycles=sumcycles+nAvgCycles
+         if(ncount.eq.0) then
+            do i=1,9
+               i4=data1(i)
+@@ -158,9 +164,10 @@
+      ber=nbadbit/((ngood+1)*206.0)
+      ave0=sum0/(iters*206.d0)
+      ave1=sum1/(iters*206.d0)
++     tavg=ttotal/iters
+      write(*,1020)  EsNo,EbNo,db65,ffalse,fgood,nint(avecycles),  &amp;
+-          ber,ave0,ave1
+-1020 format(3f6.1,2f9.4,i7,3f8.3)
++          ber,ave0,ave1,tavg
++1020 format(3f6.1,2f9.4,i7,4f8.3)
+      if(fgood.eq.0) exit
+   enddo
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002688.html">[WSJT-SVN] r2996 - in trunk: . jt4
+</A></li>
+	<LI>Next message: <A HREF="002690.html">[WSJT-SVN] r2998 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2689">[ date ]</a>
+              <a href="thread.html#2689">[ thread ]</a>
+              <a href="subject.html#2689">[ subject ]</a>
+              <a href="author.html#2689">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

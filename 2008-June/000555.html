@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r867 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r867%20-%20branches/wspr&In-Reply-To=%3C200806110226.m5B2Q3h7025012%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000554.html">
+   <LINK REL="Next"  HREF="000556.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r867 - branches/wspr</H1>
+    <B>w1bw at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r867%20-%20branches/wspr&In-Reply-To=%3C200806110226.m5B2Q3h7025012%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r867 - branches/wspr">w1bw at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 11 04:26:03 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000554.html">[WSJT-SVN] r866 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000556.html">[WSJT-SVN] r868 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#555">[ date ]</a>
+              <a href="thread.html#555">[ thread ]</a>
+              <a href="subject.html#555">[ subject ]</a>
+              <a href="author.html#555">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: w1bw
+Date: 2008-06-11 04:26:00 +0200 (Wed, 11 Jun 2008)
+New Revision: 867
+
+Modified:
+   branches/wspr/mept162.F
+   branches/wspr/wspr.py
+Log:
+Pass the same values to decoded.txt as ALL_METP.txt and
+parse them correctly on the python side so uploading works
+again.  Clean up formatting of decoded spots txt in GUI. 
+--w1bw
+
+
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2008-06-10 21:06:11 UTC (rev 866)
++++ branches/wspr/mept162.F	2008-06-11 02:26:00 UTC (rev 867)
+@@ -85,9 +85,9 @@
+             write(13,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
+      +           ncycles/81,ii
+             close(13)
++            write(14,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
++     +           ncycles/81,ii
+  1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
+-            write(14,1012) datetime(8:11),nsnrx,dtx,freq,nf1,message
+- 1012       format(a4,i4,f5.1,f11.6,i3,2x,a22)
+             i1=index(message,' ')
+             call bestdx(datetime,message(i1+1:i1+4))
+          endif
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-06-10 21:06:11 UTC (rev 866)
++++ branches/wspr/wspr.py	2008-06-11 02:26:00 UTC (rev 867)
+@@ -411,37 +411,31 @@
+ def get_decoded():
+     global bandmap,bm,newdat,loopall
+     
+-# Get lines from decoded.txt
++# Get lines from decoded.txt and parse them into an array of fields
+     try:
+         f=open(appdir+'/decoded.txt',mode='r')
+-        lines=f.readlines()
++        lines = [line.split() for line in f]
+         f.close()
+-        if lines[0][:4]==&quot;$EOF&quot;: lines=&quot;&quot;
++	if len(lines) &gt; 0 and lines[0][0] == '$EOF': lines = []
+     except:
+-        lines=&quot;&quot;
+-        
+-    if upload.get():
+-        #Dispatch autologger thread.
+-        thread.start_new_thread(autolog, (lines,f0),)
++        lines=[]
+ 
++
+     if len(lines)&gt;0:
+ #  Write data to text box and insert freqs and calls into bandmap.
+         text.configure(state=NORMAL)
+         nseq=0
+         nfmid=int(1.0e6*fmid)%1000
+-        for i in range(len(lines)):
+-            if len(lines[i])&lt;6: break                    #Skip $EOF
+-            text.insert(END,lines[i][:51]+&quot;\n&quot;)
+-            callsign=lines[i][29:36]
+-            if callsign[:1] != ' ':
+-                i1=callsign.find(' ')
+-                callsign=callsign[:i1]
+-                try:
+-                    nseq=60*int(lines[i][0:2]) + int(lines[i][2:4])
+-                    ndf=int(lines[i][21:24])
+-                    bm[callsign]=(ndf,nseq)
+-                except:
+-                    pass
++        for fields in lines:
++            if fields[0] == '$EOF': break
++            text.insert(END, &quot;%4s %3s %4s %10s %-6s %4s %3s\n&quot; % (fields[1],fields[3],fields[4],fields[5],fields[6],fields[7],fields[8]))
++            callsign=fields[6]
++            try:
++                nseq=60*int(fields[1][0:2]) + int(fields[1][2:4])
++                ndf=int(fields[5][-3:])
++                bm[callsign]=(ndf,nseq)
++            except:
++                pass
+         text.configure(state=DISABLED)
+         text.see(END)
+ 
+@@ -473,10 +467,14 @@
+         text1.configure(state=DISABLED)
+         text1.see(END)
+ 
++    if upload.get():
++        #Dispatch autologger thread.
++        thread.start_new_thread(autolog, (lines,))
++
+     if loopall: opennext()
+ 
+ #------------------------------------------------------ autologger
+-def autolog(lines,f0):
++def autolog(lines):
+     # Random delay of up to 15 seconds to spread load out on server --W1BW
+     time.sleep(random.random() * 15.0)
+ 
+@@ -487,42 +485,41 @@
+         #       only upload in batch form vs real-time.
+         # Any spots to upload?
+         if len(lines) &gt; 0:
+-            for i in range(len(lines)):
+-                if len(lines[i])&lt;6: break                    #Skip $EOF            
+-                acallsign=lines[i][42:49]
+-                if acallsign[:1] != ' ':
+-                    foo = lines[i].split()
+-                    # foo now contains a list as follows
+-                    #  date,     time, signal,  dt,     freq,     drift, width   call,  grid,   dBm,  (extra params ...)
+-                    #    0         1      2      3        4         5      6       7      8      9         10       11
+-                    # example:
+-                    #['080322', '1834', '-14', '0.1', '10.140141', '-1', 'K7EK', 'CN87', '33', '11.1', '10051757', '40']
+-                    # now to format as a string to use for autologger upload using urlencode
+-                    # so we get a string formatted for http get/put operations:
+-                    reportparams = urllib.urlencode({'function': 'wspr',
+-                                                     'dt': str(foo[3]), \
+-                                                     'rcall': options.MyCall.get(), \
+-                                                     'rgrid': options.MyGrid.get(), 'rqrg': str(f0), \
+-                                                     'date': str(foo[0]), 'time': str(foo[1]), \
+-                                                     'sig': str(foo[2]), 'tqrg': str(foo[4]), \
+-                                                     'drift': str(foo[5]), 'width': str(foo[6]), \
+-                                                     'tcall': str(foo[7]), 'tgrid': str(foo[8]), \
+-                                                     'dbm': str(foo[9]), 'version': Version})
+-                    # reportparams now contains a properly formed http request string for
+-                    # the agreed upon format between W6CQZ and N8FQ.
+-                    # any other data collection point can be added as desired if it conforms
+-                    # to the 'standard format' defined above.
+-                    # The following opens a url and passes the reception report to the database
+-                    # insertion handler for W6CQZ:
+-                    #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
+-                    # The following opens a url and passes the reception report to the
+-                    # database insertion handler from W1BW:
+-                    urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
+-                                      % reportparams)
+-                    reply = urlf.readlines()
+-                    #for r in reply:
+-                    #    print r
+-                    urlf.close()
++            for fields in lines:
++                if fields[0] == '$EOF': break
++                # now to format as a string to use for autologger upload using urlencode
++                # so we get a string formatted for http get/put operations:
++                reportparams = urllib.urlencode({'function': 'wspr',
++                                                 'rcall': options.MyCall.get(),
++                                                 'rgrid': options.MyGrid.get(),
++                                                 'rqrg': str(f0),
++                                                 'date': str(fields[0]),
++                                                 'time': str(fields[1]),
++                                                 #'sync': str(fields[2]),
++                                                 'sig': str(fields[3]),
++                                                 'dt': str(fields[4]),
++                                                 'tqrg': str(fields[5]),
++                                                 #'drift': str(fields[5]),
++                                                 #'width': str(fields[6]),
++                                                 'tcall': str(fields[6]),
++                                                 'tgrid': str(fields[7]),
++                                                 'dbm': str(fields[8]),
++                                                 'version': Version})
++                # reportparams now contains a properly formed http request string for
++                # the agreed upon format between W6CQZ and N8FQ.
++                # any other data collection point can be added as desired if it conforms
++                # to the 'standard format' defined above.
++                # The following opens a url and passes the reception report to the database
++                # insertion handler for W6CQZ:
++                #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
++                # The following opens a url and passes the reception report to the
++                # database insertion handler from W1BW:
++                urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
++                                  % reportparams)
++                reply = urlf.readlines()
++                #for r in reply:
++                #    print r
++                urlf.close()
+         else:
+             # No spots to report, so upload status message instead. --W1BW
+             reportparams = urllib.urlencode({'function': 'wsprstat',
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000554.html">[WSJT-SVN] r866 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000556.html">[WSJT-SVN] r868 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#555">[ date ]</a>
+              <a href="thread.html#555">[ thread ]</a>
+              <a href="subject.html#555">[ subject ]</a>
+              <a href="author.html#555">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

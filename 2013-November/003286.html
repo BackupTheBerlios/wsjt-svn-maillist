@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3593 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3593%20-%20branches/map65&In-Reply-To=%3C20131103202814.DE82855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003285.html">
+   <LINK REL="Next"  HREF="003287.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3593 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3593%20-%20branches/map65&In-Reply-To=%3C20131103202814.DE82855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3593 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Nov  3 21:28:14 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003285.html">[WSJT-SVN] r3592 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="003287.html">[WSJT-SVN] r3594 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3286">[ date ]</a>
+              <a href="thread.html#3286">[ thread ]</a>
+              <a href="subject.html#3286">[ subject ]</a>
+              <a href="author.html#3286">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-11-03 21:28:14 +0100 (Sun, 03 Nov 2013)
+New Revision: 3593
+
+Modified:
+   branches/map65/mainwindow.cpp
+   branches/map65/plotter.cpp
+   branches/map65/plotter.h
+   branches/map65/widegraph.cpp
+   branches/map65/widegraph.h
+Log:
+More progress toward support of IQ+ XT.
+
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2013-11-03 19:30:00 UTC (rev 3592)
++++ branches/map65/mainwindow.cpp	2013-11-03 20:28:14 UTC (rev 3593)
+@@ -1401,6 +1401,9 @@
+         sprintf(s,&quot;Cannot open COM%d&quot;,m_pttPort);
+         msgBox(s);
+       }
++
++      if(m_bIQxt) g_pWideGraph-&gt;tx570();     // Set Si570 to Tx Freq
++
+       if(!soundOutThread.isRunning()) {
+         soundOutThread.start(QThread::HighPriority);
+       }
+@@ -1465,6 +1468,7 @@
+   if(!btxok &amp;&amp; btxok0 &amp;&amp; iptt==1) nc0=-11;  //RxDelay = 1.0 s
+   if(nc0 &lt;= 0) nc0++;
+   if(nc0 == 0) {
++    if(m_bIQxt) g_pWideGraph-&gt;rx570();     // Set Si570 back to Rx Freq
+     int itx=0;
+     ptt_(&amp;m_pttPort,&amp;itx,&amp;iptt);       // Lower PTT
+     if(!m_txMute) soundOutThread.quitExecution=true;
+
+Modified: branches/map65/plotter.cpp
+===================================================================
+--- branches/map65/plotter.cpp	2013-11-03 19:30:00 UTC (rev 3592)
++++ branches/map65/plotter.cpp	2013-11-03 20:28:14 UTC (rev 3593)
+@@ -757,3 +757,8 @@
+     update();                              //trigger a new paintEvent}
+   }
+ }
++
++double CPlotter::txFreq()
++{
++  return m_TXfreq + 0.000001*m_TxDF;
++}
+
+Modified: branches/map65/plotter.h
+===================================================================
+--- branches/map65/plotter.h	2013-11-03 19:30:00 UTC (rev 3592)
++++ branches/map65/plotter.h	2013-11-03 20:28:14 UTC (rev 3593)
+@@ -69,6 +69,7 @@
+   void set2Dspec(bool b);
+   double fGreen();
+   void setLockTxRx(bool b);
++  double txFreq();
+ 
+ signals:
+   void freezeDecode0(int n);
+
+Modified: branches/map65/widegraph.cpp
+===================================================================
+--- branches/map65/widegraph.cpp	2013-11-03 19:30:00 UTC (rev 3592)
++++ branches/map65/widegraph.cpp	2013-11-03 20:28:14 UTC (rev 3593)
+@@ -331,3 +331,34 @@
+   m_bLockTxRx = (n!=0);
+   ui-&gt;widePlot-&gt;setLockTxRx(m_bLockTxRx);
+ }
++
++void WideGraph::rx570()
++{
++  double f=m_mult570*(1.0+0.000001*m_cal570)*m_dForceCenterFreq;
++  qDebug() &lt;&lt; &quot;Set Rx Freq&quot; &lt;&lt; m_dForceCenterFreq &lt;&lt; f;
++#ifdef WIN32
++  int iret=set570(f);
++  if(iret != 0) {
++    QMessageBox mb;
++    if(iret==-1) mb.setText(&quot;Failed to open Si570.&quot;);
++    if(iret==-2) mb.setText(&quot;Frequency out of permitted range.&quot;);
++    mb.exec();
++  }
++#endif
++}
++
++void WideGraph::tx570()
++{
++  double f=floor(datcom_.fcenter) + ui-&gt;widePlot-&gt;txFreq();
++  double f1=m_mult570Tx*(1.0+0.000001*m_cal570) * f;
++  qDebug() &lt;&lt; &quot;Set Tx Freq&quot; &lt;&lt; f &lt;&lt; f1;
++#ifdef WIN32
++  int iret=set570(f1);
++  if(iret != 0) {
++    QMessageBox mb;
++    if(iret==-1) mb.setText(&quot;Failed to open Si570.&quot;);
++    if(iret==-2) mb.setText(&quot;Frequency out of permitted range.&quot;);
++    mb.exec();
++  }
++#endif
++}
+
+Modified: branches/map65/widegraph.h
+===================================================================
+--- branches/map65/widegraph.h	2013-11-03 19:30:00 UTC (rev 3592)
++++ branches/map65/widegraph.h	2013-11-03 20:28:14 UTC (rev 3593)
+@@ -38,6 +38,8 @@
+   void   setMode65(int n);
+   void   setPeriod(int n);
+   double fGreen();
++  void   rx570();
++  void   tx570();
+ 
+   qint32 m_qsoFreq;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003285.html">[WSJT-SVN] r3592 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="003287.html">[WSJT-SVN] r3594 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3286">[ date ]</a>
+              <a href="thread.html#3286">[ thread ]</a>
+              <a href="subject.html#3286">[ subject ]</a>
+              <a href="author.html#3286">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

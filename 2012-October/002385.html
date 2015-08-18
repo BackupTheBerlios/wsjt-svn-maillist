@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2693 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2693%20-%20branches/wsjtx&In-Reply-To=%3C20121026140343.8F3D455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002384.html">
+   <LINK REL="Next"  HREF="002386.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2693 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2693%20-%20branches/wsjtx&In-Reply-To=%3C20121026140343.8F3D455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2693 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Oct 26 16:03:43 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002384.html">[WSJT-SVN] r2692 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002386.html">[WSJT-SVN] r2694 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2385">[ date ]</a>
+              <a href="thread.html#2385">[ thread ]</a>
+              <a href="subject.html#2385">[ subject ]</a>
+              <a href="author.html#2385">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-26 16:03:43 +0200 (Fri, 26 Oct 2012)
+New Revision: 2693
+
+Modified:
+   branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+   branches/wsjtx/wsjtx.iss
+Log:
+Implement adding Tx audio noise via &quot;TxSNR&quot;.
+
+
+Modified: branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-25 16:50:00 UTC (rev 2692)
++++ branches/wsjtx/mainwindow.cpp	2012-10-26 14:03:43 UTC (rev 2693)
+@@ -13,7 +13,6 @@
+ double outputLatency;                 //Latency in seconds
+ float c0[2*1800*1500];
+ 
+-
+ WideGraph* g_pWideGraph = NULL;
+ 
+ QString rev=&quot;$Rev$&quot;;
+@@ -891,6 +890,11 @@
+         msgBox(s);
+       }
+       if(!soundOutThread.isRunning()) {
++        QString t=ui-&gt;tx6-&gt;text();
++        double snr=t.mid(1,5).toDouble();
++        if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
++        soundOutThread.setTxSNR(snr);
++        qDebug() &lt;&lt; t &lt;&lt; snr;
+         soundOutThread.start(QThread::HighPriority);
+       }
+     }
+@@ -1264,6 +1268,9 @@
+ {
+   QString t=ui-&gt;tx6-&gt;text();
+   msgtype(t, ui-&gt;tx6);
++  double snr=t.mid(1,5).toDouble();
++  if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
++  soundOutThread.setTxSNR(snr);
+ }
+ 
+ void MainWindow::on_dxCallEntry_textChanged(const QString &amp;t) //dxCall changed
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-10-25 16:50:00 UTC (rev 2692)
++++ branches/wsjtx/soundout.cpp	2012-10-26 14:03:43 UTC (rev 2693)
+@@ -12,12 +12,13 @@
+ 
+ typedef struct   //Parameters sent to or received from callback function
+ {
+-  int nsps;
+-  int ntrperiod;
+-  int ntxfreq;
+-  bool txOK;
+-  bool txMute;
+-  bool bRestart;
++  double txsnrdb;
++  int    nsps;
++  int    ntrperiod;
++  int    ntxfreq;
++  bool   txOK;
++  bool   txMute;
++  bool   bRestart;
+ } paUserData;
+ 
+ //--------------------------------------------------------------- d2aCallback
+@@ -35,6 +36,8 @@
+   static double phi=0.0;
+   static double dphi;
+   static double freq;
++  static double snr;
++  static double fac;
+   static int ic=0;
+   static short int i2;
+ 
+@@ -44,27 +47,29 @@
+     int mstr = ms % (1000*udata-&gt;ntrperiod );
+     if(mstr&lt;1000) return 0;
+     ic=(mstr-1000)*12;
+-//    qDebug() &lt;&lt; &quot;Start at:&quot; &lt;&lt; 0.001*mstr &lt;&lt; udata-&gt;ntxfreq;
+     udata-&gt;bRestart=false;
+   }
+   int isym=ic/udata-&gt;nsps;
+   if(isym&gt;=85) return 0;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/12000.0;
+-/*
+-  if(ic&lt;10000) qDebug() &lt;&lt; &quot;a&quot; &lt;&lt; ic &lt;&lt; udata-&gt;nsps &lt;&lt; itone[0]
+-                        &lt;&lt; itone[1] &lt;&lt; itone[2] &lt;&lt; itone[3] &lt;&lt; itone[4]
+-                        &lt;&lt; itone[5] &lt;&lt; itone[6] &lt;&lt; itone[7] &lt;&lt; itone[8]
+-                        &lt;&lt; itone[9] &lt;&lt; itone[10] &lt;&lt; itone[11] &lt;&lt; itone[12]
+-                        &lt;&lt; itone[13] &lt;&lt; itone[14] &lt;&lt; itone[15] &lt;&lt; itone[16];
+-                        */
+-  //if(ic&lt;10000) qDebug() &lt;&lt; ic &lt;&lt; isym &lt;&lt; freq &lt;&lt; dphi &lt;&lt; phi &lt;&lt; i2;
++  if(udata-&gt;txsnrdb &lt; 0.0) {
++    snr=pow(10.0,0.05*(udata-&gt;txsnrdb-1.0));
++    fac=3000.0;
++    if(snr&gt;1.0) fac=3000.0/snr;
++  }
+ 
+-  for(int i=0 ; i&lt;framesToProcess; i++ )  {
++  for(uint i=0 ; i&lt;framesToProcess; i++ )  {
+     phi += dphi;
+     if(phi&gt;twopi) phi -= twopi;
+     i2=32767.0*sin(phi);
+ //      i2 = 500.0*(i2/32767.0 + 5.0*gran());      //Add noise (tests only!)
++    if(udata-&gt;txsnrdb &lt; 0.0) {
++      int i4=fac*(gran() + i2*snr/32768.0);
++      if(i4&gt;32767) i4=32767;
++      if(i4&lt;-32767) i4=-32767;
++      i2=i4;
++    }
+     /*
+     if(udata-&gt;txMute) i2=0;
+     if(!udata-&gt;txOK)  i2=0;
+@@ -97,6 +102,7 @@
+     return;
+   }
+ 
++  udata.txsnrdb=99.0;
+   udata.nsps=m_nsps;
+   udata.ntrperiod=m_TRperiod;
+   udata.ntxfreq=m_txFreq;
+@@ -127,6 +133,7 @@
+     qe = quitExecution;
+     if (qe) break;
+ 
++    udata.txsnrdb=m_txsnrdb;
+     udata.nsps=m_nsps;
+     udata.ntrperiod=m_TRperiod;
+     udata.ntxfreq=m_txFreq;
+@@ -154,3 +161,9 @@
+ {
+   m_txFreq=n;
+ }
++
++
++void SoundOutThread::setTxSNR(double snr)
++{
++  m_txsnrdb=snr;
++}
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2012-10-25 16:50:00 UTC (rev 2692)
++++ branches/wsjtx/soundout.h	2012-10-26 14:03:43 UTC (rev 2693)
+@@ -27,16 +27,18 @@
+   void setOutputDevice(qint32 n);
+   void setPeriod(int ntrperiod, int nsps);
+   void setTxFreq(int n);
++  void setTxSNR(double snr);
+   bool quitExecution;           //If true, thread exits gracefully
+ 
+ // Private members
+ private:
++  double  m_txsnrdb;            //if &lt; 0, add noise to Tx audio
+   qint32  m_nDevOut;            //Output device number
+-  bool    m_txOK;               //Enable Tx audio
+-  bool    m_txMute;             //Mute temporarily
+   qint32  m_TRperiod;           //T/R period (s)
+   qint32  m_nsps;               //Samples per symbol (at 12000 Hz)
+   qint32  m_txFreq;
++  bool    m_txOK;               //Enable Tx audio
++  bool    m_txMute;             //Mute temporarily
+ };
+ 
+ #endif
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-10-25 16:50:00 UTC (rev 2692)
++++ branches/wsjtx/wsjtx.iss	2012-10-26 14:03:43 UTC (rev 2693)
+@@ -10,7 +10,9 @@
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\wsjt.ico&quot;;          DestDir: &quot;{app}&quot;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\afmhot.dat&quot;;        DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\blue.dat&quot;;          DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\wsjtx_install\WSJT-X_Quick_Start_Guide.pdf&quot;;  DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\met8.21&quot;;           DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Quick_Start_Guide.pdf&quot;;  DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\QtSupport\*.dll&quot;;                 DestDir: &quot;{sys}&quot;;  Flags: onlyifdoesntexist
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\save\000000_0000.wav&quot;; DestDir: &quot;{app}\save&quot;;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002384.html">[WSJT-SVN] r2692 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002386.html">[WSJT-SVN] r2694 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2385">[ date ]</a>
+              <a href="thread.html#2385">[ thread ]</a>
+              <a href="subject.html#2385">[ subject ]</a>
+              <a href="author.html#2385">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

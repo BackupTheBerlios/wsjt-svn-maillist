@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1054 - branches/map65iq
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1054%20-%20branches/map65iq&In-Reply-To=%3C200902131431.n1DEVfHJ008635%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000747.html">
+   <LINK REL="Next"  HREF="000749.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1054 - branches/map65iq</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1054%20-%20branches/map65iq&In-Reply-To=%3C200902131431.n1DEVfHJ008635%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1054 - branches/map65iq">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Feb 13 15:31:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000747.html">[WSJT-SVN] r1053 - branches/map65iq
+</A></li>
+        <LI>Next message: <A HREF="000749.html">[WSJT-SVN] r1055 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#748">[ date ]</a>
+              <a href="thread.html#748">[ thread ]</a>
+              <a href="subject.html#748">[ subject ]</a>
+              <a href="author.html#748">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-02-13 15:31:39 +0100 (Fri, 13 Feb 2009)
+New Revision: 1054
+
+Modified:
+   branches/map65iq/map65a.F90
+Log:
+Removed base(4), phi fitting, iloop, ...
+
+
+Modified: branches/map65iq/map65a.F90
+===================================================================
+--- branches/map65iq/map65a.F90	2009-02-12 20:40:17 UTC (rev 1053)
++++ branches/map65iq/map65a.F90	2009-02-13 14:31:39 UTC (rev 1054)
+@@ -4,7 +4,6 @@
+ 
+   parameter (MAXMSG=1000)            !Size of decoded message list
+   real tavg(-50:50)                  !Temp for finding local base level
+-  real base(4)                       !Local basel level at 4 pol'ns
+   real tmp (200)                     !Temp storage for pctile sorting
+   real sig(MAXMSG,30)                !Parameters of detected signals
+   real a(5)
+@@ -15,7 +14,6 @@
+   character decoded*22,blank*22
+   include 'spcom.f90'
+   real short(3,NFFT)                 !SNR dt ipol for potential shorthands
+-  real qphi(12)
+   include 'gcom2.f90'
+   include 'datcom.f90'
+   data blank/'                      '/
+@@ -51,7 +49,6 @@
+   ftol=0.020                          !Frequency tolerance (kHz)
+   foffset=0.001*(1270 + nfcal)
+   fselect=mfqso + foffset
+-  dphi=idphi/57.2957795
+ 
+   do i=12,3,-1
+      if(hiscall(i:i).ne.' ') go to 1
+@@ -59,8 +56,6 @@
+   i=0
+ 1 len_hiscall=i
+ 
+-  iloop=0
+-2 if(ndphi.eq.1) dphi=30*iloop/57.2957795
+   do nqd=1,0,-1
+      if(nqd.eq.1) then                     !Quick decode, at fQSO
+         fa=1000.0*(fselect+0.001*mousedf-100.0) - dftolerance
+@@ -92,31 +87,26 @@
+      do i=ia,ib                               !Search over freq range
+         call sleep_msec(0)
+         freq=0.001*((i-1)*df - 23000) + 100.0
+-!  Find the local base level for each polarization; update every 10 bins.
++!  Find the local base level; update every 10 bins.
+         if(mod(i-ia,10).eq.0) then
+-           do jp=1,4
+-              do ii=-50,50
+-                 iii=i+ii
+-                 if(iii.ge.1 .and. iii.le.32768) then
+-                    tavg(ii)=savg(jp,iii)
+-                 else
+-                    print*,'Error in iii:',iii,ia,ib,fa,fb
+-                    go to 999
+-                 endif
+-              enddo
+-              call pctile(tavg,tmp,101,50,base(jp))
++           do ii=-50,50
++              iii=i+ii
++              if(iii.ge.1 .and. iii.le.32768) then
++                 tavg(ii)=savg(1,iii)
++              else
++                 print*,'Error in iii:',iii,ia,ib,fa,fb
++                 go to 999
++              endif
+            enddo
+-           bmax=max(base(1),base(2),base(3),base(4))
++           call pctile(tavg,tmp,101,50,base)
+         endif
+ 
+ !  Do not process extremely strong signals
+-        if(nqd.eq.0 .and. bmax.gt.1000.0) go to 70
++        if(nqd.eq.0 .and. base.gt.1000.0) go to 70
+ 
+ !  Find max signal at this frequency
+         smax=0.
+-        do jp=1,4
+-           if(savg(jp,i)/base(jp).gt.smax) smax=savg(jp,i)/base(jp)
+-        enddo
++        if(savg(1,i)/base.gt.smax) smax=savg(1,i)/base
+ 
+         if(smax.gt.1.1) then
+            ntry=ntry+1
+@@ -218,7 +208,6 @@
+                  sig(km,8)=sync2
+                  sig(km,9)=nkv
+                  sig(km,10)=qual
+-!                 sig(km,11)=idphi
+                  sig(km,12)=savg(ipol,i)
+                  sig(km,13)=a(1)
+                  sig(km,14)=a(2)
+@@ -249,7 +238,6 @@
+               sync2=sig(k,8)
+               nkv=sig(k,9)
+               nqual=sig(k,10)
+-!              idphi=nint(sig(k,11))
+               if(flip.lt.0.0) then
+                  do i=22,1,-1
+                     if(decoded(i:i).ne.' ') go to 8
+@@ -269,17 +257,8 @@
+               if(decoded(1:4).eq.'RO  ' .or. decoded(1:4).eq.'RRR  ' .or.  &amp;
+                  decoded(1:4).eq.'73  ') nsync2=nsync2-6
+               nwrite=nwrite+1
+-              if(ndphi.eq.0) then
+-                 write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
+-1010             format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
+-              else
+-		 if(iloop.ge.1) qphi(iloop)=sig(k,10)
+-                 write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,  &amp;
+-                      nqual,30*iloop
+-                 write(27,1011) 30*iloop,nkHz,ndf,npol,nutc,  &amp;
+-                      dt,sync2,nkv,nqual,decoded
+-1011             format(i3,i4,i5,i4,i5.4,f5.1,f7.1,i3,i5,2x,a22)
+-              endif
++              write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
++1010          format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
+            endif
+         enddo
+         if(nwrite.eq.0) then
+@@ -289,11 +268,6 @@
+         endif
+    
+      endif
+-     if(ndphi.eq.1 .and.iloop.lt.12) then
+-        iloop=iloop+1
+-        go to 2
+-     endif
+-     if(ndphi.eq.1 .and.iloop.eq.12) call getdphi(qphi)
+      if(nqd.eq.1) then
+         write(11,*) '$EOF'
+         call flushqqq(11)
+@@ -379,7 +353,6 @@
+        fnamedate,savedir)
+ 
+ 999 close(23)
+-  ndphi=0
+   if(kbuf.eq.1) kkdone=60*96000
+   if(kbuf.eq.2 .or. ndiskdat.eq.1) kkdone=0
+   kk=kkdone
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000747.html">[WSJT-SVN] r1053 - branches/map65iq
+</A></li>
+	<LI>Next message: <A HREF="000749.html">[WSJT-SVN] r1055 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#748">[ date ]</a>
+              <a href="thread.html#748">[ thread ]</a>
+              <a href="subject.html#748">[ subject ]</a>
+              <a href="author.html#748">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

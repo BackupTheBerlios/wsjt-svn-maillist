@@ -1,0 +1,301 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1858 - in branches/wsjt8a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1858%20-%20in%20branches/wsjt8a%3A%20.%20WsjtMod&In-Reply-To=%3C201003291832.o2TIWIUT003600%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001549.html">
+   <LINK REL="Next"  HREF="001551.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1858 - in branches/wsjt8a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1858%20-%20in%20branches/wsjt8a%3A%20.%20WsjtMod&In-Reply-To=%3C201003291832.o2TIWIUT003600%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1858 - in branches/wsjt8a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 29 20:32:18 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001549.html">[WSJT-SVN] r1857 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001551.html">[WSJT-SVN] r1859 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1550">[ date ]</a>
+              <a href="thread.html#1550">[ thread ]</a>
+              <a href="subject.html#1550">[ subject ]</a>
+              <a href="author.html#1550">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-29 20:32:14 +0200 (Mon, 29 Mar 2010)
+New Revision: 1858
+
+Modified:
+   branches/wsjt8a/WsjtMod/options.py
+   branches/wsjt8a/a2d.f90
+   branches/wsjt8a/gcom2.f90
+   branches/wsjt8a/jtaudio.c
+   branches/wsjt8a/wsjt.py
+Log:
+First cut at putting WSPR-style selection of audio devices into WSJT.
+
+
+Modified: branches/wsjt8a/WsjtMod/options.py
+===================================================================
+--- branches/wsjt8a/WsjtMod/options.py	2010-03-29 16:39:47 UTC (rev 1857)
++++ branches/wsjt8a/WsjtMod/options.py	2010-03-29 18:32:14 UTC (rev 1858)
+@@ -36,6 +36,8 @@
+ ComPort=IntVar()
+ PttPort=StringVar()
+ g.ndefault=1
++inbad=IntVar()
++outbad=IntVar()
+ ndevin=IntVar()
+ ndevout=IntVar()
+ ntc=IntVar()
+@@ -57,6 +59,50 @@
+ auxdec=StringVar()
+ azeldir=StringVar()
+ 
++if g.Win32:
++    serialportlist=(&quot;None&quot;,&quot;COM1&quot;,&quot;COM2&quot;,&quot;COM3&quot;,&quot;COM4&quot;,&quot;COM5&quot;,&quot;COM6&quot;, \
++        &quot;COM7&quot;,&quot;COM8&quot;,&quot;COM9&quot;,&quot;COM10&quot;,&quot;COM11&quot;,&quot;COM12&quot;,&quot;COM13&quot;,&quot;COM14&quot;,&quot;COM15&quot;)
++else:
++    serialportlist=(&quot;None&quot;,&quot;/dev/ttyS0&quot;,&quot;/dev/ttyS1&quot;,&quot;/dev/ttyUSB0&quot;, \
++        &quot;/dev/ttyUSB1&quot;,&quot;/dev/ttyUSB2&quot;,&quot;/dev/ttyUSB3&quot;,&quot;/dev/ttyUSB4&quot;, \
++        &quot;/dev/ttyUSB5&quot;,&quot;/dev/ttyUSB6&quot;,&quot;/dev/ttyUSB7&quot;,&quot;/dev/ttyUSB8&quot;)
++                    
++indevlist=[]
++outdevlist=[]
++
++try:
++    f=open('audio_caps','r')
++    s=f.readlines()
++    f.close
++    t=&quot;Input Devices:\n&quot;
++    for i in range(len(s)):
++        col=s[i].split()
++        if int(col[1])&gt;0:
++            t=str(i) + s[i][29:]
++            t=t[:len(t)-1]
++            indevlist.append(t)
++    for i in range(len(s)):
++        col=s[i].split()
++        if int(col[2])&gt;0:
++            t=str(i) + s[i][29:]
++            t=t[:len(t)-1]
++            outdevlist.append(t)
++except:
++    pass
++
++#------------------------------------------------------ audin
++def audin(event=NONE):
++    g.DevinName.set(DevinName.get())
++    g.ndevin.set(int(DevinName.get()[:2]))
++    
++#------------------------------------------------------ audout
++def audout(event=NONE):
++    g.DevoutName.set(DevoutName.get())
++    g.ndevout.set(int(DevoutName.get()[:2]))
++
++PttPort.set('None')
++
++
+ #---------------------------------------------------------- save()
+ def save():
+     pass
+@@ -165,12 +211,26 @@
+ ##        value='0.2',entry_textvariable=TxDelay)
+ idinterval=Pmw.EntryField(p1,labelpos=W,label_text='ID Interval (m):',
+         value=10,entry_textvariable=IDinterval,entry_width=12)
+-comport=Pmw.EntryField(p1,labelpos=W,label_text='PTT Port:',
+-        value='/dev/ttyS0',entry_textvariable=PttPort,entry_width=12)
+-audioin=Pmw.EntryField(p1,labelpos=W,label_text='Audio In:',
+-        value='0',entry_textvariable=DevinName,entry_width=12)
+-audioout=Pmw.EntryField(p1,labelpos=W,label_text='Audio Out:',
+-        value='0',entry_textvariable=DevoutName,entry_width=12)
++
++##comport=Pmw.EntryField(p1,labelpos=W,label_text='PTT Port:',
++##        value='/dev/ttyS0',entry_textvariable=PttPort,entry_width=12)
++##audioin=Pmw.EntryField(p1,labelpos=W,label_text='Audio In:',
++##        value='0',entry_textvariable=DevinName,entry_width=12)
++##audioout=Pmw.EntryField(p1,labelpos=W,label_text='Audio Out:',
++##        value='0',entry_textvariable=DevoutName,entry_width=12)
++
++audioin=Pmw.ComboBox(p1,labelpos=W,label_text='Audio In:',
++        entry_textvariable=DevinName,entry_width=30,
++        scrolledlist_items=indevlist,selectioncommand=audin)
++audioout=Pmw.ComboBox(p1,labelpos=W,label_text='Audio Out:',
++        entry_textvariable=DevoutName,entry_width=30,
++        scrolledlist_items=outdevlist,selectioncommand=audout)
++##cbptt=Pmw.ComboBox(p1,labelpos=W,label_text='PTT method:',
++##        entry_textvariable=pttmode,entry_width=4,scrolledlist_items=pttlist)
++comport=Pmw.ComboBox(p1,labelpos=W,label_text='PTT port:',
++        entry_textvariable=PttPort,entry_width=12,\
++        scrolledlist_items=serialportlist)
++
+ azeldir_entry=Pmw.EntryField(p1,labelpos=W,label_text='AzElDir:',
+     entry_width=9,value=g.appdir,entry_textvariable=azeldir)
+ 
+
+Modified: branches/wsjt8a/a2d.f90
+===================================================================
+--- branches/wsjt8a/a2d.f90	2010-03-29 16:39:47 UTC (rev 1857)
++++ branches/wsjt8a/a2d.f90	2010-03-29 18:32:14 UTC (rev 1858)
+@@ -10,7 +10,7 @@
+   idevin=iarg                                !Silence compiler warning
+   idevin=ndevin
+   idevout=ndevout
+-  call padevsub(idevin,idevout)
++!  call padevsub(idevin,idevout)
+ 
+   ierr=jtaudio(idevin,idevout,y1,y2,NMAX,iwrite,iwave,nwave,    &amp;
+        12000,NSPB,TRPeriod,TxOK,ndebug,Transmitting,            &amp;
+
+Modified: branches/wsjt8a/gcom2.f90
+===================================================================
+--- branches/wsjt8a/gcom2.f90	2010-03-29 16:39:47 UTC (rev 1857)
++++ branches/wsjt8a/gcom2.f90	2010-03-29 18:32:14 UTC (rev 1858)
+@@ -30,6 +30,7 @@
+ integer ntr            !Are we in 2nd sequence?                 SoundIn
+ integer nmsg           !Length of Tx message                    SoundIn
+ integer nbitsent       !User bits in Tx message                 SoundIn
++integer ndevsok        !Audio devices OK                        GUI
+ integer nsave          !Which files to save?                    GUI
+ integer dftolerance    !DF tolerance (Hz)                       GUI
+ logical LDecoded       !Was a message decoded?                  Decoder
+@@ -101,7 +102,7 @@
+      green(500),ngreen,dgain,dlatency,fecho,iyr,imo,ida,              &amp;
+      ndecoding,ndecoding0,mousebutton,nhighpri,                       &amp;
+      ndecdone,ntc,necho,nfrit,ndither,nsumecho,npingtime,ierr,lauto,  &amp;
+-     mantx,nrestart,ntr,nmsg,nbitsent,                                &amp;
++     mantx,nrestart,ntr,nmsg,nbitsent,ndevsok,                        &amp;
+      nsave,dftolerance,LDecoded,rxdone,monitoring,                    &amp;
+      nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
+      mode4,ndebug,nport,mousedf,nsked,                                &amp;
+
+Modified: branches/wsjt8a/jtaudio.c
+===================================================================
+--- branches/wsjt8a/jtaudio.c	2010-03-29 16:39:47 UTC (rev 1857)
++++ branches/wsjt8a/jtaudio.c	2010-03-29 18:32:14 UTC (rev 1858)
+@@ -350,7 +350,7 @@
+   return(err);
+ }
+ 
+-
++/*
+ int padevsub_(int *idevin, int *idevout)
+ {
+   int numdev,ndefin,ndefout;
+@@ -412,4 +412,4 @@
+ 
+   return 0;
+ }
+-
++*/
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2010-03-29 16:39:47 UTC (rev 1857)
++++ branches/wsjt8a/wsjt.py	2010-03-29 18:32:14 UTC (rev 1858)
+@@ -50,10 +50,13 @@
+     except:
+         pass
+ root_geom=&quot;&quot;
++
++Audio.gcom2.appdir=(appdir+(' '*80))[:80]
++Audio.gcom2.lenappdir=len(appdir)
++i1,i2=Audio.audiodev(0,2)
+ from WsjtMod import options
+ 
+ #------------------------------------------------------ Global variables
+-Audio.gcom2.appdir=(appdir+(' '*80))[:80]
+ Audio.ftn_init()
+ first=1
+ isync=0
+@@ -93,6 +96,8 @@
+ nfreeze=IntVar()
+ nhotaz=0
+ nhotabetter=0
++nin0=0
++nout0=0
+ nopen=0
+ qdecode=IntVar()
+ setseq=IntVar()
+@@ -1284,7 +1289,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nhotaz,nhotabetter,nopen, \
+            im,pim,cmap0,isync,isyncMS,isync6m,isync65,isync_save,idsec, \
+-           first,itol,txsnrdb,tx6alt
++           first,itol,txsnrdb,tx6alt,nin0,nout0
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -1576,9 +1581,33 @@
+     except:
+         pass
+ 
++    if g.ndevin.get()!= nin0 or g.ndevout.get()!=nout0:
++        audio_config()
++        nin0=g.ndevin.get()
++        nout0=g.ndevout.get()
++    if options.inbad.get()==0:
++        msg2.configure(text='',bg='gray85')
++    else:
++        msg2.configure(text='Invalid audio input device.',bg='red')
++    if options.outbad.get()==0:
++        msg3.configure(text='',bg='gray85')
++    else:
++        msg3.configure(text='Invalid audio output device.',bg='red')    
++
+     if altmsg: tx6alt=tx6.get()    
+ # Queue up the next update
+     ldate.after(100,update)
++
++#------------------------------------------------------ audio_config
++def audio_config():
++    inbad,outbad=Audio.audiodev(g.ndevin.get(),g.ndevout.get())
++    options.inbad.set(inbad)
++    options.outbad.set(outbad)
++    if inbad or outbad:
++        Audio.gcom2.ndevsok=0
++        options1()
++    else:
++        Audio.gcom2.ndevsok=1
+     
+ #------------------------------------------------------ Top level frame
+ frame = Frame(root)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001549.html">[WSJT-SVN] r1857 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001551.html">[WSJT-SVN] r1859 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1550">[ date ]</a>
+              <a href="thread.html#1550">[ thread ]</a>
+              <a href="subject.html#1550">[ subject ]</a>
+              <a href="author.html#1550">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

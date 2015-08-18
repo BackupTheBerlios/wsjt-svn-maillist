@@ -1,0 +1,581 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1193 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1193%20-%20branches/wspr&In-Reply-To=%3C200905041629.n44GT5FS008255%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000883.html">
+   <LINK REL="Next"  HREF="000885.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1193 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1193%20-%20branches/wspr&In-Reply-To=%3C200905041629.n44GT5FS008255%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1193 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon May  4 18:29:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000883.html">[WSJT-SVN] r1192 - branches/wsjt8
+</A></li>
+        <LI>Next message: <A HREF="000885.html">[WSJT-SVN] r1194 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#884">[ date ]</a>
+              <a href="thread.html#884">[ thread ]</a>
+              <a href="subject.html#884">[ subject ]</a>
+              <a href="author.html#884">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-05-04 18:28:57 +0200 (Mon, 04 May 2009)
+New Revision: 1193
+
+Modified:
+   branches/wspr/decode.F90
+   branches/wspr/genmept.f
+   branches/wspr/getfile.F90
+   branches/wspr/mept162.F
+   branches/wspr/mix162.f
+   branches/wspr/pctile.f
+   branches/wspr/rx.F90
+   branches/wspr/sound.c
+   branches/wspr/spec162.F
+   branches/wspr/start_threads.c
+   branches/wspr/startdec.F90
+   branches/wspr/startrx.F90
+   branches/wspr/starttx.F90
+   branches/wspr/sync162.f
+   branches/wspr/tx.F90
+   branches/wspr/wspr1.F90
+   branches/wspr/wspr2.F90
+   branches/wspr/xcor162.f
+Log:
+Cleaned up a number of code items that generated compiler warning
+messages.  No changes of significance, however.
+
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/decode.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -4,17 +4,14 @@
+ 
+ #ifdef CVF
+   use dfport
+-#else
+-  integer time
+ #endif
+   character*80 savefile
+ 
+   include 'acom1.f90'
+ 
+   minsync=1
+-  nsec=time()
+   ndec=0
+-  call mept162(thisfile,f0,minsync,iwave,NMAX,rms,nsec,ndec,ierr)
++  call mept162(thisfile,f0,minsync,iwave,NMAX,ndec,ierr)
+   if(nsave.gt.0 .and. ndiskdat.eq.0 .and. ierr.eq.0) then
+      savefile='save/'//outfile
+      npts=114*12000
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/genmept.f	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -2,8 +2,6 @@
+ 
+ C  Encode an MEPT_JT message and generate the corresponding wavefile.
+ 
+-      character*12 call1,call2
+-      character*4 grid,grid2
+       parameter (NMAX=120*12000)     !Max length of wave file
+       character*22 message           !Message to be generated
+       character*22 msg2
+@@ -13,10 +11,8 @@
+       integer*1 symbol(MAXSYM)
+       integer*1 data0(11),i1
+       integer npr3(162)
+-      real pr3(162)
+-      logical first,lbad1,lbad2
++      logical first
+       real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+-      character*22 msgsent           !Message sent
+ 
+       integer ndxkm(0:23)
+       character*4 dxgrid(0:23)
+@@ -39,20 +35,12 @@
+ 
+       nsym=162                               !Symbols per transmission
+       if(first) then
+-         do i=1,nsym
+-            pr3(i)=2*npr3(i)-1
+-         enddo
+          pi=4.d0*atan(1.d0)
+          twopi=2.d0*pi
+          first=.false.
+       endif
+ 
+       call wqencode(message,ntype,data0)
+-!      call packcall(call1,n1,lbad1)
+-!      call packgrid(grid,ng,lbad2)
+-
+-!      n2=128*ng + ndbm + 64
+-!      call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
+       nbytes=(50+31+7)/8
+       call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+       call inter_mept(symbol,1)                   !Apply interleaving
+@@ -61,17 +49,7 @@
+          i1=symbol(i)
+       enddo
+ 
+-!      call unpackcall(n1,call2)
+-!      call unpackgrid(n2/128,grid2)
+-!      ndbm2=iand(n2,127) - 64
+-!      if(lbad1 .or. lbad2 .or. (call1.ne.call2) .or. 
+-!     +   (grid.ne.grid2) .or. (ndbm.ne.ndbm2)) then
+-!         print*,'Error in structure of Tx message, cannot transmit'
+-!         go to 999
+-!      endif
+-
+       call wqdecode(data0,msg2,ntype2)
+-!      print*,message,msg2,ntype2
+ 
+ C  Set up necessary constants
+       tsymbol=8192.d0/12000.d0
+@@ -117,12 +95,9 @@
+                if(n.lt.-32767) n=-32767
+             endif
+             iwave(i)=n
+- 10         continue
+          enddo
+       enddo
+ 
+- 100  continue
+-
+- 999  return
++      return
+       end
+ 
+
+Modified: branches/wspr/getfile.F90
+===================================================================
+--- branches/wspr/getfile.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/getfile.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -5,7 +5,6 @@
+ #endif
+ 
+   character*(*) fname
+-  character*80 filename
+   include 'acom1.f90'
+   integer*1 hdr(44),n1
+   integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
+@@ -23,8 +22,7 @@
+      if(fname(i:i).eq.'/' .or. fname(i:i).eq.'\\') go to 10
+   enddo
+   i=0
+-10 filename=fname(i+1:)
+-  ierr=0
++10  continue
+ 
+ #ifdef CVF
+   open(10,file=fname,form='binary',status='old')
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/mept162.F	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -1,4 +1,4 @@
+-      subroutine mept162(outfile,f0,minsync,id,npts,rms,nsec,ndec,ierr)
++      subroutine mept162(outfile,f0,minsync,id,npts,ndec,ierr)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+@@ -71,8 +71,8 @@
+      +            message(1:6).ne.'000AAA') go to 23
+             enddo
+             go to 24
+- 23         width=0.
+-            i2=index(outfile,'.wav')-1
++
++ 23         i2=index(outfile,'.wav')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+             nf1=nint(-a(2))
+
+Modified: branches/wspr/mix162.f
+===================================================================
+--- branches/wspr/mix162.f	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/mix162.f	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -24,7 +24,6 @@
+       call xfft(x,NFFT1)
+ 
+       df=12000.d0/NFFT1
+-      df2=256.0*df
+       i0=nint(1500.d0/df)
+       ia=i0-NH2 + 1
+       ib=i0+NH2
+
+Modified: branches/wspr/pctile.f
+===================================================================
+--- branches/wspr/pctile.f	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/pctile.f	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -1,13 +1,13 @@
+-	subroutine pctile(x,tmp,nmax,npct,xpct)
+-	real x(nmax),tmp(nmax)
++      subroutine pctile(x,tmp,nmax,npct,xpct)
++      real x(nmax),tmp(nmax)
+ 
+-	do i=1,nmax
+-	  tmp(i)=x(i)
+-	enddo
+-	call sort(nmax,tmp)
+-	j=nint(nmax*0.01*npct)
+-	if(j.lt.1) j=1
+-	xpct=tmp(j)
++      do i=1,nmax
++         tmp(i)=x(i)
++      enddo
++      call sort(nmax,tmp)
++      j=nint(nmax*0.01*npct)
++      if(j.lt.1) j=1
++      xpct=tmp(j)
+ 
+-	return
+-	end
++      return
++      end
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/rx.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -14,6 +14,10 @@
+   npts=114*12000
+   nsec1=time()
+   ierr=soundin(idevin,iwave,npts)
++  if(ierr.ne.0) then
++     print*,'Error in soundin',ierr
++     stop
++  endif
+   nsec2=time()
+   if(ndebug.ne.0) then
+      write(*,1010) mod(nsec1,120),mod(nsec2,120),nsec2-nsec1
+
+Modified: branches/wspr/sound.c
+===================================================================
+--- branches/wspr/sound.c	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/sound.c	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -114,7 +114,6 @@
+     PaStreamParameters outputParameters;
+     PaStream *stream;
+     PaError err;
+-    int i;
+     int totalFrames;
+     int numSamples;
+     int numBytes;
+
+Modified: branches/wspr/spec162.F
+===================================================================
+--- branches/wspr/spec162.F	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/spec162.F	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -6,13 +6,11 @@
+       real s(120,0:255)
+       real ss(0:255)
+       real w(0:255)
+-      real savg(0:255),tmp(256)
+-!      real s2(-127:128)
++      real savg(0:255)
+       integer*2 a(NX,NY)
+       common/bcom/ntransmitted
+ 
+       nfft=256
+-      df=375.0/nfft
+       twopi=6.2831853
+       pi=0.5*twopi
+       do i=0,nfft-1
+@@ -68,28 +66,6 @@
+       enddo
+       kz=k
+ 
+-C###
+-!      nh=nfft/2
+-!      do i=0,NFFT-1
+-!         j=i
+-!         if(j.gt.NH) j=j-NFFT
+-!         s2(j)=10.0*log10(savg(i))
+-!      enddo
+-
+-!      call pctile(s2(-68),tmp,137,45,base)
+-!      call pctile(s2(-68),tmp,137,11,base2)
+-!      rms2=base-base2
+-
+-!      ia=-68
+-!      ib=68
+-!      df=375.0/nfft
+-!      do i=ia,ib
+-!         s2(i)=(s2(i)-base)/rms2
+-!         write(52,3001) i,150.0+i*df,s2(i)
+-! 3001    format(i5,2f12.3)
+-!      enddo
+-C###
+-
+       gain=40
+       offset=-90.
+       fac=20.0/nadd
+
+Modified: branches/wspr/start_threads.c
+===================================================================
+--- branches/wspr/start_threads.c	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/start_threads.c	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -14,16 +14,19 @@
+ extern void rx_(int *iarg);
+ extern void tx_(int *iarg);
+ 
+-int spawn_thread(void (*f)()) {
++int spawn_thread(void (*f)(int *n)) {
+   pthread_t thread;
+   int iret;
+   int iarg0 = 0;
+ 
+-  if ((iret = pthread_create(&amp;thread,NULL,(void *)f,&amp;iarg0)) != 0) {
++  iret=pthread_create(&amp;thread,NULL,(void *)f,&amp;iarg0);
++  if (iret) {
+     perror(&quot;spawning new thread&quot;);
+     return iret;
+   }
+-  if ((iret = pthread_detach(thread)) != 0) {
++
++  iret = pthread_detach(thread);
++  if (iret) {
+     perror(&quot;detaching thread&quot;);
+     return iret;
+   }
+@@ -33,7 +36,9 @@
+ 
+ int th_wspr2_(void)
+ {
+-  return spawn_thread(wspr2_);
++  int ierr;
++  ierr=spawn_thread(wspr2_);
++  return ierr;
+ }
+ 
+ int th_decode_(void)
+
+Modified: branches/wspr/startdec.F90
+===================================================================
+--- branches/wspr/startdec.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/startdec.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -32,6 +32,10 @@
+   m2=ResumeThread(Thread3)
+ #else
+   ierr=th_decode()
++  if(ierr.ne.0) then
++     print*,'Error starting decode thread',ierr
++     stop
++  endif
+ #endif
+ 
+   return
+
+Modified: branches/wspr/startrx.F90
+===================================================================
+--- branches/wspr/startrx.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/startrx.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -31,6 +31,10 @@
+   m2=ResumeThread(Thread1)
+ #else
+   ierr=th_rx()
++  if(ierr.ne.0) then
++     print*,'Error starting rx thread',ierr
++     stop
++  endif
+ #endif
+ 
+   return
+
+Modified: branches/wspr/starttx.F90
+===================================================================
+--- branches/wspr/starttx.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/starttx.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -31,6 +31,10 @@
+   m2=ResumeThread(Thread2)
+ #else
+   ierr=th_tx()
++  if(ierr.ne.0) then
++     print*,'Error starting tx thread',ierr
++     stop
++  endif
+ #endif
+ 
+   return
+
+Modified: branches/wspr/sync162.f
+===================================================================
+--- branches/wspr/sync162.f	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/sync162.f	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -20,7 +20,6 @@
+       integer keep(-NH:NH)
+       real a(5)
+       real sstf(5,275)
+-      character*22 message
+       real tmp(275)
+       integer npr3(162)
+       real pr3(162)
+@@ -106,7 +105,6 @@
+ 
+ ! Now do the main search over DT, DF, and drift.  (Do CCFs in all marked
+ ! frequency bins and over a range of reasonable fdot values and lags.)
+-      fac2=0.017
+       p1=0.
+       do i=-NF0,NF0
+          if(keep(i).eq.0) go to 10
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/tx.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -4,8 +4,6 @@
+ 
+ #ifdef CVF
+   use dfport
+-#else
+-  integer time
+ #endif
+ 
+   parameter (NMAX2=120*12000)
+@@ -18,6 +16,10 @@
+ 
+   call1=callsign
+   ierr=ptt(nport,pttport,1,iptt)
++  if(ierr.ne.0) then
++     print*,'Error using PTT port',ierr
++     stop
++  endif
+   write(cdbm,'(i3)'),ndbm
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+@@ -35,9 +37,21 @@
+   call genmept(message,ntxdf,snr,msg2,jwave)
+   sending=msg2
+   ierr=ptt(nport,pttport,1,iptt)
++  if(ierr.ne.0) then
++     print*,'Error using PTT port',ierr
++     stop
++  endif
+   npts=114*12000
+   ierr=soundout(idevout,jwave,npts)
++  if(ierr.ne.0) then
++     print*,'Error in soundout',ierr
++     stop
++  endif
+   ierr=ptt(nport,pttport,0,iptt)
++  if(ierr.ne.0) then
++     print*,'Error using PTT port',ierr
++     stop
++  endif
+   ntransmitted=1
+   ntxdone=1
+ 
+
+Modified: branches/wspr/wspr1.F90
+===================================================================
+--- branches/wspr/wspr1.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/wspr1.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -4,6 +4,8 @@
+   use dfmt
+   integer Thread0
+   external wspr2
++#else
++  integer th_wspr2
+ #endif
+ 
+   include 'acom1.f90'
+@@ -32,6 +34,10 @@
+ #else
+ ! Start a thread for acquiring audio data
+   ierr=th_wspr2()
++  if(ierr.ne.0) then
++     print*,'Error creating thread for wspr2',ierr
++     stop
++  endif
+ #endif
+ 
+   return
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/wspr2.F90	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -12,7 +12,7 @@
+ 
+   character*17 message
+   real*8 tsec
+-  logical idle,receiving,transmitting,decoding,gui,cmnd
++  logical idle,receiving,transmitting,decoding
+   integer nchin(0:20),nchout(0:20)
+   include 'acom1.f90'
+   data idle/.true./,receiving/.false./,transmitting/.false./
+@@ -89,7 +89,6 @@
+   go to 20
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+-  neven=1-mod(nsec/120,2)
+   if(pctx.eq.0.0) nrx=1
+   if(nrx.eq.0) then
+      transmitting=.true.
+
+Modified: branches/wspr/xcor162.f
+===================================================================
+--- branches/wspr/xcor162.f	2009-05-01 20:40:49 UTC (rev 1192)
++++ branches/wspr/xcor162.f	2009-05-04 16:28:57 UTC (rev 1193)
+@@ -6,7 +6,6 @@
+       parameter (NFFT=512)
+       parameter (NH=NFFT/2)
+       parameter (NSMAX=352)
+-      real psavg(-NH:NH)
+       real s2(-NH:NH,NSMAX)
+       real a(NSMAX)
+       real ccf(-5:540)
+@@ -34,7 +33,6 @@
+          first=.false.
+       endif
+ 
+-      df=375.0/NFFT
+       n=2
+       method=2
+       do j=1,nsteps
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000883.html">[WSJT-SVN] r1192 - branches/wsjt8
+</A></li>
+	<LI>Next message: <A HREF="000885.html">[WSJT-SVN] r1194 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#884">[ date ]</a>
+              <a href="thread.html#884">[ thread ]</a>
+              <a href="subject.html#884">[ subject ]</a>
+              <a href="author.html#884">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

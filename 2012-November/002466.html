@@ -1,0 +1,821 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2774 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2774%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121126210642.2D3B855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002465.html">
+   <LINK REL="Next"  HREF="002467.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2774 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2774%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121126210642.2D3B855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2774 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Nov 26 22:06:42 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002465.html">[WSJT-SVN] r2773 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002467.html">[WSJT-SVN] r2775 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2466">[ date ]</a>
+              <a href="thread.html#2466">[ thread ]</a>
+              <a href="subject.html#2466">[ subject ]</a>
+              <a href="author.html#2466">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-26 22:06:41 +0100 (Mon, 26 Nov 2012)
+New Revision: 2774
+
+Added:
+   branches/wsjtx/lib/getlags.f90
+   branches/wsjtx/lib/twkfreq.f90
+Modified:
+   branches/wsjtx/lib/afc9.f90
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/fchisq.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/jt9test.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/lib/test9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/wsjtx.iss
+Log:
+Many changes: all-new JT9 decoder, supposedly faster and better.
+Needs thorough testing, especially for drifting signals!
+
+
+Modified: branches/wsjtx/lib/afc9.f90
+===================================================================
+--- branches/wsjtx/lib/afc9.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/afc9.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -1,28 +1,26 @@
+-subroutine afc9(cx,npts,nfast,fsample,nflip,ipol,xpol,           &amp;
+-     ndphi,iloop,a,ccfbest,dtbest)
++subroutine afc9(c3,npts,fsample,a,syncpk)
+ 
+-  logical xpol
+-  complex cx(npts)
++  complex c3(0:npts-1)
+   real a(3),deltaa(3)
+ 
+   a(1)=0.                                   !f0
+   a(2)=0.                                   !f1
+   a(3)=0.                                   !f2
+-  deltaa(1)=2.0
+-  deltaa(2)=2.0
+-  deltaa(3)=2.0
++  deltaa(1)=0.2
++  deltaa(2)=0.01
++  deltaa(3)=0.01
+   nterms=3
+ 
+ ! Start the iteration
+   chisqr=0.
+   chisqr0=1.e6
+-  do iter=1,3                               !One iteration is enough?
++  do iter=1,4                               !One iteration is enough?
+      do j=1,nterms
+-        chisq1=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        chisq1=fchisq(c3,npts,fsample,a)
+         fn=0.
+         delta=deltaa(j)
+ 10      a(j)=a(j)+delta
+-        chisq2=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        chisq2=fchisq(c3,npts,fsample,a)
+         if(chisq2.eq.chisq1) go to 10
+         if(chisq2.gt.chisq1) then
+            delta=-delta                      !Reverse direction
+@@ -33,7 +31,7 @@
+         endif
+ 20      fn=fn+1.0
+         a(j)=a(j)+delta
+-        chisq3=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        chisq3=fchisq(c3,npts,fsample,a)
+         if(chisq3.lt.chisq2) then
+            chisq1=chisq2
+            chisq2=chisq3
+@@ -44,14 +42,17 @@
+         delta=delta*(1./(1.+(chisq1-chisq2)/(chisq3-chisq2))+0.5)
+         a(j)=a(j)-delta
+         deltaa(j)=deltaa(j)*fn/3.
++!        write(*,4000) iter,j,a,deltaa,-chisq2
++!4000    format(i1,i2,6f10.4,f9.3)
+      enddo
+-     chisqr=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
+-     if(chisqr/chisqr0.gt.0.9999) go to 30
++     chisqr=fchisq(c3,npts,fsample,a)
++     if(chisqr/chisqr0.gt.0.9999) exit
+      chisqr0=chisqr
+   enddo
+ 
+-30 ccfbest=ccfmax * (1378.125/fsample)**2
+-  dtbest=dtmax
++  syncpk=-chisqr
++!  write(*,4001) a,deltaa,-chisq2
++!4001 format(3x,6f10.4,f9.3)
+ 
+   return
+ end subroutine afc9
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/decode9.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -83,7 +83,7 @@
+      call packbits(i1DecodedBits,12,6,i4Decoded6BitWords)
+      call unpackmsg(i4Decoded6BitWords,msg)                !Unpack decoded msg
+      if(index(msg,'000AAA ').gt.0) msg='                      '
+-     if(index(msg,'15P6715P67WCV').gt.0) msg='                      '
++!     if(index(msg,'15P6715P67WCV').gt.0) msg='                      '
+   endif
+ 
+   return
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/decoder.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -15,6 +15,7 @@
+   integer*2 id2
+   integer ii(1)
+   complex c0(NDMAX)
++  complex c1(NDMAX)
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+        kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
+   common/tracer/limtrace,lu
+@@ -75,37 +76,43 @@
+ 
+   nRxLog=0
+   fgood=0.
+-  df8=1500.0/(nsps/8)
++  nsps8=nsps/8
++  df8=1500.0/nsps8
+   sbest=0.
+ 
+ 10 ii=maxloc(ccfred(ia:ib))
+   i=ii(1) + ia - 1
+   f=(i-1)*df3
+   if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. abs(f-fgood).gt.10.0*df8) then
+-     call timer('spec9   ',0)
+-     call spec9(c0,npts8,nsps,f,fpk,xdt,snr,i1SoftSymbols)
+-     call timer('spec9   ',1)
++!     call timer('spec9   ',0)
++!     call spec9(c0,npts8,nsps,f,fpk,xdt,snr,i1SoftSymbols)
++!     call timer('spec9   ',1)
+ 
++     call timer('test9   ',0)
++     fpk=1000.0 + df3*(i-1)
++     c1(1:npts8)=conjg(c0(1:npts8))
++     call test9(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,i1SoftSymbols)
++     call timer('test9   ',1)
++
+      call timer('decode9 ',0)
+      call decode9(i1SoftSymbols,limit,nlim,msg)
+      call timer('decode9 ',1)
+  
+-     sync=(ccfred(i)-1.0)/2.0
++     sync=(syncpk-1.0)/2.0
+      if(sync.lt.0.0) sync=0.0
+      nsync=sync
+      if(nsync.gt.10) nsync=10
+-     nsnr=nint(snr)
+-     drift=0.0
++     nsnr=nint(snrdb)
+ 
+-     if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
+-        sbest=ccfred(i)
+-        write(line,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift
++     if(sync.gt.sbest .and. fgood.eq.0.0) then
++        sbest=sync
++        write(line,fmt) nutc,nsync,nsnr,xdt,freq,drift
+         if(nsync.gt.0) nsynced=1
+      endif
+ 
+      if(msg.ne.'                      ') then
+-        write(*,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,msg
+-        write(14,fmt14) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,ntrMinutes,nlim,msg
++        write(*,fmt) nutc,nsync,nsnr,xdt,freq,drift,msg
++        write(14,fmt14) nutc,nsync,nsnr,xdt,freq,drift,ntrMinutes,nlim,msg
+         fgood=f
+         nsynced=1
+         ndecoded=1
+
+Modified: branches/wsjtx/lib/fchisq.f90
+===================================================================
+--- branches/wsjtx/lib/fchisq.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/fchisq.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -1,69 +1,42 @@
+-real function fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++real function fchisq(c3,npts,fsample,a)
+ 
+-  parameter (NMAX=60*96000)          !Samples per 60 s
+-  complex cx(npts)
++  parameter (NMAX=85*16)
++  complex c3(npts)
++  complex c4(NMAX)
+   real a(3)
+-  complex w,wstep,za,zb,z
+-  real ss(3000)
+-  complex csx(0:NMAX/64)
+-  data twopi/6.283185307/a1,a2,a3/99.,99.,99./
++  complex z
++  complex w,wstep
++  data a1,a2,a3/99.,99.,99./
++  include 'jt9sync.f90'
+   save
+ 
+-  call timer('fchisq  ',0)
+-  baud=nfast*11025.0/4096.0
+-  nsps=nint(fsample/baud)                  !Samples per symbol
+-  nsph=nsps/2                              !Samples per half-symbol
+-  ndiv=16                                  !Output ss() steps per symbol
+-  nout=ndiv*npts/nsps
+-  dtstep=1.0/(ndiv*baud)                   !Time per output step
+-
+   if(a(1).ne.a1 .or. a(2).ne.a2 .or. a(3).ne.a3) then
+      a1=a(1)
+      a2=a(2)
+      a3=a(3)
+-
+-! Mix and integrate the complex signal
+-     csx(0)=0.
+-     w=1.0
+-     x0=0.5*(npts+1)
+-     s=2.0/npts
+-     do i=1,npts
+-        x=s*(i-x0)
+-        if(mod(i,100).eq.1) then
+-           p2=1.5*x*x - 0.5
+-!          p3=2.5*(x**3) - 1.5*x
+-!          p4=4.375*(x**4) - 3.75*(x**2) + 0.375
+-           dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/fsample)
+-           wstep=cmplx(cos(dphi),sin(dphi))
+-        endif
+-        w=w*wstep
+-        csx(i)=csx(i-1) + w*cx(i)
+-     enddo
++     call twkfreq(c3,c4,npts,fsample,a)
+   endif
+ 
+-! Compute 1/2-symbol powers at 1/16-symbol steps.
+-  fac=1.e-4
+-
+-  do i=1,nout
+-     j=i*nsps/ndiv
+-     k=j-nsph
+-     ss(i)=0.
+-     if(k.ge.1) then
+-        za=csx(j)-csx(k)
+-        ss(i)=fac*(real(za)**2 + aimag(za)**2)
++! Get sync power.
++  nspsd=16
++  sum1=0.
++  sum0=0.
++  k=-1
++  do i=1,85
++     z=0.
++     do j=1,nspsd
++        k=k+1
++        z=z+c4(k+1)
++     enddo
++     pp=real(z)**2 + aimag(z)**2     
++     if(isync(i).eq.1) then
++        sum1=sum1+pp
++     else
++        sum0=sum0+pp
+      endif
+   enddo
++  sync=(sum1/16.0)/(sum0/69.0) - 1.0
++  fchisq=-sync
+ 
+-  ccfmax=0.
+-  call timer('ccf2    ',0)
+-  call ccf2(ss,nout,nflip,ccf,lagpk)
+-  call timer('ccf2    ',1)
+-  if(ccf.gt.ccfmax) then
+-     ccfmax=ccf
+-     dtmax=lagpk*dtstep
+-  endif
+-  fchisq=-ccfmax
+-
+-  call timer('fchisq  ',1)
+   return
+ end function fchisq
+
+Added: branches/wsjtx/lib/getlags.f90
+===================================================================
+--- branches/wsjtx/lib/getlags.f90	                        (rev 0)
++++ branches/wsjtx/lib/getlags.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -0,0 +1,27 @@
++subroutine getlags(nsps8,lag0,lag1,lag2)
++  if(nsps8.eq.864) then
++     lag1=39
++     lag2=291
++     lag0=123
++  else if(nsps8.eq.1920) then
++     lag1=70
++     lag2=184
++     lag0=108
++  else if(nsps8.eq.5120) then
++     lag1=84
++     lag2=129
++     lag0=99
++  else if(nsps8.eq.10368) then
++     lag1=91
++     lag2=112
++     lag0=98
++  else if(nsps8.eq.31500) then
++     lag1=93
++     lag2=102
++     lag0=96
++  else 
++     stop 'Error in getlags'
++  endif
++
++  return
++end subroutine getlags
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/jt9.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -18,6 +18,7 @@
+   character*33 line
+   integer*2 id2
+   complex c0
++  complex c1(NDMAX)
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat,  &amp;
+        ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+   common/tracer/limtrace,lu
+@@ -122,34 +123,39 @@
+      call timer('sync9   ',1)
+ 
+      fgood=0.
+-     df8=1500.0/(nsps/8)
++     nsps8=nsps/8
++     df8=1500.0/nsps8
+      sbest=0.
+      do i=ia,ib
+         f=(i-1)*df3
+         if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+-           call timer('spec9   ',0)
+-           call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
+-           call timer('spec9   ',1)
+ 
++           call timer('test9   ',0)
++           fpk=1000.0 + df3*(i-1)
++           c1(1:npts8)=conjg(c0(1:npts8))
++           call test9(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
++                i1SoftSymbols)
++           call timer('test9   ',1)
++
++
+            call timer('decode9 ',0)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
+            call timer('decode9 ',1)
+-           snr=snrdb
+-           sync=ccfred(i) - 2.0
++
++           sync=(syncpk-1.0)/2.0
+            if(sync.lt.0.0) sync=0.0
+            nsync=sync
+            if(nsync.gt.10) nsync=10
+-           nsnr=nint(snr)
+-           width=0.0
++           nsnr=nint(snrdb)
+ 
+-           if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
+-              sbest=ccfred(i)
+-              write(line,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width
++           if(sync.gt.sbest .and. fgood.eq.0.0) then
++              sbest=sync
++              write(line,1010) nutc,nsync,nsnr,xdt,freq,drift
+               if(nsync.gt.0) nsynced=1
+            endif
+ 
+            if(msg.ne.'                      ') then
+-              write(*,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++              write(*,1010) nutc,nsync,nsnr,xdt,freq,drift,msg
+ 1010          format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+               fgood=f
+               nsynced=1
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/jt9sim.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -55,9 +55,9 @@
+   if(minutes.eq.30) nsps=252000
+   if(nsps.eq.0) stop 'Bad value for minutes.'
+   f0=1500.d0                         !Center frequency (MHz)
+-  if(minutes.eq.5)  f0=1100.
+-  if(minutes.eq.10) f0=1050.
+-  if(minutes.eq.30) f0=1025.
++!  if(minutes.eq.5)  f0=1100.
++!  if(minutes.eq.10) f0=1050.
++!  if(minutes.eq.30) f0=1025.
+   
+   ihdr=0                             !Temporary ###
+ 
+
+Modified: branches/wsjtx/lib/jt9test.f90
+===================================================================
+--- branches/wsjtx/lib/jt9test.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/jt9test.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -116,9 +116,6 @@
+ 10   close(10)
+ 
+      nsps8=nsps/8
+-     c1(0:npts8-1)=conjg(c0(1:npts8))
+-     call test9(c1,npts8,nsps8)
+-
+      iz=1000.0/df3
+      nutc=nutc0
+ 
+@@ -132,29 +129,33 @@
+      do i=ia,ib
+         f=(i-1)*df3
+         if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+-           call timer('spec9   ',0)
+-           call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
+-           call timer('spec9   ',1)
+ 
++           call timer('test9   ',0)
++           fpk=1000.0 + df3*(i-1)
++           c1(0:npts8-1)=conjg(c0(1:npts8))
++           call test9(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
++                i1SoftSymbols)
++           call timer('test9   ',1)
++
+            call timer('decode9 ',0)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
+            call timer('decode9 ',1)
+            snr=snrdb
+-           sync=ccfred(i) - 2.0
++           sync=syncpk - 2.0
+            if(sync.lt.0.0) sync=0.0
+            nsync=sync
+            if(nsync.gt.10) nsync=10
+            nsnr=nint(snr)
+            width=0.0
+ 
+-           if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
+-              sbest=ccfred(i)
++           if(sync.gt.sbest .and. fgood.eq.0.0) then
++              sbest=sync
+               write(line,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width
+               if(nsync.gt.0) nsynced=1
+            endif
+ 
+            if(msg.ne.'                      ') then
+-              write(*,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++              write(*,1010) nutc,nsync,nsnr,xdt,freq,drift,msg
+ 1010          format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+               fgood=f
+               nsynced=1
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/spec9.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -9,9 +9,7 @@
+   integer*1 i1SoftSymbolsScrambled(207)
+   integer*1 i1SoftSymbols(207)
+   integer*1 i1
+-  integer ig(0:7)
+   equivalence (i1,i4)
+-  data ig/0,1,3,2,7,6,4,5/             !Gray code removal
+   include 'jt9sync.f90'
+ 
+ ! Fix up the data in c0()
+
+Modified: branches/wsjtx/lib/test9.f90
+===================================================================
+--- branches/wsjtx/lib/test9.f90	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/lib/test9.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -1,24 +1,54 @@
+-subroutine test9(c0,npts8,nsps8)
++subroutine test9(c0,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,i1SoftSymbols)
+ 
+-  parameter (NMAX=128*864)
++  parameter (NMAX=128*31500)
+   complex c0(0:npts8-1)
+   complex c1(0:NMAX-1)
+   complex c2(0:4096-1)
++  complex c3(0:4096-1)
++  complex c5(0:4096-1)
+   complex z
+   real p(0:3300)
++  real a(3),aa(3)
++  real ss2(0:8,85)
++  real ss3(0:7,69)
++  integer*1 i1SoftSymbolsScrambled(207)
++  integer*1 i1SoftSymbols(207)
++  integer*1 i1
++  equivalence (i1,i4)
++  character*22 msg
++
+   include 'jt9sync.f90'
+ 
+-  c1(0:npts8-1)=c0                         !Copy c0 into c1
++  fac=1.e-4
++  c1(0:npts8-1)=fac*c0                     !Copy c0 into c1
++  do i=1,npts8-1,2
++     c1(i)=-c1(i)
++  enddo
+   c1(npts8:)=0.                            !Zero the rest of c1
+-  nfft1=NMAX                               !Forward FFT length
++  nfft1=128*nsps8                          !Forward FFT length
++  nh1=nfft1/2
++  df1=1500.0/nfft1
+   call four2a(c1,nfft1,1,-1,1)             !Forward FFT
++
++!  do i=0,nfft1-1
++!     f=i*df1
++!     pp=real(c1(i))**2 + aimag(c1(i))**2
++!     write(50,3009) i,f,1.e-6*pp
++!3009 format(i8,f12.3,f12.3)
++!  enddo   
+   
+-  ndown=54                                 !Downsample factor
++  ndown=nsps8/16                           !Downsample factor
+   nfft2=nfft1/ndown                        !Backward FFT length
+   nh2=nfft2/2
+-  fac=1.e-5
+-  c2(0:nh2)=fac*c1(0:nh2)
+-  c2(nh2+1:nh2+nh2-1)=fac*c1(nfft1-nh2+1:nfft1-1)
++  
++  fshift=fpk-1500.0
++  i0=nh1 + fshift/df1
++  do i=0,nfft2-1
++     j=i0+i
++     if(i.gt.nh2) j=j-nfft2
++     c2(i)=c1(j)
++  enddo
++
+   call four2a(c2,nfft2,1,1,1)              !Backward FFT
+ 
+   nspsd=nsps8/ndown
+@@ -28,14 +58,18 @@
+   p=0.
+   i0=5*nspsd
+   do i=0,nz-1
+-     z=sum(c2(max(i-(nspsd-1),0):i))       !Integrate
++     z=1.e-3*sum(c2(max(i-(nspsd-1),0):i))       !Integrate
+      p(i0+i)=real(z)**2 + aimag(z)**2      !Symbol power at freq=0
+ ! Option here for coherent processing ?
++!     write(53,3301) i,z,p(i0+i),atan2(aimag(z),real(z))
++!3301 format(i6,4e12.3)
+   enddo
+ 
+-  iz=85*nspsd
+-  lagmax=13*nspsd
+-  do lag=0,lagmax                          
++  call getlags(nsps8,lag0,lag1,lag2)
++  tsymbol=nsps8/1500.0
++  dtlag=tsymbol/nspsd
++  smax=0.
++  do lag=lag1,lag2
+      sum0=0.
+      sum1=0.
+      j=-nspsd
+@@ -48,9 +82,140 @@
+         endif
+      enddo
+      ss=(sum1/16.0)/(sum0/69.0) - 1.0
+-     write(52,3001) lag,ss
+-3001 format(i5,f12.3)
++     xdt=(lag-lag0)*dtlag
++!     write(52,3001) lag,xdt,ss
++!3001 format(i5,2f12.3)
++     if(ss.gt.smax) then
++        smax=ss
++        lagpk=lag
++     endif
+   enddo
+ 
++  xdt=(lagpk-lag0)*dtlag
++
++  iz=nspsd*85
++  do i=0,iz-1
++     j=i+lagpk-i0-nspsd+1
++     if(j.ge.0 .and. j.le.nz) then
++        c3(i)=c2(j)
++     else
++        c3(i)=0.
++     endif
++  enddo
++
++  sum1=0.
++  sum0=0.
++  k=-1
++  do i=1,85
++     z=0.
++     do j=1,nspsd
++        k=k+1
++        z=z+c3(k)
++     enddo
++     pp=real(z)**2 + aimag(z)**2     
++     if(isync(i).eq.1) then
++        sum1=sum1+pp
++     else
++        sum0=sum0+pp
++     endif
++  enddo
++  ss=(sum1/16.0)/(sum0/69.0) - 1.0
++
++  fsample=1500.0/ndown
++  nptsd=nspsd*85
++  a=0.
++  call afc9(c3,nptsd,fsample,a,syncpk)
++  call twkfreq(c3,c5,nptsd,fsample,a)
++
++  aa(1)=-1500.0/nsps8
++  aa(2)=0.
++  aa(3)=0.
++  do i=0,8
++     if(i.ge.1) call twkfreq(c5,c5,nptsd,fsample,aa)
++     m=0
++     k=-1
++     do j=1,85
++        z=0.
++        do n=1,nspsd
++           k=k+1
++           z=z+c5(k)
++        enddo
++        ss2(i,j)=real(z)**2 + aimag(z)**2
++        if(i.ge.1 .and. isync(j).eq.0) then
++           m=m+1
++           ss3(i-1,m)=ss2(i,j)
++        endif
++     enddo
++  enddo
++
++!###
++  ss=0.
++  sig=0.
++  do j=1,69
++     smax=0.
++     do i=0,7
++        smax=max(smax,ss3(i,j))
++        ss=ss+ss3(i,j)
++     enddo
++     sig=sig+smax
++     ss=ss-smax
++  enddo
++  ave=ss/(69*7)
++  call pctile(ss2,9*85,50,xmed)
++  ss3=ss3/ave
++
++  sig=sig/69.
++  df8=1500.0/nsps8
++  t=max(1.0,sig/xmed - 1.0)
++  snrdb=db(t) - db(2500.0/df8) - 5.0
++!  print*,'A',ave,xmed,sig,t,df8,snrdb
++     
++  m0=3
++  k=0
++  do j=1,69
++        smax=0.
++        do i=0,7
++           if(ss3(i,j).gt.smax) then
++              smax=ss3(i,j)
++              ipk=i
++           endif
++        enddo
++
++     do m=m0-1,0,-1                   !Get bit-wise soft symbols
++        if(m.eq.2) then
++           r1=max(ss3(4,j),ss3(5,j),ss3(6,j),ss3(7,j))
++           r0=max(ss3(0,j),ss3(1,j),ss3(2,j),ss3(3,j))
++        else if(m.eq.1) then
++           r1=max(ss3(2,j),ss3(3,j),ss3(4,j),ss3(5,j))
++           r0=max(ss3(0,j),ss3(1,j),ss3(6,j),ss3(7,j))
++        else
++           r1=max(ss3(1,j),ss3(2,j),ss3(4,j),ss3(7,j))
++           r0=max(ss3(0,j),ss3(3,j),ss3(5,j),ss3(6,j))
++        endif
++
++        k=k+1
++        i4=nint(10.0*(r1-r0))
++        if(i4.lt.-127) i4=-127
++        if(i4.gt.127) i4=127
++        i4=i4+128
++        i1SoftSymbolsScrambled(k)=i1
++     enddo
++  enddo
++
++  call interleave9(i1SoftSymbolsScrambled,-1,i1SoftSymbols)
++!  limit=10000
++!  call decode9(i1SoftSymbols,limit,nlim,msg)
++
++!###
++!  do j=1,85
++!     write(71,2101) j,nint(1.e-3*ss2(0:8,j))
++!2101 format(i2,2x,9i6)
++!  enddo
++  
++  freq=1500.0 + fshift - a(1)
++  drift=a(2)
++!  write(*,1100) nutc,nsync,nsnr,xdt,freq,a(2),msg
++!1100 format(i4.4,i5,i5,f6.1,f9.2,f8.2,2x,a22)
++
+   return
+ end subroutine test9
+
+Added: branches/wsjtx/lib/twkfreq.f90
+===================================================================
+--- branches/wsjtx/lib/twkfreq.f90	                        (rev 0)
++++ branches/wsjtx/lib/twkfreq.f90	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -0,0 +1,27 @@
++subroutine twkfreq(c3,c4,npts,fsample,a)
++
++  complex c3(npts)
++  complex c4(npts)
++  complex w,wstep
++  real a(3)
++  data twopi/6.283185307/
++
++! Mix the complex signal
++  w=1.0
++  x0=0.5*(npts+1)
++  s=2.0/npts
++  do i=1,npts
++     x=s*(i-x0)
++     if(mod(i,100).eq.1) then
++        p2=1.5*x*x - 0.5
++!          p3=2.5*(x**3) - 1.5*x
++!          p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++        dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/fsample)
++        wstep=cmplx(cos(dphi),sin(dphi))
++     endif
++     w=w*wstep
++     c4(i)=w*c3(i)
++  enddo
++
++  return
++end subroutine twkfreq
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/mainwindow.cpp	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-11-26 02:45:28 UTC (rev 2773)
++++ branches/wsjtx/wsjtx.iss	2012-11-26 21:06:41 UTC (rev 2774)
+@@ -7,6 +7,7 @@
+ 
+ [Files]
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\wsjtx.exe&quot;;         DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\jt9.exe&quot;;           DestDir: &quot;{app}&quot;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\wsjt.ico&quot;;          DestDir: &quot;{app}&quot;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\afmhot.dat&quot;;        DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\blue.dat&quot;;          DestDir: &quot;{app}&quot;;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002465.html">[WSJT-SVN] r2773 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002467.html">[WSJT-SVN] r2775 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2466">[ date ]</a>
+              <a href="thread.html#2466">[ thread ]</a>
+              <a href="subject.html#2466">[ subject ]</a>
+              <a href="author.html#2466">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

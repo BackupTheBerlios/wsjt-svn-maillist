@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3025 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3025%20-%20branches/wsjtx&In-Reply-To=%3C20130228233505.40BB355B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002718.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3025 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3025%20-%20branches/wsjtx&In-Reply-To=%3C20130228233505.40BB355B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3025 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Mar  1 00:35:05 CET 2013</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002718.html">[WSJT-SVN] r3026 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2717">[ date ]</a>
+              <a href="thread.html#2717">[ thread ]</a>
+              <a href="subject.html#2717">[ subject ]</a>
+              <a href="author.html#2717">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-01 00:35:04 +0100 (Fri, 01 Mar 2013)
+New Revision: 3025
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/widegraph.cpp
+Log:
+Correct the vertical scale of red curve, when nbpp&gt;1.
+Change &quot;double-click on callsign&quot; so that you can click anywhere on the line,
+and make it set TxFreq accordingly.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-02-28 21:22:56 UTC (rev 3024)
++++ branches/wsjtx/mainwindow.cpp	2013-02-28 23:35:04 UTC (rev 3025)
+@@ -73,7 +73,7 @@
+   txMsgButtonGroup-&gt;addButton(ui-&gt;txrb6,6);
+   connect(txMsgButtonGroup,SIGNAL(buttonClicked(int)),SLOT(set_ntx(int)));
+   connect(ui-&gt;decodedTextBrowser,SIGNAL(selectCallsign(bool)),this,
+-          SLOT(selectCall2(bool)));
++          SLOT(doubleClickOnCall(bool)));
+ 
+   setWindowTitle(Program_Title_Version);
+   connect(&amp;soundInThread, SIGNAL(readyForFFT(int)),
+@@ -1253,31 +1253,25 @@
+   m_restart=true;
+ }
+ 
+-void MainWindow::selectCall2(bool ctrl)                          //selectCall2
++void MainWindow::doubleClickOnCall(bool ctrl)
+ {
+   QString t = ui-&gt;decodedTextBrowser-&gt;toPlainText();   //Full contents
+-  int i=ui-&gt;decodedTextBrowser-&gt;textCursor().position();
+-  int i0=t.lastIndexOf(&quot; &quot;,i);
+-  int i1=t.indexOf(&quot; &quot;,i);
+-  QString hiscall=t.mid(i0+1,i1-i0-1);
+-  if(hiscall!=&quot;&quot;) {
+-    if(hiscall.length() &lt; 13) doubleClickOnCall(hiscall, ctrl);
+-  }
+-}
+-                                                          //doubleClickOnCall
+-void MainWindow::doubleClickOnCall(QString hiscall, bool ctrl)
+-{
+-  ui-&gt;dxCallEntry-&gt;setText(hiscall);
+-  QString t = ui-&gt;decodedTextBrowser-&gt;toPlainText();   //Full contents
+   int i2=ui-&gt;decodedTextBrowser-&gt;textCursor().position();
+   QString t1 = t.mid(0,i2);              //contents up to \n on selected line
+   int i1=t1.lastIndexOf(&quot;\n&quot;) + 1;       //points to first char of line
+   QString t2 = t1.mid(i1,i2-i1);         //selected line
++  int i4=t.mid(i1).length();
++  if(i4&gt;60) i4=60;
++  QString t3=t.mid(i1,i4);
++  QStringList t4=t3.split(&quot; &quot;,QString::SkipEmptyParts);
++  ui-&gt;TxFreqSpinBox-&gt;setValue(int(t4.at(4).toFloat()));
++  QString hiscall=t4.at(7);
++  ui-&gt;dxCallEntry-&gt;setText(hiscall);
+   int n = 60*t2.mid(0,2).toInt() + t2.mid(2,2).toInt();
+   int nmod=n%(m_TRperiod/30);
+   m_txFirst=(nmod!=0);
+   ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
+-  QString rpt=t2.mid(10,3);
++  QString rpt=t4.at(2);
+   if(rpt.indexOf(&quot;  &quot;)==0) rpt=&quot;+&quot; + rpt.mid(2,2);
+   if(rpt.indexOf(&quot; -&quot;)==0) rpt=rpt.mid(1,2);
+   if(rpt.indexOf(&quot; &quot;)==0) rpt=&quot;+&quot; + rpt.mid(1,2);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-02-28 21:22:56 UTC (rev 3024)
++++ branches/wsjtx/mainwindow.h	2013-02-28 23:35:04 UTC (rev 3025)
+@@ -28,7 +28,7 @@
+   void diskWriteFinished();
+   void freezeDecode(int n);
+   void guiUpdate();
+-  void doubleClickOnCall(QString hiscall, bool ctrl);
++  void doubleClickOnCall(bool ctrl);
+   void readFromStdout();
+   void readFromStderr();
+   void jt9_error();
+@@ -85,7 +85,6 @@
+   void on_addButton_clicked();
+   void on_dxCallEntry_textChanged(const QString &amp;arg1);
+   void on_dxGridEntry_textChanged(const QString &amp;arg1);
+-  void selectCall2(bool ctrl);
+   void on_genStdMsgsPushButton_clicked();
+   void on_logQSOButton_clicked();
+   void on_actionErase_wsjtx_rx_log_triggered();
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-02-28 21:22:56 UTC (rev 3024)
++++ branches/wsjtx/widegraph.cpp	2013-02-28 23:35:04 UTC (rev 3025)
+@@ -119,7 +119,7 @@
+         rsum += red[i];
+       }
+       swide[j]=sum;
+-      rwide[j]=rsum;
++      rwide[j]=rsum/nbpp;
+ //      if(lstrong[1 + i/32]!=0) swide[j]=-smax;   //Tag strong signals
+     }
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002718.html">[WSJT-SVN] r3026 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2717">[ date ]</a>
+              <a href="thread.html#2717">[ thread ]</a>
+              <a href="subject.html#2717">[ subject ]</a>
+              <a href="author.html#2717">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1554 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1554%20-%20branches/wspr&In-Reply-To=%3C200910231919.n9NJJHoP014357%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001243.html">
+   <LINK REL="Next"  HREF="001245.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1554 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1554%20-%20branches/wspr&In-Reply-To=%3C200910231919.n9NJJHoP014357%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1554 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 23 21:19:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001243.html">[WSJT-SVN] r1553 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001245.html">[WSJT-SVN] r1555 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1244">[ date ]</a>
+              <a href="thread.html#1244">[ thread ]</a>
+              <a href="subject.html#1244">[ subject ]</a>
+              <a href="author.html#1244">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-23 21:19:04 +0200 (Fri, 23 Oct 2009)
+New Revision: 1554
+
+Modified:
+   branches/wspr/hash.f90
+   branches/wspr/mept162.F
+   branches/wspr/packpfx.f90
+   branches/wspr/unpackpfx.f90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wspr.py
+Log:
+Starting on the &quot;two-transmissions&quot; special protocol.
+
+
+Modified: branches/wspr/hash.f90
+===================================================================
+--- branches/wspr/hash.f90	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/hash.f90	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -10,6 +10,5 @@
+      i=nhash(ic,len,146)
+      ihash=iand(i,MASK15)
+ 
+-!     print*,'C',ihash,len,string
+   return
+ end subroutine hash
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/mept162.F	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -73,6 +73,7 @@
+             go to 24
+ 
+  23         i2=index(outfile,'.wav')-1
++            if(i2.le.0) i2=index(outfile,'.WAV')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+             nf1=nint(-a(2))
+
+Modified: branches/wspr/packpfx.f90
+===================================================================
+--- branches/wspr/packpfx.f90	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/packpfx.f90	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -20,6 +20,14 @@
+      endif
+      nadd=1
+      ng=60000-32768+n
++  else if(call1(i1+3:i1+3).eq.' ') then
++! Two-character numerical suffix, /10 to /99
++     call0=call1(:i1-1)
++     call packcall(call0,n1,text)
++     nadd=1
++     n=10*(ichar(call1(i1+1:i1+1))-48) + ichar(call1(i1+2:i1+2)) - 48
++     nadd=1
++     ng=60000 + 26 + n
+   else
+ ! Prefix of 1 to 3 characters
+      pfx=call1(:i1-1)
+
+Modified: branches/wspr/unpackpfx.f90
+===================================================================
+--- branches/wspr/unpackpfx.f90	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/unpackpfx.f90	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -21,13 +21,17 @@
+      if(call1(1:1).eq.' ') call1=call1(2:)
+      if(call1(1:1).eq.' ') call1=call1(2:)
+   else
+-! Add-on suffix, one character
++! Add-on suffix, one or teo characters
+      i1=index(call1,' ')
+      nc=ng-60000
+      if(nc.ge.0 .and. nc.le.9) then
+         call1=call1(:i1-1)//'/'//char(nc+48)
+      else if(nc.ge.10 .and. nc.le.35) then
+         call1=call1(:i1-1)//'/'//char(nc+55)
++     else if(nc.ge.36 .and. nc.le.125) then
++        nc1=(nc-26)/10
++        nc2=mod(nc-26,10)
++        call1=call1(:i1-1)//'/'//char(nc1+48)//char(nc2+48)
+      endif
+   endif
+ 
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/wqdecode.f90	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -14,6 +14,7 @@
+   character ccur*4,cxp*2
+   logical first
+   character*12 dcall(0:N15-1)
++  character*4  dgrid(0:N15-1)
+   data first/.true./
+   data cwx/'CLEAR','CLOUDY','RAIN','SNOW'/
+   data cwind/'CALM','BREEZES','WINDY','DRY','HUMID'/
+@@ -21,6 +22,7 @@
+ 
+   if(first) then
+      dcall='            '
++     dgrid='    '
+      first=.false.
+   endif
+ 
+@@ -41,6 +43,7 @@
+      message=callsign(1:i1)//grid//' '//cdbm
+      call hash(callsign,i1-1,ih)
+      dcall(ih)=callsign(:i1)
++     dgrid(ih)=grid
+ 
+ ! &quot;Best DX&quot; WSPR response (type 1)
+   else if(ntype.eq.1) then
+@@ -51,12 +54,14 @@
+      message='CQ '//callsign(:i1)//grid
+      call hash(callsign,i1-1,ih)
+      dcall(ih)=callsign(:i1)
++     dgrid(ih)=grid
+   else if(ntype.eq.4 .or. ntype.eq.5) then
+      ng=n2/128 + 32768*(ntype-4)
+      call unpackpfx(ng,callsign)
+      message='CQ '//callsign
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1)
++     i2=index(callsign,' ')-1
++     call hash(callsign,i2,ih)
++     dcall(ih)=callsign(:i2)
+ 
+ ! Reply to CQ (msg #2; type 6)
+   else if(ntype.eq.6) then
+@@ -75,6 +80,7 @@
+      message='DE '//callsign(:i1)//grid
+      call hash(callsign,i1-1,ih)
+      dcall(ih)=callsign(:i1-1)
++     dgrid(ih)=grid
+ 
+ ! Reply to CQ, DE pfx/call (msg #2; types 9, 11)
+   else if(ntype.eq.9 .or. ntype.eq.11) then
+@@ -189,6 +195,7 @@
+      message='73 DE '//callsign(:i1)//grid
+      call hash(callsign,i1-1,ih)
+      dcall(ih)=callsign(:i1-1)
++     dgrid(ih)=grid
+ 
+ ! 73 DE pfx/call (msg #6; type 21, 22)
+   else if(ntype.eq.21 .or. ntype.eq.22) then
+@@ -311,5 +318,6 @@
+      i2=i2-1
+   enddo
+ 
+-900  return
++900  continue
++  return
+ end subroutine wqdecode
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-10-23 15:39:52 UTC (rev 1553)
++++ branches/wspr/wspr.py	2009-10-23 19:19:04 UTC (rev 1554)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- WSPR
++#----------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001243.html">[WSJT-SVN] r1553 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001245.html">[WSJT-SVN] r1555 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1244">[ date ]</a>
+              <a href="thread.html#1244">[ thread ]</a>
+              <a href="subject.html#1244">[ subject ]</a>
+              <a href="author.html#1244">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

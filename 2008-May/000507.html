@@ -1,0 +1,1106 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r819 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r819%20-%20trunk&In-Reply-To=%3C200805292006.m4TK6vOK001340%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000506.html">
+   <LINK REL="Next"  HREF="000508.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r819 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r819%20-%20trunk&In-Reply-To=%3C200805292006.m4TK6vOK001340%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r819 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu May 29 22:06:57 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000506.html">[WSJT-SVN] r818 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000508.html">[WSJT-SVN] r820 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#507">[ date ]</a>
+              <a href="thread.html#507">[ thread ]</a>
+              <a href="subject.html#507">[ subject ]</a>
+              <a href="author.html#507">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-29 22:06:48 +0200 (Thu, 29 May 2008)
+New Revision: 819
+
+Added:
+   trunk/ccf2.f
+   trunk/decode162.f
+   trunk/fchisq.f
+   trunk/filbig2.f
+   trunk/ps162.f
+   trunk/sync162.f
+   trunk/twkfreq.f
+Modified:
+   trunk/fano232.f
+   trunk/four2a.f
+   trunk/fourt.f
+   trunk/ftn_quit.f90
+   trunk/gcom2.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+Log:
+Routines for WSPR decoding have been added. 
+Many diagnostic writes are present; decoding does not yet work.
+
+
+Added: trunk/ccf2.f
+===================================================================
+--- trunk/ccf2.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/ccf2.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,49 @@
++      subroutine ccf2(ss,nz,lag1,lag2,ccfbest,lagpk)
++
++      parameter (LAGMAX=200)
++      real ss(nz)
++!      real ccf(-LAGMAX:LAGMAX)
++      real pr(162)
++      logical first
++
++C  The WSPR pseudo-random sync pattern:
++      integer npr(162)
++      data npr/
++     +       1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
++     +       0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
++     +       0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
++     +       1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
++     +       0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,
++     +       0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
++     +       0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
++     +       0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
++     +       0,0/
++      data first/.true./
++      save
++
++      if(first) then
++         nsym=162
++         do i=1,nsym
++            pr(i)=2*npr(i)-1
++         enddo
++      endif
++
++      ccfbest=0.
++
++      do lag=lag1,lag2
++         x=0.
++         do i=1,nsym
++            j=16*i + lag
++            if(j.ge.1 .and. j.le.nz) x=x+ss(j)*pr(i)
++         enddo
++         write(66,3006) lag,x
++ 3006    format(i5,e12.3)
++!         ccf(lag)=x
++         if(x.gt.ccfbest) then
++            ccfbest=x
++            lagpk=lag
++         endif
++      enddo
++
++      return
++      end
+
+Added: trunk/decode162.f
+===================================================================
+--- trunk/decode162.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/decode162.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,142 @@
++      subroutine decode162(c4,npts,message,ncycles,metric,nerr)
++
++C  Decode MEPT_JT data, assuming that DT and DF have already been determined.
++
++      complex c4(npts)
++      character*22 message
++      real*8 dt,df,twopi,f0,f1,dphi0,dphi1
++      complex*16 cz,cz1,c0,c1
++      complex*16 w0,w1,ws0,ws1
++      integer*1 i1,symbol(162)
++      integer*1 data1(11)
++      integer amp
++      integer mettab(0:255,0:1)
++      logical first
++      equivalence (i1,i4)
++      data first/.true./
++      integer npr3(162)
++      common/ccom/rr(162)
++      data npr3/
++     + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
++     + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
++     + 0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
++     + 1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
++     + 0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,
++     + 0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
++     + 0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
++     + 0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
++     + 0,0/
++      data mettab/
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   4,
++     +   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
++     +   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
++     +   3,   3,   3,   3,   3,   3,   3,   3,   3,   2,
++     +   2,   2,   2,   2,   1,   1,   1,   1,   0,   0,
++     +  -1,  -1,  -1,  -2,  -2,  -3,  -4,  -4,  -5,  -6,
++     +  -7,  -7,  -8,  -9, -10, -11, -12, -12, -13, -14,
++     + -15, -16, -17, -17, -18, -19, -20, -21, -22, -22,
++     + -23, -24, -25, -26, -26, -27, -28, -29, -30, -30,
++     + -31, -32, -33, -33, -34, -35, -36, -36, -37, -38,
++     + -38, -39, -40, -41, -41, -42, -43, -43, -44, -45,
++     + -45, -46, -47, -47, -48, -49, -49, -50, -51, -51,
++     + -52, -53, -53, -54, -54, -55, -56, -56, -57, -57,
++     + -58, -59, -59, -60, -60, -61, -62, -62, -62, -63,
++     + -64, -64, -65, -65, -66, -67, -67, -67, -68, -69,
++     + -69, -70, -70, -71, -72, -72, -72, -72, -73, -74,
++     + -75, -75, -75, -77, -76, -76, -78, -78, -80, -81,
++     + -80, -79, -83, -82, -81, -82, -82, -83, -84, -84,
++     + -84, -87, -86, -87, -88, -89, -89, -89, -88, -87,
++     + -86, -87, -84, -84, -84, -83, -82, -82, -81, -82,
++     + -83, -79, -80, -81, -80, -78, -78, -76, -76, -77,
++     + -75, -75, -75, -74, -73, -72, -72, -72, -72, -71,
++     + -70, -70, -69, -69, -68, -67, -67, -67, -66, -65,
++     + -65, -64, -64, -63, -62, -62, -62, -61, -60, -60,
++     + -59, -59, -58, -57, -57, -56, -56, -55, -54, -54,
++     + -53, -53, -52, -51, -51, -50, -49, -49, -48, -47,
++     + -47, -46, -45, -45, -44, -43, -43, -42, -41, -41,
++     + -40, -39, -38, -38, -37, -36, -36, -35, -34, -33,
++     + -33, -32, -31, -30, -30, -29, -28, -27, -26, -26,
++     + -25, -24, -23, -22, -22, -21, -20, -19, -18, -17,
++     + -17, -16, -15, -14, -13, -12, -12, -11, -10,  -9,
++     +  -8,  -7,  -7,  -6,  -5,  -4,  -4,  -3,  -2,  -2,
++     +  -1,  -1,  -1,   0,   0,   1,   1,   1,   1,   2,
++     +   2,   2,   2,   2,   3,   3,   3,   3,   3,   3,
++     +   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,
++     +   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
++     +   4,   4,   4,   4,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
++     +   5,   5/
++      save
++
++      if(first) then
++         twopi=8*atan(1.d0)
++         dt=1.d0/375.d0                        !Sample interval
++         df=375.d0/256.d0
++         nsym=162
++         nbits=50+31
++         amp=20                                !### 32 ??? ###
++         ndelta=50
++         limit=20000
++         first=.false.
++      endif
++
++C  Should amp be adjusted according to signal strength?
++C  Compute soft symbols
++      k=0
++      nsps=256
++      fac2=0.001
++      w0=1.0
++      w1=1.0
++
++      do j=1,nsym
++         f0=(npr3(j)-1.5)*df
++         f1=(2+npr3(j)-1.5)*df
++         dphi0=twopi*dt*f0
++         dphi1=twopi*dt*f1
++         ws0=dcmplx(cos(dphi0),-sin(dphi0))
++         ws1=dcmplx(cos(dphi1),-sin(dphi1))
++         c0=0.
++         c1=0.
++         do i=1,nsps
++            k=k+1
++            w0=w0*ws0
++            w1=w1*ws1
++            c0=c0 + w0*c4(k)
++            c1=c1 + w1*c4(k)
++         enddo
++
++         sq0=fac2*(real(c0)**2 + aimag(c0)**2)
++         sq1=fac2*(real(c1)**2 + aimag(c1)**2)
++         rsym=amp*(sq1-sq0)
++!         write(55,3003) j,rsym,rr(j)
++! 3003    format(i5,3f10.3)
++!         rsym=rr(j)
++
++         r=rsym+128.
++         if(r.gt.255.0) r=255.0
++         if(r.lt.0.0) r=0.0
++         i4=nint(r)
++         symbol(j)=i1
++      enddo
++
++      call inter_mept(symbol,-1)                      !Remove interleaving
++      call fano232(symbol,nbits,mettab,ndelta,limit,
++     +     data1,ncycles,metric,nerr)
++      message='                      '
++      if(nerr.ge.0) call wqdecode(data1,message,ntype2)
++
++      return
++      end
+
+Modified: trunk/fano232.f
+===================================================================
+--- trunk/fano232.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/fano232.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -7,7 +7,7 @@
+ 
+       parameter (MAXBITS=103)
+       parameter (MAXDAT=(MAXBITS+7)/8)
+-      integer*1 symbol(0:2*MAXBITS-1)     !Soft channel symbols (erase=128)
++      integer*1 symbol(0:2*MAXBITS-1)
+       integer*1 dat(MAXDAT)               !Decoded user data, 8 bits per byte
+       integer mettab(0:255,0:1)           !Metric table
+ 
+@@ -77,7 +77,7 @@
+ 
+ C  Move forward
+             gamma(np+1)=ngamma
+-            nstate(np+1)=nstate(np)+nstate(np)
++            nstate(np+1)=ishft(nstate(np),1)
+             np=np+1
+             if(np.eq.nbits-1) go to 100     !We're done!
+ 
+
+Added: trunk/fchisq.f
+===================================================================
+--- trunk/fchisq.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/fchisq.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,98 @@
++      real function fchisq(cx,npts,fsample,a,lag1,lag2,ccfmax,dtmax)
++
++      parameter (NMAX=120*375)
++      complex cx(npts)
++      real a(5)
++      complex*16 w1,ws1
++      complex*16 w2,ws2
++      complex*16 w3,ws3
++      complex*16 w4,ws4
++      complex*16 cs1(0:NMAX)
++      complex*16 cs2(0:NMAX)
++      complex*16 cs3(0:NMAX)
++      complex*16 cs4(0:NMAX)
++      complex z1,z2,z3,z4
++      real*8 twopi,baud,p2
++!      real ss(2812)
++      real ss(5624)
++      save
++
++      twopi=8.d0*atan(1.d0)
++      baud=12000.d0/8192
++
++C  Mix and integrate four channels
++      cs1(0)=0.
++      cs2(0)=0.
++      cs3(0)=0.
++      cs4(0)=0.
++      w1=1.0
++      w2=1.0
++      w3=1.0
++      w4=1.0
++      x0=0.5*(npts+1)           !Middle sample
++      s=2.0/npts
++      dt=1.0/fsample
++      do i=1,npts
++         x=s*(i-x0)             !x runs from -1 to +1
++         if(mod(i,100).eq.1) then
++            p2=1.5*x*x - 0.5
++!           p3=2.5*(x**3) - 1.5*x
++!           p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++            dphi1=twopi*dt*(a(1) + x*a(2) + p2*a(3) - 1.5*baud)
++            dphi2=twopi*dt*(a(1) + x*a(2) + p2*a(3) - 0.5*baud)
++            dphi3=twopi*dt*(a(1) + x*a(2) + p2*a(3) + 0.5*baud)
++            dphi4=twopi*dt*(a(1) + x*a(2) + p2*a(3) + 1.5*baud)
++            ws1=cmplx(cos(dphi1),sin(dphi1))
++            ws2=cmplx(cos(dphi2),sin(dphi2))
++            ws3=cmplx(cos(dphi3),sin(dphi3))
++            ws4=cmplx(cos(dphi4),sin(dphi4))
++         endif
++         w1=w1*ws1
++         w2=w2*ws2
++         w3=w3*ws3
++         w4=w4*ws4
++         cs1(i)=cs1(i-1) + w1*cx(i)
++         cs2(i)=cs2(i-1) + w2*cx(i)
++         cs3(i)=cs3(i-1) + w3*cx(i)
++         cs4(i)=cs4(i-1) + w4*cx(i)
++      enddo
++
++C  Compute full-symbol powers at 1/16-symbol steps.
++      nsps=nint(fsample/baud)                  !Samples per symbol
++      ndiv=16                                  !Steps per symbol
++      nout=ndiv*npts/nsps                      !Total steps
++      dtstep=1.0/(ndiv*baud)                   !Time per output step
++      fac=1.e-5
++
++      ss=0.
++      do i=1,nout
++         j=i*nsps/ndiv
++         k=j - nsps
++         ss(i)=0.
++         if(k.ge.1) then
++            z1=cs1(j)-cs1(k)
++            z2=cs2(j)-cs2(k)
++            z3=cs3(j)-cs3(k)
++            z4=cs4(j)-cs4(k)
++
++            p1=real(z1)**2 + aimag(z1)**2
++            p2=real(z2)**2 + aimag(z2)**2
++            p3=real(z3)**2 + aimag(z3)**2
++            p4=real(z4)**2 + aimag(z4)**2
++
++!            ss(i)=fac*(max(p2,p4) - max(p1,p3))
++            ss(i)=fac*((p2+p4) - (p1+p3))
++         endif
++      enddo
++
++      ccfmax=0.
++      call ccf2(ss,nout,lag1,lag2,ccf,lagpk)
++      if(ccf.gt.ccfmax) then
++         ccfmax=ccf
++         dtmax=lagpk*dtstep
++      endif
++! Reverse sign (and offset!) because we will be minimizing fchisq
++      fchisq=-ccfmax + 100.0
++
++      return
++      end
+
+Added: trunk/filbig2.f
+===================================================================
+--- trunk/filbig2.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/filbig2.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,102 @@
++      subroutine filbig2(dat,nmax,f0,newdat,c4a,n4)
++
++C  Filter and downsample complex data for X and Y polarizations,
++C  stored in array dat(nmax).  Output is downsampled from 11025 or
++C  12000 Hz to 375 Hz, and the low-pass filter has f_cutoff = 100 Hz, 
++C  f_stop = 187.5 Hz, ripple=0.1 dB, Atten=50 dB.
++
++      parameter (NFFT1=1323000,NFFT2=45000)
++      real dat(nmax)                             !Input data
++      complex ca(NFFT1)                          !FFTs of input
++      complex c4a(NFFT2)                         !Output data
++      real*8 df
++C Impulse response of filter (one side)
++      real halfpulse(4)
++      complex cfilt(NFFT2)                       !Filter (complex; imag = 0)
++      real rfilt(NFFT2)                          !Filter (real)
++      integer plan1,plan3,plan5
++      logical first
++      include 'fftw3.f'
++      equivalence (rfilt,cfilt)
++      data first/.true./
++      data halfpulse/0.758314821007,0.205883390004,-0.123207383552,
++     +     0.045847258328/
++      save
++
++      if(nmax.lt.0) go to 900
++      if(first) then
++         npatience=FFTW_ESTIMATE
++!         npatience=FFTW_MEASURE
++C  Plan the FFTs just once
++         call sfftw_plan_dft_1d_(plan1,NFFT1,ca,ca,
++     +        FFTW_BACKWARD,npatience)
++         call sfftw_plan_dft_1d_(plan3,NFFT2,c4a,c4a,
++     +        FFTW_FORWARD,npatience)
++         call sfftw_plan_dft_1d_(plan5,NFFT2,cfilt,cfilt,
++     +        FFTW_BACKWARD,npatience)
++
++C  Convert impulse response to filter function
++         do i=1,NFFT2
++            cfilt(i)=0.
++         enddo
++         fac=1.0/NFFT1                          !### Scale here, if needed
++         cfilt(1)=fac*halfpulse(1)
++         do i=2,4
++            cfilt(i)=fac*halfpulse(i)
++            cfilt(NFFT2+2-i)=fac*halfpulse(i)
++         enddo
++         call sfftw_execute_(plan5)
++
++         base=cfilt(NFFT2/2+1)
++         do i=1,NFFT2
++            rfilt(i)=real(cfilt(i))-base
++         enddo
++
++         df=11025.d0/NFFT1
++         first=.false.
++      endif
++
++C  When new data comes along, we need to compute a new &quot;big FFT&quot;
++C  If we just have a new f0, continue with the existing ca and cb.
++
++      if(newdat.ne.0) then
++         nz=min(nmax,NFFT1)
++         do i=1,nz
++            ca(i)=dat(i)
++         enddo
++         if(nmax.lt.NFFT1) then
++            do i=nmax+1,NFFT1
++               ca(i)=0.
++            enddo
++         endif
++         call sfftw_execute_(plan1)
++         newdat=0
++      endif
++
++C  NB: f0 is the frequency at which we want our filter centered.
++C      i0 is the bin number in ca and cb closest to f0.
++
++      i0=nint(f0/df) + 1
++      nh=NFFT2/2
++      do i=1,nh                                !Copy data into c4a and c4b,
++         j=i0+i-1                              !and apply the filter function
++         c4a(i)=rfilt(i)*ca(j)
++      enddo
++      do i=nh+1,NFFT2
++         j=i0+i-1-NFFT2
++         if(j.lt.1) j=j+NFFT2
++         c4a(i)=rfilt(i)*ca(j)
++      enddo
++
++C  Do the short reverse transform, to go back to time domain.
++      call sfftw_execute_(plan3)
++      n4=min(int(nmax*375.0/11025.0),NFFT2)
++      go to 999
++
++ 900  call sfftw_destroy_plan_(plan1)
++      call sfftw_destroy_plan_(plan3)
++      call sfftw_destroy_plan_(plan5)
++!      print*,'Destroying FFTW plans'
++
++ 999  return
++      end
+
+Modified: trunk/four2a.f
+===================================================================
+--- trunk/four2a.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/four2a.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -19,8 +19,9 @@
+ 
+       parameter (NPMAX=100)
+       complex a(nfft)
++      complex aa(32768)
+       integer nn(NPMAX),ns(NPMAX),nf(NPMAX),nl(NPMAX)
+-      integer plan(NPMAX)
++      real*8 plan(NPMAX)                   !Should be i*8
+       data nplan/0/
+       include 'fftw3.f'
+       save
+@@ -43,7 +44,13 @@
+ C  Planning: FFTW_ESTIMATE, FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
+       nspeed=FFTW_ESTIMATE
+       if(nfft.le.16384) nspeed=FFTW_MEASURE
+-
++      nspeed=FFTW_MEASURE
++      if(nfft.le.32768) then
++         do j=1,nfft
++            aa(j)=a(j)
++         enddo
++      endif
++      call sleep_msec(0)
+       if(isign.eq.-1 .and. iform.eq.1) then
+          call sfftw_plan_dft_1d_(plan(i),nfft,a,a,
+      +        FFTW_FORWARD,nspeed)
+@@ -57,19 +64,22 @@
+       else
+          stop 'Unsupported request in four2a'
+       endif
+-
++      call sleep_msec(0)
+       i=nplan
+-!      write(*,3001) i,nn(i),ns(i),nf(i),nl(i),plan(i)
+-! 3001 format(6i10)
++      if(nfft.le.32768) then
++         do j=1,nfft
++            a(j)=aa(j)
++         enddo
++      endif
+ 
+- 10   call sfftw_execute_(plan(i))
++ 10   call sleep_msec(0)
++      call sfftw_execute_(plan(i))
++      call sleep_msec(0)
+       return
+ 
+  999  do i=1,nplan
+-!         print*,i,nn(i),ns(i),nf(i),nl(i),plan(i)
+          call sfftw_destroy_plan_(plan(i))
+       enddo
+-!      print*,'FFTW plans destroyed:',nplan
+ 
+       return
+       end
+
+Modified: trunk/fourt.f
+===================================================================
+--- trunk/fourt.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/fourt.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -1,80 +1,80 @@
+       SUBROUTINE FOURT(DATA,NN,NDIM,ISIGN,IFORM,WORK)
+ c
+-c     the cooley-tukey fast fourier transform in usasi basic fortran
++c     The Cooley-Tukey FFT in USASI basic fortran
+ c
+ c     transform(j1,j2,,,,) = sum(data(i1,i2,,,,)*w1**((i2-1)*(j2-1))
+ c                                 *w2**((i2-1)*(j2-1))*,,,),
+ c     where i1 and j1 run from 1 to nn(1) and w1=exp(isign*2*pi=
+-c     sqrt(-1)/nn(1)), etc.  there is no limit on the dimensionality
+-c     (number of subscripts) of the data array.  if an inverse
++c     sqrt(-1)/nn(1)), etc.  There is no limit on the dimensionality
++c     (number of subscripts) of the data array.  If an inverse
+ c     transform (isign=+1) is performed upon an array of transformed
+-c     (isign=-1) data, the original data will reappear.
+-c     multiplied by nn(1)*nn(2)*,,,  the array of input data must be
+-c     in complex format.  however, if all imaginary parts are zero (i.e.
++c     (isign=-1) data, the original data will reappear,
++c     multiplied by nn(1)*nn(2)*...  The array of input data must be
++c     in complex format.  However, if all imaginary parts are zero (i.e.
+ c     the data are disguised real) running time is cut up to forty per-
+-c     cent.  (for fastest transform of real data, nn(1) should be even.)
+-c     the transform values are always complex and are returned in the
+-c     original array of data, replacing the input data.  the length
+-c     of each dimension of the data array may be any integer.  the
++c     cent.  (For fastest transform of real data, nn(1) should be even.)
++c     The transform values are always complex and are returned in the
++c     original array of data, replacing the input data.  The length
++c     of each dimension of the data array may be any integer.  The
+ c     program runs faster on composite integers than on primes, and is
+ c     particularly fast on numbers rich in factors of two.
+ c
+-c     timing is in fact given by the following formula.  let ntot be the
++c     Timing is in fact given by the following formula.  Let ntot be the
+ c     total number of points (real or complex) in the data array, that
+-c     is, ntot=nn(1)*nn(2)*...  decompose ntot into its prime factors,
+-c     such as 2**k2 * 3**k3 * 5**k5 * ...  let sum2 be the sum of all
+-c     the factors of two in ntot, that is, sum2 = 2*k2.  let sumf be
+-c     the sum of all other factors of ntot, that is, sumf = 3*k3*5*k5*..
+-c     the time taken by a multidimensional transform on these ntot data
+-c     is t = t0 + ntot*(t1+t2*sum2+t3*sumf).  on the cdc 3300 (floating
++c     is, ntot=nn(1)*nn(2)*...  Decompose ntot into its prime factors,
++c     such as 2**k2 * 3**k3 * 5**k5 * ...  Let sum2 be the sum of all
++c     the factors of two in ntot, that is, sum2 = 2*k2.  Let sumf be
++c     the sum of all other factors of ntot, that is, sumf = 3*k3*5*k5*...
++c     The time taken by a multidimensional transform on these ntot data
++c     is t = t0 + ntot*(t1+t2*sum2+t3*sumf).  On the cdc 3300 (floating
+ c     point add time = six microseconds), t = 3000 + ntot*(600+40*sum2+
+ c     175*sumf) microseconds on complex data.
+ c
+-c     implementation of the definition by summation will run in a time
+-c     proportional to ntot*(nn(1)+nn(2)+...).  for highly composite ntot
+-c     the savings offered by this program can be dramatic.  a one-dimen-
++c     Implementation of the definition by summation will run in a time
++c     proportional to ntot*(nn(1)+nn(2)+...).  For highly composite ntot
++c     the savings offered by this program can be dramatic.  A one-dimen-
+ c     sional array 4000 in length will be transformed in 4000*(600+
+ c     40*(2+2+2+2+2)+175*(5+5+5)) = 14.5 seconds versus about 4000*
+ c     4000*175 = 2800 seconds for the straightforward technique.
+ c
+-c     the fast fourier transform places three restrictions upon the
++c     The fast fourier transform places three restrictions upon the
+ c     data.
+-c     1.  the number of input data and the number of transform values
++c     1.  The number of input data and the number of transform values
+ c     must be the same.
+-c     2.  both the input data and the transform values must represent
++c     2.  Both the input data and the transform values must represent
+ c     equispaced points in their respective domains of time and
+-c     frequency.  calling these spacings deltat and deltaf, it must be
+-c     true that deltaf=2*pi/(nn(i)*deltat).  of course, deltat need not
++c     frequency.  Calling these spacings deltat and deltaf, it must be
++c     true that deltaf=2*pi/(nn(i)*deltat).  Of course, deltat need not
+ c     be the same for every dimension.
+-c     3.  conceptually at least, the input data and the transform output
++c     3.  Conceptually at least, the input data and the transform output
+ c     represent single cycles of periodic functions.
+ c
+-c     the calling sequence is--
++c     The calling sequence is:
+ c     call fourt(data,nn,ndim,isign,iform,work)
+ c
+-c     data is the array used to hold the real and imaginary parts
+-c     of the data on input and the transform values on output.  it
++c     Data is the array used to hold the real and imaginary parts
++c     of the data on input and the transform values on output.  It
+ c     is a multidimensional floating point array, with the real and
+ c     imaginary parts of a datum stored immediately adjacent in storage
+-c     (such as fortran iv places them).  normal fortran ordering is
+-c     expected, the first subscript changing fastest.  the dimensions
++c     (such as fortran iv places them).  Normal fortran ordering is
++c     expected, the first subscript changing fastest.  The dimensions
+ c     are given in the integer array nn, of length ndim.  isign is -1
+ c     to indicate a forward transform (exponential sign is -) and +1
+ c     for an inverse transform (sign is +).  iform is +1 if the data are
+-c     complex, 0 if the data are real.  if it is 0, the imaginary
+-c     parts of the data must be set to zero.  as explained above, the
++c     complex, 0 if the data are real.  If it is 0, the imaginary
++c     parts of the data must be set to zero.  As explained above, the
+ c     transform values are always complex and are stored in array data.
+-c     work is an array used for working storage.  it is floating point
++c     work is an array used for working storage.  It is floating point
+ c     real, one dimensional of length equal to twice the largest array
+-c     dimension nn(i) that is not a power of two.  if all nn(i) are
++c     dimension nn(i) that is not a power of two.  If all nn(i) are
+ c     powers of two, it is not needed and may be replaced by zero in the
+-c     calling sequence.  thus, for a one-dimensional array, nn(1) odd,
+-c     work occupies as many storage locations as data.  if supplied,
+-c     work must not be the same array as data.  all subscripts of all
++c     calling sequence.  Thus, for a one-dimensional array, nn(1) odd,
++c     work occupies as many storage locations as data.  If supplied,
++c     work must not be the same array as data.  All subscripts of all
+ c     arrays begin at one.
+ c
+-c     example 1.  three-dimensional forward fourier transform of a
+-c     complex array dimensioned 32 by 25 by 13 in fortran iv.
++c     Example 1:  Three-dimensional forward fourier transform of a
++c     complex array dimensioned 32 by 25 by 13 in fortran IV.
+ c     dimension data(32,25,13),work(50),nn(3)
+ c     complex data
+ c     data nn/32,25,13/
+@@ -84,32 +84,32 @@
+ c  1  data(i,j,k)=complex value
+ c     call fourt(data,nn,3,-1,1,work)
+ c
+-c     example 2.  one-dimensional forward transform of a real array of
+-c     length 64 in fortran ii,
++c     Example 2:  One-dimensional forward transform of a real array of
++c     length 64 in fortran II.
+ c     dimension data(2,64)
+ c     do 2 i=1,64
+ c     data(1,i)=real part
+ c  2  data(2,i)=0.
+ c     call fourt(data,64,1,-1,0,0)
+ c
+-c     there are no error messages or error halts in this program.  the
++c     There are no error messages or error halts in this program.  The
+ c     program returns immediately if ndim or any nn(i) is less than one.
+ c
+-c     program by norman brenner from the basic program by charles
+-c     rader,  june 1967.  the idea for the digit reversal was
+-c     suggested by ralph alter.
++c     Program by Norman Brenner from the basic program by Charles
++c     Rader, June 1967.  The idea for the digit reversal was
++c     suggested by Ralph Alter.
+ c
+-c     this is the fastest and most versatile version of the fft known
+-c     to the author.  a program called four2 is available that also
+-c     performs the fast fourier transform and is written in usasi basic
+-c     fortran.  it is about one third as long and restricts the
++c     This is the fastest and most versatile version of the FFT known
++c     to the author.  A program called four2 is available that also
++c     performs the fast fourier transform and is written in USASI basic
++c     fortran.  It is about one third as long and restricts the
+ c     dimensions of the input array (which must be complex) to be powers
+-c     of two.  another program, called four1, is one tenth as long and
++c     of two.  Another program, called four1, is one tenth as long and
+ c     runs two thirds as fast on a one-dimensional complex array whose
+ c     length is a power of two.
+ c
+-c     reference--
+-c     ieee audio transactions (june 1967), special issue on the fft.
++c     Reference:
++c     IEEE Audio Transactions (June 1967), special issue on the FFT.
+ c
+ C     .. Scalar Arguments ..
+       INTEGER IFORM,ISIGN,NDIM
+
+Modified: trunk/ftn_quit.f90
+===================================================================
+--- trunk/ftn_quit.f90	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/ftn_quit.f90	2008-05-29 20:06:48 UTC (rev 819)
+@@ -1,6 +1,5 @@
+-
+-!------------------------------------------------ ftn_quit
+ subroutine ftn_quit
+   call four2a(a,-1,1,1,1)
++  call filbig2(dat,-1,f0,newdat,c4a,n4)
+   return
+ end subroutine ftn_quit
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/gcom2.f90	2008-05-29 20:06:48 UTC (rev 819)
+@@ -63,6 +63,7 @@
+ integer lenappdir      !Length of Appdir string                 GUI
+ integer idf            !Frequency offset in Hz                  Decoder
+ integer ndiskdat       !1 if data read from disk, 0 otherwise   GUI
++integer nfsam          !Sample rate for data read from disk     Decoder
+ integer nlines         !Available lines of waterfall data       GUI
+ integer nflat          !Is waterfall to be flattened?           GUI
+ integer ntdecode       !Time to start decoding in JT65 modes    GUI
+@@ -100,8 +101,8 @@
+      nclearave,nfreeze,nafc,nmode,mode65,mode4,nclip,ndebug,nblank,nport,   &amp;
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf, &amp;
+      shok,sendingsh,d2a(ND2MAX),d2b(ND2MAX),b(60000),jza,jzb,ntime,   &amp;
+-     idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntdecode,   &amp;
+-     ntxreq,ntxnow,nchallenge,                                        &amp;
++     idinterval,msmax,lenappdir,idf,ndiskdat,nfsam,nlines,nflat,      &amp;
++     ntdecode,ntxreq,ntxnow,nchallenge,                               &amp;
+      ndepth,nspecial,ndf,nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+      fnameb,decodedfile,AppDir,AzElDir,filetokilla,filetokillb,       &amp;
+
+Added: trunk/ps162.f
+===================================================================
+--- trunk/ps162.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/ps162.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,27 @@
++      subroutine ps162(c2,s)
++
++      parameter (NFFT=512,NH=256)
++      complex c2(0:NFFT)
++      real s(-NH:NH)
++!      real work(2*NMAX)
++      complex c(0:NFFT)
++
++      do i=0,NH-1
++         c(i)=c2(i)
++      enddo
++      do i=nh,nfft-1
++         c(i)=0.
++      enddo
++
++      call four2a(c,nfft,1,-1,1)
++
++      fac=1.0/nfft
++      do i=0,NFFT-1
++         j=i
++         if(j.gt.NH) j=j-NFFT
++         s(j)=fac*(real(c(i))**2 + aimag(c(i))**2)
++      enddo
++      s(-NH)=s(-NH+1)
++
++      return
++      end
+
+Added: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/sync162.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,204 @@
++      subroutine sync162(c2,jz,ps,sstf,kz)
++
++C  Find MEPT_JT sync signals, with best-fit DT and DF.  
++
++      complex c2(jz)
++      parameter (NFFT=512)             !Length of FFTs
++      parameter (NH=NFFT/2)            !Length of power spectra
++      parameter (NSMAX=351)            !Number of half-symbol steps
++      parameter (NF0=136,NF1=10)
++      parameter (LAGMAX=26)
++      real psavg(-NH:NH)               !Average spectrum of whole record
++      real s2(-NH:NH,NSMAX)            !2d spectrum, stepped by half-symbols
++      real ps(-NH:NH)
++      real psmo(-NH:NH)
++      real freq(-NH:NH)
++      real p1(-NH:NH)
++      real drift(-NH:NH)
++      real dtx(-NH:NH)
++      integer keep0(-NH:NH)
++      integer keep(-NH:NH)
++      real a(5)
++      real sstf(5,275)
++      character*22 message
++      real tmp(275)
++      integer npr3(162)
++      real pr3(162)
++      data npr3/
++     +  1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
++     +  0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
++     +  0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
++     +  1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
++     +  0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,
++     +  0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
++     +  0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
++     +  0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
++     +  0,0/
++      save
++
++      nsym=162
++      do i=1,nsym
++         pr3(i)=2*npr3(i)-1
++      enddo
++
++C  Do FFTs of twice symbol length, stepped by half symbols.  
++      nq=NFFT/4
++      nsteps=jz/nq - 1
++      df=375.0/nfft
++      dt=1.0/375.0
++      call zero(psavg,NFFT+1)
++
++C  Compute power spectrum for each step, and get average
++      do j=1,nsteps
++         k=(j-1)*nq + 1
++         call ps162(c2(k),s2(-NH,j))
++         call add(psavg,s2(-NH,j),psavg,NFFT)
++      enddo
++
++! Normalize and subtract baseline from psavg.
++      call pctile(psavg(-136),tmp,273,35,base)
++      psavg=psavg/base - 1.0
++      base=base/351.0
++      s2=s2/base - 1.0
++
++! Boxcar-smooth the average spectrum over the WSPR signal bandwidth.
++      do i=-NH+3,NH-3
++         psmo(i)=0.
++         do k=-3,3
++            psmo(i)=psmo(i)+ps(i+k)
++         enddo
++         psmo(i)=psmo(i)/7.0
++      enddo
++
++! Mark potential suspects for WSPR signals.  
++! (Keep only the best one within a surrounding range of +/- 8 bins.)
++
++      plimit=0.                      !### Are the plimit values OK? ###
++      do i=-NF0,NF0
++         keep0(i)=0
++         keep(i)=0
++         ia=i-4
++         ib=i+4
++         pmax=-1.e30
++         do ii=ia,ib
++            if(psmo(ii).gt.pmax) then
++               ipk=ii
++               pmax=psmo(ii)
++            endif
++         enddo
++         if(ipk.eq.i .and. pmax.ge.plimit) then
++            keep0(i)=1
++! Kill all smaller peaks leading up to this maximum.
++            do ii=ia,i-1
++               keep0(ii)=0
++            enddo
++         endif
++      enddo
++
++! Now mark the bins +/- 1 from each one already marked.
++      do i=-NF0+1,NF0-1
++         if(keep0(i).eq.1) then
++            keep(i-1)=1
++            keep(i)=1
++            keep(i+1)=1
++         endif
++      enddo
++
++! Now do the main search over DT, DF, and drift.  (Do CCFs in all marked
++! frequency bins and over a range of reasonable fdot values and lags.)
++      p1=0.
++      do i=-NF0,NF0
++         if(keep(i).eq.0) go to 10
++         smax=0.
++         do k=-NF1,NF1
++            if(abs(k).ne.1) then
++               do lag=0,LAGMAX
++                  sum=0.
++                  n=lag-1
++                  do j=1,162
++                     n=n+2
++                     ii=i + nint(k*(j-81)/162.0)
++                     x=max(s2(ii-1,n),s2(ii+3,n)) - 
++     +                    max(s2(ii-3,n),s2(ii+1,n))
++                     sum=sum + x*pr3(j)
++                  enddo
++                  if(sum.gt.smax) then
++                     kpk=k
++                     lagpk=lag
++                     smax=sum
++                  endif
++               enddo
++            endif
++         enddo
++
++! Save the CCF value, frequency, drift rate, and DT.
++         p1(i)=smax
++         freq(i)=df*i
++         drift(i)=df*kpk
++         dtx(i)=128.0*dt*lagpk
++ 10      continue
++      enddo
++
++! Eliminate potential duplicates and peaks smaller than plimit.
++      keep=0
++      plimit=10.0*plimit                             !### ??? ###
++      do i=-NF0,NF0
++         ia=max(-NF0,i-8)
++         ib=min(NF0,i+8)
++         pmax=-1.e30
++         do ii=ia,ib
++            if(p1(ii).gt.pmax) then
++               ipk=ii
++               pmax=p1(ii)
++            endif
++         enddo
++         if(ipk.eq.i .and. pmax.ge.plimit) then
++            keep(i)=1
++            do ii=ia,i-1
++               keep(ii)=0
++            enddo
++         endif
++      enddo
++
++! Compress the candidate list, saving only the potentially important ones.
++! Recalibrate sync indicator p1 on a dB scale.  
++! (NB: p1 sould be compared with snrx!)
++      k=0
++      do i=-NF0,NF0
++         if(keep(i).ne.0) then
++            x=10.0*log10(p1(i)) - 22 + 2.7       !### ??? ###
++            write(63,3003) i,x
++ 3003       format(i5,f10.3)
++            if(x.ge.0.5) then
++               k=k+1
++               p1(k)=x
++               freq(k)=freq(i)
++               drift(k)=drift(i)
++               dtx(k)=dtx(i) - 2.0
++            endif
++         endif
++      enddo
++      kz=k
++
++      do k=1,kz
++         a(1)=-freq(k) + 1.4648   !### Why is this offset necessary? ###
++         a(2)=-0.5*drift(k)
++         a(3)=0.
++         lagpk=nint((dtx(k)+2)/(128*dt))
++!         lag1=max(-200,8*lagpk-16)
++!         lag2=min(200,8*lagpk+16)
++         lag1=-200
++         lag2=200
++         ccf=-fchisq(c2,jz,375.0,a,lag1,lag2,ccfbest,dtbest)
++         ipk=nint(freq(k)/df)
++         snrx=db(max(psavg(ipk),0.0001)) - 26.5         !Empirical
++         sstf(1,k)=p1(k)
++         sstf(2,k)=snrx
++         sstf(3,k)=dtbest-2.0
++         sstf(4,k)=freq(k)
++         sstf(5,k)=drift(k)
++      enddo
++      
++      return
++      end
++
+
+Added: trunk/twkfreq.f
+===================================================================
+--- trunk/twkfreq.f	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/twkfreq.f	2008-05-29 20:06:48 UTC (rev 819)
+@@ -0,0 +1,30 @@
++      subroutine twkfreq(ca,cb,jz,a)
++
++C  Apply AFC corrections to ca, returning corrected data in cb
++
++      complex ca(jz),cb(jz)
++      real a(5)
++      real*8 twopi
++      complex*16 w,wstep
++      data twopi/0.d0/
++      save twopi
++
++      if(twopi.eq.0.d0) twopi=8.d0*atan(1.d0)
++      w=1.d0
++      x0=0.5*(jz+1)
++      s=2.0/jz
++      do i=1,jz
++         x=s*(i-x0)
++         if(mod(i,100).eq.1) then
++            p2=1.5*x*x - 0.5
++!            p3=2.5*(x**3) - 1.5*x
++!            p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++            dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/375.0)
++            wstep=cmplx(cos(dphi),sin(dphi))
++         endif
++         w=w*wstep
++         cb(i)=w*ca(i)
++      enddo
++
++      return
++      end
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/wsjt.py	2008-05-29 20:06:48 UTC (rev 819)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-05-29 17:50:20 UTC (rev 818)
++++ trunk/wsjt1.F	2008-05-29 20:06:48 UTC (rev 819)
+@@ -301,7 +301,7 @@
+ 	   if(i.le.0) i=index(MyCall,' ')
+  	   mycall=MyCall(1:i-1)//'            '
+ 
+-	   print*,'Calling WSPR decoder',jz
++	   call wsjtwspr(dat,jz)
+ 
+  	   goto 900
+  	endif
+@@ -365,7 +365,6 @@
+ 	call flushqqq(11)
+ 	call flushqqq(12)
+ 	call flushqqq(21)
+-	print*,'End of wsjt1'
+ 
+  	return
+  	end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000506.html">[WSJT-SVN] r818 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000508.html">[WSJT-SVN] r820 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#507">[ date ]</a>
+              <a href="thread.html#507">[ thread ]</a>
+              <a href="subject.html#507">[ subject ]</a>
+              <a href="author.html#507">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

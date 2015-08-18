@@ -1,0 +1,557 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2969 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2969%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130123162508.4341355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002660.html">
+   <LINK REL="Next"  HREF="002662.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2969 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2969%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130123162508.4341355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2969 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jan 23 17:25:08 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002660.html">[WSJT-SVN] r2968 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002662.html">[WSJT-SVN] r2970 - branches/wsjtx/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2661">[ date ]</a>
+              <a href="thread.html#2661">[ thread ]</a>
+              <a href="subject.html#2661">[ subject ]</a>
+              <a href="author.html#2661">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-23 17:25:07 +0100 (Wed, 23 Jan 2013)
+New Revision: 2969
+
+Added:
+   branches/wsjtx/lib/chkmsg.f90
+   branches/wsjtx/lib/encode4.f90
+   branches/wsjtx/lib/gen24.f90
+Modified:
+   branches/wsjtx/lib/decode24.f90
+   branches/wsjtx/lib/deep24.f90
+   branches/wsjtx/lib/wsjt24.f90
+   branches/wsjtx/lib/wsjt24d.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Code for JT4 deep search now working well.  (Needs some fine tuning, though.)
+Message averaging has been tested, works well also.
+Next: need to integrate these features and back-port into WSJT9.
+
+
+Added: branches/wsjtx/lib/chkmsg.f90
+===================================================================
+--- branches/wsjtx/lib/chkmsg.f90	                        (rev 0)
++++ branches/wsjtx/lib/chkmsg.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -0,0 +1,31 @@
++subroutine chkmsg(message,cok,nspecial,flip)
++
++  character message*22,cok*3
++
++  nspecial=0
++  flip=1.0
++  cok=&quot;   &quot;
++
++  do i=22,1,-1
++     if(message(i:i).ne.' ') go to 10
++  enddo
++  i=22
++
++10 if(i.ge.11) then
++     if((message(i-3:i).eq.' OOO') .or. (message(20:22).eq.' OO')) then
++        cok='OOO'
++        flip=-1.0
++        if(message(20:22).eq.' OO') then
++           message=message(1:19)
++        else
++           message=message(1:i-4)
++        endif
++     endif
++  endif
++
++  if(message(1:2).eq.'RO')  nspecial=2
++  if(message(1:3).eq.'RRR') nspecial=3
++  if(message(1:2).eq.'73')  nspecial=4
++
++  return
++end subroutine chkmsg
+
+Modified: branches/wsjtx/lib/decode24.f90
+===================================================================
+--- branches/wsjtx/lib/decode24.f90	2013-01-22 21:04:47 UTC (rev 2968)
++++ branches/wsjtx/lib/decode24.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -1,17 +1,20 @@
+ subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,ncount,   &amp;
+-     nlim,deepmsg,qual,submode)
++     deepmsg,qual,submode)
+ 
+ ! Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+   parameter (MAXAVE=120)
+   real dat(npts)                        !Raw data
+   character decoded*22,deepmsg*22
++  character*12 mycall,hiscall
++  character*6 hisgrid
+   character*72 c72
+   character submode*1
+   real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+   complex*16 cz,cz1,c0,c1
+   integer*1 symbol(207)
+   real*4 rsymbol(207,7)
++  real*4 sym(207)
+   integer nsum(7)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+@@ -46,6 +49,9 @@
+   if(istart.lt.0) istart=0
+   nchips=0
+   ich=0
++  qbest=0.
++  deepmsg='                      '
++  ichbest=-1
+ 
+ ! Should amp be adjusted according to signal strength?
+ 
+@@ -103,20 +109,23 @@
+      if(i4.gt.127) i4=i4-256
+      if(j.ge.1) then
+         symbol(j)=i4
+-        rsymbol(j,ich)=rsymbol(j,ich) + rsym
++!        rsymbol(j,ich)=rsymbol(j,ich) + rsym
++        rsymbol(j,ich)=rsym
++        sym(j)=rsym
+      endif
+   enddo
+   
+ !###  The following does simple message averaging:
+-  nsum(ich)=nsum(ich)+1
+-  do j=1,207
+-     r=rsymbol(j,ich)/nsum(ich) + 128.
+-     if(r.gt.255.0) r=255.0
+-     if(r.lt.0.0) r=0.0
+-     i4=nint(r)
+-     if(i4.gt.127) i4=i4-256
+-     symbol(j)=i4
+-  enddo
++!  nsum(ich)=nsum(ich)+1
++!  do j=1,207
++!     sym(j)=rsymbol(j,ich)/nsum(ich)
++!     r=sym(j) + 128.
++!     if(r.gt.255.0) r=255.0
++!     if(r.lt.0.0) r=0.0
++!     i4=nint(r)
++!     if(i4.gt.127) i4=i4-256
++!     symbol(j)=i4
++!  enddo
+ !###
+   
+   nbits=72+31
+@@ -129,6 +138,20 @@
+   call fano232(symbol(2),nbits,mettab,delta,limit,data1,ncycles,metric,ncount)
+   nlim=ncycles/nbits
+ 
++!### Try deep search
++  qual=0.
++  neme=1
++  mycall='VK7MO'
++  hiscall='W5LUA'
++  hisgrid='EM13'
++  call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++  if(qual.gt.qbest) then
++     qbest=qual
++     deepmsg=decoded
++     ichbest=ich
++  endif
++!###
++
+   if(ncount.ge.0) go to 100
+   if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+ 
+@@ -137,27 +160,26 @@
+      if(i4.lt.0) i4=i4+256
+      data4a(i)=i4
+   enddo
+-!  call cs_lock('decode24')
+   write(c72,1100) (data4a(i),i=1,9)
+ 1100 format(9b8.8)
+   read(c72,1102) data4
+ 1102 format(12b6)
+-!  call cs_unlock
+ 
+   decoded='                      '
+   submode=' '
+   if(ncount.ge.0) then
+      call unpackmsg(data4,decoded)
+      submode=char(ichar('A')+ich-1)
++  else
++     decoded=deepmsg
++     submode=char(ichar('A')+ichbest-1)
++     qual=qbest
+   endif
+   if(decoded(1:6).eq.'000AAA') then
+      decoded='***WRONG MODE?***'
+      ncount=-1
+   endif
+ 
+-  qual=0.
+-  deepmsg='                      '
+-
+ ! Save symbol spectra for possible decoding of average.
+ 
+   return
+
+Modified: branches/wsjtx/lib/deep24.f90
+===================================================================
+--- branches/wsjtx/lib/deep24.f90	2013-01-22 21:04:47 UTC (rev 2968)
++++ branches/wsjtx/lib/deep24.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -1,9 +1,9 @@
+-subroutine deep24(s3,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++subroutine deep24(sym,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
+ 
+ ! Have barely begun converting this from JT65 to JT4
+ 
+   parameter (MAXCALLS=7000,MAXRPT=63)
+-  real s3(64,63)
++  real*4 sym(206)
+   character callsign*12,grid*4,message*22,hisgrid*6,c*1,ceme*3
+   character*12 mycall,hiscall
+   character mycall0*12,hiscall0*12,hisgrid0*6
+@@ -12,10 +12,10 @@
+   character*15 callgrid(MAXCALLS)
+   character*180 line
+   character*4 rpt(MAXRPT)
+-  integer ncode(63,2*MAXCALLS + 2 + MAXRPT)
++  integer ncode(206)
++  real*4   code(206,2*MAXCALLS + 2 + MAXRPT)
+   real pp(2*MAXCALLS + 2 + MAXRPT)
+-  common/mrscom/ mrs(63),mrs2(63)
+-  common/c3com/ mcall3a
++!  common/c3com/ mcall3a
+ 
+   data neme0/-99/
+   data rpt/'-01','-02','-03','-04','-05',          &amp;
+@@ -78,7 +78,7 @@
+      j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
+      j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
+      callgrid(icall)=callsign(1:j2)
+-     
++
+      mz=1
+ ! Allow MyCall + HisCall + rpt (?)
+      if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
+@@ -89,15 +89,16 @@
+         message=mycall(1:j1)//' '//callgrid(icall)
+         k=k+1
+         testmsg(k)=message
+-!        call encode65(message,ncode(1,k))
+-        
++        call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
+         if(n.ge.2) then
+ ! Insert CQ message
+            if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+            message='CQ '//callgrid(icall)
+            k=k+1
+            testmsg(k)=message
+-!           call encode65(message,ncode(1,k))
++           call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
+         endif
+      enddo
+ 10   continue
+@@ -110,10 +111,13 @@
+ 30 mycall0=mycall
+   hiscall0=hiscall
+   hisgrid0=hisgrid
+-  ref0=0.
+-  do j=1,63
+-     ref0=ref0 + s3(mrs(j),j)
++
++  sq=0.
++  do j=1,206
++     sq=sq + sym(j)**2
+   enddo
++  rms=sqrt(sq/206.0)
++  sym=sym/rms
+ 
+   p1=-1.e30
+   p2=-1.e30
+@@ -121,14 +125,11 @@
+      pp(k)=0.
+ ! Test all messages if flip=+1; skip the CQ messages if flip=-1.
+      if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
+-        sum=0.
+-        ref=ref0
+-        do j=1,63
+-           i=ncode(j,k)+1
+-           sum=sum + s3(i,j)
+-           if(i.eq.mrs(j)) ref=ref - s3(i,j) + s3(mrs2(j),j)
++        p=0.
++        do j=1,206
++           i=code(j,k)+1
++           p=p + code(j,k)*sym(j)
+         enddo
+-        p=sum/ref
+         pp(k)=p
+         if(p.gt.p1) then
+            p1=p
+@@ -142,15 +143,20 @@
+   enddo
+ 
+ ! ### DO NOT REMOVE ### 
+-  rewind 77
+-  write(77,*) p1,p2
++!  rewind 77
++!  write(77,*) p1,p2
+ ! ### Works OK without it (in both Windows and Linux) if compiled 
+ ! ### without optimization.  However, in Windows this is a colossal 
+ ! ### pain because of the way F2PY wants to run the compile step.
+ 
+ 
++  bias=1.1*p2
++!  if(mode65.eq.1) bias=max(1.12*p2,0.335)
++!  if(mode65.eq.2) bias=max(1.08*p2,0.405)
++!  if(mode65.ge.4) bias=max(1.04*p2,0.505)
++
+   if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep24'
+-  qual=100.0*(p1-bias)
++  qual=10.0*(p1-bias)
+ 
+   decoded='                      '
+   c=' '
+@@ -169,5 +175,8 @@
+           decoded(i:i)=char(ichar(decoded(i:i))-32)
+   enddo
+ 
++!  write(*,3010) p1,p2,p1-p2,p1/p2,qual,decoded
++!3010 format('DS:',5f9.1,2x,a22)
++
+   return
+ end subroutine deep24
+
+Added: branches/wsjtx/lib/encode4.f90
+===================================================================
+--- branches/wsjtx/lib/encode4.f90	                        (rev 0)
++++ branches/wsjtx/lib/encode4.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -0,0 +1,20 @@
++subroutine encode4(message,ncode)
++
++  parameter (MAXCALLS=7000,MAXRPT=63)
++  integer ncode(206)
++  character*22 message          !Message to be generated
++  character*3 cok               !'   ' or 'OOO'
++  integer dgen(13)
++  integer*1 data0(13),symbol(216)
++  logical text
++
++  call chkmsg(message,cok,nspecial,flip)
++  call packmsg(message,dgen,text)  !Pack 72-bit message into 12 six-bit symbols
++  call entail(dgen,data0)
++  call encode232(data0,206,symbol)       !Convolutional encoding
++  call interleave24(symbol,1)            !Apply JT4 interleaving
++  do i=1,206
++     ncode(i)=symbol(i)
++  enddo
++
++end subroutine encode4
+
+Added: branches/wsjtx/lib/gen24.f90
+===================================================================
+--- branches/wsjtx/lib/gen24.f90	                        (rev 0)
++++ branches/wsjtx/lib/gen24.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -0,0 +1,86 @@
++subroutine gen24(message,mode4,samfac,ntxdf,iwave,nwave,sendingsh,msgsent,nmsg)
++
++! Encode a JT4 message into a wavefile.
++
++  parameter (NMAX=60*11025)     !Max length of wave file
++  character*22 message          !Message to be generated
++  character*22 msgsent          !Message as it will be received
++  character*3 cok               !'   ' or 'OOO'
++  real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,samfac,tsymbol
++  integer*2 iwave(NMAX)         !Generated wave file
++  integer sendingsh
++  integer dgen(13)
++  integer*1 data0(13),symbol(216)
++  logical first
++  include 'prcom2.f'
++  data first/.true./
++  save
++
++  nsym=207                               !Symbols per transmission
++  if(first) then
++     do i=1,nsym
++        pr2(i)=2*npr2(i)-1
++     enddo
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     first=.false.
++  endif
++
++  call chkmsg(message,cok,nspecial,flip)
++  call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
++  call entail(dgen,data0)
++  call unpackmsg(dgen,msgsent)
++
++  nbytes=(72+31+7)/8
++  call encode(data0,nbytes,symbol(2))    !Convolutional encoding
++  symbol(1)=0                            !Reference phase
++  sendingsh=0
++  if(iand(dgen(10),8).ne.0) sendingsh=-1 !Plain text flag
++  call interleave24(symbol(2),1)         !Apply JT4 interleaving
++
++! Set up necessary constants
++  tsymbol=2520.d0/11025.d0
++  dt=1.d0/(samfac*11025.d0)
++  f0=118*11025.d0/1024 + ntxdf
++  dfgen=11025.d0/2520                     !4.375 Hz
++  t=0.d0
++  phi=0.d0
++  j0=0
++  ndata=(nsym*11025.d0*samfac*tsymbol)/2
++  ndata=2*ndata
++  do i=1,ndata
++     t=t+dt
++     j=int(t/tsymbol) + 1   !Symbol number, 1-207
++     if(j.ne.j0) then
++        f=f0 + (npr2(j)+2*symbol(j)-1.5) * dfgen * mode4
++        if(flip.lt.0.0) f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen*mode4
++        dphi=twopi*dt*f
++        j0=j
++     endif
++     phi=phi+dphi
++     iwave(i)=32767.0*sin(phi)
++  enddo
++
++  do j=1,5512                !Put another 0.5 sec of silence at end
++     i=i+1
++     iwave(i)=0
++  enddo
++  nwave=i
++
++  if(flip.lt.0.0) then
++     do i=22,1,-1
++        if(msgsent(i:i).ne.' ') goto 10
++     enddo
++10   msgsent=msgsent(1:i)//' OOO'
++  endif
++  do i=22,1,-1
++     if(msgsent(i:i).ne.' ') goto 20
++  enddo
++20 nmsg=i
++
++!      write(*,3002) (symbol(i),i=1,207)
++! 3002 format(70i1)
++
++  return
++end subroutine gen24
++
+
+Modified: branches/wsjtx/lib/wsjt24.f90
+===================================================================
+--- branches/wsjtx/lib/wsjt24.f90	2013-01-22 21:04:47 UTC (rev 2968)
++++ branches/wsjtx/lib/wsjt24.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -92,7 +92,7 @@
+   endif
+ 
+   call decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,           &amp;
+-       ncount,nlim,deepmsg,qual,submode)
++       ncount,deepmsg,qual,submode)
+ 
+ 200 kvqual=0
+   if(ncount.ge.0) kvqual=1
+@@ -112,8 +112,8 @@
+ 
+ !  call cs_lock('wsjt24')
+   write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
+-       csync,special,decoded(1:19),cooo,kvqual,nqual,submode,nlim
+-1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4,1x,a1,i8)
++       csync,special,decoded(1:19),cooo,kvqual,nqual,submode
++1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i3,i5,1x,a1)
+ 
+ ! Blank all end-of-line stuff if no decode
+   if(line(31:40).eq.'          ') line=line(:30)
+
+Modified: branches/wsjtx/lib/wsjt24d.f90
+===================================================================
+--- branches/wsjtx/lib/wsjt24d.f90	2013-01-22 21:04:47 UTC (rev 2968)
++++ branches/wsjtx/lib/wsjt24d.f90	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -5,6 +5,7 @@
+   character*12 arg
+   real ccfblue(-5:540)        !X-cor function in JT65 mode (blue line)
+   real ccfred(450)            !Average spectrum of the whole file
++  integer dftolerance
+ 
+   nargs=iargc()
+   if(nargs.ne.2) then
+@@ -16,6 +17,7 @@
+   call getarg(2,arg)
+   read(arg,*) ifile2
+ 
++  open(23,file='CALL3.TXT',status='old')
+   open(50,file='vk7mo.dat',form='unformatted',status='old')
+ 
+   do ifile=1,ifile2
+@@ -27,6 +29,10 @@
+ !     write(*,3000) ifile,cfile6,jz,mode,mode4,idf
+ !3000 format(i3,2x,a6,i10,3i5)
+ 
++     dftolerance=100
++     nfreeze=1
++     neme=0
++
+ !    call wsjt24(dat(4097),jz-4096,cfile6,NClearAve,MinSigdB,DFTolerance,  &amp;
+     call wsjt24(dat,jz,cfile6,NClearAve,MinSigdB,DFTolerance,             &amp;
+          NFreeze,mode,mode4,Nseg,MouseDF2,NAgain,idf,lumsg,lcum,nspecial, &amp;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-01-22 21:04:47 UTC (rev 2968)
++++ branches/wsjtx/mainwindow.cpp	2013-01-23 16:25:07 UTC (rev 2969)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002660.html">[WSJT-SVN] r2968 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002662.html">[WSJT-SVN] r2970 - branches/wsjtx/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2661">[ date ]</a>
+              <a href="thread.html#2661">[ thread ]</a>
+              <a href="subject.html#2661">[ subject ]</a>
+              <a href="author.html#2661">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1725 - in branches/wsjt8a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1725%20-%20in%20branches/wsjt8a%3A%20.%20WsjtMod&In-Reply-To=%3C201001051502.o05F2weK003770%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001418.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1725 - in branches/wsjt8a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1725%20-%20in%20branches/wsjt8a%3A%20.%20WsjtMod&In-Reply-To=%3C201001051502.o05F2weK003770%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1725 - in branches/wsjt8a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jan  5 16:02:58 CET 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001418.html">[WSJT-SVN] r1726 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1417">[ date ]</a>
+              <a href="thread.html#1417">[ thread ]</a>
+              <a href="subject.html#1417">[ subject ]</a>
+              <a href="author.html#1417">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-01-05 16:02:55 +0100 (Tue, 05 Jan 2010)
+New Revision: 1725
+
+Modified:
+   branches/wsjt8a/WsjtMod/options.py
+   branches/wsjt8a/synciscat.f90
+   branches/wsjt8a/wsjt8_modes.txt
+Log:
+Working on ISCAT decoder.
+
+
+Modified: branches/wsjt8a/WsjtMod/options.py
+===================================================================
+--- branches/wsjt8a/WsjtMod/options.py	2009-12-01 23:12:19 UTC (rev 1724)
++++ branches/wsjt8a/WsjtMod/options.py	2010-01-05 15:02:55 UTC (rev 1725)
+@@ -12,7 +12,7 @@
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title(&quot;Options&quot;)
+ 
+-Pmw.initialise(fontScheme='pmw2')
++##Pmw.initialise(fontScheme='pmw2')
+ 
+ def options2(t):
+     root.geometry(t)
+
+Modified: branches/wsjt8a/synciscat.f90
+===================================================================
+--- branches/wsjt8a/synciscat.f90	2009-12-01 23:12:19 UTC (rev 1724)
++++ branches/wsjt8a/synciscat.f90	2010-01-05 15:02:55 UTC (rev 1725)
+@@ -9,6 +9,7 @@
+   integer DFTolerance              !Range of DF search
+   real dat(jz)                     !Raw data, downsampled to 6 kHz
+   real xs1(NHMAX)
++  real xsave(NHMAX)
+   real s1(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
+   real s2(64,63)                   !2d spectrum, synced data symbols only
+   real x(NFFTMAX)                  !Temp array for computing FFTs
+@@ -30,6 +31,7 @@
+ ! Do FFTs of twice symbol length, stepped by quarter symbols.  
+   nfft=1024
+   nh=nfft/2
++  nq=nfft/4
+   nsteps=4*(jz-NH)/nh
+   nsteps=nsteps/292
+   nsteps=nsteps*292
+@@ -38,6 +40,7 @@
+ 
+ ! Compute power spectrum for each quarter-symbol step
+   s1=0.
++  xsave=0.
+   do j=1,nsteps
+      k=(j-1)*kstep + 1
+      jj=mod(j-1,292)+1
+@@ -46,9 +49,18 @@
+         x(i+nh)=0.
+      enddo
+      call ps(x,nfft,xs1)
+-     call add(s1(1,jj),xs1,s1(1,jj),nh)
++     call add(s1(1,jj),xs1,s1(1,jj),nq)
++     call add(xsave,xs1,xsave,nq)
+   enddo
+ 
++  do i=1,nh/2
++     fac=1.0
++     if(xsave(i).gt.0.0) fac=8000.0/xsave(i)
++     do j=1,292
++        s1(i,j)=fac*s1(i,j)
++     enddo
++  enddo
++
+ ! Determine the search range in frequency
+   famin=3.
+   fbmax=1200.
+@@ -66,6 +78,13 @@
+   ib=fb/df
+   i0=nint(f0/df)
+ 
++  rewind 71
++  rewind 72
++  do i=1,nq
++     write(72,3002) i*df,xsave(i)
++3002 format(2f10.2)
++  enddo
++
+ ! Find best frequency bin and best sync pattern
+   syncbest=-1.e30
+   ss=0.
+@@ -102,9 +121,13 @@
+ 
+      j=i-i0
+      if(abs(j).le.224) then
+-        ccfred(i-i0)=smax
++        ccfred(j)=smax
++        write(71,3001) i*df,smax,j*df
++3001    format(3f10.1)
+         ss=ss+smax
+         nss=nss+1
++     else
++        print*,'synciscat:',i,j,ia,ib,i0
+      endif
+      if(smax.gt.syncbest) then
+         syncbest=smax
+
+Modified: branches/wsjt8a/wsjt8_modes.txt
+===================================================================
+--- branches/wsjt8a/wsjt8_modes.txt	2009-12-01 23:12:19 UTC (rev 1724)
++++ branches/wsjt8a/wsjt8_modes.txt	2010-01-05 15:02:55 UTC (rev 1725)
+@@ -7,7 +7,7 @@
+  
+ JT8   60  8FSK  78  K=16, r=1/4 4200 2.857 22.9  2x8 49.0  -23.9
+ 
+-IScat 30 64FSK  78  RS(63,13)    512  23.4 1500  1x8 3.0   -15/-21
++IScat 30 64FSK  78  RS(63,13)    512  23.4 1500 1x10 3.0   -15/-21
+                 48  RS(63,8)                               -16/-22
+                 30  RS(63,5)                               -18/-24
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001418.html">[WSJT-SVN] r1726 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1417">[ date ]</a>
+              <a href="thread.html#1417">[ thread ]</a>
+              <a href="subject.html#1417">[ subject ]</a>
+              <a href="author.html#1417">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,680 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2547 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2547%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120831155158.CEF6C55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002238.html">
+   <LINK REL="Next"  HREF="002240.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2547 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2547%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120831155158.CEF6C55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2547 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Aug 31 17:51:58 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002238.html">[WSJT-SVN] r2546 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002240.html">[WSJT-SVN] r2548 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2239">[ date ]</a>
+              <a href="thread.html#2239">[ thread ]</a>
+              <a href="subject.html#2239">[ subject ]</a>
+              <a href="author.html#2239">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-31 17:51:58 +0200 (Fri, 31 Aug 2012)
+New Revision: 2547
+
+Modified:
+   branches/map65/getfile.cpp
+   branches/map65/getfile.h
+   branches/map65/libm65/mapsim.f90
+   branches/map65/mainwindow.cpp
+   branches/map65/mainwindow.h
+   branches/map65/mainwindow.ui
+   branches/map65/soundin.cpp
+   branches/map65/soundin.h
+   branches/map65/soundout.cpp
+   branches/map65/soundout.h
+Log:
+Many changes toward GUI support for JT65B2 and JT65C2 sub-modes.
+
+
+Modified: branches/map65/getfile.cpp
+===================================================================
+--- branches/map65/getfile.cpp	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/getfile.cpp	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -6,9 +6,9 @@
+ 
+ extern qint16 id[4*60*96000];
+ 
+-void getfile(QString fname, bool xpol, int dbDgrd)
++void getfile(QString fname, bool xpol, int dbDgrd, int nfast)
+ {
+-  int npts=2*52*96000;
++  int npts=2*52*96000/nfast;
+   if(xpol) npts=2*npts;
+ 
+ // Degrade S/N by dbDgrd dB -- for tests only!!
+@@ -52,9 +52,9 @@
+   }
+ }
+ 
+-void savetf2(QString fname, bool xpol)
++void savetf2(QString fname, bool xpol, int nfast)
+ {
+-  int npts=2*52*96000;
++  int npts=2*52*96000/nfast;
+   if(xpol) npts=2*npts;
+ 
+   qint16* buf=(qint16*)malloc(2*npts);
+
+Modified: branches/map65/getfile.h
+===================================================================
+--- branches/map65/getfile.h	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/getfile.h	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -5,8 +5,8 @@
+ #include &lt;QDebug&gt;
+ #include &quot;commons.h&quot;
+ 
+-void getfile(QString fname, bool xpol, int dbDgrd);
+-void savetf2(QString fname, bool xpol);
++void getfile(QString fname, bool xpol, int dbDgrd, int nfast);
++void savetf2(QString fname, bool xpol, int nfast);
+ float gran();
+ 
+ #endif // GETFILE_H
+
+Modified: branches/map65/libm65/mapsim.f90
+===================================================================
+--- branches/map65/libm65/mapsim.f90	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/libm65/mapsim.f90	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -53,6 +53,7 @@
+   if(mode(1:1).eq.'C') mode65=4
+   nfast=1
+   if(mode(2:2).eq.'2') nfast=2
++  npts=NMAX/nfast
+   open(12,file='msgs.txt',status='old')
+ 
+   write(*,1000)
+@@ -67,7 +68,7 @@
+      open(10,file=fname//'.iq',access='stream',status='unknown')
+      open(11,file=fname//'.tf2',access='stream',status='unknown')
+ 
+-     call noisegen(d4,NMAX)                      !Generate Gaussuian noise
++     call noisegen(d4,npts)                      !Generate Gaussuian noise
+ 
+      if(msg0.ne.'                      ') then
+         call cgen65(message,mode65,nfast,samfac,nsendingsh,msgsent,cwave,nwave)
+@@ -113,7 +114,7 @@
+         enddo
+      enddo
+ 
+-     do i=1,NMAX
++     do i=1,npts
+         id4(1,i)=nint(rms*d4(1,i))
+         id4(2,i)=nint(rms*d4(2,i))
+         id4(3,i)=nint(rms*d4(3,i))
+@@ -122,8 +123,8 @@
+         id2(2,i)=id4(2,i)
+      enddo
+ 
+-     write(10) fcenter,id2
+-     write(11) fcenter,id4
++     write(10) fcenter,id2(1:2,1:npts)
++     write(11) fcenter,id4(1:4,1:npts)
+      close(10)
+      close(11)
+   enddo
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/mainwindow.cpp	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -57,6 +57,8 @@
+   ui-&gt;actionJT65A-&gt;setActionGroup(modeGroup);
+   ui-&gt;actionJT65B-&gt;setActionGroup(modeGroup);
+   ui-&gt;actionJT65C-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT65B2-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT65C2-&gt;setActionGroup(modeGroup);
+ 
+   QActionGroup* saveGroup = new QActionGroup(this);
+   ui-&gt;actionSave_all-&gt;setActionGroup(saveGroup);
+@@ -199,6 +201,8 @@
+   if(m_mode==&quot;JT65A&quot;) on_actionJT65A_triggered();
+   if(m_mode==&quot;JT65B&quot;) on_actionJT65B_triggered();
+   if(m_mode==&quot;JT65C&quot;) on_actionJT65C_triggered();
++  if(m_mode==&quot;JT65B2&quot;) on_actionJT65B2_triggered();
++  if(m_mode==&quot;JT65C2&quot;) on_actionJT65C2_triggered();
+ 
+   future1 = new QFuture&lt;void&gt;;
+   watcher1 = new QFutureWatcher&lt;void&gt;;
+@@ -461,7 +465,7 @@
+   static int n=0;
+   static int ihsym=0;
+   static int nzap=0;
+-  static int n60z=0;
++  static int ntrz=0;
+   static int nkhz;
+   static int nfsample=96000;
+   static int nxpol=0;
+@@ -536,27 +540,34 @@
+ 
+ // Time according to this computer
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+-    int n60 = (ms/1000) % 60;
+-    if((m_diskData &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!m_diskData &amp;&amp; n60&lt;n60z)) {
++    int ntr = (ms/1000) % m_TRperiod;
++    if((m_diskData &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!m_diskData &amp;&amp; ntr&lt;ntrz)) {
+       for (int i=0; i&lt;NFFT; i++) {
+         splot[i] = 1.e30;
+       }
+     }
+-    n60z=n60;
++    ntrz=ntr;
+     n=0;
+   }
+-  if(ihsym == 279) {
++  if(ihsym == 279/m_nfast) {
+     datcom_.newdat=1;
+     datcom_.nagain=0;
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+     decode();                                           //Start the decoder
+-    if(m_saveAll) {
++    if(m_saveAll and !m_diskData) {
+       QString fname=m_saveDir + &quot;/&quot; + t.date().toString(&quot;yyMMdd&quot;) + &quot;_&quot; +
+           t.time().toString(&quot;hhmm&quot;);
++      if(m_nfast==2) {
++        if(t.time().second() &lt; 30) {
++          fname += &quot;00&quot;;
++        } else {
++          fname += &quot;30&quot;;
++        }
++      }
+       if(m_xpol) fname += &quot;.tf2&quot;;
+       if(!m_xpol) fname += &quot;.iq&quot;;
+-      *future2 = QtConcurrent::run(savetf2, fname, m_xpol);
++      *future2 = QtConcurrent::run(savetf2, fname, m_xpol, m_nfast);
+       watcher2-&gt;setFuture(*future2);
+     }
+   }
+@@ -970,7 +981,7 @@
+     m_diskData=true;
+     int dbDgrd=0;
+     if(m_myCall==&quot;K1JT&quot; and m_idInt&lt;0) dbDgrd=m_idInt;
+-    *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd);
++    *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd, m_nfast);
+     watcher1-&gt;setFuture(*future1);
+   }
+ }
+@@ -1005,7 +1016,7 @@
+       m_diskData=true;
+       int dbDgrd=0;
+       if(m_myCall==&quot;K1JT&quot; and m_idInt&lt;0) dbDgrd=m_idInt;
+-      *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd);
++      *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd, m_nfast);
+       watcher1-&gt;setFuture(*future1);
+       return;
+     }
+@@ -1027,14 +1038,14 @@
+ 
+   if(m_fs96000) hsym=2048.0*96000.0/11025.0;   //Samples per JT65 half-symbol
+   if(!m_fs96000) hsym=2048.0*95238.1/11025.0;
+-  for(int i=0; i&lt;281; i++) {              // Do the half-symbol FFTs
++  for(int i=0; i&lt;282/m_nfast; i++) {           // Do the half-symbol FFTs
+     int k = i*hsym + 2048.5;
+     dataSink(k);
+-    if(i%10 == 0) qApp-&gt;processEvents();   //Keep the GUI responsive
++    if(i%10 == 0) qApp-&gt;processEvents();       //Keep the GUI responsive
+   }
+ }
+ 
+-void MainWindow::diskWriteFinished()                       //diskWriteFinished
++void MainWindow::diskWriteFinished()                      //diskWriteFinished
+ {
+ //  qDebug() &lt;&lt; &quot;diskWriteFinished&quot;;
+ }
+@@ -1133,8 +1144,11 @@
+ 
+ void MainWindow::on_DecodeButton_clicked()                    //Decode request
+ {
+-  int n=m_sec0%60;
+-  if(m_monitoring and n&gt;47 and (n&lt;52 or m_decoderBusy)) return;
++  int n=m_sec0%m_TRperiod;
++  if(m_nfast==1) {
++    if(m_monitoring and n&gt;47 and (n&lt;52 or m_decoderBusy)) return;
++  } else {
++    if(m_monitoring and n&gt;21 and (n&lt;26 or m_decoderBusy)) return;  }
+   if(!m_decoderBusy) {
+     datcom_.newdat=0;
+     datcom_.nagain=1;
+@@ -1343,8 +1357,8 @@
+   double tx2=126.0*4096.0/11025.0 + 1.8;          //### depend on TxDelay? ###
+ 
+   if(!m_txFirst) {
+-    tx1 += 60.0;
+-    tx2 += 60.0;
++    tx1 += m_TRperiod;
++    tx2 += m_TRperiod;
+   }
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int nsec=ms/1000;
+@@ -1900,7 +1914,7 @@
+   QDateTime t = QDateTime::currentDateTimeUtc();
+   QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
+       t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
+-      QString::number(nMHz) + &quot;,JT65B\n&quot;;
++      QString::number(nMHz) + &quot;,&quot; + m_mode;
+   QFile f(&quot;wsjt.log&quot;);
+   if(!f.open(QFile::Append)) {
+     msgBox(&quot;Cannot open file \&quot;wsjt.log\&quot;.&quot;);
+@@ -1937,6 +1951,9 @@
+ {
+   m_mode=&quot;JT65A&quot;;
+   m_mode65=1;
++  m_nfast=1;
++  m_TRperiod=60;
++  soundInThread.setPeriod(m_TRperiod);
+   g_pWideGraph-&gt;setMode65(m_mode65);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT65A-&gt;setChecked(true);
+@@ -1946,6 +1963,9 @@
+ {
+   m_mode=&quot;JT65B&quot;;
+   m_mode65=2;
++  m_nfast=1;
++  m_TRperiod=60;
++  soundInThread.setPeriod(m_TRperiod);
+   g_pWideGraph-&gt;setMode65(m_mode65);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT65B-&gt;setChecked(true);
+@@ -1955,11 +1975,38 @@
+ {
+   m_mode=&quot;JT65C&quot;;
+   m_mode65=4;
++  m_nfast=1;
++  m_TRperiod=60;
++  soundInThread.setPeriod(m_TRperiod);
+   g_pWideGraph-&gt;setMode65(m_mode65);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT65C-&gt;setChecked(true);
+ }
+ 
++void MainWindow::on_actionJT65B2_triggered()
++{
++  m_mode=&quot;JT65B2&quot;;
++  m_mode65=2;
++  m_nfast=2;
++  m_TRperiod=30;
++  soundInThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setMode65(m_mode65);
++  lab5-&gt;setText(m_mode);
++  ui-&gt;actionJT65B2-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionJT65C2_triggered()
++{
++  m_mode=&quot;JT65C2&quot;;
++  m_mode65=4;
++  m_nfast=2;
++  m_TRperiod=30;
++  soundInThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setMode65(m_mode65);
++  lab5-&gt;setText(m_mode);
++  ui-&gt;actionJT65C2-&gt;setChecked(true);
++}
++
+ void MainWindow::on_NBcheckBox_toggled(bool checked)
+ {
+   m_NB=checked;
+
+Modified: branches/map65/mainwindow.h
+===================================================================
+--- branches/map65/mainwindow.h	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/mainwindow.h	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -5,6 +5,7 @@
+ #include &lt;QTimer&gt;
+ #include &lt;QDateTime&gt;
+ #include &lt;QHash&gt;
++#include &quot;getfile.h&quot;
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
+@@ -123,6 +124,10 @@
+ 
+   void on_actionFUNcube_Dongle_triggered();
+ 
++  void on_actionJT65B2_triggered();
++
++  void on_actionJT65C2_triggered();
++
+ private:
+     Ui::MainWindow *ui;
+     qint32  m_nDevIn;
+@@ -157,6 +162,7 @@
+     qint32  m_nfast;
+     qint32  m_nsum;
+     qint32  m_nsave;
++    qint32  m_TRperiod;
+ 
+     double  m_fAdd;
+     double  m_IQamp;
+
+Modified: branches/map65/mainwindow.ui
+===================================================================
+--- branches/map65/mainwindow.ui	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/mainwindow.ui	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -1225,6 +1225,8 @@
+     &lt;addaction name=&quot;actionJT65A&quot;/&gt;
+     &lt;addaction name=&quot;actionJT65B&quot;/&gt;
+     &lt;addaction name=&quot;actionJT65C&quot;/&gt;
++    &lt;addaction name=&quot;actionJT65B2&quot;/&gt;
++    &lt;addaction name=&quot;actionJT65C2&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;addaction name=&quot;menuFile&quot;/&gt;
+    &lt;addaction name=&quot;menuSetup&quot;/&gt;
+@@ -1568,6 +1570,22 @@
+     &lt;string&gt;FUNcube Dongle Settings&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionJT65B2&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT65B2&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionJT65C2&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT65C2&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/map65/soundin.cpp
+===================================================================
+--- branches/map65/soundin.cpp	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/soundin.cpp	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -187,10 +187,10 @@
+ //  const PaStreamInfo* p=Pa_GetStreamInfo(inStream);
+ 
+   bool qe = quitExecution;
+-  int n60z=99;
++  int ntrz=99;
+   int k=0;
+   int nsec;
+-  int n60;
++  int ntr;
+   int nBusy=0;
+   int nhsym0=0;
+ 
+@@ -200,10 +200,10 @@
+     if (qe) break;
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     nsec = ms/1000;             // Time according to this computer
+-    n60 = nsec % 60;
++    ntr = nsec % m_TRperiod;
+ 
+ // Reset buffer pointer and symbol number at start of minute
+-    if(n60 &lt; n60z or !m_monitoring) {
++    if(ntr &lt; ntrz or !m_monitoring) {
+       nhsym0=0;
+       udata.bzero=true;
+     }
+@@ -228,7 +228,7 @@
+       }
+     }
+     msleep(100);
+-    n60z=n60;
++    ntrz=ntr;
+   }
+   Pa_StopStream(inStream);
+   Pa_CloseStream(inStream);
+@@ -314,6 +314,11 @@
+   return m_hsym;
+ }
+ 
++void SoundInThread::setPeriod(int n)
++{
++  m_TRperiod=n;
++}
++
+ //--------------------------------------------------------------- inputUDP()
+ void SoundInThread::inputUDP()
+ {
+@@ -341,10 +346,10 @@
+     double d8[174];
+   } b;
+ 
+-  int n60z=99;
++  int ntrz=99;
+   int k=0;
+   int nsec;
+-  int n60;
++  int ntr;
+   int nhsym0=0;
+   int iz=174;
+   int nBusy=0;
+@@ -361,14 +366,14 @@
+ 
+       qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+       nsec = ms/1000;             // Time according to this computer
+-      n60 = nsec % 60;
++      ntr = nsec % m_TRperiod;
+ 
+ // Reset buffer pointer and symbol number at start of minute
+-      if(n60 &lt; n60z) {
++      if(ntr &lt; ntrz) {
+         k=0;
+         nhsym0=0;
+       }
+-      n60z=n60;
++      ntrz=ntr;
+ 
+       if(m_monitoring) {
+         m_nrx=b.nrx;
+
+Modified: branches/map65/soundin.h
+===================================================================
+--- branches/map65/soundin.h	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/soundin.h	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -47,6 +47,7 @@
+   void setNrx(int n);
+   void setForceCenterFreqBool(bool b);
+   void setForceCenterFreqMHz(double d);
++  void setPeriod(int n);
+   int  nrx();
+   int  mhsym();
+ 
+@@ -73,6 +74,7 @@
+   qint32 m_hsym;
+   qint32 m_nDevIn;
+   qint32 m_udpPort;
++  qint32 m_TRperiod;
+ 
+   QUdpSocket *udpSocket;
+ };
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/soundout.cpp	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -15,7 +15,7 @@
+ 
+ typedef struct   //Parameters sent to or received from callback function
+ {
+-  int dummy;
++  int nTRperiod;
+ } paUserData;
+ 
+ //--------------------------------------------------------------- d2aCallback
+@@ -29,14 +29,11 @@
+   short *wptr = (short*)outputBuffer;
+   unsigned int i,n;
+   static int ic=0;
+-//  static int ic0=0;
+-//  static int nsec0=-99;
+   static bool btxok0=false;
+   static int nminStart=0;
+-//  static t0,t1;
+   double tsec,tstart;
+-
+   int nsec;
++  int nTRperiod=udata-&gt;nTRperiod;
+ 
+   // Get System time
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+@@ -44,46 +41,21 @@
+   nsec = ms/1000;
+ 
+   if(btxok and !btxok0) {       //Start (or re-start) a transmission
+-    n=nsec/60;
+-    tstart=tsec - n*60.0 - 1.0;
++    n=nsec/nTRperiod;
++    tstart=tsec - n*nTRperiod - 1.0;
+ 
+     if(tstart&lt;1.0) {
+       ic=0;                      //Start of minute, set starting index to 0
+-//      ic0=ic;
+       nminStart=n;
+-//      t0=timeInfo-&gt;currentTime;
+     } else {
+       if(n != nminStart) { //Late start in new minute: compute starting index
+         ic=(int)(tstart*11025.0);
+-//        ic0=ic;
+-//        t0=timeInfo-&gt;currentTime;
+-//        qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; t0 &lt;&lt; ic0;
+         nminStart=n;
+       }
+     }
+-    /*
+-    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; n &lt;&lt; ic
+-             &lt;&lt; QString::number( tsec, 'f', 3 )
+-             &lt;&lt; QString::number( tstart, 'f', 3 )
+-             &lt;&lt; QString::number( timeInfo-&gt;currentTime, 'f', 3 )
+-             &lt;&lt; QString::number( timeInfo-&gt;outputBufferDacTime, 'f', 3 )
+-             &lt;&lt; QString::number( timeInfo-&gt;outputBufferDacTime -
+-                                 timeInfo-&gt;currentTime, 'f', 3 )
+-             &lt;&lt; QString::number( timeInfo-&gt;currentTime - tsec, 'f', 3 );
+-    */
+   }
+   btxok0=btxok;
+ 
+-  /*
+-  if(nsec!=nsec0) {
+-    double txt=timeInfo-&gt;currentTime - t0;
+-    double r=0.0;
+-    if(txt&gt;0.0) r=(ic-ic0)/txt;
+-    qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; txt &lt;&lt; ic-ic0 &lt;&lt; r;
+-    nsec0=nsec;
+-  }
+-  */
+-
+   if(btxok) {
+     for(i=0 ; i&lt;framesToProcess; i++ )  {
+       short int i2=iwave[ic];
+@@ -122,6 +94,8 @@
+   outParam.suggestedLatency=0.05;
+   outParam.hostApiSpecificStreamInfo=NULL;
+ 
++  udata.nTRperiod=m_TRperiod;
++
+   paerr=Pa_IsFormatSupported(NULL,&amp;outParam,11025.0);
+   if(paerr&lt;0) {
+     qDebug() &lt;&lt; &quot;PortAudio says requested output format not supported.&quot;;
+@@ -129,9 +103,6 @@
+     return;
+   }
+ 
+-//  udata.nwave=m_nwave;
+-//  udata.btxok=false;
+-
+   paerr=Pa_OpenStream(&amp;outStream,           //Output stream
+         NULL,                               //No input parameters
+         &amp;outParam,                          //Output parameters
+@@ -154,9 +125,6 @@
+   while (!qe) {
+     qe = quitExecution;
+     if (qe) break;
+-//    udata.nwave=m_nwave;
+-//    if(m_txOK) udata.btxok=1;
+-//    if(!m_txOK) udata.btxok=0;
+     msleep(100);
+   }
+   Pa_StopStream(outStream);
+@@ -168,3 +136,8 @@
+   if (isRunning()) return;
+   this-&gt;m_nDevOut=n;
+ }
++
++void SoundOutThread::setPeriod(int n)
++{
++  m_TRperiod=n;
++}
+
+Modified: branches/map65/soundout.h
+===================================================================
+--- branches/map65/soundout.h	2012-08-30 20:07:53 UTC (rev 2546)
++++ branches/map65/soundout.h	2012-08-31 15:51:58 UTC (rev 2547)
+@@ -27,6 +27,7 @@
+ 
+ public:
+   void setOutputDevice(qint32 n);
++  void setPeriod(int n);
+   bool quitExecution;           //If true, thread exits gracefully
+ 
+ 
+@@ -35,6 +36,7 @@
+   double  m_rate;               //Sample rate
+   qint32  m_nDevOut;            //Output device number
+   qint32  m_nwave;              //Length of wave file
++  qint32  m_TRperiod;           //T/R period (30 or 60 s)
+   bool    m_txOK;               //Enable Tx audio
+   bool    m_txMute;             //Mute temporarily
+ };
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002238.html">[WSJT-SVN] r2546 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002240.html">[WSJT-SVN] r2548 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2239">[ date ]</a>
+              <a href="thread.html#2239">[ thread ]</a>
+              <a href="subject.html#2239">[ subject ]</a>
+              <a href="author.html#2239">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

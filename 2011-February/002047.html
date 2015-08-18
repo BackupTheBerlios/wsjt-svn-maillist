@@ -1,0 +1,296 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2355 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2355%20-%20branches/wspr&In-Reply-To=%3C20110225174406.46B0A481393%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002046.html">
+   <LINK REL="Next"  HREF="002048.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2355 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2355%20-%20branches/wspr&In-Reply-To=%3C20110225174406.46B0A481393%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2355 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Feb 25 18:44:06 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002046.html">[WSJT-SVN] r2354 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002048.html">[WSJT-SVN] r2356 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2047">[ date ]</a>
+              <a href="thread.html#2047">[ thread ]</a>
+              <a href="subject.html#2047">[ subject ]</a>
+              <a href="author.html#2047">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-25 18:44:05 +0100 (Fri, 25 Feb 2011)
+New Revision: 2355
+
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/calobs.f90
+   branches/wspr/ccf.f90
+   branches/wspr/ffa.f90
+   branches/wspr/fold1pps.f90
+   branches/wspr/hftoa.f90
+   branches/wspr/wwv.f90
+Log:
+Increase search range for &quot;48000 Hz&quot; sample rate in program wwv.
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/Makefile.in	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -17,7 +17,8 @@
+ # WSPR specific Fortran flags
+ FFLAGS += -fbounds-check
+ 
+-all:	wspr wsprcode fmt fmtave fcal fmeasure wspr0 hftoa ccf wwv t1
++all:	wspr wsprcode fmt fmtave fcal fmeasure wspr0 hftoa ccf wwv \
++	t1 calibrate
+ build:	wspr
+ 
+ wspr:	WsprMod/w.so
+@@ -142,6 +143,12 @@
+ t1:    $(OBJS7)
+ 	$(FC) -o t1 $(FFLAGS) $(OBJS7) -lfftw3f 
+ 
++OBJS8 = calibrate.o read_wav.o averms.o four2a.o thnix_stub.o db.o ffa.o \
++        fold1pps.o resample.o
++
++calibrate: $(OBJS8)
++	$(FC) -o calibrate $(FFLAGS) $(OBJS8) -lfftw3f -lsamplerate
++
+ install: WsprMod/w.so
+ 	${RM} -rf build/
+ 	${PYTHON} setup.py install
+
+Modified: branches/wspr/calobs.f90
+===================================================================
+--- branches/wspr/calobs.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/calobs.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -5,8 +5,8 @@
+   integer*2 id(NMAX)                         !Raw data
+   real*8 p1,samfac
+   real x1(NMAX),xx1(NMAX)
+-  real prof1(NFSMAX)
+-  real xx(NFSMAX)
++  real prof1(NFSMAX+5)
++  real xx(NFSMAX+5)
+   complex cc(0:NFSMAX/2)
+   complex z1
+   integer soundin,resample
+@@ -26,8 +26,8 @@
+   call averms(x1,npts,ave1,rms1,xmax1)        !Get ave, rms
+   x1(:npts)=(1.0/rms1)*(x1(:npts)-ave1)       !Remove DC and normalize
+ 
+-  ip1=nfs-1
+-  ip2=nfs
++  ip1=nfs-5
++  ip2=nfs+4
+   call fold1pps(x1,npts,ip1,ip2,prof1,p1,pk1,ipk1)  !Find sample rates
+ 
+ ! Resample ntype: 0=best, 1=sinc_medium, 2=sinc_fast, 3=hold, 4=linear
+
+Modified: branches/wspr/ccf.f90
+===================================================================
+--- branches/wspr/ccf.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/ccf.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -14,7 +14,7 @@
+   integer resample
+   real xx1(NFFTMAX),xx2(NFFTMAX),xx(NFFTMAX),xx1pps(NFFTMAX)
+   real xx1a(NFFTMAX),xx2a(NFFTMAX)
+-  real fil(0:NHMAX)
++  real rfil(0:NHMAX)
+   complex c1(0:NHMAX),c2(0:NHMAX),cc(0:NHMAX)
+   complex z1,z2
+   complex cal1(35),cal2(35)
+@@ -41,9 +41,9 @@
+   call read_wav(12,id2,npts2,nfs2,nch2)
+   close(12)
+ 
+-  open(32,file='prof.dat',status='unknown')
+-  open(33,file='cal.dat',status='unknown')
+-  open(34,file='ccf.dat',status='unknown')
++  open(32,file='ccfprof.dat',status='unknown')
++  open(33,file='ccfcal.dat',status='unknown')
++  open(34,file='ccf.out',status='unknown')
+ 
+ 
+   if(nfs1.ne.nfs2) then
+@@ -145,7 +145,7 @@
+      i=100*j
+      z1=0.01*sum(c1(i-50:i+49))
+      z2=0.01*sum(c2(i-50:i+49))
+-     cal1(j)=z1
++     cal1(j)=z1/8.0
+      cal2(j)=z2
+      s1=real(z1)**2 + aimag(z1)**2
+      s2=real(z2)**2 + aimag(z2)**2
+@@ -170,17 +170,20 @@
+   ia=100/df                                 !Define rectangular passband
+   ib=3500/df
+   bw=nf2
+-  fil=0.
++  rfil=0.
+   do i=ia,ib
+      j=nint(0.01*i*df)
+-!     z1=c1(i)/cal1(j)                       !Apply calibrations
+-!     z2=c2(i)/cal2(j)
+-     z1=c1(i)
+-     z2=c2(i)
++     z1=c1(i)/cal1(j)                       !Apply calibrations
++     z2=c2(i)/cal2(j)
+      cc(i)=fac*z1*conjg(z2)                 !Multiply transforms
+      f=i*df
+-     fil(i)=exp(-((f-nf1)/(0.5*bw))**2)
+-     cc(i)=cc(i)*fil(i)
++     rfil(i)=1.0 
++     if(f.lt.float(nf1)) rfil(i)=exp(-((f-nf1)/300.0)**2)
++     if(f.gt.float(nf2)) rfil(i)=exp(-((f-nf2)/300.0)**2)
++!     if(mod(i,1000).eq.0) write(37,7001) f,rfil(i)
++!7001 format(f12.3,f12.6)
++     cc(i)=cc(i)*rfil(i)
++     cc(i)=conjg(cc(i))
+   enddo
+ 
+   call four2a(cc,nfft,1,1,-1)        !Inverse FFT ==&gt; CCF of 1 PPS pulses
+@@ -188,7 +191,7 @@
+ 
+   xx1=xx1a
+   xx2=xx2a
+-  do i=1,npts,nfs                           !Keep signal without 1PPS pulses
++  do i=1,npts,nfs                           !Keep signal without 1 PPS pulses
+      xx1(i:i+200)=0.
+      xx2(i:i+200)=0.
+   enddo
+@@ -200,21 +203,20 @@
+   cc=0.
+   do i=ia,ib
+      j=nint(0.01*i*df)
+-!     z1=c1(i)/cal1(j)                       !Apply calibrations
+-!     z2=c2(i)/cal2(j)
+-     z1=c1(i)
+-     z2=c2(i)
++     z1=c1(i)/cal1(j)                       !Apply calibrations
++     z2=c2(i)/cal2(j)
+      cc(i)=fac*z1*conjg(z2)                 !Multiply transforms
+-     cc(i)=cc(i)*fil(i)
++     cc(i)=cc(i)*rfil(i)
++     cc(i)=conjg(cc(i))
+   enddo
+ 
+   call four2a(cc,nfft,1,1,-1)               !Inverse FFT ==&gt; CCF of signal
+ 
+-  do i=-30,30
++  do i=-50,50
+      j=i
+      if(j.le.0) j=i+nfft
+-     write(34,1110) 1000.0*(i-1)*dt,xx1pps(j),xx(j) !Write CCFs to disk
+-1110 format(f10.3,2f12.3)
++     write(34,1110) 1000.0*i*dt,xx1pps(j),xx(j) !Write CCFs to disk
++1110 format(f10.3,2f12.6)
+   enddo
+ 
+ 999 end program ccf
+
+Modified: branches/wspr/ffa.f90
+===================================================================
+--- branches/wspr/ffa.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/ffa.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -77,8 +77,8 @@
+      enddo
+      xmax=max(xmax0,xmax)
+ 
+-!     write(22,3001) p,xmax0/lmax
+-!3001 format(2f12.6)
++     write(22,3001) p,xmax0/lmax
++3001 format(2f12.6)
+ 
+      if(xmax.gt.xmax1) then
+         pmax=p
+
+Modified: branches/wspr/fold1pps.f90
+===================================================================
+--- branches/wspr/fold1pps.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/fold1pps.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -2,7 +2,7 @@
+ 
+   parameter (NFSMAX=48000)
+   real x(npts)
+-  real proftmp(NFSMAX),prof(NFSMAX)
++  real proftmp(NFSMAX+5),prof(NFSMAX+5)
+   real*8 p,ptmp
+ 
+   pk=0.
+
+Modified: branches/wspr/hftoa.f90
+===================================================================
+--- branches/wspr/hftoa.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/hftoa.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -96,8 +96,8 @@
+      nfsample=nfsample/4
+   endif
+ 
+-  call write_wav(12,id2,ntot,nfsample,nchan)       !Write wav file to disk
+-  write(12) tsec,fkhz,mycall,mygrid,mode,ctime     !Append header information
++  call write_wav(12,id2,ntot,nfsample,nchan)          !Write wav file to disk
++  write(12) tsec,fkhz,mycall,mygrid,mode,ctime,cdate  !Append header info
+ 
+   sum=0.
+   xmax1=0.
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-22 17:21:21 UTC (rev 2354)
++++ branches/wspr/wwv.f90	2011-02-25 17:44:05 UTC (rev 2355)
+@@ -13,8 +13,8 @@
+   character param*5
+   real*8 tsec,fkhz,p1,samfac,day2011
+   real x1(NMAX),xx1(NMAX)
+-  real prof1(NFSMAX)
+-  real xx(NFSMAX)
++  real prof1(NFSMAX+5)
++  real xx(NFSMAX+5)
+   real notch(-20:20)
+   real snr(4)
+   real delay(4)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002046.html">[WSJT-SVN] r2354 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002048.html">[WSJT-SVN] r2356 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2047">[ date ]</a>
+              <a href="thread.html#2047">[ thread ]</a>
+              <a href="subject.html#2047">[ subject ]</a>
+              <a href="author.html#2047">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

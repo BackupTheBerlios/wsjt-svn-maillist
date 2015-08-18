@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2871 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2871%20-%20branches/wspr&In-Reply-To=%3C20121231135533.7639455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002562.html">
+   <LINK REL="Next"  HREF="002564.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2871 - branches/wspr</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2871%20-%20branches/wspr&In-Reply-To=%3C20121231135533.7639455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2871 - branches/wspr">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Dec 31 14:55:33 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002562.html">[WSJT-SVN] r2870 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002564.html">[WSJT-SVN] r2872 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2563">[ date ]</a>
+              <a href="thread.html#2563">[ thread ]</a>
+              <a href="subject.html#2563">[ subject ]</a>
+              <a href="author.html#2563">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-31 14:55:32 +0100 (Mon, 31 Dec 2012)
+New Revision: 2871
+
+Added:
+   branches/wspr/loggit.f90
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/decode.f90
+   branches/wspr/rx.f90
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Working on timing issues that cause misbehavior on slower computers.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/acom1.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -1,5 +1,5 @@
+   parameter (NMAX=900*12000)                          !Max length of waveform
+-  parameter (NZ=2*900*48000)
++  parameter (NZ=900*48000)
+   real*8 f0,f0a,f0b,ftx,tsec0
+   logical ltest,receiving,transmitting
+   character*80 infile,outfile,pttport,thisfile
+@@ -15,6 +15,6 @@
+        ndebug,idevin,idevout,nsectx,nbfo,iqrxapp,                      &amp;
+        ntxdb,txbal,txpha,iwrite,newdat,iqrxadj,gain,phase,reject,      &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+-       ntxnext,nstoptx,ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,             &amp;
++       ntxnext,nstoptx,ncal,ndevsok,nsec1,xdb1,xdb2,                   &amp;
+        infile,outfile,pttport,cdate,utctime,callsign,grid,grid6,       &amp;
+        rxtime,ctxmsg,sending,thisfile,pttmode,catport,appdir,chs
+
+Modified: branches/wspr/decode.f90
+===================================================================
+--- branches/wspr/decode.f90	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/decode.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -1,6 +1,6 @@
+ subroutine decode
+ 
+-!  Decode WSPR signals for one 2-minute sequence.
++!  Decode WSPR signals for one sequence.
+ 
+   character*80 savefile
+   real*8 df,fpeak
+@@ -59,5 +59,8 @@
+   ndecoding=0
+   call cs_unlock
+ 
+-900  return
++900  continue
++  call loggit('Decode done')
++
++  return
+ end subroutine decode
+
+Added: branches/wspr/loggit.f90
+===================================================================
+--- branches/wspr/loggit.f90	                        (rev 0)
++++ branches/wspr/loggit.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -0,0 +1,19 @@
++subroutine loggit(msg)
++  character*(*) msg
++  character*20 m20
++  real*8 tsec1,trseconds
++  integer nt(9)
++  include 'acom1.f90'
++
++  call cs_lock('loggit')
++  call gmtime2(nt,tsec1)
++  trseconds=60*ntrminutes
++  sectr=mod(tsec1,trseconds)
++  m20=msg//'                    '
++  write(19,1000) cdate(3:8),utctime(1:2),utctime(3:4),utctime(5:10),sectr,m20
++1000 format(a6,1x,a2,':',a2,':',a5,f8.2,2x,a20)
++  call flush(19)
++  call cs_unlock
++
++  return
++end subroutine loggit
+
+Modified: branches/wspr/rx.f90
+===================================================================
+--- branches/wspr/rx.f90	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/rx.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -10,14 +10,15 @@
+   npts=114*12000
+   if(ntrminutes.eq.15) npts=890*12000
+   if(ncal.eq.1) npts=65536
++  call cs_lock('rx')
+   nsec1=time()
+   nfhopok=0                                !Don't hop! 
+   f0a=f0                                   !Save rx frequency at start
++  call cs_unlock
++  kwave=0
+   ierr=soundin(ndevin,48000,kwave,4*npts,iqmode)
+   if(f0a.ne.f0) then
+      call cs_lock('rx')
+-!     write(70,*) 'Error in rx.f90 ',utctime,f0,f0a
+-!     call flush(70)
+      f0a=f0
+      call cs_unlock
+   endif
+@@ -30,15 +31,16 @@
+   if(iqmode.eq.1) then
+      call iqdemod(kwave,4*npts,nfiq,nbfo,iqrx,iqrxapp,gain,phase,iwave)
+   else
++     call loggit('Start downsampling')
+      call fil1(kwave,4*npts,iwave,n2)       !Filter and downsample
+      npts=n2
+   endif
+-  nsec2=time()
+   call getrms(iwave,npts,ave,rms)           !### is this needed any more??
+   call cs_lock('rx')
+   nrxdone=1
+   if(ncal.eq.1) ncal=2
+   call cs_unlock
++  call loggit('Rx done')
+ 
+   return
+ end subroutine rx
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/tx.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -280,6 +280,7 @@
+   if(ntune.ge.0) nfhopok=1         !Unless this was ATU tuneup, can now hop
+   if(ntune.eq.0) ntransmitted=1    !Flag only &quot;real&quot; transmissions
+   ntune=0                          !Clear the &quot;tune&quot; indicator
++  call loggit('Tx done')
+ 
+   return
+ end subroutine tx
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/wspr.py	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -1,4 +1,4 @@
+-#------------------------------------------------------------------------ WSPR
++#----------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ # WSPR (pronounced &quot;whisper&quot;) stands for &quot;Weak Signal
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2012-12-29 17:27:07 UTC (rev 2870)
++++ branches/wspr/wspr2.f90	2012-12-31 13:55:32 UTC (rev 2871)
+@@ -41,8 +41,8 @@
+   call system_clock(iclock(1))
+   call random_seed(PUT=iclock)
+   nrx=1
+-  nfhopping=0 ! hopping scheduling disabled
+-  nfhopok=0   ! not a good time to hop
++  nfhopping=0                               !Hopping scheduling disabled
++  nfhopok=0                                 !Not a good time to hop
+ 
+ 10 call cs_lock('wspr2')
+   trseconds=60.d0*ntrminutes
+@@ -52,12 +52,6 @@
+   rxavg=1.0
+   if(pctx.gt.0.0) rxavg=100.0/pctx - 1.0
+   call cs_unlock
+-!  if(transmitting .and. nstoptx.eq.1) then
+-!     call killtx
+-!     nstoptx=0
+-!     transmitting=.false.
+-!     go to 20
+-!  endif
+ 
+   if(nrxdone.gt.0) then
+ 
+@@ -70,13 +64,7 @@
+ 
+      if((nrxnormal.eq.1 .and. ncal.eq.0) .or.                          &amp;
+         (nrxnormal.eq.0 .and. ncal.eq.2) .or. ndiskdat.eq.1) then
+-        call cs_lock('wspr2')
+-        call gmtime2(nt,tsec1)
+-        sectr=mod(tsec1,trseconds)
+-        write(19,1031) cdate(3:8),utctime(1:4),sectr,'Dec ',iband,ib(iband)
+-1031    format(a6,1x,a4,f7.2,2x,a4,2i4,2x,a22)
+-        call flush(19)
+-        call cs_unlock
++        call loggit('Start decode')
+         if(ndecoding.eq.0) then
+            ndecoding=1
+            call startdec
+@@ -92,7 +80,8 @@
+      ntxdone=0
+      ntr=0
+   endif
+-  nsecdone=60*ntrminutes - 6                       !### Less for WSPR-15 ?
++  nsecdone=114
++  if(ntrminutes.eq.15) nsecdone=890
+   if(nsectr.ge.nsecdone .and. ntune.eq.0) then
+      transmitting=.false.
+      receiving=.false.
+@@ -109,14 +98,14 @@
+      nsectx=mod(nsec,86400)
+      ntune2=ntune
+      transmitting=.true.
+-     call gmtime2(nt,tsec1)
+-     sectr=mod(tsec1,trseconds)
+-     if(ntune.eq.-3 .and. sectr.lt.116.5) then
+-        write(19,1031) cdate(3:8),utctime(1:4),sectr,'ATU ',iband,ib(iband)
+-     else
+-        write(19,1031) cdate(3:8),utctime(1:4),sectr,'Tune',iband,ib(iband)
+-     endif
+-     call flush(19)
++!     call gmtime2(nt,tsec1)
++!     sectr=mod(tsec1,trseconds)
++!     if(ntune.eq.-3 .and. sectr.lt.116.5) then
++!        write(19,1031) cdate(3:8),utctime(1:4),sectr,'ATU ',iband,ib(iband)
++!     else
++!        write(19,1031) cdate(3:8),utctime(1:4),sectr,'Tune',iband,ib(iband)
++!     endif
++!     call flush(19)
+      call cs_unlock
+      call starttx
+   endif
+@@ -124,16 +113,13 @@
+   if (ncal.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
+        (.not.receiving)) then
+ 
+-! Execute one receive sequence
++! Execute one receive sequence, for IQ calibration
+      call cs_lock('wspr2')
+      receiving=.true.
+      rxtime=utctime(1:4)
+      nrxnormal=0
+-     call gmtime2(nt,tsec1)
+-     sectr=mod(tsec1,trseconds)
+-     write(19,1031) cdate(3:8),utctime(1:4),sectr,'Cal ',iband,ib(iband)
+-     call flush(19)
+      call cs_unlock
++     call loggit('Start Cal')
+      ndiskdat=0
+      call startrx
+   endif
+@@ -178,7 +164,7 @@
+ 
+   if(pctx.gt.0.0 .and. (ntxnext.eq.1 .or. (nrx.eq.0 .and. ntr.ne.-1))) then
+ 
+-     call cs_lock('wspr2')
++     call cs_lock('wspr2')                   !Start a normal Tx sequence
+      ntune2=ntune
+      transmitting=.true.
+      call random_number(x)
+@@ -200,28 +186,17 @@
+      call cs_unlock
+ 
+      if(ndevsok.eq.1) then
+-        call cs_lock('wspr2')
+-        call gmtime2(nt,tsec0)
+-        sectr=mod(tsec0,trseconds)
+-        write(19,1031) cdate(3:8),utctime(1:4),sectr,'Tx  ',iband,ib(iband),  &amp;
+-             message
+-        call flush(19)
+-        call cs_unlock
++        call loggit('Start Tx')
+         call starttx
+      endif
+ 
+   else
+-     receiving=.true.
++     receiving=.true.                       !Start a normal Rx sequence
+      rxtime=utctime(1:4)
+      ntr=1
+      if(ndevsok.eq.1) then
+         nrxnormal=1
+-        call cs_lock('wspr2')
+-        call gmtime2(nt,tsec1)
+-        sectr=mod(tsec1,trseconds)
+-        write(19,1031) cdate(3:8),utctime(1:4),sectr,'Rx  ',iband,ib(iband)
+-        call flush(19)
+-        call cs_unlock
++        call loggit('Start Rx')
+         call startrx
+      endif
+      nrx=nrx-1
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002562.html">[WSJT-SVN] r2870 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002564.html">[WSJT-SVN] r2872 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2563">[ date ]</a>
+              <a href="thread.html#2563">[ thread ]</a>
+              <a href="subject.html#2563">[ subject ]</a>
+              <a href="author.html#2563">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

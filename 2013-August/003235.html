@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3543 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3543%20-%20branches/wsjtx&In-Reply-To=%3C20130811013006.560AE55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003234.html">
+   <LINK REL="Next"  HREF="003236.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3543 - branches/wsjtx</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3543%20-%20branches/wsjtx&In-Reply-To=%3C20130811013006.560AE55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3543 - branches/wsjtx">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Sun Aug 11 03:30:06 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003234.html">[WSJT-SVN] r3542 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003236.html">[WSJT-SVN] r3544 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3235">[ date ]</a>
+              <a href="thread.html#3235">[ thread ]</a>
+              <a href="subject.html#3235">[ subject ]</a>
+              <a href="author.html#3235">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-08-11 03:30:05 +0200 (Sun, 11 Aug 2013)
+New Revision: 3543
+
+Modified:
+   branches/wsjtx/Detector.cpp
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/widegraph.cpp
+Log:
+Bugfixes:
+
+Detector no longer collects samples when transmitting or not
+monitoring. This was causingissues with the waterfall after tx periods
+and was a waste of CPU cycles.
+
+Correct the missing window title on the waterfall window.
+
+Stop and restart the output audio stream if the configuration of
+device or channels changes in the setup dialog. This defect was
+causing spurious transmissions after changing configuration.
+
+
+
+Modified: branches/wsjtx/Detector.cpp
+===================================================================
+--- branches/wsjtx/Detector.cpp	2013-08-10 15:29:55 UTC (rev 3542)
++++ branches/wsjtx/Detector.cpp	2013-08-11 01:30:05 UTC (rev 3543)
+@@ -37,43 +37,50 @@
+ 
+ qint64 Detector::writeData (char const * data, qint64 maxSize)
+ {
+-  Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (bytesPerFrame ()))); // no torn frames
++  if (m_monitoring)
++    {
++      Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (bytesPerFrame ()))); // no torn frames
+ 
+-  qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
+-  qint64 framesAccepted (qMin (static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ()), framesAcceptable));
++      qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
++      qint64 framesAccepted (qMin (static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ()), framesAcceptable));
+   
+-  if (framesAccepted &lt; static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ()))
+-    {
+-      qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!&quot;;
+-    }
++      if (framesAccepted &lt; static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ()))
++	{
++	  qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!&quot;;
++	}
+ 
+-  store (data, framesAccepted, &amp;jt9com_.d2[jt9com_.kin]);
++      store (data, framesAccepted, &amp;jt9com_.d2[jt9com_.kin]);
+ 
+-  unsigned lastSignalIndex (jt9com_.kin / m_framesPerSignal);
+-  jt9com_.kin += framesAccepted;
+-  unsigned currentSignalIndex (jt9com_.kin / m_framesPerSignal);
++      unsigned lastSignalIndex (jt9com_.kin / m_framesPerSignal);
++      jt9com_.kin += framesAccepted;
++      unsigned currentSignalIndex (jt9com_.kin / m_framesPerSignal);
+ 
+-  if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
+-    {
+-      Q_EMIT framesWritten (currentSignalIndex * m_framesPerSignal);
+-    }
++      if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
++	{
++	  Q_EMIT framesWritten (currentSignalIndex * m_framesPerSignal);
++	}
+ 
+-  if (!secondInPeriod ())
+-    {
+-      if (!m_starting)
++      if (!secondInPeriod ())
+ 	{
+-	  // next samples will be in new period so wrap around to
+-	  // start of buffer
+-	  //
+-	  // we don't bother calling reset () since we expect to fill
+-	  // the whole buffer and don't need to waste cycles zeroing
+-	  jt9com_.kin = 0;
+-	  m_starting = true;
++	  if (!m_starting)
++	    {
++	      // next samples will be in new period so wrap around to
++	      // start of buffer
++	      //
++	      // we don't bother calling reset () since we expect to fill
++	      // the whole buffer and don't need to waste cycles zeroing
++	      jt9com_.kin = 0;
++	      m_starting = true;
++	    }
+ 	}
++      else if (m_starting)
++	{
++	  m_starting = false;
++	}
+     }
+-  else if (m_starting)
++  else
+     {
+-      m_starting = false;
++      jt9com_.kin = 0;
+     }
+ 
+   return maxSize;		// we drop any data past the end of
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-08-10 15:29:55 UTC (rev 3542)
++++ branches/wsjtx/devsetup.cpp	2013-08-11 01:30:05 UTC (rev 3543)
+@@ -216,7 +216,8 @@
+   // Check to see whether SoundInThread must be restarted,
+   // and save user parameters.
+ 
+-  m_restartSoundIn = m_restartSoundOut = false;
++  m_restartSoundIn = false;
++  m_restartSoundOut = false;
+ 
+   if (m_audioInputDevice != m_audioInputDevices[ui-&gt;comboBoxSndIn-&gt;currentIndex ()])
+     {
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-10 15:29:55 UTC (rev 3542)
++++ branches/wsjtx/mainwindow.cpp	2013-08-11 01:30:05 UTC (rev 3543)
+@@ -822,7 +822,8 @@
+     }
+ 
+     if(dlg.m_restartSoundOut) {
+-      transmit ();
++      Q_EMIT stopAudioOutputStream ();
++      Q_EMIT startAudioOutputStream (m_audioOutputDevice, AudioDevice::Mono == m_audioOutputChannel ? 1 : 2);
+     }
+   }
+   m_catEnabled=dlg.m_catEnabled;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-08-10 15:29:55 UTC (rev 3542)
++++ branches/wsjtx/widegraph.cpp	2013-08-11 01:30:05 UTC (rev 3543)
+@@ -9,14 +9,13 @@
+   ui(new Ui::WideGraph),
+   m_settings (settings)
+ {
+-  installEventFilter (parent);
++  ui-&gt;setupUi(this);
+ 
+   setWindowTitle (&quot;Wide Graph&quot;);
+   setWindowFlags (Qt::WindowCloseButtonHint | Qt::WindowMinimizeButtonHint);
+   setMaximumWidth (MAX_SCREENSIZE);
+   setMaximumHeight (880);
+ 
+-  ui-&gt;setupUi(this);
+   ui-&gt;widePlot-&gt;setCursor(Qt::CrossCursor);
+   ui-&gt;widePlot-&gt;setMaximumHeight(800);
+   ui-&gt;widePlot-&gt;m_bCurrent=false;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003234.html">[WSJT-SVN] r3542 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003236.html">[WSJT-SVN] r3544 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3235">[ date ]</a>
+              <a href="thread.html#3235">[ thread ]</a>
+              <a href="subject.html#3235">[ subject ]</a>
+              <a href="author.html#3235">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

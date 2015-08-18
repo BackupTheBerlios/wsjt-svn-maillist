@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2668 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2668%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121016205803.EC89E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002359.html">
+   <LINK REL="Next"  HREF="002361.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2668 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2668%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121016205803.EC89E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2668 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Oct 16 22:58:03 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002359.html">[WSJT-SVN] r2667 - branches/wsjtx/lib
+</A></li>
+        <LI>Next message: <A HREF="002361.html">[WSJT-SVN] r2669 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-16 22:58:03 +0200 (Tue, 16 Oct 2012)
+New Revision: 2668
+
+Modified:
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Working on JT9 decoder.
+
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-10-16 19:44:41 UTC (rev 2667)
++++ branches/wsjtx/lib/jt9.f90	2012-10-16 20:58:03 UTC (rev 2668)
+@@ -16,9 +16,8 @@
+   integer*1 i1SoftSymbols(207)
+   character*22 msg
+   integer*2 id2
+-  complex c0
+-  common/jt9com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),    &amp;
+-       nutc,npts8,junk(20)
++  complex c0(NDMAX)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX)
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+@@ -30,9 +29,7 @@
+      go to 999
+   endif
+   call getarg(1,arg)
+-  if(arg(1:2).eq.'-s') then
+-     go to 999
+-  endif
++  if(arg(1:2).eq.'-s') go to 999
+   read(arg,*) ntrperiod
+ 
+   ifile1=2
+@@ -66,7 +63,6 @@
+      k=0
+      nhsym0=-999
+      npts=(60*ntrperiod-6)*12000
+-     read(10) id2(1:npts)
+ 
+ !     do i=1,npts
+ !        id2(i)=100.0*sin(6.283185307*1046.875*i/12000.0)
+@@ -74,36 +70,31 @@
+ 
+      do iblk=1,npts/kstep
+         k=iblk*kstep
++        read(10,end=10) id2(k-kstep+1:k)
+         nhsym=(k-2048)/kstep
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+            call symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,   &amp;
+-                s,red,df3,ihsym,nzap,slimit,lstrong)
++                s,red,df3,ihsym,nzap,slimit,lstrong,c0,npts8)
+            nhsym0=nhsym
+            if(ihsym.ge.184) go to 10
+         endif
+      enddo
+ 
+-10   continue
++10   close(10)
++     iz=1000.0/df3
++     print*,'A',ihsym,nhsym,tstep,df3,ntol,nfqso
+ 
+ ! Now do the decoding
+      nutc=nutc0
+ 
+ ! Get sync, approx freq
+-     call sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,red)    
+-     fpk0=fpk
+-!     iz=1000.0/df3
+-!     do i=1,iz
+-!        freq=1000.0 + (i-1)*df3
+-!        write(72,3001) freq,red(i),db(red(i))
+-!3001    format(3f10.3)
+-!     enddo
+-!     flush(72)
+-
+-     call spec9(c0,npts8,nsps,f0a,fpk,xdt,i1SoftSymbols)
++     call sync9(ss,tstep,df3,ntol,nfqso,sync,fpk,red)
++     print*,'B',sync,fpk
++     call spec9(c0,npts8,nsps,fpk,xdt,i1SoftSymbols)
+      call decode9(i1SoftSymbols,msg)
+-     write(*,1010) nutc,xdt,1000.0+fpk,msg,sync,fpk0
+-1010 format(i4.4,f6.1,f7.1,2x,a22,2f9.1)
++     write(*,1010) nutc,sync,xdt,1000.0+fpk,msg
++1010 format(i4.4,3f7.1,2x,a22)
+   enddo
+ 
+   go to 999
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-10-16 19:44:41 UTC (rev 2667)
++++ branches/wsjtx/lib/spec9.f90	2012-10-16 20:58:03 UTC (rev 2668)
+@@ -1,4 +1,4 @@
+-subroutine spec9(c0,npts8,nsps,f0a,fpk,xdt,i1SoftSymbols)
++subroutine spec9(c0,npts8,nsps,fpk,xdt,i1SoftSymbols)
+ 
+   parameter (MAXFFT=31500)
+   complex c0(0:npts8-1)
+@@ -31,7 +31,7 @@
+   enddo
+ 
+   nsps8=nsps/8
+-  foffset=fpk-f0a
++  foffset=fpk
+   istart=1520
+ 
+   call peakdf9(c0,npts8,nsps8,istart,foffset,idf)
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-16 19:44:41 UTC (rev 2667)
++++ branches/wsjtx/lib/symspec.f90	2012-10-16 20:58:03 UTC (rev 2668)
+@@ -1,5 +1,5 @@
+ subroutine symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,red,    &amp;
+-     df3,ihsym,nzap,slimit,lstrong)
++     df3,ihsym,nzap,slimit,lstrong,c0,npts8)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -31,9 +31,8 @@
+   complex cx(0:MAXFFT3-1)
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+-  complex c0
+-  common/jt9com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),     &amp;
+-       nutc,npts8,junk(20)
++  complex c0(NDMAX)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX)
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+ 
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-16 19:44:41 UTC (rev 2667)
++++ branches/wsjtx/lib/sync9.f90	2012-10-16 20:58:03 UTC (rev 2668)
+@@ -1,4 +1,4 @@
+-subroutine sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,ccfred)
++subroutine sync9(ss,tstep,df3,ntol,nfqso,sync,fpk,ccfred)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
+@@ -25,7 +25,6 @@
+      if(ia.lt.1) ia=1
+      if(ib.gt.NSMAX) ib=NSMAX
+   endif
+-!  print*,ia,ib,f0a,df3,ntol,nfqso,df3*ia+1000,df3*ib+1000
+ 
+   sbest=0.
+   lagmax=2.5/tstep + 0.9999
+@@ -53,7 +52,7 @@
+      ccfred(i)=smax
+   enddo
+ 
+-  fpk=f0a + (ipkbest-1)*df3
++  fpk=(ipkbest-1)*df3
+   sync=sbest
+ 
+   return
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-16 19:44:41 UTC (rev 2667)
++++ branches/wsjtx/mainwindow.cpp	2012-10-16 20:58:03 UTC (rev 2668)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002359.html">[WSJT-SVN] r2667 - branches/wsjtx/lib
+</A></li>
+	<LI>Next message: <A HREF="002361.html">[WSJT-SVN] r2669 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

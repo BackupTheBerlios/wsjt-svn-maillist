@@ -1,0 +1,791 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2529 - in branches/jtms3: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2529%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120719180115.22BC655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002220.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2529 - in branches/jtms3: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2529%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120719180115.22BC655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2529 - in branches/jtms3: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jul 19 20:01:15 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002220.html">[WSJT-SVN] r2528 - in branches/jtms3: . libm65
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2221">[ date ]</a>
+              <a href="thread.html#2221">[ thread ]</a>
+              <a href="subject.html#2221">[ subject ]</a>
+              <a href="author.html#2221">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-19 20:01:14 +0200 (Thu, 19 Jul 2012)
+New Revision: 2529
+
+Added:
+   branches/jtms3/libm65/specjtmsk.f90
+Removed:
+   branches/jtms3/libm65/specjtms.f90
+Modified:
+   branches/jtms3/jtmsk.txt
+   branches/jtms3/libm65/jtmsk.f90
+   branches/jtms3/libm65/msk.f90
+   branches/jtms3/libm65/rtping.f90
+   branches/jtms3/mainwindow.cpp
+Log:
+Now have a properly functioning stand-along decoder for JTMSK.
+
+
+Modified: branches/jtms3/jtmsk.txt
+===================================================================
+--- branches/jtms3/jtmsk.txt	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/jtmsk.txt	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,64 +1,72 @@
+ 	  JTMSK: Possible New Mode for Meteor Scatter
+ 	  -------------------------------------------
+ 
++JTMSK is a digital mode designed for amateur meteor-scatter
++communication.  The &quot;MSK&quot; part of the name could mean &quot;Meteor Scatter
++King&quot;: the mode works at the same signal levels as the popular mode
++FSK441, but at about twice the character transmission rate, so it
++makes much better use of short pings.  MSK also means &quot;Minimum Shift
++Keying&quot;, which is the modulation technique used in JTMSK.  It is a
++form of continuous-phase frequency-shift keying that achieves high
++transmission rate with a narrow bandwidth, while maintaining a
++constant-envelope waveform.
++
+ 1. Transmitting
+ 
+ Messages are sent character-by character, 6 bits plus odd parity.
+-Message length can be one of {5 7 9 11 13 17 19 23 29}; messages are
+-padded with blanks up to the next available length from this list.
++Message length in characters is automatically selected from among the
++possibilities 5 7 9 11 13 17 19 23 29.  (Note that these lengths share
++no common factor.)  Messages are padded with blanks when required, up
++to the next available length.
+ 
+-Modulation is Minimum Shift Keying (MSK) at 2000 baud.  This is a form
+-of constant-envelope, continuous-phase modulation, equivalent to FSK
+-with offset equal to half the bit rate.  JTMSK sends a &quot;0&quot; bit with
+-0.5 ms of a sine wave at f0=1000 Hz, and a &quot;1&quot; bit at f1=2000 Hz.
+-Carrier phase increment over one bit is therefore 0.5 cycles (pi
+-radians) at f0 and 1.0 cycles (two*pi radians) at f1.  With odd parity
+-there is always an odd number of 1's and even number of 0's in a
+-character, so the phase increment over a full character is always an
+-integer number of cycles.
+ 
++Modulation is Minimum Shift Keying (MSK) at 2000 baud.  A &quot;0&quot; bit is
++sent as an audio sine wave at f0=1000 Hz, lasting 0.5 ms; a &quot;1&quot; bit is
++a sine wave at f1=2000 Hz.  The carrier phase increment over one bit
++is thus 0.5 cycles (pi radians) at f0, or 1.0 cycles at f1.  Odd
++parity assures an odd number of 1's and even number of 0's in every
++7-bit character, so the phase increment over a full character is
++always an integer number of cycles.
++
+ 2. Receiving
+ 
+-  a. Pings are detected (or mouse-picked data is selected) as in
+-     WSJT9, except that it's done in real time rather than at the end
+-     of an Rx interval.  
++  a. Detect pings and update display in real time.  (rtping)
+ 
+-  b. Compute real-to-complex FFT.  Zap birdies, remove frequency 
+-     components outside the range 300 - 2700 Hz, and convert to analytic
++  b. Compute real-to-complex FFT.  Zap birdies, remove frequency
++     components outside the range 300 - 2700 Hz, convert to analytic
+      time-domain signal.  (analytic)
+ 
+-  c. Square the complex signal, cx2=cx*cx, and compute FFT.  Look for
+-     narrow carriers at frequency 2000 + 2*DF +/- 2*Tol and 2000 Hz
+-     higher.  (msdf)
++  c. Square the complex signal and compute FFT.  Look for narrow
++     spectral lines at frequency 2000 + 2*(DF +/- Tol) Hz and 
++     4000 + 2*(DF +/- Tol) Hz.  (msdf)
+ 
+-  d. If carrier is found, measure frequency f and phase phi.  Multiply
+-     cx by exp(-twopi*i*(f-1500)*t - phi) to recover the
+-     standard-frequency baseband signal.  (tweak1)
++  d. If a signal is found, measure frequency offset DF and phase Dphi.
++     (DF and Dphi are measured relative to the original frequencies f0
++     and f1, not their doubled values.)  Multiply cx by
++     exp(-twopi*i*DF*t - Dphi) to recover the standard-frequency
++     baseband signal.  (tweak1)
+ 
+   e. Establish symbol and character sync by cross-correlating with
+-     conjg(cwb), where cwb is the MSK waveform for the &lt;space&gt;
+-     character.
++     conjg(cwb), MSK waveform for the &lt;space&gt; character.
+ 
+-  f. Find message length by computing ACF (of what?  cdat?  soft
+-     symbol values?)
++  f. Find message length by computing ACF.
+  
+-  g. Cross-correlate the complex standard-frequency signal against
+-     conjugated templates for each character in the JTMSK alphabet.
+-     Best match yields the decoded character.
+-
+-  h. Decode the message by cross-correlating character-length segments
++  g. Decode the message by cross-correlating character-length segments
+      of cdat against complex waveforms for each possible character.
+ 
+-  i. If msglen is established and long enough, try folding the data and
+-     determining best-fit characters as above.
++  h. If ping is long enough, try folding the data and determining the
++     best-fit characters as above.
+ 
+-3. Comparison of modes:
++3. Parameters of fast modes:
+ 
+-                   |    Meteor Scatter     |    IonoScatter
+-                   |  FSK441  JTMS  JTMSK  |   JT6M    ISCAT
+--------------------+-----------------------+-------------------
+-T/R period (s)     |    30     30    30    |    30       30
+-Modulation type    |  4-FSK   MSK*  MSK*   |  44-FSK    41-FSK
+-Keying rate (baud) |   441   1378  2000    |   21.5     43.1
+-Characters/s       |   147    197   286    |   14.3     32.3
+-Bandwidth (Hz)     |  1764   1378  2000    |   947      1809
+++--------------------+-----------------------+-------------------+
++|                    |    Meteor Scatter     |    IonoScatter    |
++|                    |  FSK441  JTMS  JTMSK  |   JT6M    ISCAT   |
+++--------------------+-----------------------+-------------------|
++| T/R period (s)     |    30     30    30    |    30       30    |
++| Modulation type    |  4-FSK   MSK   MSK    |  44-FSK    41-FSK |
++| Keying rate (baud) |   441   1378  2000    |   21.5     43.1   |
++| Bit rate (bps)     |   882   1378  2000    |    -        -     |
++| Characters/s       |   147    197   286    |   14.3     32.3   |
++| Bandwidth (Hz)     |  1764   1378  2000    |   947      1809   |
+++--------------------+-----------------------+-------------------+
+
+Modified: branches/jtms3/libm65/jtmsk.f90
+===================================================================
+--- branches/jtms3/libm65/jtmsk.f90	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/libm65/jtmsk.f90	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,14 +1,14 @@
+-subroutine jtmsk(dat,npts,cfile6,t2,mswidth,ndb,nrpt,Nfreeze,       &amp;
+-     ntol,MouseDF,pick)
++subroutine jtmsk(dat,npts,cfile6,tpk,mswidth,ndb,nrpt,Nfreeze,       &amp;
++     ntol,MouseDF,pick,mycall)
+ 
+-! Decode a JTMS ping
++! Decode a JTMSK ping
+ 
+-  parameter (NZ=30*48000)
++  parameter (NZ=2*48000)
+   real dat(npts)                        !Raw data
+   complex cdat(NZ)                      !Analytic form of signal
+   character*6 cfile6                    !FileID
+   logical pick
+-  character*12 mycall,hiscall
++  character*12 mycall
+   real s(NZ)                            !Power spectrum
+   real s2(0:63,400)
+   real r(60000)
+@@ -16,8 +16,6 @@
+   complex cwb(168)                       !Complex waveform for &lt;space&gt;
+   logical first
+   character msg*400,msg29*29
+-  character*90 line
+-  common/ccom/nline,tping(100),line(100)
+   data first/.true./
+   save first,cw,cwb
+   save cdat                             !Fix its address, for four2
+@@ -31,56 +29,44 @@
+   nfft1=2**n                            !FFT length
+   call analytic(dat,npts,nfft1,s,cdat)  !Convert to analytic signal
+ 
+-  call mskdf(cdat,npts,t2,nfft1,f0,nfreeze,mousedf,ntol,     &amp;
++  call mskdf(cdat,npts,tpk,nfft1,f0,nfreeze,mousedf,ntol,     &amp;
+        dfx,snrsq2)                      !Get DF
+-  print*,'b',dfx,snrsq2
+   sq2lim=7.0
+   if(pick) sq2lim=5.0
+-  if(snrsq2.lt.sq2lim) go to 900           !Reject non-JTMS signals
++  if(snrsq2.lt.sq2lim) go to 900        !Reject non-JTMS signals
+ 
+   call tweak1(cdat,npts,-dfx,cdat)      !Mix to standard frequency
+ 
+-! DF is known, now establish character sync.
++  call syncmsk(cdat,npts,cwb,r,i1)      !Get character sync
+ 
+-  call syncmsk(cdat,npts,cwb,r,i1)       !Get character sync
+-
+-  call lenmsk(r,npts,msglen)             !Find message length
++  call lenmsk(r,npts,msglen)            !Find message length
+   
+   s2=0.
+   nchar=(npts-168+1-i1)/168
+   if(nchar.gt.400) nchar=400
+ 
+   call decodemsk(cdat,npts,cw,i1,nchar,s2,msg)   !Decode the message
+-  print*,'B',i1,msglen,nchar
+-  print*,msg(1:nchar)
+ 
+-!  ia=1
+-!  if(nchar.ge.40) ia=min(nchar/3,nchar-28)    
+-!  ib=min(ia+28,nchar)                   !Can better limits ia, ib be found?
+-!  print*,'A',ia,ib,nchar
+-!  print*,msg(1:nchar)
+-!  msg29=adjustl(msg(ia:ib))
++  ia=1
++  if(nchar.ge.40) ia=min(nchar/3,nchar-28)    
++  ib=min(ia+28,nchar)                   !Can better limits ia, ib be found?
++  msg29=adjustl(msg(ia:ib))
+   msg=adjustl(msg)
+   ib=min(nchar,45)
+   ndf=nint(dfx)
+   nchk=max(20,nint(1.5*msglen))
+ 
+   if(msglen.eq.0 .or. nchar.lt.nchk .or. pick) then
+-     if(nline.le.99) nline=nline+1
+-     tping(nline)=t2
+-     write(line(nline),1110) cfile6,t2,mswidth,ndb,nrpt,ndf,msg(1:45)
++     write(*,1110) cfile6,tpk,mswidth,ndb,nrpt,ndf,msg(1:45)
+ 1110 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a45)
+   endif
+ 
+   if(msglen.gt.0 .and. nchar.ge.nchk) then
+      call foldmsk(s2,msglen,nchar,mycall,msg,msg29)   !Decode folded message
+-     if(nline.le.99) nline=nline+1
+-     tping(nline)=t2
+-     write(line(nline),1120) cfile6,t2,mswidth,ndb,nrpt,ndf,msg29
++     write(*,1120) cfile6,tpk,mswidth,ndb,nrpt,ndf,msg29
+ 1120 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a29,11x,'*')
+    endif
+ 
+ 900 continue
+-
+   return
+ end subroutine jtmsk
+
+Modified: branches/jtms3/libm65/msk.f90
+===================================================================
+--- branches/jtms3/libm65/msk.f90	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/libm65/msk.f90	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,11 +1,12 @@
+ program msk
+ 
+-! Starting code for a JTMSK decoder.
++! Program to test decoding routines for mode JTMSK.
+ 
+   parameter (NSMAX=30*48000)
+   character*80 infile
+   character*6 cfile6
+   character*12 arg
++  character*12 mycall
+   real dat(NSMAX)
+   real x(NSMAX)
+   complex cx(0:NSMAX/2)
+@@ -14,46 +15,49 @@
+   common/mscom/id(NSMAX),s1(215,703),s2(215,703)
+ 
+   nargs=iargc()
+-  if(nargs.lt.1) then
+-     print*,'Usage: msk &lt;snr&gt;'
++  if(nargs.lt.2) then
++     print*,'Usage: msk nslow snr'
+      go to 999
+   endif
+   call getarg(1,arg)
++  read(arg,*) nslow
++  call getarg(2,arg)
+   read(arg,*) snr
+ 
++! Read simulated pings from a file
+   open(71,file='dat.71',form='unformatted',status='old')
+   read(71) id
++
+   cfile6='123400'
+-
+   npts=30*48000
+   kstep=2048
+-  minsigdb=6
++  minsigdb=1
+   mousedf=0
+   ntol=200 
++  mycall='W8WN'
+ 
++! Make some band-limited noise.
+   call random_number(x)
+   nfft=NSMAX
+   call four2a(x,nfft,1,-1,0)
+   df=48000.0/nfft
+   ia=nint(300.0/df)
+-  ib=nint(2800.0/df)
++  ib=nint(2700.0/df)
+   cx(:ia)=0.
+   cx(ib:)=0.
+   call four2a(cx,nfft,1,1,-1)
+   x(1)=0.
+-  sq=0.
+-  do i=1,NSMAX
+-     sq=sq + x(i)**2
+-  enddo
+-  rms=sqrt(sq/NSMAX)
++  rms=sqrt(dot_product(x,x)/NSMAX)
+   x=x/rms
+-  sig=(10.0**(0.05*snr))/32768.0
+-  dat=sig*id + x
+ 
+-  k=0
++  sig=(10.0**(0.05*snr))/32768.0                    !Scaled signal strength
++  dat=sig*id + x                                    !Add pings to noise
++
++! This loop simulates being called from &quot;datasink()&quot; in program JTMSK.
+   do iblk=1,npts/kstep
+-     k=k+kstep
+-     call rtping(dat,k,cfile6,MinSigdB,MouseDF,ntol)
++     k=iblk*kstep
++     call rtping(dat,k,cfile6,MinSigdB,MouseDF,ntol,mycall)
++     if(nslow.ne.0) call usleep(42000)
+   enddo
+ 
+ 999 end program msk
+
+Modified: branches/jtms3/libm65/rtping.f90
+===================================================================
+--- branches/jtms3/libm65/rtping.f90	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/libm65/rtping.f90	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,103 +1,92 @@
+-subroutine rtping(dat,k,cfile6,MinSigdB,MouseDF,ntol)
++subroutine rtping(dat,k,cfile6,MinSigdB,MouseDF,ntol,mycall)
+ 
+-!subroutine rtping(dat,jz,nz,MinSigdB,MinWidth,NFreeze,DFTolerance,    &amp;
+-!     MouseDF,istart,pick,cfile6,mycall,hiscall,mode,ps0)
++! Called from datasink() every 2048 sample intervals (approx 43 ms).
++! Detects pings (signal level above MinSigdB).  When a ping ends, its
++! MSK signal is synchronized and decoded.
+ 
+-! Decode Multi-Tone FSK441 mesages.
+-
+   parameter (NSMAX=30*48000)
+-  parameter (NZMAX=NSMAX/2048)
++  parameter (NZMAX=703)          !703 = NSMAX/2048
+   real dat(NSMAX)                !Raw audio data
+-  logical pick
+-  character*6 cfile6
++  character*6 cfile6             !Time hhmmss at start of this Rx interval
++  character*12 mycall
+   real sig(NZMAX)                !Sq-law detected signal, sampled at 43 ms
+   real sigdb(NZMAX)              !Signal in dB, sampled at 43 ms
+-  real work(NZMAX)
+-  real pingdat(3,100)
+-!  character msg*40,msg3*3
+-  character*90 line
+-  common/ccom/nline,tping(100),line(100)
+-  data nping0/0/
++  real tmp(NZMAX)
++  logical inside,pingFound
++  data k0/9999999/
+   save
+ 
++  if(k.lt.k0) then
++     inside=.false.
++     pingFound=.false.
++     j0=0
++     t1=0.
++     width=0.
++     peak=0.
++     tpk=0.
++     dt=1.0/48000.0
++     kstep=2048
++     sdt=dt*kstep
++     wmin=0.043
++  endif
++  k0=k
++
+   slim=MinSigdB
+-!  nf1=-ntol
+-!  nf2=ntol
+-  dt=1.0/48000.0
+-  kstep=2048
+-!  pick=.false.
+-  istart=1
+-  jz=k
++  snrlim=10.0**(0.1*slim) - 1.0
++  sdown=10.0*log10(0.25*snrlim+1.0)
+ 
+ ! Find signal power
+   j=k/kstep
+   sig(j)=dot_product(dat(k-kstep+1:k),dat(k-kstep+1:k))/kstep
+-  if(j.lt.10) return
++  if(j.lt.20) return
+ 
+-! Remove baseline, compute signal level in dB 
+-  call pctile (sig,work,j,50,base1)
+-  do i=1,j
+-     sigdb(i)=db(sig(i)/base1)
+-     if(j.eq.703) write(13,3001) i,sig(i),sigdb(i)
+-3001 format(i5,2e12.3)
+-  enddo
++! Determine baseline noise level
++  if(mod(j,20).eq.0) call pctile (sig,tmp,j,50,base)
++  sigdb(j)=db(sig(j)/base)                             ! (S+N)/N in dB
+ 
+-  dtbuf=kstep*dt
+-  wmin=0.040
+-  call ping(sigdb,j,dtbuf,slim,wmin,pingdat,nping)
++!  write(72,3001) j*sdt,base,sig(j),sigdb(j)
++!3001 format(f10.3,3f12.6)
+ 
+-! If this is a &quot;mouse pick&quot; and no ping was found, force a pseudo-ping 
+-! at center of data.
+-!  if(pick.and.nping.eq.0) then
+-!     if(nping.le.99) nping=nping+1
+-!     pingdat(1,nping)=0.5*jz*dt
+-!     pingdat(2,nping)=0.16
+-!     pingdat(3,nping)=1.0
+-!  endif
++  if(sigdb(j).ge.slim .and. .not.inside) then
++     j0=j                                       !Mark the start of a ping
++     t1=j0*sdt
++     inside=.true.
++     peak=0.
++  endif
+ 
+-  do iping=1,nping
+-! Find starting place and length of data to be analyzed:
+-     tstart=pingdat(1,iping)
+-     width=pingdat(2,iping)
+-     peak=pingdat(3,iping)
+-!     mswidth=10*nint(100.0*width)
+-     jj=(tstart-0.02)/dt
+-     if(jj.lt.1) jj=1
+-     jjz=nint((width+0.02)/dt)+1
+-     jjz=min(jjz,jz+1-jj)
++  if(inside .and. sigdb(j).gt.peak) then
++     peak=sigdb(j)                              !Save peak strength
++     tpk=j*sdt                                  ! and time of peak
++  endif
++  
++  if(inside .and. (sigdb(j).lt.sdown .or. j.eq.NZMAX)) then
++     width=(j-j0)*sdt                           !Save ping width
++     if(width.ge.wmin) pingFound=.true.
++  endif
++  if(.not.pingFound) return
+ 
+-! Compute average spectrum of this ping.
+-!     call spec441(dat(jj),jjz,ps,f0)
++! A ping was found!  Assemble a signal report:
++  nwidth=0
++  if(width.ge.0.04) nwidth=1
++  if(width.ge.0.12) nwidth=2
++  if(width.gt.1.00) nwidth=3
++  nstrength=6
++  if(peak.ge.11.0) nstrength=7
++  if(peak.ge.17.0) nstrength=8
++  if(peak.ge.23.0) nstrength=9
++  nrpt=10*nwidth + nstrength
+ 
+-! Decode the message.
+-!     msg=' '
+-!     call longx(dat(jj),jjz,ps,DFTolerance,noffset,msg,msglen,bauderr)
++  mswidth=10*nint(100.0*width)
++  i1=(t1-0.02)/dt
++  if(i1.lt.1) i1=1
++  iz=nint((width+0.02)/dt) + 1
++  iz=min(iz,k+1-i1,2*48000)                   !Length of ping in samples
+ 
+-! Assemble a signal report:
+-     nwidth=0
+-     if(width.ge.0.04) nwidth=1     !These might depend on NSPD
+-     if(width.ge.0.12) nwidth=2
+-     if(width.gt.1.00) nwidth=3
+-     nstrength=6
+-     if(peak.ge.11.0) nstrength=7
+-     if(peak.ge.17.0) nstrength=8
+-     if(peak.ge.23.0) nstrength=9
+-!     nrpt=10*nwidth + nstrength
+-     t2=tstart + dt*(istart-1)
++  call jtmsk(dat(i1),iz,cfile6,tpk,mswidth,int(peak),nrpt,      &amp;
++       nfreeze,DFTolerance,MouseDF,pick,mycall)
+ 
+-     jjzz=min(jjz,2*48000)       !Max data size 2 s 
+-!###
+-     jjzz=14400
+-     jj=jj-200
+-!###
++  pingFound=.false.
++  inside=.false.
+ 
+-     if(nping.gt.nping0) then
+-        print*,'a',jj,jjzz,jj*dt,jjzz*dt,t2,width
+-        call jtmsk(dat(jj),jjzz,cfile6,t2,mswidth,int(peak),nrpt,      &amp;
+-             nfreeze,DFTolerance,MouseDF,pick)
+-        nping0=nping
+-     endif
+-  enddo
+-
+   return
+ end subroutine rtping
+
+Deleted: branches/jtms3/libm65/specjtms.f90
+===================================================================
+--- branches/jtms3/libm65/specjtms.f90	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/libm65/specjtms.f90	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,105 +0,0 @@
+-subroutine specjtms(k,px,pxsmo,spk0,f0)
+-
+-! Compute noise level and 2D spectra, for GUI display.
+-
+-  parameter (NSMAX=30*48000)
+-  parameter (MAXFFT=8192)
+-  integer*2 id
+-  real x(MAXFFT)
+-  complex cx(MAXFFT),cx2(MAXFFT)
+-  logical first
+-  common/mscom/id(1440000),s1(215),s2(215),kin,ndiskdat,kline
+-  data first/.true./
+-  save
+- 
+-  if(first) then
+-     pi=4.0*atan(1.0)
+-     twopi=2.0*pi
+-     kstep=2048
+-     first=.false.
+-     sqsmo=0.
+-  endif
+-
+-  if(k.lt.kstep .or. k.gt.NSMAX) return
+-
+-  t=k/48000.0
+-  nfft=4096
+-  df=48000.0/nfft
+-  nh=nfft/2
+-  ib=k
+-  ia=k-kstep+1
+-  i0=k-nfft+1
+-  sq=0.
+-  do i=ia,ib
+-     d=id(i)
+-     sq=sq + d*d
+-  enddo
+-  sq=sq/2048.0
+-  sqsmo=0.95*sqsmo + 0.05*sq
+-  rms=sqrt(sq)
+-  px=db(sq) - 23.0
+-  pxsmo=db(sqsmo) - 23.0
+-
+-  if(i0.gt.0) then
+-     do i=i0,ia-1
+-        d=id(i)
+-        sq=sq + d*d
+-     enddo
+-  endif
+-  sq0=sq
+-!  write(13,1010) t,rms,sq,px,pxsmo
+-!1010 format(5f12.3)
+-  if(k.lt.nfft) return
+-
+-
+-  x(1:nfft)=id(i0:ib)
+-  fac=0.002/nfft
+-  cx=fac*x
+-  call four2a(cx,nfft,1,-1,1)                    !Forward c2c FFT
+-
+-  iz=nint(2500.0/df)
+-
+-  do i=1,iz                                      !Save spectrum for plot
+-     s1(i)=real(cx(i+1))**2 + aimag(cx(i+1))**2
+-  enddo
+-
+-  cx(1)=0.5*cx(1)
+-  cx(nh+2:nfft)=0.
+-  call four2a(cx,nfft,1,1,1)                     !Inverse c2c FFT
+-
+-  cx2(1:nfft)=cx(1:nfft)*cx(1:nfft)
+-  cx2(nfft+1:)=0.0
+-
+-  nfft=8192
+-  df=48000.0/nfft
+-  
+-  call four2a(cx2,nfft,1,-1,1)                   !Forward c2c FFT of cx2
+-
+-!  j0=nint(2.0*1428.57/df)
+-  j0=nint(2.0*1500.0/df)
+-  ja=j0-107
+-  jb=j0+107
+-  do j=ja,jb
+-     s2(j-ja+1)=1.e-4*(real(cx2(j))**2 + aimag(cx2(j))**2)
+-  enddo
+-
+-  spk0=0.
+-  fac=(5e8/sq0)**2
+-  s2=fac*s2
+-  do j=1,215
+-     if(s2(j).gt.spk0) then
+-        spk0=s2(j)
+-        f=(j+ja-1)*df
+-        f0=0.5*(f-3000.0)
+-        phi0=0.5*atan2(aimag(cx2(j)),real(cx2(j)))
+-     endif
+-  enddo
+-
+-  spk0=0.5*db(spk0) - 7.0
+-  kline=k/2048
+-!  write(14,3001) k/2048,spk0,f0,phi0
+-!3001 format(i8,3f12.3)
+-!  call flush(14)
+-
+-  return
+-end subroutine specjtms
+
+Copied: branches/jtms3/libm65/specjtmsk.f90 (from rev 2528, branches/jtms3/libm65/specjtms.f90)
+===================================================================
+--- branches/jtms3/libm65/specjtmsk.f90	                        (rev 0)
++++ branches/jtms3/libm65/specjtmsk.f90	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -0,0 +1,105 @@
++subroutine specjtms(k,px,pxsmo,spk0,f0)
++
++! Compute noise level and 2D spectra, for GUI display.
++
++  parameter (NSMAX=30*48000)
++  parameter (MAXFFT=8192)
++  integer*2 id
++  real x(MAXFFT)
++  complex cx(MAXFFT),cx2(MAXFFT)
++  logical first
++  common/mscom/id(1440000),s1(215),s2(215),kin,ndiskdat,kline
++  data first/.true./
++  save
++ 
++  if(first) then
++     pi=4.0*atan(1.0)
++     twopi=2.0*pi
++     kstep=2048
++     first=.false.
++     sqsmo=0.
++  endif
++
++  if(k.lt.kstep .or. k.gt.NSMAX) return
++
++  t=k/48000.0
++  nfft=4096
++  df=48000.0/nfft
++  nh=nfft/2
++  ib=k
++  ia=k-kstep+1
++  i0=k-nfft+1
++  sq=0.
++  do i=ia,ib
++     d=id(i)
++     sq=sq + d*d
++  enddo
++  sq=sq/2048.0
++  sqsmo=0.95*sqsmo + 0.05*sq
++  rms=sqrt(sq)
++  px=db(sq) - 23.0
++  pxsmo=db(sqsmo) - 23.0
++
++  if(i0.gt.0) then
++     do i=i0,ia-1
++        d=id(i)
++        sq=sq + d*d
++     enddo
++  endif
++  sq0=sq
++!  write(13,1010) t,rms,sq,px,pxsmo
++!1010 format(5f12.3)
++  if(k.lt.nfft) return
++
++
++  x(1:nfft)=id(i0:ib)
++  fac=0.002/nfft
++  cx=fac*x
++  call four2a(cx,nfft,1,-1,1)                    !Forward c2c FFT
++
++  iz=nint(2500.0/df)
++
++  do i=1,iz                                      !Save spectrum for plot
++     s1(i)=real(cx(i+1))**2 + aimag(cx(i+1))**2
++  enddo
++
++  cx(1)=0.5*cx(1)
++  cx(nh+2:nfft)=0.
++  call four2a(cx,nfft,1,1,1)                     !Inverse c2c FFT
++
++  cx2(1:nfft)=cx(1:nfft)*cx(1:nfft)
++  cx2(nfft+1:)=0.0
++
++  nfft=8192
++  df=48000.0/nfft
++  
++  call four2a(cx2,nfft,1,-1,1)                   !Forward c2c FFT of cx2
++
++!  j0=nint(2.0*1428.57/df)
++  j0=nint(2.0*1500.0/df)
++  ja=j0-107
++  jb=j0+107
++  do j=ja,jb
++     s2(j-ja+1)=1.e-4*(real(cx2(j))**2 + aimag(cx2(j))**2)
++  enddo
++
++  spk0=0.
++  fac=(5e8/sq0)**2
++  s2=fac*s2
++  do j=1,215
++     if(s2(j).gt.spk0) then
++        spk0=s2(j)
++        f=(j+ja-1)*df
++        f0=0.5*(f-3000.0)
++        phi0=0.5*atan2(aimag(cx2(j)),real(cx2(j)))
++     endif
++  enddo
++
++  spk0=0.5*db(spk0) - 7.0
++  kline=k/2048
++!  write(14,3001) k/2048,spk0,f0,phi0
++!3001 format(i8,3f12.3)
++!  call flush(14)
++
++  return
++end subroutine specjtms
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-19 12:16:29 UTC (rev 2528)
++++ branches/jtms3/mainwindow.cpp	2012-07-19 18:01:14 UTC (rev 2529)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002220.html">[WSJT-SVN] r2528 - in branches/jtms3: . libm65
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2221">[ date ]</a>
+              <a href="thread.html#2221">[ thread ]</a>
+              <a href="subject.html#2221">[ subject ]</a>
+              <a href="author.html#2221">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

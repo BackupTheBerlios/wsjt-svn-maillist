@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3044 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3044%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130311194306.891E355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002735.html">
+   <LINK REL="Next"  HREF="002737.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3044 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3044%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130311194306.891E355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3044 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Mar 11 20:43:06 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002735.html">[WSJT-SVN] r3043 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002737.html">[WSJT-SVN] r3045 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2736">[ date ]</a>
+              <a href="thread.html#2736">[ thread ]</a>
+              <a href="subject.html#2736">[ subject ]</a>
+              <a href="author.html#2736">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-11 20:43:06 +0100 (Mon, 11 Mar 2013)
+New Revision: 3044
+
+Added:
+   branches/wsjtx/lib/stdmsg.f90
+Modified:
+   branches/wsjtx/mainwindow.cpp
+Log:
+Uploads to PSKReporter are now working.
+
+
+Added: branches/wsjtx/lib/stdmsg.f90
+===================================================================
+--- branches/wsjtx/lib/stdmsg.f90	                        (rev 0)
++++ branches/wsjtx/lib/stdmsg.f90	2013-03-11 19:43:06 UTC (rev 3044)
+@@ -0,0 +1,12 @@
++logical*1 function stdmsg(msg0)
++
++  character*22 msg0,msg
++  integer dat(12)
++  logical text
++
++  call packmsg(msg0,dat,text)
++  call unpackmsg(dat,msg)
++  stdmsg=msg.eq.msg0 .and. (.not.text)
++
++  return
++end function stdmsg
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-11 15:51:44 UTC (rev 3043)
++++ branches/wsjtx/mainwindow.cpp	2013-03-11 19:43:06 UTC (rev 3044)
+@@ -1003,15 +1003,13 @@
+       ui-&gt;decodedTextBrowser-&gt;append(t);
+       QString msg=t.mid(34,22);
+       bool b=stdmsg_(msg.toAscii().constData());
+-//      if(m_pskReporterInit and b and !m_diskData) {
+-      if(m_pskReporterInit and b) {
+-        qDebug() &lt;&lt; &quot;Uploading to PSK Reporter&quot;;
++      if(m_pskReporterInit and b and !m_diskData) {
++//      if(m_pskReporterInit and b) {
+         int i1=msg.indexOf(&quot; &quot;);
+         QString c2=msg.mid(i1+1);
+         int i2=c2.indexOf(&quot; &quot;);
+         QString g2=c2.mid(i2+1,4);
+         c2=c2.mid(0,i2);
+-        qDebug() &lt;&lt; c2 &lt;&lt; g2;
+         QString remote=&quot;call,&quot; + c2 + &quot;,&quot;;
+         if(g2.mid(0,1).compare(&quot;A&quot;)&gt;=0 and
+            g2.mid(0,1).compare(&quot;R&quot;)&lt;=0 and
+@@ -1023,26 +1021,36 @@
+            g2.mid(3,1).compare(&quot;9&quot;)&lt;=0) {
+           remote += &quot;gridsquare,&quot; + g2 + &quot;,&quot;;
+         }
++        int nHz=t.mid(22,4).toInt();
++        uint nfreq=1000000.0*g_pWideGraph-&gt;dialFreq() + nHz + 0.5;
++        remote += &quot;freq,&quot; + QString::number(nfreq);
++        int nsnr=t.mid(10,3).toInt();
++        remote += &quot;,mode,JT9,snr,&quot; + QString::number(nsnr) + &quot;,,&quot;;
++
+         wchar_t tremote[256];
+         remote.toWCharArray(tremote);
+ 
+         QString local=&quot;station_callsign,&quot; + m_myCall + &quot;,&quot; +
+             &quot;my_gridsquare,&quot; + m_myGrid + &quot;,&quot; +
+-            &quot;programid,WSJT-X,programversion,&quot; + rev.mid(6,4);
++            &quot;programid,WSJT-X,programversion,&quot; + rev.mid(6,4) + &quot;,,&quot;;
++
+         wchar_t tlocal[256];
+         local.toWCharArray(tlocal);
+-        qDebug() &lt;&lt; QString::fromWCharArray(tremote,remote.length());
+-        qDebug() &lt;&lt; QString::fromWCharArray(tlocal,local.length());
+-        /*
+-        const wchar_t* tremote=L&quot;call,W8WNA,gridsquare,EM77,freq,50293000,mode,JT9,snr,-17,,&quot;;
+-        const wchar_t* tlocal=L&quot;station_callsign,K1JT,my_gridsquare,FN20qi,programid,WSJT-X,,&quot;;
+-        int flags=REPORTER_SOURCE_AUTOMATIC | REPORTER_SOURCE_TEST;
++
++//        qDebug() &lt;&lt; &quot;A:&quot; &lt;&lt; QString::fromWCharArray(tlocal,local.length());
++//        qDebug() &lt;&lt; &quot;B:&quot; &lt;&lt; QString::fromWCharArray(tremote,remote.length());
++
++        int flags=REPORTER_SOURCE_AUTOMATIC;
+         rc=ReporterSeenCallsign(tremote,tlocal,flags);
+-        rc=ReporterGetInformation(buffer,256);
+-        qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; rc &lt;&lt; QString::fromStdWString(buffer);
+-        rc=ReporterUninitialize();
+-        qDebug() &lt;&lt; &quot;D&quot; &lt;&lt; rc;
+-        */
++        if(rc!=0) {
++          ReporterGetInformation(buffer,256);
++          qDebug() &lt;&lt; &quot;C:&quot; &lt;&lt; rc &lt;&lt; QString::fromStdWString(buffer);
++        }
++        rc=ReporterTickle();
++        if(rc!=0) {
++          rc=ReporterGetInformation(buffer,256);
++          qDebug() &lt;&lt; &quot;D:&quot; &lt;&lt; QString::fromStdWString(buffer);
++        }
+       }
+     }
+   }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002735.html">[WSJT-SVN] r3043 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002737.html">[WSJT-SVN] r3045 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2736">[ date ]</a>
+              <a href="thread.html#2736">[ thread ]</a>
+              <a href="subject.html#2736">[ subject ]</a>
+              <a href="author.html#2736">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

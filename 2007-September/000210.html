@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r525 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r525%20-%20trunk&In-Reply-To=%3C200709171939.l8HJd2wl031351%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000208.html">
+   <LINK REL="Next"  HREF="000211.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r525 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r525%20-%20trunk&In-Reply-To=%3C200709171939.l8HJd2wl031351%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r525 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 17 21:39:02 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000208.html">[WSJT-SVN] r524 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000211.html">[WSJT-SVN] r526 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#210">[ date ]</a>
+              <a href="thread.html#210">[ thread ]</a>
+              <a href="subject.html#210">[ subject ]</a>
+              <a href="author.html#210">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-17 21:38:57 +0200 (Mon, 17 Sep 2007)
+New Revision: 525
+
+Modified:
+   trunk/Makefile.in
+   trunk/fano.c
+   trunk/gen24.f
+Log:
+Compiles and runs on Linux now: can Tx in JT2, JT4A modes.
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2007-09-17 19:11:24 UTC (rev 524)
++++ trunk/Makefile.in	2007-09-17 19:38:57 UTC (rev 525)
+@@ -55,7 +55,8 @@
+ 	dot.f ftsky.f geocentric.f GeoDist.f grid2deg.f moon2.f \
+ 	MoonDop.f sun.f toxyz.f pfxdump.f \
+         avesp2.f bzap.f spec441.f spec2d.f mtdecode.f stdecode.f \
+-        indexx.f s2shape.f flat2.f gen65.f chkmsg.f gen6m.f gentone.f \
++        indexx.f s2shape.f flat2.f gen65.f gen24.f entail.f genmet.f \
++	chkmsg.f gen6m.f gentone.f \
+         syncf0.f syncf1.f synct.f decode6m.f avemsg6m.f \
+         set.f flatten.f db.f pctile.f sort.f ssort.f ps.f smooth.f \
+         ping.f longx.f peakup.f sync.f detect.f avemsg65.f decode65.f \
+@@ -71,7 +72,7 @@
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+-SRCS2C	= init_rs.c encode_rs.c decode_rs.c
++SRCS2C	= init_rs.c encode_rs.c decode_rs.c fano.o tab.c
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+ # for unix @AUDIO@ will be a2d.f90, jtaudio.c start_portaudio.c
+
+Modified: trunk/fano.c
+===================================================================
+--- trunk/fano.c	2007-09-17 19:11:24 UTC (rev 524)
++++ trunk/fano.c	2007-09-17 19:38:57 UTC (rev 525)
+@@ -98,8 +98,9 @@
+ /* Decode packet with the Fano algorithm.
+  * Return 0 on success, -1 on timeout
+  */
++
++#ifdef Win32
+ int __stdcall FANO(
+-		   //  int fano_(
+ unsigned long *metric,	/* Final path metric (returned value) */
+ unsigned long *cycles,	/* Cycle count (returned value) */
+ unsigned char *data,	/* Decoded output data */
+@@ -108,6 +109,19 @@
+ int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
+ int *delta0,		/* Threshold adjust parameter */
+ unsigned long *maxcycles0)/* Decoding timeout in cycles per bit */
++
++#else
++int fano_(
++unsigned long *metric,	/* Final path metric (returned value) */
++unsigned long *cycles,	/* Cycle count (returned value) */
++unsigned char *data,	/* Decoded output data */
++unsigned char *symbols,	/* Raw deinterleaved input symbols */
++unsigned int *nbits0,	/* Number of output bits */
++int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
++int *delta0,		/* Threshold adjust parameter */
++unsigned long *maxcycles0)/* Decoding timeout in cycles per bit */
++#endif
++
+ {
+ 	struct node *nodes;		/* First node */
+ 	register struct node *np;	/* Current node */
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-09-17 19:11:24 UTC (rev 524)
++++ trunk/gen24.f	2007-09-17 19:38:57 UTC (rev 525)
+@@ -18,7 +18,7 @@
+       data twopi/6.283185307d0/,first/.true./
+       save
+ 
+-      mode4=10
++      mode4=1
+       nsym=207                               !Symbols per transmission
+       if(first) then
+          do i=1,nsym
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000208.html">[WSJT-SVN] r524 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000211.html">[WSJT-SVN] r526 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#210">[ date ]</a>
+              <a href="thread.html#210">[ thread ]</a>
+              <a href="subject.html#210">[ subject ]</a>
+              <a href="author.html#210">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

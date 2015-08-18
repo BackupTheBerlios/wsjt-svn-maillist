@@ -1,0 +1,411 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r943 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r943%20-%20branches/map65&In-Reply-To=%3C200807121811.m6CIBgFJ027721%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000631.html">
+   <LINK REL="Next"  HREF="000633.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r943 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r943%20-%20branches/map65&In-Reply-To=%3C200807121811.m6CIBgFJ027721%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r943 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Jul 12 20:11:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000631.html">[WSJT-SVN] r942 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000633.html">[WSJT-SVN] r944 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#632">[ date ]</a>
+              <a href="thread.html#632">[ thread ]</a>
+              <a href="subject.html#632">[ subject ]</a>
+              <a href="author.html#632">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-12 20:11:36 +0200 (Sat, 12 Jul 2008)
+New Revision: 943
+
+Modified:
+   branches/map65/filbig.f
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/recvpkt.F90
+   branches/map65/specjt.py
+Log:
+1. Center frequency send by Linrad is now used to set frequency scale in
+   SpecJT and frequency labels on lines of decoded text.  (Needs checking!)
+2. Corrected logic for Rx buffer assignment on program startup, and
+   for when a transmission is started late.  (Needs checking!)
+3. Diagnostic display of kbuf, kk, and kxp/96000 in status-bar msg7.
+
+
+Modified: branches/map65/filbig.f
+===================================================================
+--- branches/map65/filbig.f	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/filbig.f	2008-07-12 18:11:36 UTC (rev 943)
+@@ -94,7 +94,7 @@
+       enddo
+       do i=nh+1,NFFT2
+          j=i0+i-1-NFFT2
+-         if(j.lt.1) j=j+NFFT1
++         if(j.lt.1) j=j+NFFT1                  !NFFT1 was NFFT2
+          c4a(i)=rfilt(i)*ca(j)
+          c4b(i)=rfilt(i)*cb(j)
+       enddo
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/gcom2.f90	2008-07-12 18:11:36 UTC (rev 943)
+@@ -1,5 +1,6 @@
+ ! Variable             Purpose                              Set in Thread
+ !-------------------------------------------------------------------------
++real*8 fcenter         !Linrad center freq, from pkt header   recvpkt
+ real ps0               !Spectrum of best ping, FSK441/JT6m      Decoder
+ real psavg             !Average spectrum                        Decoder
+ real s2                !2d spectrum for horizontal waterfall    GUI
+@@ -7,7 +8,6 @@
+ real green             !Data for green line                     GUI
+ real fselect           !Specified QSO frequency                 GUI
+ real pctlost           !Percent of lost packets                 Decoder
+-real fcenter           !Linrad center freq, from pkt header   recvpkt
+ real rxnoise           !Rx noise in dB                        recvpkt
+ real dphi              !Phase shift between pol'n channels   GUI,Decoder
+ integer ngreen         !Length of green                         GUI
+@@ -104,8 +104,8 @@
+ character*12 pttport
+ character*8 utcdata     !HHMM UTC for the processed data       Decoder
+ 
+-common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),                   &amp;
+-     green(500),fselect,pctlost,fcenter,rxnoise,dphi,ngreen,dgain,iter,     &amp;
++common/gcom2/fcenter,ps0(431),psavg(450),s2(64,3100),ccf(-5:540),           &amp;
++     green(500),fselect,pctlost,rxnoise,dphi,ngreen,dgain,iter,             &amp;
+      ndecoding,ndecoding0,mousebutton,multicast,                            &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,     &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/map65.py	2008-07-12 18:11:36 UTC (rev 943)
+@@ -979,6 +979,8 @@
+         msg4.configure(text=t)
+         t=&quot;Drop: %.2f %%&quot; % Audio.gcom2.pctlost
+         msg5.configure(text=t)
++        t=&quot;%d  %d   %d&quot; % (Audio.datcom.kbuf,Audio.datcom.kk,Audio.datcom.kxp/96000)
++        msg7.configure(text=t)
+         root_geom=root.geometry()
+         try:
+             bm_geom=bm.geometry()
+@@ -1125,7 +1127,7 @@
+     else:
+         bgcolor='green'
+         t='Receiving'
+-    msg7.configure(text=t,bg=bgcolor)
++    msg8.configure(text=t,bg=bgcolor)
+ 
+     if Audio.gcom2.ndecdone&gt;0 or g.cmap != cmap0:
+         if Audio.gcom2.ndecdone==1:
+@@ -1714,8 +1716,10 @@
+ msg5.pack(side=LEFT, fill=X, padx=1)
+ msg6=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
+ msg6.pack(side=LEFT, fill=X, padx=1)
+-msg7=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
+-msg7.pack(side=RIGHT, fill=X, padx=1)
++msg7=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
++msg7.pack(side=LEFT, fill=X, padx=1)
++msg8=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
++msg8.pack(side=RIGHT, fill=X, padx=1)
+ iframe6.pack(expand=1, fill=X, padx=4)
+ frame.pack()
+ ldate.after(100,update)
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/map65a.F90	2008-07-12 18:11:36 UTC (rev 943)
+@@ -23,6 +23,7 @@
+   data nfile/0/,nutc0/-999/,nid/0/,ip000/1/,ip001/1/,mousefqso0/-999/
+   save
+ 
++  nfoffset=nint(1000*(fcenter-144.125d0))
+   if(mousefqso.ne.mousefqso0 .and. nagain.eq.1) newspec=2
+   mousefqso0=mousefqso
+ 
+@@ -253,7 +254,7 @@
+                  stop 'Error in message format'
+ 8                if(i.le.18) decoded(i+2:i+4)='OOO'
+               endif
+-              nkHz=nint(freq-foffset)
++              nkHz=nint(freq-foffset) + nfoffset
+               f0=144.0+0.001*nkHz
+               ndf=nint(1000.0*(freq-foffset-nkHz))
+ 
+@@ -280,7 +281,8 @@
+            endif
+         enddo
+         if(nwrite.eq.0) then
+-           write(11,1012) mousefqso,nutc
++           nfqso=mousefqso + nfoffset
++           write(11,1012) nfqso,nutc
+ 1012          format(i3,9x,i5.4)
+         endif
+    
+@@ -349,7 +351,7 @@
+               stop 'Error in message format'
+ 10            if(i.le.18) decoded(i+2:i+4)='OOO'
+            endif
+-           nkHz=nint(freq-foffset)
++           nkHz=nint(freq-foffset) + nfoffset
+            f0=144.0+0.001*nkHz
+            ndf=nint(1000.0*(freq-foffset-nkHz))
+            ndf0=nint(a(1))
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/recvpkt.F90	2008-07-12 18:11:36 UTC (rev 943)
+@@ -1,13 +1,8 @@
+-!----------------------------------------------------- recvpkt
+ subroutine recvpkt(iarg)
+ 
+-! Receive timf2 packets from Linrad, stuff data into id().
+-! This routine runs in a background thread and will never return.
++! Receive timf2 packets from Linrad and stuff data into array id().
++! (This routine runs in a background thread and will never return.)
+ 
+-!#ifdef CVF
+-!  use dflib
+-!#endif
+-
+   parameter (NSZ=2*60*96000)
+   real*8 d8(NSZ)
+   integer*1 userx_no,iusb
+@@ -20,7 +15,7 @@
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   equivalence (id,d8)
+-  data nblock0/0/,first/.true./,kb/1/,ntx/0/,npkt/0/,nw/0/
++  data nblock0/0/,first/.true./,kb/1/,npkt/0/,nw/0/
+   data sqave/0.0/,u/0.001/,rxnoise/0.0/,kbuf/1/,lost_tot/0/
+   data multicast0/-99/
+   save
+@@ -29,39 +24,59 @@
+   nreset=-1
+   k=0
+   nsec0=-999
+-  fcenter=144.125               !Default (startup) frequency)
++  fcenter=144.125                   !Default (startup) frequency)
+   multicast0=multicast
+ 
+ 10 if(multicast.ne.multicast0) go to 1
+ 
+   call recv_pkt(center_freq)
+-  if(nsec0.eq.-999) fcenter=center_freq
++  fcenter=center_freq
++
++! Wait for an even minute to start accepting Rx data.
++  if(nsec0.eq.-999) then
++     if(mod(msec/1000,60).ne.0) go to 10
++     nsec0=-998
++  endif
++
+   isec=sec_midn()
+   imin=isec/60
+   if((monitoring.eq.0) .or. (lauto.eq.1 .and. mod(imin,2).eq.(1-TxFirst))) then
+      first=.true.
++
++! If we're transmitting and were previously receiving in this minute,
++! switch buffers to prepare for the next Rx minute.
++     if(lauto.eq.1 .and. mod(imin,2).eq.(1-TxFirst) .and. reset.eq.1) then
++        nreset=0
++        kb=3-kb
++        k=0
++        if(kb.eq.2) k=NSMAX
++        lost_tot=0
++        ndone1=0
++        ndone2=0
++     endif
+      go to 10
+   endif
+ 
++! If we get here, we're in Rx mode
+   lost=nblock-nblock0-1
+   if(lost.ne.0 .and. .not.first) then
+      nb=nblock
+      if(nb.lt.0) nb=nb+65536
+      nb0=nblock0
+      if(nb0.lt.0) nb0=nb0+65536
+-!     if(ndebug.gt.0) print*,'Lost packets:',nb0,nb,lost
+      lost_tot=lost_tot + lost               ! Insert zeros for the lost data.
+      do i=1,174*lost
+         k=k+1
+         d8(k)=0
+      enddo
+   endif
+-   nblock0=nblock
++  nblock0=nblock
+ 
+   nsec=msec/1000
+   if(mod(nsec,60).eq.1) nreset=1
++
++! If this is the start of a new minute, switch buffers
+   if(mod(nsec,60).eq.0 .and. nreset.eq.1) then
+-! This is the start of a new minute, switch buffers
+      nreset=0
+      kb=3-kb
+      k=0
+@@ -91,7 +106,12 @@
+   rxnoise=10.0*log10(sqave) - 48.0
+   kxp=k
+ 
+-!  This may be a bad idea, because of non-reentrant Fortran I/O?
++  if(k.lt.1 .or. k.gt.NSZ) then
++     print*,'Error in recvpkt: ',k,NSZ,NSMAX
++     stop
++  endif
++
++! The following may be a bad idea because it uses non-reentrant Fortran I/O ???
+   if(mode.eq.'Measur') then
+      npkt=npkt+1
+      if(npkt.ge.551) then
+@@ -109,37 +129,27 @@
+      nw=0
+   endif
+ 
+-  if(k.lt.1 .or. k.gt.NSZ) then
+-     print*,'Error in recvpkt: ',k,NSZ,NSMAX
+-     stop
+-  endif
+-
+ 20 if(nsec.ne.nsec0) then
+      mutch=nsec/3600
+      mutcm=mod(nsec/60,60)
+      mutc=100*mutch + mutcm
+      ns=mod(nsec,60)
+      nsec0=nsec
+-     ntx=ntx+transmitting
+ 
++! See if it's time to start FFTs
+      if(ns.ge.nt1 .and. ndone1.eq.0) then
+-!  Time in this minute has reached designated time to start FFTs
+         nutc=mutc
+         fcenter=center_freq
+         kbuf=kb
+         kk=k
+         ndiskdat=0
+         ndone1=1
+-!        if(ndebug.eq.2) write(29,3001) nutc,mod(int(sec_midn()),60),  &amp;
+-!             kbuf,kk,kkdone
+-!3001    format('r1:',i5.4,i3.2,i5,2i10)
+      endif
++
++! See if it's time to start second stage of processing
+      if(ns.ge.nt2 .and. ndone2.eq.0) then
+         kk=k
+         ndone2=1
+-!        if(ndebug.eq.2) write(29,3002) nutc,mod(int(sec_midn()),60),  &amp;
+-!             kbuf,kk,kkdone
+-!3002    format('r2:',i5.4,i3.2,i5,2i10)
+         nlost=lost_tot                         ! Save stats for printout
+      endif
+   endif
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2008-07-12 05:23:42 UTC (rev 942)
++++ branches/map65/specjt.py	2008-07-12 18:11:36 UTC (rev 943)
+@@ -42,6 +42,7 @@
+ g.cmap0=&quot;Linrad&quot;
+ bw=96.0
+ df=2.69165
++fcenter0=0.
+ fmid=1500
+ fmid0=1500
+ frange=2000
+@@ -191,19 +192,21 @@
+         xmid=125.0 - 2.3                        #Empirical    
+     x1=int(xmid-0.6*bw)                         #Make it too wide, to be
+     x2=int(xmid+0.6*bw)                         #sure to get all the numbers
++    ixadd=(int(1000.0*Audio.gcom2.fcenter) % 1000) - 125
+     ilab=10
+     if bw &lt;= 60.0: ilab=5
+     if bw &lt;= 30.0: ilab=2
+     for ix in range(x1,x2,1):
+         i=0.5*NX + (ix-xmid)/xdf
+         j=20
+-        if (ix%5)==0: j=16
+-        if (ix%ilab)==0 :
++        k=int(ix+ixadd+10000.5)%1000
++        if (k%5)==0: j=16
++        if (k%ilab)==0 :
+             j=16
+             x=i-1
+-            if ix&lt;100: x=x+1
++            if k&lt;100: x=x+1
+             y=8
+-            c.create_text(x,y,text=str(ix))
++            c.create_text(x,y,text=str(k))
+         c.create_line(i,25,i,j,fill='black')     #Draw the upper scale
+             
+     c2.delete(ALL)
+@@ -258,7 +261,7 @@
+     global a,a2,b0,c0,g0,im,im2,isec0,line0,line02,newMinute,\
+            nscroll,pim,pim2,nfa0,nfb0,bw, \
+            root_geom,t0,mousedf0,mousefqso0,nfreeze0,tol0,mode0,nmark0, \
+-           fmid,fmid0,frange,frange0,dftolerance0
++           fmid,fmid0,frange,frange0,dftolerance0,fcenter0
+     
+     utc=time.gmtime(time.time()+0.1*Audio.gcom1.ndsec)
+     isec=utc[5]
+@@ -371,6 +374,10 @@
+ #    if newspec: Audio.gcom2.ndiskdat=0
+     Audio.gcom2.nlines=0
+     Audio.gcom2.nflat=nflat.get()
++
++    if Audio.gcom2.fcenter!=fcenter0:
++        draw_axis()
++        fcenter0=float(Audio.gcom2.fcenter)
+     frange=nfr.get()*2000
+     if(fmid&lt;&gt;fmid0 or frange&lt;&gt;frange0):
+         if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000631.html">[WSJT-SVN] r942 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000633.html">[WSJT-SVN] r944 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#632">[ date ]</a>
+              <a href="thread.html#632">[ thread ]</a>
+              <a href="subject.html#632">[ subject ]</a>
+              <a href="author.html#632">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

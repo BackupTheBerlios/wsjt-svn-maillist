@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2906 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2906%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108221231.3971855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002597.html">
+   <LINK REL="Next"  HREF="002599.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2906 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2906%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108221231.3971855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2906 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan  8 23:12:31 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002597.html">[WSJT-SVN] r2905 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002599.html">[WSJT-SVN] r2907 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2598">[ date ]</a>
+              <a href="thread.html#2598">[ thread ]</a>
+              <a href="subject.html#2598">[ subject ]</a>
+              <a href="author.html#2598">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-08 23:12:30 +0100 (Tue, 08 Jan 2013)
+New Revision: 2906
+
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/savec2.f90
+   branches/wsprx/lib/wsprd.f90
+   branches/wsprx/mainwindow.cpp
+Log:
+Put in correct version of savec2.f90.
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2013-01-08 21:30:19 UTC (rev 2905)
++++ branches/wsprx/lib/Makefile	2013-01-08 22:12:30 UTC (rev 2906)
+@@ -38,7 +38,7 @@
+ 
+ wsprd.exe: $(OBJS2) libwspr.a
+ 	$(FC) -o wsprd.exe $(FFLAGS) $(OBJS2) libwspr.a libfftw3f_win.a
+-	cp wsprd.exe ../../wsprx_install
++#	cp wsprd.exe ../../wsprx_install
+ 
+ .PHONY : clean
+ 
+
+Modified: branches/wsprx/lib/savec2.f90
+===================================================================
+--- branches/wsprx/lib/savec2.f90	2013-01-08 21:30:19 UTC (rev 2905)
++++ branches/wsprx/lib/savec2.f90	2013-01-08 22:12:30 UTC (rev 2906)
+@@ -1,21 +1,54 @@
+-subroutine savec2(fname,ntrseconds,dialFreq)
++subroutine savec2(c2name,ntrseconds,dialFreq)
+ 
++! Array c0() has complex samples at 1500 Hz sample rate.
++! WSPR-2:  downsample by 1/4 to produce c2(45000), centered at 1500 Hz
++! WSPR-15: downsample by 1/32 to produce c2(45000), centered at 1612.5 Hz
++
+   parameter (NMAX=900*12000)         !Total sample intervals per 30 minutes
+   parameter (NDMAX=900*1500)         !Sample intervals at 1500 Hz rate
+   parameter (NSMAX=1366)             !Max length of saved spectra
+-  character*(*) fname
+-  character c2file*14
++  parameter (MAXFFT=2048*1024)
++
++  character*(*) c2name
++  character*14 outfile
+   real*8 dialFreq
++  integer*2 id2
+   complex c0
+-  common/datcom/nutc,ndiskdat,id2(NMAX),savg(NSMAX),c0(NDMAX)
++  complex c1(0:MAXFFT-1)
++  complex c2(0:65535)
++  common/datcom/nutc,ndiskdat,id2(NMAX),savg(NSMAX),c0(0:NDMAX-1)
+ 
+-  open(18,file=fname,status='unknown',access='stream')
++  ntrminutes=ntrseconds/60
++  npts=114*1500
++  nfft1=262144
++  if(ntrminutes.eq.15) then
++     npts=890*1500
++     nfft1=MAXFFT
++  endif
++  df1=1500.0/nfft1
++  fac=1.0/nfft1
++  c1(0:npts-1)=fac*c0(0:npts-1)
++  c1(npts:nfft1-1)=0.
+ 
+-  i1=index(fname,'.c2')
+-  c2file=fname(i1-11:i1+2)
+-  ntrminutes=ntrseconds/60
+-  print*,'a ',c2file,ntrminutes,dialFreq
+-  write(18) c2file,ntrminutes,dialFreq,c0(1:45000)
++  call four2a(c1,nfft1,1,1,1)
++
++  nfft2=65536
++  nh2=nfft2/2
++  if(ntrminutes.eq.2) then
++     c2(0:nh2)=c1(0:nh2)
++     c2(nh2+1:nfft2-1)=c1(nfft1-nh2+1:nfft1-1)
++  else
++     i0=nint(112.5/df1)
++     c2(0:nh2)=c1(i0:i0+nh2)
++     c2(nh2+1:nfft2-1)=c1(i0-nh2+1:i0-1)
++  endif
++
++  call four2a(c2,nfft2,1,-1,1)
++
++  i1=index(c2name,'.c2')
++  outfile=c2name(i1-11:i1+2)
++  open(18,file=c2name,status='unknown',access='stream')
++  write(18) outfile,ntrminutes,dialFreq,c2(0:45000-1)
+   close(18)
+ 
+   return
+
+Modified: branches/wsprx/lib/wsprd.f90
+===================================================================
+--- branches/wsprx/lib/wsprd.f90	2013-01-08 21:30:19 UTC (rev 2905)
++++ branches/wsprx/lib/wsprd.f90	2013-01-08 22:12:30 UTC (rev 2906)
+@@ -40,7 +40,7 @@
+      ntrminutes=ntrmin
+      npts=60*ntrminutes*12000
+      call mix162a(c2,ps)
+-     c2=(2.94127/13.983112)*c2
++     c2=(2.94127/13.983112)*c2                  !### ??? ###
+      datetime=c2file
+      datetime(7:7)=' '
+   else
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-08 21:30:19 UTC (rev 2905)
++++ branches/wsprx/mainwindow.cpp	2013-01-08 22:12:30 UTC (rev 2906)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -143,7 +143,7 @@
+ 
+   for(int i=0; i&lt;28; i++)  {                      //Initialize dBm values
+     float dbm=(10.0*i)/3.0 - 30.0;
+-    int ndbm=0;
++    int ndbm;
+     if(dbm&lt;0) ndbm=int(dbm-0.5);
+     if(dbm&gt;=0) ndbm=int(dbm+0.5);
+     QString t;
+@@ -361,20 +361,14 @@
+       savec2_(c2name,&amp;m_TRseconds,&amp;m_dialFreq,len1);
+     }
+ 
++    m_decodedList.clear();
++    t2.sprintf(&quot;%.6f &quot;,m_dialFreq);
++//    QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wspr0 D &quot; + t2 + m_fname + '&quot;';
++    QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wspr0c2 &quot; + m_c2name + '&quot;';
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+     lab3-&gt;setText(&quot;Decoding&quot;);
+     m_rxdone=true;
+     loggit(&quot;Start Decoder&quot;);
+-    QString cmnd;
+-    if(m_diskData) {
+-      t2.sprintf(&quot; -f %.6f &quot;,m_dialFreq);
+-
+-      cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path + '&quot;';
+-      if(m_TRseconds==900) cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd -m 15&quot; + t2 +
+-          m_path + '&quot;';
+-    } else {
+-      cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_c2name + '&quot;';
+-    }
+     p1.start(QDir::toNativeSeparators(cmnd));
+   }
+   soundInThread.m_dataSinkBusy=false;
+@@ -610,18 +604,11 @@
+   int k;
+   int kstep=m_nsps/2;
+   m_diskData=true;
+-  k=m_path.length();
+-  if(m_path.mid(k-4,-1)==&quot;.wav&quot;) {
+-    for(int n=1; n&lt;=m_hsymStop; n++) {              // Do the half-symbol FFTs
+-      k=(n+1)*kstep;
+-      dataSink(k);
+-      if(n%10 == 1 or n == m_hsymStop) qApp-&gt;processEvents(); //Keep GUI alive
+-    }
+-  } else {
+-    lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+-    lab3-&gt;setText(&quot;Decoding&quot;);
+-    QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path + '&quot;';
+-    p1.start(QDir::toNativeSeparators(cmnd));
++  for(int n=1; n&lt;=m_hsymStop; n++) {              // Do the half-symbol FFTs
++    k=(n+1)*kstep;
++    dataSink(k);
++    if(n%10 == 1 or n == m_hsymStop)
++        qApp-&gt;processEvents();                   //Keep GUI responsive
+   }
+ }
+ 
+@@ -701,6 +688,7 @@
+       m_startAnother=m_loopall;
+       return;
+     } else {
++//      m_decodedList += t;
+       int n=t.length();
+       t=t.mid(0,n-2) + &quot;                                                  &quot;;
+       ui-&gt;decodedTextBrowser-&gt;append(t);
+@@ -984,6 +972,8 @@
+ 
+ void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
+ {
++  bool eom;
++  eom=false;
+   int iz=ba.length();
+   for(int i=0;i&lt;22; i++) {
+     if(i&lt;iz) {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002597.html">[WSJT-SVN] r2905 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002599.html">[WSJT-SVN] r2907 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2598">[ date ]</a>
+              <a href="thread.html#2598">[ thread ]</a>
+              <a href="subject.html#2598">[ subject ]</a>
+              <a href="author.html#2598">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

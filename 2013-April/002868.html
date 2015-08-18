@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3176 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3176%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130416162514.B4D4F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002867.html">
+   <LINK REL="Next"  HREF="002869.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3176 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3176%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130416162514.B4D4F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3176 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 16 18:25:14 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002867.html">[WSJT-SVN] r3175 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002869.html">[WSJT-SVN] r3177 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2868">[ date ]</a>
+              <a href="thread.html#2868">[ thread ]</a>
+              <a href="subject.html#2868">[ subject ]</a>
+              <a href="author.html#2868">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-16 18:25:14 +0200 (Tue, 16 Apr 2013)
+New Revision: 3176
+
+Modified:
+   branches/wsjtx/WSJT-X_Users_Guide_Full.docx
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9a.F90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Bring standalone behavior of jt9(.exe) closer to that of its
+behavior when using WSJT-X shared memory.
+
+
+Modified: branches/wsjtx/WSJT-X_Users_Guide_Full.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-16 00:34:17 UTC (rev 3175)
++++ branches/wsjtx/lib/decoder.f90	2013-04-16 16:25:14 UTC (rev 3176)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ss,c0)
++subroutine decoder(ss,c0,nstandalone)
+ 
+ ! Decoder for JT9.
+ 
+@@ -126,7 +126,7 @@
+            call timer('decode9 ',0)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
+            call timer('decode9 ',1)
+- 
++
+            sync=(syncpk+1)/4.0
+            if(sync.lt.0.0 .or. snrdb.lt.dblim-2.0) sync=0.0
+            nsync=sync
+@@ -136,8 +136,8 @@
+            if(msg.ne.'                      ') then
+               write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+               write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+-!              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
+-!1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
++              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
++1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
+               iaa=max(1,i-3)
+               ibb=min(NSMAX,i+11)
+               fgood=f
+@@ -157,7 +157,7 @@
+ 1010 format('&lt;DecodeFinished&gt;',2i4)
+   call flush(6)
+   close(13)
+-!  call flush(14)
++  call flush(14)
+ 
+   call timer('decoder ',1)
+   if(nstandalone.eq.0) call timer('decoder ',101)
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2013-04-16 00:34:17 UTC (rev 3175)
++++ branches/wsjtx/lib/jt9.f90	2013-04-16 16:25:14 UTC (rev 3176)
+@@ -65,7 +65,7 @@
+ 2    nsps=0
+      if(ntrperiod.eq.1)  then
+         nsps=6912
+-        nzhsym=181
++        nzhsym=173
+      else if(ntrperiod.eq.2)  then
+         nsps=15360
+         nzhsym=178
+@@ -115,64 +115,12 @@
+      enddo
+ 
+ 10   close(10)
+-     iz=1000.0/df3
+-     nutc=nutc0
+-
+-     call timer('sync9   ',0)
+-     call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk) !Get sync, freq
+-     call timer('sync9   ',1)
+-
+-     fgood=0.
+-     nsps8=nsps/8
+-     df8=1500.0/nsps8
+-     sbest=0.
+-     do i=ia,ib
+-        f=(i-1)*df3
+-        if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+-
+-           call timer('decode9a',0)
+-           fpk=1000.0 + df3*(i-1)
+-           c1(1:npts8)=conjg(c0(1:npts8))
+-           call decode9a(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,    &amp;
+-                drift,i1SoftSymbols)
+-           call timer('decode9a',1)
+-
+-           call timer('decode9 ',0)
+-           call decode9(i1SoftSymbols,limit,nlim,msg)
+-           call timer('decode9 ',1)
+- 
+-           sync=(syncpk-1.0)/2.0
+-           if(sync.lt.0.0 .or. snrdb.lt.dblim-2.0) sync=0.0
+-           nsync=sync
+-           if(nsync.gt.10) nsync=10
+-           nsnr=nint(snrdb)
+-
+-           if(sync.gt.sbest .and. fgood.eq.0.0) then
+-              sbest=sync
+-              write(line,1010) nutc,nsync,nsnr,xdt,freq,drift
+-              if(nsync.gt.0) nsynced=1
+-           endif
+-
+-           if(msg.ne.'                      ') then
+-              write(*,1010) nutc,nsync,nsnr,xdt,freq,drift,msg
+-1010          format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+-              fgood=f
+-              nsynced=1
+-              ndecoded=1
+-           endif
+-        endif
+-     enddo
+-
+-     if(fgood.eq.0.0) then
+-        write(*,1020) line
+-1020    format(a33)
+-     endif
+-
++     call fillcom(nutc0)
++     call decoder(ss,c0,1)
+   enddo
+ 
+   call timer('jt9     ',1)
+   call timer('jt9     ',101)
+-!  call ftnquit
+   go to 999
+ 
+ 998 print*,'Cannot open file:'
+
+Modified: branches/wsjtx/lib/jt9a.F90
+===================================================================
+--- branches/wsjtx/lib/jt9a.F90	2013-04-16 00:34:17 UTC (rev 3175)
++++ branches/wsjtx/lib/jt9a.F90	2013-04-16 16:25:14 UTC (rev 3176)
+@@ -85,7 +85,7 @@
+   npatience=1
+ 
+   call flush(6)
+-  if(sum(nparams).ne.0) call decoder(ss,c0)
++  if(sum(nparams).ne.0) call decoder(ss,c0,0)
+ 
+   return
+ end subroutine jt9c
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-16 00:34:17 UTC (rev 3175)
++++ branches/wsjtx/mainwindow.cpp	2013-04-16 16:25:14 UTC (rev 3176)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002867.html">[WSJT-SVN] r3175 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002869.html">[WSJT-SVN] r3177 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2868">[ date ]</a>
+              <a href="thread.html#2868">[ thread ]</a>
+              <a href="subject.html#2868">[ subject ]</a>
+              <a href="author.html#2868">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

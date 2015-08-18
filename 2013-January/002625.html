@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2933 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2933%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130112201548.F40E955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002624.html">
+   <LINK REL="Next"  HREF="002626.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2933 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2933%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130112201548.F40E955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2933 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jan 12 21:15:48 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002624.html">[WSJT-SVN] r2932 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002626.html">[WSJT-SVN] r2934 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2625">[ date ]</a>
+              <a href="thread.html#2625">[ thread ]</a>
+              <a href="subject.html#2625">[ subject ]</a>
+              <a href="author.html#2625">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-12 21:15:48 +0100 (Sat, 12 Jan 2013)
+New Revision: 2933
+
+Modified:
+   branches/wsprx/commons.h
+   branches/wsprx/lib/savec2.f90
+   branches/wsprx/lib/wsprd.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/soundin.cpp
+   branches/wsprx/widegraph.cpp
+Log:
+Working toward full implementation of user-selectable BFO.
+Not finished: must still allow nbfo&lt;&gt;1500 in symspec, as opposed to the
+present system embodies in fil3.f90.
+Also some code cleanup.
+
+
+Modified: branches/wsprx/commons.h
+===================================================================
+--- branches/wsprx/commons.h	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/commons.h	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -1,8 +1,6 @@
+ #ifndef COMMONS_H
+ #define COMMONS_H
+ 
+-#define NSMAX 22000
+-
+ extern &quot;C&quot; {
+ 
+ extern struct {
+
+Modified: branches/wsprx/lib/savec2.f90
+===================================================================
+--- branches/wsprx/lib/savec2.f90	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/lib/savec2.f90	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -1,4 +1,4 @@
+-subroutine savec2(c2name,ntrseconds,dialFreq)
++subroutine savec2(c2name,ntrseconds,dialFreq,nbfo)
+ 
+ ! Array c0() has complex samples at 1500 Hz sample rate.
+ ! WSPR-2:  downsample by 1/4 to produce c2(45000), centered at 1500 Hz
+@@ -13,6 +13,7 @@
+   character*14 outfile
+   real*8 dialFreq
+   integer*2 id2
++  integer junk(10)
+   complex c0
+   complex c1(0:MAXFFT-1)
+   complex c2(0:65535)
+@@ -47,8 +48,10 @@
+ 
+   i1=index(c2name,'.c2')
+   outfile=c2name(i1-11:i1+2)
++  junk=0
++  junk(1)=2
+   open(18,file=c2name,status='unknown',access='stream')
+-  write(18) outfile,ntrminutes,dialFreq,c2(0:45000-1)
++  write(18) outfile,ntrminutes,dialFreq,nbfo,junk,c2(0:45000-1)
+   close(18)
+ 
+   return
+
+Modified: branches/wsprx/lib/wsprd.f90
+===================================================================
+--- branches/wsprx/lib/wsprd.f90	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/lib/wsprd.f90	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -5,11 +5,11 @@
+   integer*2 id(NMAX)
+   real*8 f0,dialFreq
+   real*4 ps(-256:256)
++  integer junk(10)
+   character*80 infile
+   logical lc2
+   character c2file*14,datetime*11
+   complex c2(65536)
+-  data nbfo/1500/
+   character*12 callsign
+   character*12 dcall
+   common/hashcom/dcall(0:N15-1)
+@@ -47,7 +47,15 @@
+   enddo
+ 
+ 10 if(lc2) then
+-     read(18) c2file,ntrmin,dialFreq,c2(1:45000)
++     read(18) c2file,ntrmin,dialFreq,nbfo,junk
++     rewind 18
++     if(junk(1).eq.2) then
++        read(18) c2file,ntrmin,dialFreq,nbfo,junk,c2(1:45000)  !Version 2
++     else
++        read(18) c2file,ntrmin,dialFreq,c2(1:45000)    !Version 1
++        nbfo=1500                              !Default BFO freq, version 1
++     endif
++
+      f0=dialFreq
+      ntrminutes=ntrmin
+      npts=60*ntrminutes*12000
+@@ -59,7 +67,7 @@
+ !     npts=60*ntrminutes*12000
+      npts=114*12000
+      if(ntrminutes.eq.15) npts=890*12000
+-     read(18) id(1:22)
++     read(18) id(1:22)                          !Read and ignore header
+      read(18) id(1:npts)
+      id(npts+1:60*ntrminutes*12000)=0
+ ! WSPR-2: mix from nbfo +/- 100 Hz to baseband, downsample by 1/32
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/mainwindow.cpp	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -341,7 +341,7 @@
+ //-------------------------------------------------------------- dataSink()
+ void MainWindow::dataSink(int k)
+ {
+-  static float s[NSMAX];
++  static float s[1366];
+   static int ihsym=0;
+   static float px=0.0;
+   static float df3;
+@@ -383,7 +383,7 @@
+       int len1=m_c2name.length();
+       char c2name[80];
+       strcpy(c2name,m_c2name.toAscii());
+-      savec2_(c2name,&amp;m_TRseconds,&amp;m_dialFreq,len1);
++      savec2_(c2name,&amp;m_TRseconds,&amp;m_dialFreq,&amp;m_BFO,len1);
+     }
+ 
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/mainwindow.h	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -215,7 +215,8 @@
+ void symspec_(int* k, int* nsps, int* ingain, float* px, float s[],
+               float* df3, int* nhsym);
+ void genwsprx_(char* msg, int itone[], int len1);
+-void savec2_(char* fname, int* m_TRseconds, double* m_dialFreq, int len1);
++void savec2_(char* fname, int* m_TRseconds, double* m_dialFreq,
++             int* nbfo, int len1);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsprx/soundin.cpp
+===================================================================
+--- branches/wsprx/soundin.cpp	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/soundin.cpp	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -2,13 +2,12 @@
+ #include &lt;stdexcept&gt;
+ 
+ #define FRAMES_PER_BUFFER 2048
+-#define NSMAX 22000
+ 
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+   int nutc;                         //UTC as integer, HHMM
+-  int ndiskdat;                     //1 ==&gt; data read from *.wav file  float ss[184*NSMAX];
++  int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   short int d2[900*12000];
+   float savg[1366];
+   float c0[2*900*1500];
+
+Modified: branches/wsprx/widegraph.cpp
+===================================================================
+--- branches/wsprx/widegraph.cpp	2013-01-12 19:23:51 UTC (rev 2932)
++++ branches/wsprx/widegraph.cpp	2013-01-12 20:15:48 UTC (rev 2933)
+@@ -2,7 +2,7 @@
+ #include &quot;ui_widegraph.h&quot;
+ #include &quot;commons.h&quot;
+ 
+-#define NSMAX 22000
++#define NSMAX 1366
+ 
+ WideGraph::WideGraph(QWidget *parent) :
+   QDialog(parent),
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002624.html">[WSJT-SVN] r2932 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002626.html">[WSJT-SVN] r2934 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2625">[ date ]</a>
+              <a href="thread.html#2625">[ thread ]</a>
+              <a href="subject.html#2625">[ subject ]</a>
+              <a href="author.html#2625">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

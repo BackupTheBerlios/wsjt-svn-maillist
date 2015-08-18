@@ -1,0 +1,285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2123 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2123%20-%20wsjt7a&In-Reply-To=%3C20100818150802.DA9444808B3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001814.html">
+   <LINK REL="Next"  HREF="001816.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2123 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2123%20-%20wsjt7a&In-Reply-To=%3C20100818150802.DA9444808B3%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2123 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 18 17:08:02 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001814.html">[WSJT-SVN] r2122 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001816.html">[WSJT-SVN] r2124 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1815">[ date ]</a>
+              <a href="thread.html#1815">[ thread ]</a>
+              <a href="subject.html#1815">[ subject ]</a>
+              <a href="author.html#1815">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-18 17:08:02 +0200 (Wed, 18 Aug 2010)
+New Revision: 2123
+
+Modified:
+   wsjt7a/Makefile.MinGW
+   wsjt7a/Makefile.in
+   wsjt7a/decdiana.f90
+   wsjt7a/diana.f90
+   wsjt7a/gendiana.f90
+   wsjt7a/syncdiana.f90
+   wsjt7a/wsjt.py
+Log:
+Cleaning up code for Diana mode.
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/Makefile.MinGW	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -56,7 +56,7 @@
+ 	iscat.f90 four2a.f90 hipass.f90 msdf.f90 syncms.f90 lenms.f90 \
+ 	jtms.f90 foldms.f90 avecho.f90 echogen.f90 alignmsg.f90 \
+ 	chk441.f90 gen441.f90 tm2.f90 gendiana.f90 diana.f90 \
+-	specdiana.f90 syncdiana.f90 lendiana.f90 decdiana.f90
++	specdiana.f90 syncdiana.f90 decdiana.f90
+ 
+ 
+ SRCS2F77 = avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+
+Modified: wsjt7a/Makefile.in
+===================================================================
+--- wsjt7a/Makefile.in	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/Makefile.in	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -75,7 +75,7 @@
+ 	msdf.f90 syncms.f90 lenms.f90 jtms.f90 foldms.f90 avecho.f90 \
+ 	echogen.f90 alignmsg.f90 chk441.f90 gen441.f90 tm2.f90 \
+ 	gendiana.f90 diana.f90 specdiana.f90 syncdiana.f90 \
+-	lendiana.f90 decdiana.f90
++	decdiana.f90
+ 
+ OBJS2F90 = ${SRCS2F90:.f90=.o}
+ 
+
+Modified: wsjt7a/decdiana.f90
+===================================================================
+--- wsjt7a/decdiana.f90	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/decdiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -1,4 +1,4 @@
+-subroutine decdiana(s0,jsym,ipk,jpk,msglen,msg,snrx)
++subroutine decdiana(s0,jsym,ipk,jpk,msglen,msg,nsnr)
+ 
+   parameter (NSZ=646)
+   real s0(1024,NSZ)
+@@ -69,7 +69,12 @@
+   ave2=sum2/msglen                        !Average second-best
+   averel=sum1/sum2                        !Average reliability indicator
+ 
+-  snrx=db(ave1) - 26.7
++  snrx=db(ave1) - 26.7 + 2.0              !Last number is empirical
++  nsnr=nint(snrx)
++  if(nsnr.le.-27) then
++     nsnr=-27
++     msg=' '
++  endif
+ 
+   return
+ end subroutine decdiana
+
+Modified: wsjt7a/diana.f90
+===================================================================
+--- wsjt7a/diana.f90	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/diana.f90	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -1,22 +1,20 @@
+ subroutine diana(dat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,       &amp;
+      MouseDF,ccfblue,ccfred)
+ 
+-! Decode an ISCAT_2 signal
++! Decode a Diana signal
+ 
+   parameter (NMAX=512*1024)
+-  parameter (NSZ=646)
++  parameter (NSZ=646)                     !Quarter-symbols in 30 s
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+   character cfile6*6                      !File time
+   character c42*42
+   character msg*28
+   real s0(1024,NSZ)
+-  real fs0(1024,108)                       !108 = 96 + 3*4
++  real fs0(1024,96)                       !Folded-for-sync symbol spectra
+   real ccfblue(-5:540)
+-  real psavg(1024)         !Average spectrum of the whole file
+   integer dftolerance
+   data nsps/2048/,nsync/4/,nlen/2/,ndat/18/
+ 
+-! Define some constants
+   nsym=npts/nsps                      !Total symbol intervals in file
+   nblk=nsync+nlen+ndat                !Frame size
+   nfft=4096
+@@ -24,22 +22,15 @@
+   df=11025.0/nfft
+   kstep=nsps/4
+ 
+-! Compute spectra at 1/4-symbol steps, s0, and folded spectra, fs0
+-  call specdiana(dat,npts,s0,jsym,fs0)
++  call specdiana(dat,npts,s0,jsym,fs0)   !Get symbol spectra, fold for sync
+ 
+-  call syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,xsync,     &amp;
+-     ipk,jpk,dfx,dtx,ccfblue)
+-
+-  call lendiana(fs0,ipk,jpk,msglen)
++  call syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
++     ipk,jpk,dfx,dtx,msglen,ccfblue)     !Establish sync; get DF, DT, msglen
+   
+   msg=' '
+-  if(msglen.gt.0) call decdiana(s0,jsym,ipk,jpk,msglen,msg,snrx)
+-  nsnr=nint(snrx)
+-  if(nsnr.lt.-28) then
+-     nsnr=-28
+-     msg=' '
+-  endif
+-  jsync=xsync
++  nsnr=-27
++  if(msglen.gt.0) call decdiana(s0,jsym,ipk,jpk,msglen,msg,nsnr) !Decode message
++  jsync=syncx
+   jdf=nint(dfx)
+   nwidth=0
+ 
+
+Modified: wsjt7a/gendiana.f90
+===================================================================
+--- wsjt7a/gendiana.f90	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/gendiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -7,28 +7,26 @@
+   integer*2 iwave(NMAX)
+   integer imsg(28)
+   integer itone(NSZ)
+-  character c*42
++  character c42*42
+   real*8 twopi,dt,f0,f,df,pha,dpha,samfac
+   integer isync(4)                              !Sync pattern
+   integer sendingsh
+   data isync/8,16,32,24/
+   data nsync/4/,nlen/2/,ndat/18/
+-  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?+-'/
++  data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?+-'/
+ 
+   twopi=8.d0*atan(1.d0)
+-  df=11025.d0/NSPS
+-  dt=1.0/(samfac*11025.0)
+-  f0=236*df
++  df=11025.d0/NSPS                     !5.383 Hz
++  dt=1.d0/(samfac*11025.d0)
++  f0=236*df                            !1270.46 Hz
+   nsym=126                             !Total symbols in whole transmission
+ 
+   nblk=nsync+nlen+ndat
+   k=0
+   kk=1
+   do i=1,msglen                        !Define tone sequence for user message
+-     imsg(i)=36
+-     do j=1,42
+-        if(msg(i:i).eq.c(j:j)) imsg(i)=j-1
+-     enddo
++     imsg(i)=index(c42,msg(i:i))-1     !Get character index from c42
++     if(imsg(i).lt.0) imsg(i)=36       !Default char is &lt;space&gt;
+   enddo
+ 
+   do i=1,nsym
+
+Modified: wsjt7a/syncdiana.f90
+===================================================================
+--- wsjt7a/syncdiana.f90	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/syncdiana.f90	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -1,5 +1,5 @@
+-subroutine syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,xsync,     &amp;
+-     ipk,jpk,dfx,dtx,ccfblue)
++subroutine syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
++     ipk,jpk,dfx,dtx,msglen,ccfblue)
+ 
+   real fs0(1024,108)                       !108 = 96 + 3*4
+   real ccfblue(-5:540)
+@@ -55,14 +55,22 @@
+         ss=ss + fs0(ipk+2*isync(n),k)
+      enddo
+      ccfblue(j+1)=ss/ref
+-!     write(52,3002) j+1,ccfblue(j+1)
+-!3002 format(i8,f12.3)
+   enddo
++  syncx=smax/ref - 1.0
+ 
+-  xsync=smax/ref
+-  nsig=nint(db(smax/ref - 1.0) -15.0)
+-  if(nsig.lt.-20) nsig=-20
+-  ndf0=nint((ipk-i0)/df)
++  smax=0.
++  ja=jpk+16
++  if(ja.gt.4*nblk) ja=ja-4*nblk
++  jb=jpk+20
++  if(jb.gt.4*nblk) jb=jb-4*nblk
++  do i=ipk,ipk+60,2                         !Find User's message length
++     ss=fs0(i,ja) + fs0(i+10,jb)
++     if(ss.gt.smax) then
++        smax=ss
++        ipk2=i
++     endif
++  enddo
++  msglen=(ipk2-ipk)/2
+ 
+   return
+ end subroutine syncdiana
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-18 14:29:18 UTC (rev 2122)
++++ wsjt7a/wsjt.py	2010-08-18 15:08:02 UTC (rev 2123)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------ WSJT
++#----------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001814.html">[WSJT-SVN] r2122 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001816.html">[WSJT-SVN] r2124 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1815">[ date ]</a>
+              <a href="thread.html#1815">[ thread ]</a>
+              <a href="subject.html#1815">[ subject ]</a>
+              <a href="author.html#1815">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

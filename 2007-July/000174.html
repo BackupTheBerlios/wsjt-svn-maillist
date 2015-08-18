@@ -1,0 +1,225 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r489 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r489%20-%20branches/map65&In-Reply-To=%3C200707101828.l6AIS23Q015015%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000173.html">
+   <LINK REL="Next"  HREF="000175.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r489 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r489%20-%20branches/map65&In-Reply-To=%3C200707101828.l6AIS23Q015015%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r489 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 10 20:28:02 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000173.html">[WSJT-SVN] r488 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000175.html">[WSJT-SVN] r490 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#174">[ date ]</a>
+              <a href="thread.html#174">[ thread ]</a>
+              <a href="subject.html#174">[ subject ]</a>
+              <a href="author.html#174">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-10 20:27:56 +0200 (Tue, 10 Jul 2007)
+New Revision: 489
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+Log:
+Not finished, but thunderstorm is coming ...
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-07-10 17:03:48 UTC (rev 488)
++++ branches/map65/gcom2.f90	2007-07-10 18:27:56 UTC (rev 489)
+@@ -43,7 +43,8 @@
+ integer nkeep          !Timeout limit for band maps (min)       GUI
+ integer nmode          !Which WSJT mode?                   GUI,Decoder
+ integer mode65         !JT65 sub-mode (A/B/C ==&gt; 1/2/4) GUI,SoundIn,Decoder
+-integer nclip          !Clipping level                          GUI
++integer nbpp           !# FFT Bins/pixel, wideband waterfall   Spec
++integer nfullspec      !Set to 1 to display full spectrum       GUI
+ integer ndebug         !Write debugging info?                   GUI
+ integer ndphi          !Set to 1 to compute dphi             GUI,Decoder
+ integer nblank         !Is NB checked?                          GUI
+@@ -103,7 +104,7 @@
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,     &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+      nclearave,nfreeze,nafc,ncsmin,newspec,nfa,nfb,nfcal,idphi,nkeep,       &amp;
+-     nmode,mode65,nclip,ndebug,ndphi,                                       &amp;
++     nmode,mode65,nbpp,nfullspec,ndebug,ndphi,                              &amp;
+      nblank,nport,mousedf,mousefqso,neme,nrw26,naggressive,ntx2,nagain,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,         &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,    &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-10 17:03:48 UTC (rev 488)
++++ branches/map65/map65.py	2007-07-10 18:27:56 UTC (rev 489)
+@@ -1761,6 +1761,7 @@
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+'        ')[:8]
+ Audio.gcom2.mousefqso=125
+ Audio.gcom2.ncsmin=4
++Audio.gcom2.nfullspec=0
+ monitor()
+ first=1
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-07-10 17:03:48 UTC (rev 488)
++++ branches/map65/spec.f90	2007-07-10 18:27:56 UTC (rev 489)
+@@ -37,11 +37,6 @@
+   nlines=322/nadd
+   call zero(s,NFFT*NY)
+   k=0
+-  fselect=mousefqso + 1.6
+-  imid=nint(1000.0*(fselect-125.0+48.0)/df)
+-  ia=imid-374
+-  ib=ia+749
+-
+   do j=1,nlines
+      do n=1,nadd
+         k=k+1
+@@ -60,16 +55,30 @@
+   gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
+   gamma=1.3 + 0.01*contrast
+   offset=(brightness+64.0)/2
++  fac=20.0/nadd
++
++  nbpp=(nfb-nfa)*NFFT/(96.0*NX)  !Bins per pixel in wideband (upper) waterfall
++  fselect=mousefqso + 1.6
++  imid=nint(1000.0*(fselect-125.0+48.0)/df)
++  fmid=0.5*(nfa+nfb)
++  imid0=nint(1000.0*(fmid-125.0+48.0)/df)
++  i0=imid-374
++  ii0=imid-374*nbpp
++  if(nfullspec.eq.1) then
++     nbpp=NFFT/NX
++     ii0=0
++  endif
++
+   k=0
+-  fac=20.0/nadd
+-  nbpp=NFFT/NX                        !Bins per pixel in wide waterfall
+-  do j=nlines,1,-1                    !Reverse order so last will be on top
++  do j=nlines,1,-1               !Reverse order so last will be on top
+      do i=1,NX
+         k=k+1
+ 
+         n=0
+         x=0.
+-        do ii=(i-1)*nbpp+1,i*nbpp
++        iia=(i-1)*nbpp + ii0 + 1
++        iib=i*nbpp + ii0
++        do ii=iia,iib
+            x=max(x,s(ii,j))
+         enddo
+         x=fac*x
+@@ -77,8 +86,9 @@
+         n=min(252,max(0,n))
+         a(k)=n
+ 
++!  Now do the lower (zoomed) waterfall with one FFT bin per pixel.
+         n=0
+-        x=fac*s(ia+i-1,j)
++        x=fac*s(i0+i-1,j)
+         if(x.gt.0.0) n=(3.0*x)**gamma + offset
+         n=min(252,max(0,n))
+         a2(k)=n
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-07-10 17:03:48 UTC (rev 488)
++++ branches/map65/specjt.py	2007-07-10 18:27:56 UTC (rev 489)
+@@ -110,8 +110,13 @@
+ #---------------------------------------------------- fdf_change
+ # Readout of graphical cursor location
+ def fdf_change(event):
+-    df=96.0/750.0
+-    fmid=122.8                                # empirical
++
++    bw=float(Audio.gcom2.nfb - Audio.gcom2.nfa)
++    fmid=130.0
++    if Audio.gcom2.nfullspec:
++        bw=96.0                                 #Total bw 96 kHz
++        fmid=125.0 - 2.2                        #Empirical    
++    df=bw/NX                                   #kHz per pixel
+     g.Freq=df*(event.x-375) + fmid
+     n=int(g.Freq+0.5)
+     t=&quot;%d&quot; % (n,)
+@@ -319,11 +324,15 @@
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+     c.delete(ALL)
+-    xmid=125.0 - 2.3                            #Empirical
+-    bw=96.0
+-    x1=int(xmid-0.6*bw)
+-    x2=int(xmid+0.6*bw)
+-    xdf=bw/NX                                    #128 Hz
++    bw=float(Audio.gcom2.nfb - Audio.gcom2.nfa)
++    xmid=130.0
++    if Audio.gcom2.nfullspec:
++        bw=96.0                                 #Total bw 96 kHz
++        xmid=125.0 - 2.3                        #Empirical    
++    xdf=bw/NX                                   #kHz per pixel
++    x1=int(xmid-0.6*bw)                         #Make it too wide, to be
++    x2=int(xmid+0.6*bw)                         #sure to get all the numbers
++#    print Audio.gcom2.nfullspec,bw,xdf,x1,x2
+     for ix in range(x1,x2,1):
+         i=0.5*NX + (ix-xmid)/xdf
+         j=20
+@@ -334,7 +343,7 @@
+             if ix&lt;100: x=x+1
+             y=8
+             c.create_text(x,y,text=str(ix))
+-        c.create_line(i,25,i,j,fill='black')
++        c.create_line(i,25,i,j,fill='black')     #Draw the upper scale
+             
+     c2.delete(ALL)
+     xmid2=0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000173.html">[WSJT-SVN] r488 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000175.html">[WSJT-SVN] r490 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#174">[ date ]</a>
+              <a href="thread.html#174">[ thread ]</a>
+              <a href="subject.html#174">[ subject ]</a>
+              <a href="author.html#174">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

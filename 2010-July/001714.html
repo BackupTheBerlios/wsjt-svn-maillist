@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2022 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2022%20-%20wsjt7a&In-Reply-To=%3C20100722193716.7EB27480BE7%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001713.html">
+   <LINK REL="Next"  HREF="001715.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2022 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2022%20-%20wsjt7a&In-Reply-To=%3C20100722193716.7EB27480BE7%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2022 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 22 21:37:16 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001713.html">[WSJT-SVN] r2021 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001715.html">[WSJT-SVN] r2023 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1714">[ date ]</a>
+              <a href="thread.html#1714">[ thread ]</a>
+              <a href="subject.html#1714">[ subject ]</a>
+              <a href="author.html#1714">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-22 21:37:16 +0200 (Thu, 22 Jul 2010)
+New Revision: 2022
+
+Removed:
+   wsjt7a/genscat6.f90
+Modified:
+   wsjt7a/fivehz.f90
+   wsjt7a/geniscat.f90
+   wsjt7a/getfile.f90
+   wsjt7a/iscat.f90
+   wsjt7a/pp441.f90
+   wsjt7a/wsjt.py
+Log:
+Added mode cs_lock/cs_unlock pairs.
+
+
+Modified: wsjt7a/fivehz.f90
+===================================================================
+--- wsjt7a/fivehz.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/fivehz.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -157,24 +157,6 @@
+      ibuf00=ibuf0
+   endif
+ 
+-! Diagnostic timing information:
+-!  t60=mod(tsec,60.d0)
+-!  if(TxOK.ne.TxOKz) then
+-!     if(TxOK.eq.1) write(*,1101) 'D2:',t
+-!1101 format(a3,f8.1,i8)
+-!     if(TxOK.eq.0) then
+-!        tstop=tsec
+-!        write(*,1101) 'D3:',t,nc0a
+-!     endif
+-!  endif
+-!  if(iptt.ne.iptt0) then
+-!     if(iptt.eq.1) then
+-!        tstart=tsec
+-!        write(*,1101) 'D1:',t,nc1a
+-!     endif
+-!     if(iptt.eq.0) write(*,1101) 'D4:',t
+-!  endif
+-
+   iptt0=iptt
+   TxOKz=TxOK
+   ntr0=ntr
+
+Modified: wsjt7a/geniscat.f90
+===================================================================
+--- wsjt7a/geniscat.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/geniscat.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -40,8 +40,10 @@
+         read(msg(2:4),*,err=10) m
+         if(m.lt.-20) m=-20
+         if(m.gt.10) m=10
++        call cs_lock('geniscat')
+         write(msgsent,1002) m
+ 1002    format('R',i3)
++        call cs_unlock
+         if(msgsent(2:2).eq.' ') msgsent=msgsent(1:1)//msgsent(3:)
+         if(msgsent(2:2).eq.' ') msgsent=msgsent(1:1)//msgsent(3:)
+         n=irpt(m+21)
+
+Deleted: wsjt7a/genscat6.f90
+===================================================================
+--- wsjt7a/genscat6.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/genscat6.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -1,41 +0,0 @@
+-subroutine genscat6(msg,itone)
+-
+-  character msg*28,msg1*29
+-  character c*43
+-  integer imsg(29)
+-  integer itone(645)
+-  integer icos6(6)
+-  data icos6/0,1,4,3,5,2/
+-  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ .,?/#$'/  !1-43
+-  data nsync/7/,ndat/14/
+-
+-  do i=28,1,-1
+-     if(msg(i:i).ne.' ') go to 10
+-  enddo
+-10 msglen=i+1                      !Message length, including leading '$'
+-  msg1='$'//msg
+-
+-  do i=1,msglen
+-     i1=index(c,msg1(i:i))
+-     imsg(i)=i1-1
+-  enddo
+-
+-  ntot=ndat+nsync
+-  k=0
+-  kk=1
+-  do i=1,645
+-     j=mod(i-1,ntot)+1
+-     if(j.lt.nsync) then
+-        itone(i)=icos6(j)
+-     else if(j.eq.nsync) then
+-        itone(i)=msglen
+-     else
+-        k=k+1
+-        kk=mod(k-1,msglen)+1
+-        itone(i)=imsg(kk)
+-     endif
+-  enddo
+-
+-  return
+-
+-end subroutine genscat6
+
+Modified: wsjt7a/getfile.f90
+===================================================================
+--- wsjt7a/getfile.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/getfile.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -75,8 +75,8 @@
+   equivalence (ariff,hdr),(d1,d2)
+ 
+   if (nfmt2.eq.1) return             ! correct endianess for this CPU
+-  write(*,1000)
+-1000 format('Converting file to big-endian',i10)
++!  write(*,1000)
++!1000 format('Converting file to big-endian',i10)
+   lenfile = iswap_int(lenfile)
+   lenfmt = iswap_int(lenfmt)
+   nfmt2 = iswap_short(nfmt2)
+@@ -92,7 +92,6 @@
+     d2(i) = iswap_short(d2(i))
+   enddo
+ 
+-
+   return
+ end subroutine check_endian
+ 
+
+Modified: wsjt7a/iscat.f90
+===================================================================
+--- wsjt7a/iscat.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/iscat.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -213,11 +213,11 @@
+   isync=xsync
+   if(navg.le.0) msg=' '
+ 
++  call cs_lock('iscat')
+   write(11,1020) cfile6,nsig,ndf0,msg,msglen,nworst,navg
+   write(21,1020) cfile6,nsig,ndf0,msg,msglen,nworst,navg
+ 1020 format(a6,i5,i5,6x,a28,i4,2i3)
+-  call flush(11)
+-  call flush(21)
++  call cs_unlock
+ 
+ 900 return
+ end subroutine iscat
+
+Modified: wsjt7a/pp441.f90
+===================================================================
+--- wsjt7a/pp441.f90	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/pp441.f90	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -216,6 +216,7 @@
+         if(i4.gt.4) msg2=msg2(:i4-2)
+         call msgtrim(msg2,junk)
+         if(msg2.ne.msg0) then
++           call cs_lock('pp441')
+            if(ncon.ne.0) write(*,1110) cfile6,tbest,mswidth,npeak,     &amp;
+                 nrpt,nint(dfx),msg2,ccfmax,sbest/ccfmax,n2,'+ '
+ 1110       format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,f8.1,f6.2,i3,a2)
+@@ -223,6 +224,7 @@
+            tping(nline)=t2
+            write(line(nline),1110) cfile6,t2,mswidth,npeak,        &amp;
+                 nrpt,nint(dfx),msg2,ccfmax,sbest/ccfmax,n2,'+ '
++           call cs_unlock
+            msg0=msg2
+         endif
+      endif
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-22 18:45:56 UTC (rev 2021)
++++ wsjt7a/wsjt.py	2010-07-22 19:37:16 UTC (rev 2022)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001713.html">[WSJT-SVN] r2021 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001715.html">[WSJT-SVN] r2023 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1714">[ date ]</a>
+              <a href="thread.html#1714">[ thread ]</a>
+              <a href="subject.html#1714">[ subject ]</a>
+              <a href="author.html#1714">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

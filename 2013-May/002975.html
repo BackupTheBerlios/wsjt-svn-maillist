@@ -1,0 +1,557 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3283 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3283%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130520140903.1F7AD55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002974.html">
+   <LINK REL="Next"  HREF="002976.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3283 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3283%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130520140903.1F7AD55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3283 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon May 20 16:09:02 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002974.html">[WSJT-SVN] r3282 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002976.html">[WSJT-SVN] r3284 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2975">[ date ]</a>
+              <a href="thread.html#2975">[ thread ]</a>
+              <a href="subject.html#2975">[ subject ]</a>
+              <a href="author.html#2975">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-20 16:09:02 +0200 (Mon, 20 May 2013)
+New Revision: 3283
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9a.F90
+   branches/wsjtx/lib/jt9code.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/jt9test.f90
+   branches/wsjtx/lib/redsync.f90
+   branches/wsjtx/lib/softsym.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/symspec2.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+1. De-activate submodes JT9-5, JT9-10, and JT9-30.  (This makes the shared 
+memory region smaller by some 150 MB.)
+2. Some code cleanup (removing unused lstrong, etc.)...
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/commons.h	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -1,15 +1,16 @@
+ #ifndef COMMONS_H
+ #define COMMONS_H
+ 
+-#define NSMAX 22000
++#define NSMAX 1365
++#define NTMAX 120
+ 
+ extern &quot;C&quot; {
+ 
+ extern struct {
+   float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
+-  float c0[2*1800*1500];
+-  short int d2[1800*12000];
++  float c0[2*NTMAX*1500];
++  short int d2[NTMAX*12000];
+   int nutc;                         //UTC as integer, HHMM
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/decoder.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2,9 +2,10 @@
+ 
+ ! Decoder for JT9.
+ 
+-  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=22000)            !Max length of saved spectra
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
++  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1365)             !Max length of saved spectra
+   real ss(184,NSMAX)
+   character*22 msg
+   character*80 fmt
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/jt9.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -3,16 +3,17 @@
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+ 
+-  character*80 arg,infile
+-  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=22000)            !Max length of saved spectra
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
++  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1365)              !Max length of saved spectra
+   integer*4 ihdr(11)
+   real*4 s(NSMAX)
+   real*4 ccfred(NSMAX)
+   logical*1 lstrong(0:1023)
+   integer*2 id2
+   complex c0
++  character*80 arg,infile
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat,  &amp;
+        ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+   common/tracer/limtrace,lu
+
+Modified: branches/wsjtx/lib/jt9a.F90
+===================================================================
+--- branches/wsjtx/lib/jt9a.F90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/jt9a.F90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -53,22 +53,25 @@
+ end subroutine jt9a
+ 
+ subroutine jt9b(jt9com,nbytes)
++  parameter (NTMAX=120)
++  parameter (NSMAX=1365)
+   integer*1 jt9com(0:nbytes-1)
+   kss=0
+-  ksavg=kss + 4*184*22000
+-  kc0=ksavg + 4*22000
+-  kid2=kc0 + 2*4*1800*1500
+-  knutc=kid2 + 2*1800*12000
++  ksavg=kss + 4*184*NSMAX
++  kc0=ksavg + 4*NSMAX
++  kid2=kc0 + 2*4*NTMAX*1500
++  knutc=kid2 + 2*NTMAX*12000
+   call jt9c(jt9com(kss),jt9com(ksavg),jt9com(kc0),jt9com(kid2),jt9com(knutc))
+   return
+ end subroutine jt9b
+ 
+ subroutine jt9c(ss,savg,c0,id2,nparams0)
+-  parameter (NSMAX=22000)
++  parameter (NTMAX=120)
++  parameter (NSMAX=1365)
+   integer*1 detach_jt9
+   real*4 ss(184*NSMAX),savg(NSMAX)
+-  complex c0(1800*1500)
+-  integer*2 id2(1800*12000)
++  complex c0(NTMAX*1500)
++  integer*2 id2(NTMAX*12000)
+ 
+   integer nparams0(21),nparams(21)
+   character*20 datetime
+
+Modified: branches/wsjtx/lib/jt9code.f90
+===================================================================
+--- branches/wsjtx/lib/jt9code.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/jt9code.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2,14 +2,11 @@
+ 
+ ! Generate simulated data for testing of WSJT-X
+ 
+-  parameter (NMAX=1800*12000)
+   character msg*22,msg0*22,decoded*22
+-
+-  integer*4 i4tone(85)             !Channel symbols (values 0-8)
++  integer*4 i4tone(85)                     !Channel symbols (values 0-8)
+   integer*1 i1
+   equivalence (i1,i4)
+   include 'jt9sync.f90'
+-  common/acom/dat(NMAX),iwave(NMAX)
+ 
+   nargs=iargc()
+   if(nargs.ne.1) then
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/jt9sim.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2,7 +2,8 @@
+ 
+ ! Generate simulated data for testing of WSJT-X
+ 
+-  parameter (NMAX=1800*12000)
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)
+   integer ihdr(11)
+   integer*2 iwave                  !Generated waveform (no noise)
+   real*8 f0,f,dt,twopi,phi,dphi,baud,fspan,fsample,freq
+
+Modified: branches/wsjtx/lib/jt9test.f90
+===================================================================
+--- branches/wsjtx/lib/jt9test.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/jt9test.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -5,10 +5,10 @@
+ 
+ ! NB: For unknown reason, ***MUST*** be compiled by g95 with -O0 !!!
+ 
+-  character*80 arg,infile
+-  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=22000)            !Max length of saved spectra
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
++  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1365)              !Max length of saved spectra
+   integer*4 ihdr(11)
+   real*4 s(NSMAX)
+   real*4 ccfred(NSMAX)
+@@ -16,6 +16,7 @@
+   integer*1 i1SoftSymbols(207)
+   character*22 msg
+   character*33 line
++  character*80 arg,infile
+   integer*2 id2
+   complex c0
+   complex c1(0:2700000)
+
+Modified: branches/wsjtx/lib/redsync.f90
+===================================================================
+--- branches/wsjtx/lib/redsync.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/redsync.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -4,7 +4,7 @@
+ ! NB: red() is used for real-time display only.  A better ccfred() is
+ ! computed during the decode procedure.
+ 
+-  Parameter (NSMAX=22000)
++  Parameter (NSMAX=1365)
+   real*4 ss(184,NSMAX)
+   real*4 red(NSMAX)
+   include 'jt9sync.f90'
+
+Modified: branches/wsjtx/lib/softsym.f90
+===================================================================
+--- branches/wsjtx/lib/softsym.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/softsym.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -35,5 +35,5 @@
+ ! Remove interleaving
+   call interleave9(i1SoftSymbolsScrambled,-1,i1SoftSymbols)
+ 
+-999 return
++  return
+ end subroutine softsym
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/symspec.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -1,5 +1,5 @@
+ subroutine symspec(k,ntrperiod,nsps,ingain,nb,nbslider,pxdb,s,red,    &amp;
+-     df3,ihsym,nzap,slimit,lstrong,npts8)
++     df3,ihsym,npts8)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -14,13 +14,11 @@
+ !  s()       spectrum for waterfall display
+ !  red()     first cut at JT9 sync amplitude
+ !  ihsym     index number of this half-symbol (1-184)
+-!  nzap      number of samples zero'ed by noise blanker
+-!  slimit    NB scale adjustment
+-!  lstrong   true if strong signal at this freq
+ 
+-  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=22000)            !Max length of saved spectra
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
++  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1365)              !Max length of saved spectra
+   parameter (NFFT1=1024)
+   parameter (NFFT2=1024,NFFT2A=NFFT2/8)
+   parameter (MAXFFT3=32768)
+@@ -30,7 +28,6 @@
+   real*4 ssum(NSMAX)
+   real*4 red(NSMAX)
+   complex cx(0:MAXFFT3-1)
+-  logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+   complex c0
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat, &amp;
+@@ -80,10 +77,6 @@
+      endif
+   endif
+   k0=k
+- 
+-  nzap=0
+-  px=0.
+-
+   kstep1=NFFT1
+   fac=2.0/NFFT1
+   nblks=(k-k1)/kstep1
+@@ -143,7 +136,7 @@
+   call pctile(ssum,iz,npct,xmed1)
+   fac1=fac00/max(xmed1,0.006*ihsym)
+   savg(1:iz)=fac1*ssum(1:iz)
+-  savg(iz+1:iz+20)=savg(iz)
++!  savg(iz+1:iz+20)=savg(iz)
+   call redsync(ss,ntrperiod,ihsym,iz,red)
+ 
+   return
+
+Modified: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/symspec2.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -38,8 +38,6 @@
+ !  write(30) freq,drift,ss2
+ !  call flush(30)
+   call chkss2(ss2,freq,drift,schk)
+-  freq0=freq
+-  drift0=drift
+   if(schk.lt.2.0) go to 900
+ !###
+   ss=0.
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/lib/sync9.f90	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -1,6 +1,6 @@
+ subroutine sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,ipkbest)
+ 
+-  parameter (NSMAX=22000)            !Max length of saved spectra
++  parameter (NSMAX=1365)             !Max length of saved spectra
+   real ss(184,NSMAX)
+   real ss1(184)
+   real ccfred(NSMAX)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/mainwindow.cpp	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -566,7 +566,7 @@
+   if(m_NB) nb=1;
+   trmin=m_TRperiod/60;
+   symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;m_inGain, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
+-           &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, &amp;npts8);
++           &amp;df3, &amp;ihsym, &amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap*100.0/m_nsps;
+@@ -574,7 +574,7 @@
+   lab2-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);                    //Update thermometer
+   if(m_monitoring || m_diskData) {
+-    g_pWideGraph-&gt;dataSink2(s,red,df3,ihsym,m_diskData,lstrong);
++    g_pWideGraph-&gt;dataSink2(s,red,df3,ihsym,m_diskData);
+   }
+ 
+   if(ihsym == m_hsymStop) {
+@@ -1244,7 +1244,7 @@
+   char *from = (char*) jt9com_.ss;
+   int size=sizeof(jt9com_);
+   if(jt9com_.newdat==0) {
+-    int noffset = 4*184*22000 + 4*22000 + 4*2*1800*1500 + 2*1800*12000;
++    int noffset = 4*184*NSMAX + 4*NSMAX + 4*2*NTMAX*1500 + 2*NTMAX*12000;
+     to += noffset;
+     from += noffset;
+     size -= noffset;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/mainwindow.h	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -360,8 +360,7 @@
+ //----------------------------------------------------- C and Fortran routines
+ void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, int* nb,
+               int* m_NBslider, float* px, float s[], float red[],
+-              float* df3, int* nhsym, int* nzap, float* slimit,
+-              uchar lstrong[], int* npts8);
++              float* df3, int* nhsym, int* npts8);
+ 
+ void genjt9_(char* msg, int* ichk, char* msgsent, int itone[],
+              int* itext, int len1, int len2);
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/mainwindow.ui	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2636,6 +2636,9 @@
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;JT9-5&lt;/string&gt;
+    &lt;/property&gt;
+@@ -2644,6 +2647,9 @@
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;JT9-10&lt;/string&gt;
+    &lt;/property&gt;
+@@ -2652,6 +2658,9 @@
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;JT9-30&lt;/string&gt;
+    &lt;/property&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/plotter.cpp	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -102,17 +102,10 @@
+ 
+   QPoint LineBuf[MAX_SCREENSIZE];
+   j=0;
+-  bool strong0=false;
+-  bool strong=false;
+ 
+   int iz=XfromFreq(2000.0);
+   for(int i=0; i&lt;m_w; i++) {
+     if(i&gt;iz) swide[i]=0;
+-    strong=false;
+-    if(swide[i]&lt;0) {
+-      strong=true;
+-      swide[i]=-swide[i];
+-    }
+     y=0.0;
+     if(swide[i]&gt;0.0) y = 10.0*log10(swide[i]);
+     int y1 = 5.0*gain*y + 10*m_plotZero;
+@@ -132,13 +125,7 @@
+       y2=gain*6.0*log10(sum/m_binsPerPixel) - 10.0;
+     }
+     if(m_bJT9Sync) y2=3.0*gain*red[i] - 15;
+-    if(strong != strong0 or i==m_w-1) {
+-      painter2D.drawPolyline(LineBuf,j);
+-      j=0;
+-      strong0=strong;
+-      if(strong0) painter2D.setPen(Qt::red);
+-      if(!strong0) painter2D.setPen(Qt::green);
+-    }
++    if(i==m_w-2) painter2D.drawPolyline(LineBuf,j);
+     LineBuf[j].setX(i);
+     LineBuf[j].setY(m_h-(y2+0.8*m_h));
+     j++;
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/soundin.cpp	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2,15 +2,16 @@
+ #include &lt;stdexcept&gt;
+ 
+ #define FRAMES_PER_BUFFER 1024
+-#define NSMAX 22000
++#define NSMAX 1365
++#define NTMAX 120
+ 
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+   float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
+-  float c0[2*1800*1500];
+-  short int d2[1800*12000];
++  float c0[2*NTMAX*1500];
++  short int d2[NTMAX*12000];
+   int nutc;                         //UTC as integer, HHMM
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/widegraph.cpp	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -2,8 +2,6 @@
+ #include &quot;ui_widegraph.h&quot;
+ #include &quot;commons.h&quot;
+ 
+-#define NSMAX 22000
+-
+ WideGraph::WideGraph(QWidget *parent) :
+   QDialog(parent),
+   ui(new Ui::WideGraph)
+@@ -81,7 +79,7 @@
+ }
+ 
+ void WideGraph::dataSink2(float s[], float red[], float df3, int ihsym,
+-                          int ndiskdata, uchar lstrong[])
++                          int ndiskdata)
+ {
+   static float splot[NSMAX];
+   static float swide[2048];
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2013-05-17 19:35:29 UTC (rev 3282)
++++ branches/wsjtx/widegraph.h	2013-05-20 14:09:02 UTC (rev 3283)
+@@ -15,7 +15,7 @@
+   ~WideGraph();
+ 
+   void   dataSink2(float s[], float red[], float df3, int ihsym,
+-                   int ndiskdata, uchar lstrong[]);
++                   int ndiskdata);
+   void   setQSOfreq(int n);
+   int    QSOfreq();
+   int    nSpan();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002974.html">[WSJT-SVN] r3282 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002976.html">[WSJT-SVN] r3284 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2975">[ date ]</a>
+              <a href="thread.html#2975">[ thread ]</a>
+              <a href="subject.html#2975">[ subject ]</a>
+              <a href="author.html#2975">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

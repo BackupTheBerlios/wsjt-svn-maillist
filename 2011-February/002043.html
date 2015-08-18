@@ -1,0 +1,291 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2351 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2351%20-%20branches/wspr&In-Reply-To=%3C20110221155646.9369F481264%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002042.html">
+   <LINK REL="Next"  HREF="002044.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2351 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2351%20-%20branches/wspr&In-Reply-To=%3C20110221155646.9369F481264%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2351 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb 21 16:56:46 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002042.html">[WSJT-SVN] r2350 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002044.html">[WSJT-SVN] r2352 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2043">[ date ]</a>
+              <a href="thread.html#2043">[ thread ]</a>
+              <a href="subject.html#2043">[ subject ]</a>
+              <a href="author.html#2043">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-21 16:56:46 +0100 (Mon, 21 Feb 2011)
+New Revision: 2351
+
+Modified:
+   branches/wspr/calobs.f90
+   branches/wspr/clean.f90
+   branches/wspr/wwv.f90
+Log:
+Preparing wwv for distribution to volunteers.
+
+
+Modified: branches/wspr/calobs.f90
+===================================================================
+--- branches/wspr/calobs.f90	2011-02-17 19:12:31 UTC (rev 2350)
++++ branches/wspr/calobs.f90	2011-02-21 15:56:46 UTC (rev 2351)
+@@ -57,30 +57,41 @@
+ 1000 format('Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0,'   Fsample:',f12.4)
+ 
+   open(10,file='prof_1pps.dat',status='unknown')
++  open(11,file='short_1pps.dat',status='unknown')
+   write(10,1010) 0.0,0.0,ave1,rms1,xmax1,p1
++  write(11,1010) 0.0,0.0,ave1,rms1,xmax1,p1
+ 1010 format(2f10.3,'   Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0,         &amp;
+           '   Fsample:',f12.4)
+   dt=1.0/nfs
++  i0=0.005/dt
+   do i=1,ip
+      j=ipk+i-1
+      if(j.gt.ip) j=j-ip
+      xx(i)=prof1(j)
+      write(10,1030) 1000.0*i*dt,xx(i)
+ 1030 format(2f10.3)
++     t=1000.0*(i-i0)*dt
++     if(t.ge.-5.0 .and. t.le.20.0) then
++        j=ipk+i-i0
++        if(j.lt.1) j=j+ip
++        if(j.gt.ip) j=j-ip
++        write(11,1030) t,prof1(j)
++     endif
+   enddo
+   close(10)
++  close(11)
+ 
+   call four2a(xx,ip,1,-1,0)
+ 
+-  open(11,file='cal.dat',status='unknown')
++  open(12,file='cal.dat',status='unknown')
+   do j=1,35                                 !Compute calibration arrays
+      i=100*j
+      z1=0.01*sum(cc(i-50:i+49))
+-     if(j.eq.1) write(11,1040) j,z1,p1
+-     if(j.ne.1) write(11,1040) j,z1
++     if(j.eq.1) write(12,1040) j,z1,p1
++     if(j.ne.1) write(12,1040) j,z1
+ 1040 format(i6,2f10.3,f13.4)
+   enddo
+-  close(11)
++  close(12)
+ 
+   return
+ end subroutine calobs
+
+Modified: branches/wspr/clean.f90
+===================================================================
+--- branches/wspr/clean.f90	2011-02-17 19:12:31 UTC (rev 2350)
++++ branches/wspr/clean.f90	2011-02-21 15:56:46 UTC (rev 2351)
+@@ -1,4 +1,4 @@
+-subroutine clean(xx,ipk,snr,delay,nwwv,nd)
++subroutine clean(xx,ipk,dtmin,dtmax,snr,delay,nwwv,nd)
+ 
+   parameter (NFSMAX=48000)
+   real xx(NFSMAX)                             !Dirty profile
+@@ -32,17 +32,9 @@
+      xt(i)=xx(j)
+   enddo
+ 
+-!  rewind 13
+-!  rewind 14
+-!  do i=1,ip
+-!     write(13,1010) 1000.0*(i-1)*dt,xt(i)
+-!     write(14,1010) 1000.0*(i-1)*dt,xt(i)
+-!1010 format(2f10.3)
+-!  enddo
++  lag1=0.001*dtmin*nfs
++  lagmax=0.001*dtmax*nfz
+ 
+-  lagmax=nfs/6
+-  lag1=nint(nfs*0.002)
+-
+   do ii=1,4
+      ccf1=0.
+      ccf2=0.
+@@ -94,10 +86,6 @@
+      delay(nd)=1000.0*lagpk*dt
+      nwwv(nd)=nw
+ 
+-!     rewind 14
+-!     do i=1,ip
+-!        write(14,1010) 1000.0*(i-1)*dt,xt(i)
+-!     enddo
+   enddo
+ 
+ 100 continue
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-17 19:12:31 UTC (rev 2350)
++++ branches/wspr/wwv.f90	2011-02-21 15:56:46 UTC (rev 2351)
+@@ -10,6 +10,7 @@
+   character ctime*10                         !HHMMSS.SSS
+   character*120 cmnd0,cmnd                   !Command to set rig frequency
+   character*6 mycall,mygrid
++  character param*5
+   real*8 tsec,fkhz,p1,samfac,day2011
+   real x1(NMAX),xx1(NMAX)
+   real prof1(NFSMAX)
+@@ -40,13 +41,29 @@
+   read(10,*) mygrid                    !Get my grid locator
+   close(10)
+ 
+-  nfs=48000                                  !Sample rate
++  dtmin=2.0
++  dtmax=40.0
++  nsave=1
++  open(10,file='wwv.ini',status='old',err=1)  !Optional parameter file
++  read(10,*) param,dtmin
++  read(10,*) param,dtmax
++  read(10,*) param,nsave
++  close(10)
++
++  open(13,file='prof.dat',status='unknown')  !Files for 1PPS+WWV profiles
++  open(14,file='short.dat',status='unknown')
++
++1 nfs=48000                                  !Sample rate
+   nchan=1                                    !Single-channel recording
+   call soundinit                             !Initialize Portaudio
+ 
+   call getarg(1,arg)
+   if(arg.eq.'cal' .or. arg.eq.'CAL') then
+      nsec=60
++     if(nargs.eq.2) then
++        call getarg(2,arg)
++        read(arg,*) nsec
++     endif
+      call calobs(nfs,nsec,ndevin,id,x1)
+      go to 999
+   endif
+@@ -138,6 +155,30 @@
+   enddo
+   prof1=-prof1
+   xx=prof1
++
++  if(nsave.ne.0) then
++     iipk=maxloc(xx)
++     i0=0.001/dt
++     rewind 13
++     rewind 14
++     do i=1,ip
++        j=ipk+i-100
++        if(j.lt.1)  j=j+ip
++        if(j.gt.ip) j=j-ip
++        write(13,1010) 1000.0*(i-1)*dt,prof1(j)
++1010 format(2f10.3)
++        t=1000.0*(i-i0)*dt
++        if(t.ge.-1.0 .and. t.le.dtmax) then
++           j=ipk+i-i0
++           if(j.lt.1) j=j+ip
++           if(j.gt.ip) j=j-ip
++           write(14,1010) t,prof1(j)
++        endif
++     enddo
++     call flush(13)
++     call flush(14)
++  endif
++
+   call four2a(xx,ip,1,-1,0)                !Forward FFT of profile
+ 
+   df=float(nfs)/ip
+@@ -146,7 +187,7 @@
+      j=nint(0.01*i*df)
+      c(i)=c(i)*cal1(j)
+   enddo
+-!  c(0)=0.
++
+   c(ib:)=0.
+   c(95:105)=0.
+   if(ctime(3:4).eq.'02') then
+@@ -160,25 +201,13 @@
+      endif
+   endif
+ 
+-!  do i=0,ib
+-!     s=real(c(i))**2 + aimag(c(i))**2
+-!     pha=atan2(aimag(c(i)),real(c(i)))
+-!     write(13,1031) i*df,s,db(s),pha
+-!1031 format(f10.3,f12.3,2f10.3)
+-!  enddo
+-
+   call four2a(c,ip,1,1,-1)             !Inverse FFT ==&gt; calibrated profile
+ 
+   fac=6.62/ip
+   xx=fac*xx
+   iipk=maxloc(xx)
+-  do i=1,ip
+-     j=ipk+i-100
+-     if(j.lt.1)  j=j+ip
+-     if(j.gt.ip) j=j-ip
+-  enddo
+ 
+-  call clean(xx,ipk,snr,delay,nwwv,nd)
++  call clean(xx,ipk,dtmin,dtmax,snr,delay,nwwv,nd)
+ 
+   day2011=time()/86400.d0 - 14974.d0
+   ikhz=nhz/1000
+@@ -189,13 +218,6 @@
+   enddo
+ 
+   call flush(16)
+-
+-!  if(nsave.gt.0) then
+-!     write(20)  cdate,ctime(:6),day,delay,ccfmax1,ikhz,p1,mycall,mygrid,  &amp;
+-!          prof1(:ip)
+-!     call flush(20)
+-!  endif
+-
+   go to 10
+ 
+ 910 print*,'Cannot open file: fmt.ini'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002042.html">[WSJT-SVN] r2350 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002044.html">[WSJT-SVN] r2352 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2043">[ date ]</a>
+              <a href="thread.html#2043">[ thread ]</a>
+              <a href="subject.html#2043">[ subject ]</a>
+              <a href="author.html#2043">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

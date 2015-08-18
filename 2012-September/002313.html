@@ -1,0 +1,361 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2621 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2621%20-%20branches/wsjtx&In-Reply-To=%3C20120930010318.EF47355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002312.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2621 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2621%20-%20branches/wsjtx&In-Reply-To=%3C20120930010318.EF47355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2621 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Sep 30 03:03:18 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002312.html">[WSJT-SVN] r2620 - branches/wsjtx
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2313">[ date ]</a>
+              <a href="thread.html#2313">[ thread ]</a>
+              <a href="subject.html#2313">[ subject ]</a>
+              <a href="author.html#2313">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-30 03:03:18 +0200 (Sun, 30 Sep 2012)
+New Revision: 2621
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+Log:
+Now have gradient fill in 2D spectrum, and 30% height.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-29 23:52:01 UTC (rev 2620)
++++ branches/wsjtx/mainwindow.cpp	2012-09-30 01:03:18 UTC (rev 2621)
+@@ -1,4 +1,4 @@
+-//---------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-09-29 23:52:01 UTC (rev 2620)
++++ branches/wsjtx/plotter.cpp	2012-09-30 01:03:18 UTC (rev 2621)
+@@ -25,12 +25,14 @@
+   m_WaterfallPixmap = QPixmap(0,0);
+   m_2DPixmap = QPixmap(0,0);
+   m_ScalePixmap = QPixmap(0,0);
+-  m_LowerScalePixmap = QPixmap(0,0);
++  m_OverlayPixmap = QPixmap(0,0);
+   m_Size = QSize(0,0);
+   m_fQSO = 125;
+   m_line = 0;
+   m_fSample = 12000;
+   m_nsps=6912;
++  m_dBStepSize=10;
++  m_Percent2DScreen = 30;	//percent of screen used for 2D display
+ }
+ 
+ CPlotter::~CPlotter() { }                                      // Destructor
+@@ -48,19 +50,23 @@
+ void CPlotter::resizeEvent(QResizeEvent* )                    //resizeEvent()
+ {
+   if(!size().isValid()) return;
+-  if( m_Size != size() ) {
+-    //if changed, resize pixmaps to new screensize
++  if( m_Size != size() ) {  //if changed, resize pixmaps to new screensize
+     m_Size = size();
+-    int w = m_Size.width();
+-    int h = (m_Size.height()-60)/2;
+-    m_WaterfallPixmap = QPixmap(w,h);
+-    m_2DPixmap = QPixmap(w,h);
++    m_w = m_Size.width();
++    m_h = m_Size.height();
++    m_h1 = (100-m_Percent2DScreen)*(m_Size.height()-30)/100;
++    m_h2 = (m_Percent2DScreen)*(m_Size.height()-30)/100;
++
++    m_2DPixmap = QPixmap(m_Size.width(), m_h2);
++    m_2DPixmap.fill(Qt::black);
++    m_WaterfallPixmap = QPixmap(m_Size.width(), m_h1);
++    m_OverlayPixmap = QPixmap(m_Size.width(), m_h2);
++    m_OverlayPixmap.fill(Qt::black);
++
+     m_WaterfallPixmap.fill(Qt::black);
+     m_2DPixmap.fill(Qt::black);
+-    m_ScalePixmap = QPixmap(w,30);
+-    m_LowerScalePixmap = QPixmap(w,30);    //(no change on resize...)
++    m_ScalePixmap = QPixmap(m_w,30);
+     m_ScalePixmap.fill(Qt::white);
+-    m_LowerScalePixmap.fill(Qt::yellow);
+   }
+   DrawOverlay();
+ }
+@@ -72,44 +78,37 @@
+   if(m_paintEventBusy) return;
+   m_paintEventBusy=true;
+   QPainter painter(this);
+-  int w = m_Size.width();
+-  int h = (m_Size.height()-60)/2;
+   painter.drawPixmap(0,0,m_ScalePixmap);
+   painter.drawPixmap(0,30,m_WaterfallPixmap);
+-  painter.drawPixmap(0,h+30,m_ScalePixmap);
+-  painter.drawPixmap(0,h+60,m_2DPixmap);
++  painter.drawPixmap(0,m_h1,m_2DPixmap);
+   m_paintEventBusy=false;
+ }
+ 
+ void CPlotter::draw(float swide[], int i0, float splot[])             //draw()
+ {
+-  int i,j,w,h;
++  int j;
+   float y;
+ 
+   m_i0=i0;
+-  w = m_WaterfallPixmap.width();
+-  h = m_WaterfallPixmap.height();
+   double gain = pow(10.0,0.05*(m_plotGain+7));
+ 
+-  //move current data down one line
+-  //(must do this before attaching a QPainter object)
+-  m_WaterfallPixmap.scroll(0,1,0,0,w,h);
++//move current data down one line (must do this before attaching a QPainter object)
++  m_WaterfallPixmap.scroll(0,1,0,0,m_w,m_h1);
+   QPainter painter1(&amp;m_WaterfallPixmap);
++  m_2DPixmap = m_OverlayPixmap.copy(0,0,m_w,m_h2);
+   QPainter painter2D(&amp;m_2DPixmap);
+ 
+-  for(i=0; i&lt;256; i++) {                     //Zero the histograms
++  for(int i=0; i&lt;256; i++) {                     //Zero the histograms
+     m_hist1[i]=0;
+   }
+ 
+   painter2D.setPen(Qt::green);
+-  QRect tmp(0,0,w,h);
+-  painter2D.fillRect(tmp,Qt::black);
+   QPoint LineBuf[MAX_SCREENSIZE];
+   j=0;
+   bool strong0=false;
+   bool strong=false;
+ 
+-  for(i=0; i&lt;w; i++) {
++  for(int i=0; i&lt;m_w; i++) {
+     strong=false;
+     if(swide[i]&lt;0) {
+       strong=true;
+@@ -127,7 +126,7 @@
+     if (y2&lt;0) y2=0;
+     if (y2&gt;254) y2=254;
+     if (swide[i]&gt;1.e29) y2=255;
+-    if(strong != strong0 or i==w-1) {
++    if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+       j=0;
+       strong0=strong;
+@@ -135,7 +134,7 @@
+       if(!strong0) painter2D.setPen(Qt::green);
+     }
+     LineBuf[j].setX(i);
+-    LineBuf[j].setY(h-y2);
++    LineBuf[j].setY(m_h-y2-320);
+     j++;
+   }
+ 
+@@ -168,12 +167,68 @@
+ 
+ void CPlotter::DrawOverlay()                                 //DrawOverlay()
+ {
++  if(m_OverlayPixmap.isNull()) return;
+   if(m_WaterfallPixmap.isNull()) return;
+   int w = m_WaterfallPixmap.width();
+   int x,y;
+   int nHzDiv[11]={0,50,100,200,200,200,500,500,500,500,500};
+   float pixperdiv;
+ 
++//###
++  QRect rect;
++  QPainter painter(&amp;m_OverlayPixmap);
++  painter.initFrom(this);
++  QLinearGradient gradient(0, 0, 0 ,m_h2);  //fill background with gradient
++  gradient.setColorAt(1, Qt::black);
++  gradient.setColorAt(0, Qt::darkBlue);
++  painter.setBrush(gradient);
++  painter.drawRect(0, 0, m_w, m_h2);
++  painter.setBrush(Qt::SolidPattern);
++
++  //draw vertical grids
++  double df = m_binsPerPixel*m_fftBinWidth;
++  pixperdiv = m_freqPerDiv/df;
++  y = m_h2 - m_h2/VERT_DIVS;
++  for( int i=1; i&lt;m_hdivs; i++)
++  {
++    x = (int)( (float)i*pixperdiv );
++    painter.setPen(QPen(Qt::white, 1,Qt::DotLine));
++    painter.drawLine(x, 0, x , y);
++    painter.drawLine(x, m_h2-5, x , m_h2);
++  }
++
++  //draw horizontal grids
++  pixperdiv = (float)m_h2 / (float)VERT_DIVS;
++  painter.setPen(QPen(Qt::white, 1,Qt::DotLine));
++  for( int i=1; i&lt;VERT_DIVS; i++)
++  {
++          y = (int)( (float)i*pixperdiv );
++          painter.drawLine(0, y, w, y);
++  }
++
++  //draw amplitude values
++  painter.setPen(Qt::yellow);
++//  Font.setWeight(QFont::Light);
++//  painter.setFont(Font);
++//  int dB = m_MaxdB;
++  int dB = 50;
++  for( int i=0; i&lt;VERT_DIVS-1; i++)
++  {
++    y = (int)( (float)i*pixperdiv );
++    painter.drawStaticText(5, y-1, QString::number(dB)+&quot; dB&quot;);
++    dB -= m_dBStepSize;
++  }
++  // m_MindB = m_MaxdB - (VERT_DIVS)*m_dBStepSize;
++
++  if(!m_Running)
++  {	//if not running so is no data updates to draw to screen
++          //copy into 2Dbitmap the overlay bitmap.
++    m_2DPixmap = m_OverlayPixmap.copy(0,0,m_w,m_h2);
++          //trigger a new paintEvent
++    update();
++  }
++//###
++
+   QRect rect0;
+   QPainter painter0(&amp;m_ScalePixmap);
+   painter0.initFrom(this);
+@@ -188,7 +243,6 @@
+ 
+   m_fftBinWidth=12000.0/m_nsps;
+   if(m_binsPerPixel &lt; 1) m_binsPerPixel=1;
+-  double df = m_binsPerPixel*m_fftBinWidth;
+   m_fSpan = w*df;
+   int n=m_fSpan/10;
+   m_freqPerDiv=10;
+@@ -251,31 +305,32 @@
+ 
+   // Now make the lower scale, using m_LowerScalePixmap and painter3
+   QRect rect1;
+-  QPainter painter3(&amp;m_LowerScalePixmap);
+-  painter3.initFrom(this);
+-  painter3.setFont(Font);
+-  painter3.setPen(Qt::black);
++//  QPainter painter3(&amp;m_LowerScalePixmap);
++//  painter3.initFrom(this);
++//  painter3.setFont(Font);
++//  painter3.setPen(Qt::black);
+ 
+   df = 12000.0/m_nsps;
+   int nlabs=df*w/m_freqPerDiv + 1.0;
+-  m_LowerScalePixmap.fill(Qt::white);
+-  painter3.drawRect(0, 0, w, 30);
++//  m_LowerScalePixmap.fill(Qt::white);
++//  painter3.drawRect(0, 0, w, 30);
+   pixperdiv = m_freqPerDiv/df;
+   for( int i=0; i&lt;10*nlabs; i++) {
+     x = i*pixperdiv/10;
+     y=24;
+     if ((i%10) == 0) y=18;
+-    painter3.drawLine(x,y,x,30);
++//    painter3.drawLine(x,y,x,30);
+   }
+ 
++  /*
+   //draw frequency values
+   MakeFrequencyStrs();
+   for( int i=0; i&lt;=nlabs; i++) {
+     x = (int)( (float)i*pixperdiv - pixperdiv/2);
+     rect1.setRect(x,0, (int)pixperdiv, 20);
+-    painter3.drawText(rect1, Qt::AlignHCenter|Qt::AlignVCenter,
+-                      m_HDivText[i]);
++//    painter3.drawText(rect1, Qt::AlignHCenter|Qt::AlignVCenter,m_HDivText[i]);
+   }
++  */
+ }
+ 
+ void CPlotter::MakeFrequencyStrs()                       //MakeFrequencyStrs
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-09-29 23:52:01 UTC (rev 2620)
++++ branches/wsjtx/plotter.h	2012-09-30 01:03:18 UTC (rev 2621)
+@@ -61,7 +61,9 @@
+   void setFsample(int n);
+   void setNsps(int n);
+   double fGreen();
++  void SetPercent2DScreen(int percent){m_Percent2DScreen=percent;}
+ 
++
+ signals:
+   void freezeDecode0(int n);
+   void freezeDecode1(int n);
+@@ -82,7 +84,8 @@
+   QPixmap m_WaterfallPixmap;
+   QPixmap m_2DPixmap;
+   QPixmap m_ScalePixmap;
+-  QPixmap m_LowerScalePixmap;
++  QPixmap m_OverlayPixmap;
++//  QPixmap m_LowerScalePixmap;
+   QSize   m_Size;
+   QString m_Str;
+   QString m_HDivText[483];
+@@ -105,6 +108,11 @@
+   qint32  m_xClick;
+   qint32  m_freqPerDiv;
+   qint32  m_nsps;
++  qint32  m_Percent2DScreen;
++  qint32  m_w;
++  qint32  m_h;
++  qint32  m_h1;
++  qint32  m_h2;
+ 
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002312.html">[WSJT-SVN] r2620 - branches/wsjtx
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2313">[ date ]</a>
+              <a href="thread.html#2313">[ thread ]</a>
+              <a href="subject.html#2313">[ subject ]</a>
+              <a href="author.html#2313">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

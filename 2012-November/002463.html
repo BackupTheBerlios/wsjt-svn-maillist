@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2771 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2771%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121124170354.9EC6555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002462.html">
+   <LINK REL="Next"  HREF="002464.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2771 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2771%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121124170354.9EC6555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2771 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Nov 24 18:03:54 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002462.html">[WSJT-SVN] r2770 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002464.html">[WSJT-SVN] r2772 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2463">[ date ]</a>
+              <a href="thread.html#2463">[ thread ]</a>
+              <a href="subject.html#2463">[ subject ]</a>
+              <a href="author.html#2463">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-24 18:03:54 +0100 (Sat, 24 Nov 2012)
+New Revision: 2771
+
+Modified:
+   branches/wsjtx/lib/genjt9.f90
+   branches/wsjtx/lib/packmsg.f
+   branches/wsjtx/mainwindow.cpp
+Log:
+Free-text messages get trimmed to 13 chars and have pink background.
+
+
+Modified: branches/wsjtx/lib/genjt9.f90
+===================================================================
+--- branches/wsjtx/lib/genjt9.f90	2012-11-24 16:30:39 UTC (rev 2770)
++++ branches/wsjtx/lib/genjt9.f90	2012-11-24 17:03:54 UTC (rev 2771)
+@@ -14,6 +14,7 @@
+   integer*4 i4DataSymbols(69)             !Data symbols (values 0-7)
+   integer*4 i4GrayCodedSymbols(69)        !Gray-coded symbols (values 0-7)
+   integer*4 i4tone(85)                    !Tone #s, data and sync (values 0-8)
++  logical text
+   include 'jt9sync.f90'
+   save
+ 
+@@ -30,9 +31,13 @@
+      message=message(i+1:)
+   enddo
+ 
+-  call packmsg(message,i4Msg6BitWords)    !Pack message into 12 6-bit bytes
+-  call unpackmsg(i4Msg6BitWords,msgsent)  !Unpack to get msgsent
+-  if(i4tone(1).eq.-99) go to 999
++  call packmsg(message,i4Msg6BitWords,text)   !Pack message into 12 6-bit bytes
++  call unpackmsg(i4Msg6BitWords,msgsent)      !Unpack to get msgsent
++  if(i4tone(1).eq.-99) then
++     i4tone(2)=0
++     if(text) i4tone(2)=1
++     go to 999
++  endif
+   call entail(i4Msg6BitWords,i1Msg8BitBytes)  !Add tail, convert to 8-bit bytes
+   nsym2=206
+   call encode232(i1Msg8BitBytes,nsym2,i1EncodedBits)   !Encode K=32, r=1/2
+
+Modified: branches/wsjtx/lib/packmsg.f
+===================================================================
+--- branches/wsjtx/lib/packmsg.f	2012-11-24 16:30:39 UTC (rev 2770)
++++ branches/wsjtx/lib/packmsg.f	2012-11-24 17:03:54 UTC (rev 2771)
+@@ -1,4 +1,4 @@
+-      subroutine packmsg(msg,dat)
++      subroutine packmsg(msg,dat,text)
+ 
+       parameter (NBASE=37*36*10*27*27*27)
+       parameter (NBASE2=262178562)
+@@ -7,8 +7,9 @@
+       character*12 c1,c2
+       character*4 c3
+       character*6 grid6
+-      logical text1,text2,text3
++      logical text1,text2,text3,text
+ 
++      text=.false.
+ C  Convert all letters to upper case
+       iz=22
+       do i=1,22
+@@ -88,7 +89,8 @@
+       endif
+ 
+ C  The message will be treated as plain text.
+- 10   call packtext(msg,nc1,nc2,ng)
++ 10   text=.true.
++      call packtext(msg,nc1,nc2,ng)
+       ng=ng+32768
+ 
+ C  Encode data into 6-bit words
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-24 16:30:39 UTC (rev 2770)
++++ branches/wsjtx/mainwindow.cpp	2012-11-24 17:03:54 UTC (rev 2771)
+@@ -1441,36 +1441,32 @@
+ 
+ void MainWindow::msgtype(QString t, QLineEdit* tx)               //msgtype()
+ {
+-
+   char message[23];
+   char msgsent[23];
+   int len1=22;
+   int jtone[85];
+-  int nsendingsh=0;
+   t=t.toUpper();
+-  int i1=t.indexOf(&quot; OOO&quot;);
+   QByteArray s=t.toUpper().toLocal8Bit();
+   ba2msg(s,message);
+   jtone[0]=-99;
+   genjt9_(message,msgsent,jtone,len1,len1);
+-  nsendingsh=0;
++  msgsent[22]=0;
++  bool text=false;
++  if(jtone[1]==1) text=true;
++  QString t1;
++  t1.fromAscii(msgsent);
++  if(text) t1=t1.mid(0,13);
+   QPalette p(tx-&gt;palette());
+-  if(nsendingsh==1) {
+-    p.setColor(QPalette::Base,&quot;#66ffff&quot;);
+-  } else if(nsendingsh==-1) {
++  if(text) {
+     p.setColor(QPalette::Base,&quot;#ffccff&quot;);
+   } else {
+     p.setColor(QPalette::Base,Qt::white);
+   }
+   tx-&gt;setPalette(p);
+   int len=t.length();
+-  if(nsendingsh==-1) {
++  if(text) {
+     len=qMin(len,13);
+-    if(i1&gt;10) {
+-      tx-&gt;setText(t.mid(0,len).toUpper() + &quot; OOO&quot;);
+-    } else {
+-      tx-&gt;setText(t.mid(0,len).toUpper());
+-    }
++    tx-&gt;setText(t.mid(0,len).toUpper());
+   } else {
+     tx-&gt;setText(t);
+   }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002462.html">[WSJT-SVN] r2770 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002464.html">[WSJT-SVN] r2772 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2463">[ date ]</a>
+              <a href="thread.html#2463">[ thread ]</a>
+              <a href="subject.html#2463">[ subject ]</a>
+              <a href="author.html#2463">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

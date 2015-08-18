@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r647 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r647%20-%20branches/wspr&In-Reply-To=%3C200803202014.m2KKEH6q013650%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000333.html">
+   <LINK REL="Next"  HREF="000335.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r647 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r647%20-%20branches/wspr&In-Reply-To=%3C200803202014.m2KKEH6q013650%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r647 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 20 21:14:17 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000333.html">[WSJT-SVN] r646 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000335.html">[WSJT-SVN] r648 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#334">[ date ]</a>
+              <a href="thread.html#334">[ thread ]</a>
+              <a href="subject.html#334">[ subject ]</a>
+              <a href="author.html#334">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-03-20 21:14:14 +0100 (Thu, 20 Mar 2008)
+New Revision: 647
+
+Added:
+   branches/wspr/spec162.f
+Modified:
+   branches/wspr/Makefile
+   branches/wspr/mept162.f
+   branches/wspr/wspr.py
+   branches/wspr/wspr_rx.f90
+   branches/wspr/wspr_tx.f90
+Log:
+Added f0 to command line of wspr_tx.
+Compute pixmap file for waterfall.
+
+
+Modified: branches/wspr/Makefile
+===================================================================
+--- branches/wspr/Makefile	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/Makefile	2008-03-20 20:14:14 UTC (rev 647)
+@@ -2,8 +2,8 @@
+ !include &lt;dfinc.mak&gt;   #Some definitions for Compaq Visual Fortran
+ CC = cl
+ FC = df
+-#FFLAGS = /traceback /fast /nologo /check:all /fpp /DCVF
+-FFLAGS = /traceback /fast /nologo /fpp /DCVF
++FFLAGS = /traceback /fast /nologo /check:all /fpp /DCVF
++#FFLAGS = /traceback /fast /nologo /fpp /DCVF
+ CFLAGS = /DWin32 /DCVF /I. 
+ 
+ OBJS2 = wspr_tx.obj genmept.obj inter_mept.obj nchar.obj grid2deg.obj \
+@@ -17,7 +17,7 @@
+ 	unpackgrid.obj deg2grid.obj getrms.obj \
+ 	set.obj encode232.obj fano232.obj wfile5.obj \
+ 	xcor162.obj slope.obj peakup.obj pctile.obj db.obj sort.obj \
+-	ssort.obj decode162.obj getsound.obj
++	ssort.obj decode162.obj getsound.obj spec162.obj
+ 
+ all:    WSPR.EXE wspr_tx.exe wspr_rx.exe
+ 
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/mept162.f	2008-03-20 20:14:14 UTC (rev 647)
+@@ -20,6 +20,7 @@
+ 
+ C  Mix 1500 Hz +/- 100 Hz to baseband, and downsample by 1/32
+       call mix162(id,npts,c,c,c2,jz,df2,ps)
++      call spec162(c2,jz)
+ 
+ C  Look for sync patterns, get DF and DT
+       call sync162(c2,jz,dtx,dfx,snrx,snrsync,sstf,kz)
+
+Added: branches/wspr/spec162.f
+===================================================================
+--- branches/wspr/spec162.f	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/spec162.f	2008-03-20 20:14:14 UTC (rev 647)
+@@ -0,0 +1,72 @@
++      subroutine spec162(c2,jz)
++
++      parameter(NX=116,NY=160,NTOT=NX*NY)
++      complex c2(65536)
++      complex c(0:255)
++      real s(120,0:255)
++      real w(0:255)
++      integer*2 a(NX,NY)
++
++      nfft=256
++      df=375.0/nfft
++      twopi=6.2831853
++      pi=0.5*twopi
++      do i=0,nfft-1
++         w(i)=sin(i*pi/nfft)
++      enddo
++
++      nadd=9
++      call zero(s,120*256)
++      istep=nfft/2
++      nsteps=(jz-nfft)/(nadd*istep)
++      i0=-istep+1
++      k=0
++      do n=1,nsteps
++         k=k+1
++         do m=1,nadd
++            i0=i0+istep
++            do i=0,nfft-1
++               c(i)=w(i)*c2(i0+i)
++            enddo
++            call four2a(c,nfft,1,-1,1)
++            do i=0,nfft-1
++               s(k,i)=s(k,i) + real(c(i))**2 + imag(c(i))**2
++            enddo
++         enddo
++      enddo
++      kz=k
++
++!###
++      brightness=0.
++      contrast=0.
++      gamma=1.3 + 0.01*contrast
++!      gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
++      gain=40*5.0**(0.01*contrast)
++      offset=brightness/2 + 10
++      fac=20.0/nadd
++
++      do k=1,kz
++         do i=-80,-1
++            x=fac*s(k,i+nfft)
++            if(x.gt.0.0) n=gain*log10(1.0*x) + offset
++            n=min(252,max(0,n))
++            a(k,i+81)=n
++         enddo
++         do i=0,79
++            x=fac*s(k,i)
++            if(x.gt.0.0) n=gain*log10(1.0*x) + offset
++            n=min(252,max(0,n))
++            a(k,i+81)=n
++         enddo
++      enddo
++
++#ifdef CVF
++      open(16,file='pixmap.dat',form='binary',status='unknown')
++#else
++      open(16,file='pixmap.dat',access='stream',status='unknown')
++#endif
++      write(16) kz,NY,((a(k,i),k=1,kz),i=1,NY)
++      close(16)
++
++      return
++      end
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/wspr.py	2008-03-20 20:14:14 UTC (rev 647)
+@@ -20,8 +20,8 @@
+ import math
+ 
+ root = Tk()
+-#Version=&quot;0.4 r&quot; + &quot;$Rev: 638 $&quot;[6:-1]
+-Version=&quot;0.4&quot;
++Version=&quot;0.4 r&quot; + &quot;$Rev: 638 $&quot;[6:-1]
++#Version=&quot;0.4&quot;
+ print &quot;******************************************************************&quot;
+ print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -312,12 +312,12 @@
+     text1.see(END)
+ 
+ #------------------------------------------------------ start_tx
+-def start_tx(mycall,mygrid,ndbm,ntxdf):
++def start_tx(mycall,mygrid,ndbm,ntxdf,f0):
+     global receiving,transmitting
+     cmd=&quot;wspr_tx.exe&quot;
+     args=mycall + &quot; &quot; + mygrid + &quot; &quot; + str(ndbm) + \
+           &quot; &quot; + str(options.PttPort.get()) + &quot; &quot; + str(ntxdf) + \
+-          &quot; &quot; + options.DevoutName.get()
++          &quot; &quot; + options.DevoutName.get() + &quot; &quot; + str(f0)
+     transmitting=1
+     try:
+         os.spawnv(os.P_WAIT,cmd,(cmd,) + (args,))
+@@ -340,7 +340,7 @@
+         if x&lt;options.pctx.get() and lauto:
+             ntxdf=int(round(1.e6*(ftx.get()-f0.get())))-1500
+             thread.start_new_thread(start_tx,
+-                (MyCall.get(),MyGrid.get(),dBm.get(),ntxdf))
++                (MyCall.get(),MyGrid.get(),dBm.get(),ntxdf,f0.get()),)
+         else:
+             thread.start_new_thread(start_rx,
+                 (f0.get(),nsec))
+
+Modified: branches/wspr/wspr_rx.f90
+===================================================================
+--- branches/wspr/wspr_rx.f90	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/wspr_rx.f90	2008-03-20 20:14:14 UTC (rev 647)
+@@ -16,6 +16,7 @@
+   parameter (MAXSYM=176)
+   integer*1 symbol(MAXSYM)
+   integer*1 data1(11),i1
++  integer*1 hdr(44)
+   integer mettab(0:255,0:1)                           !Metric table
+   integer npr3(162)
+   integer getsound
+@@ -125,10 +126,21 @@
+   open(13,file='ALL_MEPT.TXT',status='unknown',access='append')
+   open(14,file='decoded.txt',status='unknown')
+ 
+-  ierr=unlink('abort')
+-  ierr=getsound(ndevin,iwave)
+-  npts=114*12000
+-  call getrms(iwave,npts,ave,rms)
++  if(ndevin.ge.0) then
++     ierr=unlink('abort')
++     ierr=getsound(ndevin,iwave)
++     npts=114*12000
++     call getrms(iwave,npts,ave,rms)
++  else
++#ifdef CVF
++     open(12,file=outfile,form='binary',status='unknown')
++#else
++     open(12,file=outfile,access='stream',status='unknown')
++#endif
++     read(12) hdr
++     read(12) (iwave(i),i=1,114*12000)
++     close(12)
++  endif
+   call mept162(cfile6,f0,minsync,iwave,NMAX,rms,nsec)
+   if(nsave.gt.0) then
+      outfile='save/'//outfile
+
+Modified: branches/wspr/wspr_tx.f90
+===================================================================
+--- branches/wspr/wspr_tx.f90	2008-03-20 17:46:10 UTC (rev 646)
++++ branches/wspr/wspr_tx.f90	2008-03-20 20:14:14 UTC (rev 647)
+@@ -21,8 +21,8 @@
+   integer playsound,ptt
+ 
+   nargs=iargc()
+-  if(nargs.ne.6) then
+-     print*,'Usage: wspr_tx call grid dBm nport ntxdf devout'
++  if(nargs.ne.7) then
++     print*,'Usage: wspr_tx call grid dBm nport ntxdf devout f0'
+      go to 999
+   endif
+ 
+@@ -37,7 +37,8 @@
+   call getarg(6,devout)
+   ndevout=0
+   read(devout,*,err=1) ndevout
+-1 continue
++1 call getarg(7,arg)
++  read(arg,*) f0
+ 
+   nsec=time()
+   isec=mod(nsec,86400)
+@@ -45,19 +46,24 @@
+   im=(isec-ih*3600)/60
+   is=mod(isec,60)
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
++  write(cdbm,'(i3)'),ndbm
++  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++  do i=6,1,-1
++     if(call1(i:i).ne.' ') go to 10
++  enddo
++10 iz=i
++  message=call1(1:iz)//grid//' '//cdbm
+   do i=22,1,-1
+-     if(message(i:i).ne.' ') go to 10
++     if(message(i:i).ne.' ') go to 20
+   enddo
+-10 iz=i
++20 iz=i
+   open(13,file='ALL_MEPT.TXT',status='unknown',access='append')
++  ftx=f0 + 0.001500d0
+   write(13,1010) ih,im,ftx,message(1:iz)
+ 1010 format(2i2.2,14x,f11.6,'  Transmitting &quot;',a,'&quot;')
+   close(13)
+ 
+-  write(cdbm,'(i3)'),ndbm
+-  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  message=call1(1:i1)//grid//' '//cdbm
+   call genmept(call1,grid,ndbm,ntxdf,99.0,iwave)
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+   ierr=unlink('abort')
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000333.html">[WSJT-SVN] r646 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000335.html">[WSJT-SVN] r648 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#334">[ date ]</a>
+              <a href="thread.html#334">[ thread ]</a>
+              <a href="subject.html#334">[ subject ]</a>
+              <a href="author.html#334">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

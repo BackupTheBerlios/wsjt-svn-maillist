@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r338 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r338%20-%20branches/map65&In-Reply-To=%3C200701112150.l0BLo2rD013443%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000022.html">
+   <LINK REL="Next"  HREF="000024.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r338 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r338%20-%20branches/map65&In-Reply-To=%3C200701112150.l0BLo2rD013443%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r338 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jan 11 22:50:02 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000022.html">[WSJT-SVN] r337 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000024.html">[WSJT-SVN] r339 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#23">[ date ]</a>
+              <a href="thread.html#23">[ thread ]</a>
+              <a href="subject.html#23">[ subject ]</a>
+              <a href="author.html#23">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-11 22:49:48 +0100 (Thu, 11 Jan 2007)
+New Revision: 338
+
+Added:
+   branches/map65/ccf1.f
+   branches/map65/trimlist.f
+   branches/map65/twkfreq.f
+Log:
+
+
+Added: branches/map65/ccf1.f
+===================================================================
+--- branches/map65/ccf1.f	2007-01-11 21:49:01 UTC (rev 337)
++++ branches/map65/ccf1.f	2007-01-11 21:49:48 UTC (rev 338)
+@@ -0,0 +1,68 @@
++      subroutine ccf1(cx,cy,n5,nflip,a,ccfmax,dtmax)
++
++      parameter (NMAX=60*96000)          !Approx samples per half symbol
++      complex cx(n5)
++      complex cy(n5)
++      real a(5)
++      complex w,wstep,za,zb,z
++      real ss(2600)
++      complex csx(0:NMAX/64),csy(0:NMAX/64)
++      data twopi/6.283185307/a1,a2,a3/99.,99.,99./
++      save
++
++      if(a(1).ne.a1 .or. a(2).ne.a2 .or. a(3).ne.a3) then
++         a1=a(1)
++         a2=a(2)
++         a3=a(3)
++
++C  Mix and integrate the complex X and Y signals
++         csx(0)=0.
++         csy(0)=0.
++         w=1.0
++         x0=0.5*(n5+1)
++         s=2.0/n5
++         do i=1,n5
++            x=s*(i-x0)
++            if(mod(i,1000).eq.1) then
++               p2=1.5*x*x - 0.5
++!               p3=2.5*(x**3) - 1.5*x
++!               p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++               dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/1378.125)
++               wstep=cmplx(cos(dphi),sin(dphi))
++            endif
++            w=w*wstep
++            csx(i)=csx(i-1) + w*cx(i)
++            csy(i)=csy(i-1) + w*cy(i)
++         enddo
++      endif
++
++C  Compute 1/2-symbol powers at 1/16-symbol steps.
++      n6=n5/32
++      fac=1.e-4
++      pol=a(4)/57.2957795
++      aa=cos(pol)
++      bb=sin(pol)
++      fsample=1378.125
++      baud=11025.0/4096.0
++      nsph=nint(0.5*fsample/baud)                !Samples per half symbol
++      do i=1,n6
++         j=32*i
++         k=j-nsph
++         ss(i)=0.
++         if(k.ge.1) then
++            za=csx(j)-csx(k)
++            zb=csy(j)-csy(k)
++            z=aa*za + bb*zb
++            ss(i)=fac*(real(z)**2 + aimag(z)**2)
++         endif
++      enddo
++
++      ccfmax=0.
++      call ccf2(ss,n6,nflip,ccf,lagpk)
++      if(ccf.gt.ccfmax) then
++         ccfmax=ccf
++         dtmax=0.5*lagpk*(512.0/11025.0)
++      endif
++
++      return
++      end
+
+Added: branches/map65/trimlist.f
+===================================================================
+--- branches/map65/trimlist.f	2007-01-11 21:49:01 UTC (rev 337)
++++ branches/map65/trimlist.f	2007-01-11 21:49:48 UTC (rev 338)
+@@ -0,0 +1,29 @@
++      subroutine trimlist(sig,kk,indx,nsiz,nz)
++
++      parameter (MAXMSG=1000)             !Size of decoded message list
++      real sig(MAXMSG,30)
++      integer indx(MAXMSG),nsiz(MAXMSG)
++      data ftol/0.02/
++
++C     1      2     3    4    5    6     7     8
++C   nfile  nutc  freq  snr  dt  ipol  flip  sync
++
++      call indexx(kk,sig(1,3),indx)            !Sort list by frequency
++
++      n=1
++      i0=1
++      do i=2,kk         
++         j0=indx(i-1)
++         j=indx(i)
++         if(sig(j,3)-sig(j0,3).gt.ftol) then
++            nsiz(n)=i-i0
++            i0=i
++            n=n+1
++         endif
++      enddo
++      nz=n
++      nsiz(nz)=kk+1-i0
++      nsiz(nz+1)=-1
++
++      return
++      end
+
+Added: branches/map65/twkfreq.f
+===================================================================
+--- branches/map65/twkfreq.f	2007-01-11 21:49:01 UTC (rev 337)
++++ branches/map65/twkfreq.f	2007-01-11 21:49:48 UTC (rev 338)
+@@ -0,0 +1,28 @@
++      subroutine twkfreq(c4aa,c4bb,n5,a)
++
++      complex c4aa(n5)
++      complex c4bb(n5)
++      real a(5)
++      complex w,wstep
++      data twopi/6.283185307/
++
++C  Apply AFC corrections to the c4aa and c4bb data
++      w=1.0
++      x0=0.5*(n5+1)
++      s=2.0/n5
++      do i=1,n5
++         x=s*(i-x0)
++         if(mod(i,1000).eq.1) then
++            p2=1.5*x*x - 0.5
++!            p3=2.5*(x**3) - 1.5*x
++!            p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++            dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/1378.125)
++            wstep=cmplx(cos(dphi),sin(dphi))
++         endif
++         w=w*wstep
++         c4aa(i)=w*c4aa(i)
++         c4bb(i)=w*c4bb(i)
++      enddo
++
++      return
++      end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000022.html">[WSJT-SVN] r337 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000024.html">[WSJT-SVN] r339 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#23">[ date ]</a>
+              <a href="thread.html#23">[ thread ]</a>
+              <a href="subject.html#23">[ subject ]</a>
+              <a href="author.html#23">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

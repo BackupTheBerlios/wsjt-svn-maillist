@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r717 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r717%20-%20branches/wspr&In-Reply-To=%3C200804130955.m3D9ts4l006002%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000404.html">
+   <LINK REL="Next"  HREF="000406.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r717 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r717%20-%20branches/wspr&In-Reply-To=%3C200804130955.m3D9ts4l006002%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r717 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr 13 11:55:54 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000404.html">[WSJT-SVN] r716 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000406.html">[WSJT-SVN] r718 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#405">[ date ]</a>
+              <a href="thread.html#405">[ thread ]</a>
+              <a href="subject.html#405">[ subject ]</a>
+              <a href="author.html#405">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-13 11:55:51 +0200 (Sun, 13 Apr 2008)
+New Revision: 717
+
+Modified:
+   branches/wspr/mept162.f
+   branches/wspr/wspr.py
+Log:
+Confirmation message for setting Tx freq with double-click.
+
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-04-13 09:20:06 UTC (rev 716)
++++ branches/wspr/mept162.f	2008-04-13 09:55:51 UTC (rev 717)
+@@ -141,13 +141,12 @@
+                open(13,file='ALL_MEPT.TXT',status='unknown',
+      +                position='append')
+ #endif
+-               write(13,1010) datetime,nsync,nsnrx,dtx,freq,message
++               nf1=nint(-2.0*a(2))
++               write(13,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1
+                close(13)
+- 1010          format(a11,i4,i4,f6.1,f11.6,2x,a15,3f7.2)
++ 1010          format(a11,i4,i4,f6.1,f11.6,2x,a15,i5)
+ 
+-               nf1=nint(-2.0*a(2))
+-               write(14,1012) datetime,nsnrx,dtx,freq,nf1,message,
+-     +               -a(3)
++               write(14,1012) datetime,nsnrx,dtx,freq,nf1,message,-a(3)
+  1012          format(a11,i4,f6.1,f11.6,i4,2x,a15,f7.2)
+             endif
+             if(message(1:6).ne.'      ') skip=.true.
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-13 09:20:06 UTC (rev 716)
++++ branches/wspr/wspr.py	2008-04-13 09:55:51 UTC (rev 717)
+@@ -321,8 +321,16 @@
+ def set_tx_freq(event):
+     global fmid
+     nftx=int(1000000.0*fmid + (80.0-event.y) * 12000/8192.0)
+-    ftx.set(0.000001*nftx)
+-    sftx.set('%10.06f' % ftx.get())
++    fmhz=0.000001*nftx
++    t=&quot;Please confirm setting Tx frequency to &quot; + &quot;%10.06f MHz&quot; % fmhz
++    msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t)
++    msg.geometry(msgpos())
++    if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
++    msg.focus_set()
++    result=msg.activate()
++    if result == 'Yes':
++        ftx.set(0.000001*nftx)
++        sftx.set('%10.06f' % ftx.get())
+ 
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+@@ -466,18 +474,23 @@
+             if acallsign[:1] != ' ':
+                 foo = lines[i].split()
+ # foo now contains a list as follows
+-#  date,     time,  sync, signal, dt,  computed qrg,  call,  grid,   dBm,  (extra params ...)
+-#    0         1      2     3      4         5         6       7      8      9         10       11
++#  date,     time, signal,  dt,     freq,     drift,  call,  grid,   dBm,  (extra params ...)
++#    0         1      2      3        4         5      6       7      8      9         10       11
+ # example:
+-#['080322', '1834', '12', '-14', '0.1', '10.140141', 'K7EK', 'CN87', '33', '11.1', '10051757', '40']
+-# now to format as a string to use for autologger upload using urlencode so we get a string formatted for http get/put operations
+-                reportparams = urllib.urlencode({'function': 'wspr', 'dt': str(foo[4]), \
+-                    'sync': str(foo[2]), 'rcall': options.MyCall.get(), \
++#['080322', '1834', '-14', '0.1', '10.140141', '-1', 'K7EK', 'CN87', '33', '11.1', '10051757', '40']
++# now to format as a string to use for autologger upload using urlencode
++# so we get a string formatted for http get/put operations:
++
++                reportparams = urllib.urlencode({'function': 'wspr',
++                    'dt': str(foo[3]), \
++                    'rcall': options.MyCall.get(), \
+                     'rgrid': options.MyGrid.get(), 'rqrg': str(f0), \
+                     'date': str(foo[0]), 'time': str(foo[1]), \
+-                    'sig': str(foo[3]), 'tqrg': str(foo[5]), \
++                    'sig': str(foo[2]), 'tqrg': str(foo[4]), \
++                    'drift': str(foo[5]), \
+                     'tcall': str(foo[6]), 'tgrid': str(foo[7]), \
+                     'dbm': str(foo[8])})
++
+ # reportparams now contains a properly formed http request string for
+ # the agreed upon format between W6CQZ and N8FQ.
+ # any other data collection point can be added as desired if it conforms
+@@ -487,8 +500,10 @@
+ #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
+ # The following opens a url and passes the reception report to the
+ # database insertion handler from W1BW:
++
+                 urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
+                                       % reportparams)
++
+ # The proper way to handle url posting will be to define the url as a
+ # configuration parameter so data sinks could be added/removed as necessary.
+ # It is not strictly necessary to post reports to W6CQZ, but, since I
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000404.html">[WSJT-SVN] r716 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000406.html">[WSJT-SVN] r718 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#405">[ date ]</a>
+              <a href="thread.html#405">[ thread ]</a>
+              <a href="subject.html#405">[ subject ]</a>
+              <a href="author.html#405">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

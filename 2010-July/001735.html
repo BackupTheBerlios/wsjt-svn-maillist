@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2043 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2043%20-%20wsjt7a&In-Reply-To=%3C20100727144744.A4F7448003E%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001734.html">
+   <LINK REL="Next"  HREF="001736.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2043 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2043%20-%20wsjt7a&In-Reply-To=%3C20100727144744.A4F7448003E%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2043 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 27 16:47:44 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001734.html">[WSJT-SVN] r2042 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001736.html">[WSJT-SVN] r2044 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1735">[ date ]</a>
+              <a href="thread.html#1735">[ thread ]</a>
+              <a href="subject.html#1735">[ subject ]</a>
+              <a href="author.html#1735">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-27 16:47:44 +0200 (Tue, 27 Jul 2010)
+New Revision: 2043
+
+Modified:
+   wsjt7a/decodems.f90
+Log:
+New way of looking at peaks in sq() spectrum.
+
+
+Modified: wsjt7a/decodems.f90
+===================================================================
+--- wsjt7a/decodems.f90	2010-07-27 13:16:41 UTC (rev 2042)
++++ wsjt7a/decodems.f90	2010-07-27 14:47:44 UTC (rev 2043)
+@@ -60,13 +60,6 @@
+   c(npts+1:nfft1)=0.
+   call four2a(c,nfft1,1,-1,1)
+ 
+-  rewind 52
+-  do i=1,nfft1/2+1
+-     ss=real(c(i))**2 + aimag(c(i))**2
+-     write(52,5001) df1*(i-1),ss
+-5001 format(f10.3,f12.3)
+-  enddo
+-
+ ! In the &quot;doubled-frequencies&quot; spectrum of squared cdat:
+   fa=2.0*(f0-400)
+   fb=2.0*(f0+400)
+@@ -78,23 +71,47 @@
+   jb=nint(fb/df1)
+   jd=nfft1/nsps
+ 
++  do j=1,nfft1/2+1
++     sq(j)=real(c(j))**2 + aimag(c(j))**2
++  enddo
++
+   smax=0.
++  smax1=0.
+   do j=ja,jb
+-     ss=real(c(j))**2 + aimag(c(j))**2 + real(c(j+jd))**2 + aimag(c(j+jd))**2
+-     sq(j)=ss
+-     if(ss.gt.smax) then
+-        smax=ss
++     if(sq(j)+sq(j+jd).gt.smax) then
++        smax=sq(j)+sq(j+jd)
+         jpk=j
+-        fpk=(j-1)*df1
+      endif
++     if(sq(j).gt.smax1) then
++        smax1=sq(j)
++        jpk1=j
++     endif
+   enddo
+-  call pctile (sq(ja),r,jb-ja+1,50,base2)
+-  ss1=real(c(jpk))**2 + aimag(c(jpk))**2
+-  ss2=real(c(jpk+jd))**2 + aimag(c(jpk+jd))**2
+-  if(smax/base2 .lt. 6.0) go to 900                   !Reject non-JTMS signals
+-  if(ss1.lt.0.1*smax .or. ss2.lt.0.1*smax) go to 900
+-  if(ss1/base2.lt.1.0 .or. ss2/base2.lt.1.0) go to 900
++
++  smax2=0.
++  do j=jpk1+jd,jb+jd
++     if(sq(j).gt.smax2) then
++        smax2=sq(j)
++        jpk2=j
++     endif
++  enddo
++
++  fpk=(jpk-1)*df1  
++  fpk1=(jpk1-1)*df1
++  fpk2=(jpk2-1)*df1
++
++!  call pctile (sq(ja),r,jb-ja+1,50,base2)
++!  ss1=real(c(jpk))**2 + aimag(c(jpk))**2
++!  ss2=real(c(jpk+jd))**2 + aimag(c(jpk+jd))**2
++!  if(smax/base2 .lt. 6.0) go to 900                   !Reject non-JTMS signals
++!  if(ss1.lt.0.1*smax .or. ss2.lt.0.1*smax) go to 900
++!  if(ss1/base2.lt.1.0 .or. ss2/base2.lt.1.0) go to 900
++
++  ferr=(fpk2-fpk1)/1378.125 - 1.0
+   dfx=0.5*fpk-f0
++!  write(*,2001) t2,dfx,fpk,fpk1,fpk2,ferr
++!2001 format(f7.2,f7.0,3f8.1,f9.4)
++  if(abs(ferr).gt.0.002) go to 900
+ 
+ ! DF is known, now find character sync.
+   r=0.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001734.html">[WSJT-SVN] r2042 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001736.html">[WSJT-SVN] r2044 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1735">[ date ]</a>
+              <a href="thread.html#1735">[ thread ]</a>
+              <a href="subject.html#1735">[ subject ]</a>
+              <a href="author.html#1735">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

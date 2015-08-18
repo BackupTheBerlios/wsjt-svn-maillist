@@ -1,0 +1,937 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2971 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2971%20-%20trunk&In-Reply-To=%3C20130124141318.5556F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002662.html">
+   <LINK REL="Next"  HREF="002664.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2971 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2971%20-%20trunk&In-Reply-To=%3C20130124141318.5556F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2971 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 24 15:13:18 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002662.html">[WSJT-SVN] r2970 - branches/wsjtx/lib
+</A></li>
+        <LI>Next message: <A HREF="002664.html">[WSJT-SVN] r2972 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2663">[ date ]</a>
+              <a href="thread.html#2663">[ thread ]</a>
+              <a href="subject.html#2663">[ subject ]</a>
+              <a href="author.html#2663">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-24 15:13:17 +0100 (Thu, 24 Jan 2013)
+New Revision: 2971
+
+Added:
+   trunk/avemsg4.f90
+   trunk/deep24.f90
+   trunk/encode4.f90
+   trunk/extract4.f90
+   trunk/getmet24.f90
+Modified:
+   trunk/decode24.f90
+   trunk/deep65.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt24.f90
+Log:
+WSJT 9.4 now does message averaging and deep search in JT4 mode.
+
+
+Added: trunk/avemsg4.f90
+===================================================================
+--- trunk/avemsg4.f90	                        (rev 0)
++++ trunk/avemsg4.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -0,0 +1,77 @@
++subroutine avemsg4(mseg,mode4,ndepth,decoded,nused,nq1,nq2,neme,   &amp;
++     mycall,hiscall,hisgrid,qual,ns,ncount)
++
++! Decodes averaged JT4 data for the specified segment (mseg=1 or 2).
++
++  parameter (MAXAVE=120)                    !Max avg count is 120
++  character decoded*22,deepmsg*22,deepbest*22
++  character mycall*12,hiscall*12,hisgrid*6
++  real s3(207,7)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++
++! Count the available spectra for this Monitor segment (mseg=1 or 2),
++! and the number of spectra flagged as good.
++
++  nused=0
++  ns=0
++  nqual=0
++  deepmsg='                      '
++  do i=1,nsave
++     if(iseg(i).eq.mseg) then
++        ns=ns+1
++        if(nflag(i).eq.1) nused=nused+1
++     endif
++  enddo
++  if(nused.lt.1) go to 100
++
++! Compute the average of all flagged soft symbols for this segment.
++  s3=0.
++  do k=1,nsave
++     if(nflag(k).eq.1 .and. iseg(k).eq.mseg) then
++        s3(1:207,1:7)=s3(1:207,1:7) + ppsave(1:207,1:7,k)
++     endif
++  enddo
++
++  nadd=nused*mode4
++
++  do k=1,7
++     call extract4(s3(1,k),nadd,ncount,decoded)     !Do the KV decode
++     if(ncount.ge.0) exit
++  enddo
++  if(ncount.lt.0) decoded='                      '
++
++  nqual=0
++! Possibly should pass nadd=nused, also:
++  if(ndepth.ge.3) then
++     flipx=1.0                     !Normal flip not relevant for ave msg
++     qbest=0.
++     neme=1
++
++     do k=1,7
++        call deep24(s3(2,k),neme,flipx,mycall,hiscall,hisgrid,deepmsg,qual)
++        if(qual.gt.qbest) then
++           qbest=qual
++           deepbest=deepmsg
++           ichbest=k
++        endif
++     enddo
++     deepmsg=deepbest
++     qual=qbest
++     nqual=qbest
++! Set submode here?
++     if(nqual.lt.nq1) deepbest='                      '
++     if(nqual.ge.nq1 .and. nqual.lt.nq2) deepmsg(19:19)='?'
++  else
++     deepmsg='                      '
++     qual=0.
++  endif
++  if(ncount.lt.0) decoded=deepmsg
++
++! Suppress &quot;birdie messages&quot;:
++  if(decoded(1:7).eq.'000AAA ') decoded='                      '
++  if(decoded(1:7).eq.'0L6MWK ') decoded='                      '
++
++100 if(nused.lt.1) decoded='                      '
++
++  return
++end subroutine avemsg4
+
+Modified: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-23 19:54:54 UTC (rev 2970)
++++ trunk/decode24.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -1,28 +1,31 @@
+-subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,ncount,   &amp;
+-     deepmsg,qual,submode)
++subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,     &amp;
++  hisgrid,decoded,ncount,deepbest,qbest,submode)
+ 
+ ! Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+   parameter (MAXAVE=120)
+   real dat(npts)                        !Raw data
+-  character decoded*22,deepmsg*22
++  character decoded*22,deepmsg*22,deepbest*22
++  character*12 mycall,hiscall
++  character*6 hisgrid
+   character*72 c72
+   character submode*1
+   real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+   complex*16 cz,cz1,c0,c1
+   integer*1 symbol(207)
+-  real*4 rsymbol(207)
++  real*4 rsymbol(207,7)
++  real*4 sym(207)
++  integer nsum(7)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+   integer amp,delta
+   integer mettab(0:255,0:1)             !Metric table
+-  integer fano
+   integer nch(7)
+   integer npr2(207)
+-  common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data mode0/-999/
+-  data nsum/0/,rsymbol/207*0.0/
++  data nsum/7*0/,rsymbol/1449*0.0/
+   data npr2/                                                         &amp;
+        0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,  &amp;
+        0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,  &amp;
+@@ -35,7 +38,7 @@
+   data nch/1,2,4,9,18,36,72/
+   save mettab,mode0,nsum,rsymbol
+ 
+-  if(mode.ne.mode0) call genmet(mode,mettab)
++  if(mode.ne.mode0) call getmet24(mode,mettab)
+   mode0=mode
+   twopi=8*atan(1.d0)
+   dt=2.d0/11025             !Sample interval (2x downsampled data)
+@@ -44,22 +47,20 @@
+   amp=15
+   istart=nint(dtx/dt)              !Start index for synced FFTs
+   if(istart.lt.0) istart=0
+-  idfbest = 0
+-  nchips = 0
+-  ich = 0
++  nchips=0
++  ich=0
++  qbest=0.
++  deepmsg='                      '
++  ichbest=-1
+ 
+ ! Should amp be adjusted according to signal strength?
+ 
+ ! Compute soft symbols using differential BPSK demodulation
+   c0=0.                                !### C0=amp ???
+   k=istart
+-  fac=1.e-4
+   phi=0.d0
+   phi1=0.d0
+-  ang0=0.
+ 
+-! JT4 mode
+-  ich=0
+ 40 ich=ich+1
+   nchips=nch(ich)
+   nspchip=1260/nchips
+@@ -108,14 +109,17 @@
+      if(i4.gt.127) i4=i4-256
+      if(j.ge.1) then
+         symbol(j)=i4
+-        rsymbol(j)=rsymbol(j) + rsym
++!        rsymbol(j,ich)=rsymbol(j,ich) + rsym
++        rsymbol(j,ich)=rsym
++        sym(j)=rsym
+      endif
+   enddo
+   
+ !###  The following does simple message averaging:
+-!  nsum=nsum+1
++!  nsum(ich)=nsum(ich)+1
+ !  do j=1,207
+-!     r=rsymbol(j)/nsum + 128.
++!     sym(j)=rsymbol(j,ich)/nsum(ich)
++!     r=sym(j) + 128.
+ !     if(r.gt.255.0) r=255.0
+ !     if(r.lt.0.0) r=0.0
+ !     i4=nint(r)
+@@ -124,44 +128,46 @@
+ !  enddo
+ !###
+   
+-  nbits=72+31
+-  delta=100
+-  limit=100000
+-  ncycles=0
+-  call interleave24(symbol(2),-1)         !Remove the interleaving
++  call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
+ 
+-  ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,            &amp;
+-       delta,limit)
++  qual=0.                                    !Now try deep search
++  neme=1
++  call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++  if(qual.gt.qbest) then
++     qbest=qual
++     deepbest=deepmsg
++     ichbest=ich
++  endif
++
+   if(ncount.ge.0) go to 100
+   if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+ 
+-100 do i=1,9
+-     i4=data1(i)
+-     if(i4.lt.0) i4=i4+256
+-     data4a(i)=i4
+-  enddo
+-  call cs_lock('decode24')
+-  write(c72,1100) (data4a(i),i=1,9)
+-1100 format(9b8.8)
+-  read(c72,1102) data4
+-1102 format(12b6)
+-  call cs_unlock
++100 continue
++!100 do i=1,9
++!     i4=data1(i)
++!     if(i4.lt.0) i4=i4+256
++!     data4a(i)=i4
++!  enddo
++!  write(c72,1100) (data4a(i),i=1,9)
++!1100 format(9b8.8)
++!  read(c72,1102) data4
++!1102 format(12b6)
+ 
+-  decoded='                      '
+-  submode=' '
+-  if(ncount.ge.0) then
+-     call unpackmsg(data4,decoded)
+-     submode=char(ichar('A')+ich-1)
++!  decoded='                      '
++!  submode=' '
++
++  if(ncount.lt.0) then
++     decoded=deepbest
++     submode=char(ichar('A')+ichbest-1)
++     qual=qbest
+   endif
+-  if(decoded(1:6).eq.'000AAA') then
+-     decoded='***WRONG MODE?***'
+-     ncount=-1
+-  endif
++!  if(decoded(1:6).eq.'000AAA') then
++!     decoded='***WRONG MODE?***'
++!     ncount=-1
++!  endif
+ 
+-  qual=0.
+-  deepmsg='                      '
+-
+ ! Save symbol spectra for possible decoding of average.
++  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)
+ 
+   return
+ end subroutine decode24
+
+Added: trunk/deep24.f90
+===================================================================
+--- trunk/deep24.f90	                        (rev 0)
++++ trunk/deep24.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -0,0 +1,182 @@
++subroutine deep24(sym,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++
++! Have barely begun converting this from JT65 to JT4
++
++  parameter (MAXCALLS=7000,MAXRPT=63)
++  real*4 sym(206)
++  character callsign*12,grid*4,message*22,hisgrid*6,c*1,ceme*3
++  character*12 mycall,hiscall
++  character mycall0*12,hiscall0*12,hisgrid0*6
++  character*22 decoded
++  character*22 testmsg(2*MAXCALLS + 2 + MAXRPT)
++  character*15 callgrid(MAXCALLS)
++  character*180 line
++  character*4 rpt(MAXRPT)
++  integer ncode(206)
++  real*4   code(206,2*MAXCALLS + 2 + MAXRPT)
++  real pp(2*MAXCALLS + 2 + MAXRPT)
++!  common/c3com/ mcall3a
++
++  data neme0/-99/
++  data rpt/'-01','-02','-03','-04','-05',          &amp;
++           '-06','-07','-08','-09','-10',          &amp;
++           '-11','-12','-13','-14','-15',          &amp;
++           '-16','-17','-18','-19','-20',          &amp;
++           '-21','-22','-23','-24','-25',          &amp;
++           '-26','-27','-28','-29','-30',          &amp;
++           'R-01','R-02','R-03','R-04','R-05',     &amp;
++           'R-06','R-07','R-08','R-09','R-10',     &amp;
++           'R-11','R-12','R-13','R-14','R-15',     &amp;
++           'R-16','R-17','R-18','R-19','R-20',     &amp;
++           'R-21','R-22','R-23','R-24','R-25',     &amp;
++           'R-26','R-27','R-28','R-29','R-30',     &amp;
++           'RO','RRR','73'/
++  save
++
++  if(mycall.eq.mycall0 .and. hiscall.eq.hiscall0 .and.         &amp;
++       hisgrid.eq.hisgrid0 .and. mcall3a.eq.0 .and. neme.eq.neme0) go to 30
++      
++  mcall3a=0
++  rewind 23
++  k=0
++  icall=0
++  do n=1,MAXCALLS
++     if(n.eq.1) then
++        callsign=hiscall
++        do i=4,12
++           if(ichar(callsign(i:i)).eq.0) callsign(i:i)=' '
++        enddo
++        grid=hisgrid(1:4)
++        if(ichar(grid(3:3)).eq.0) grid(3:3)=' '
++        if(ichar(grid(4:4)).eq.0) grid(4:4)=' '
++     else
++        read(23,1002,end=20) line
++1002    format (A80)
++        if(line(1:4).eq.'ZZZZ') go to 20
++        if(line(1:2).eq.'//') go to 10
++        i1=index(line,',')
++        if(i1.lt.4) go to 10
++        i2=index(line(i1+1:),',')
++        if(i2.lt.5) go to 10
++        i2=i2+i1
++        i3=index(line(i2+1:),',')
++        if(i3.lt.1) i3=index(line(i2+1:),' ')
++        i3=i2+i3
++        callsign=line(1:i1-1)
++        grid=line(i1+1:i2-1)
++        ceme=line(i2+1:i3-1)
++        if(neme.eq.1 .and. ceme.ne.'EME') go to 10
++     endif
++
++     icall=icall+1
++     j1=index(mycall,' ') - 1
++     if(j1.le.-1) j1=12
++     if(j1.lt.3) j1=6
++     j2=index(callsign,' ') - 1
++     if(j2.le.-1) j2=12
++     if(j2.lt.3) j2=6
++     j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
++     j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
++     callgrid(icall)=callsign(1:j2)
++
++     mz=1
++! Allow MyCall + HisCall + rpt (?)
++     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
++          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
++     do m=1,mz
++        if(m.gt.1) grid=rpt(m-1)
++        if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++        message=mycall(1:j1)//' '//callgrid(icall)
++        k=k+1
++        testmsg(k)=message
++        call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
++        if(n.ge.2) then
++! Insert CQ message
++           if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++           message='CQ '//callgrid(icall)
++           k=k+1
++           testmsg(k)=message
++           call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
++        endif
++     enddo
++10   continue
++  enddo
++
++20 continue
++  ntot=k
++  neme0=neme
++
++30 mycall0=mycall
++  hiscall0=hiscall
++  hisgrid0=hisgrid
++
++  sq=0.
++  do j=1,206
++     sq=sq + sym(j)**2
++  enddo
++  rms=sqrt(sq/206.0)
++  sym=sym/rms
++
++  p1=-1.e30
++  p2=-1.e30
++  do k=1,ntot
++     pp(k)=0.
++! Test all messages if flip=+1; skip the CQ messages if flip=-1.
++     if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
++        p=0.
++        do j=1,206
++           i=code(j,k)+1
++           p=p + code(j,k)*sym(j)
++        enddo
++        pp(k)=p
++        if(p.gt.p1) then
++           p1=p
++           ip1=k
++        endif
++     endif
++  enddo
++
++  do i=1,ntot
++     if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
++  enddo
++
++! ### DO NOT REMOVE ### 
++!  rewind 77
++!  write(77,*) p1,p2
++! ### Works OK without it (in both Windows and Linux) if compiled 
++! ### without optimization.  However, in Windows this is a colossal 
++! ### pain because of the way F2PY wants to run the compile step.
++
++
++  bias=1.1*p2
++!  if(mode65.eq.1) bias=max(1.12*p2,0.335)
++!  if(mode65.eq.2) bias=max(1.08*p2,0.405)
++!  if(mode65.ge.4) bias=max(1.04*p2,0.505)
++
++  if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep24'
++  qual=10.0*(p1-bias)
++
++  decoded='                      '
++  c=' '
++
++  if(qual.gt.1.0) then
++     if(qual.lt.6.0) c='?'
++     decoded=testmsg(ip1)
++  else
++     qual=0.
++  endif
++  decoded(22:22)=c
++
++! Make sure everything is upper case.
++  do i=1,22
++     if(decoded(i:i).ge.'a' .and. decoded(i:i).le.'z')                &amp;
++          decoded(i:i)=char(ichar(decoded(i:i))-32)
++  enddo
++
++!  write(*,3010) p1,p2,p1-p2,p1/p2,qual,decoded
++!3010 format('DS:',5f9.1,2x,a22)
++
++  return
++end subroutine deep24
+
+Modified: trunk/deep65.f90
+===================================================================
+--- trunk/deep65.f90	2013-01-23 19:54:54 UTC (rev 2970)
++++ trunk/deep65.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -38,6 +38,7 @@
+   rewind 23
+   k=0
+   icall=0
++  call cs_lock('deep65  ')
+   do n=1,MAXCALLS
+      if(n.eq.1) then
+         callsign=hiscall
+@@ -102,6 +103,7 @@
+   enddo
+ 
+ 20 continue
++  call cs_unlock
+   ntot=k
+   neme0=neme
+ 
+@@ -140,8 +142,10 @@
+   enddo
+ 
+ ! ### DO NOT REMOVE ### 
++  call cs_lock('deep65  ')
+   rewind 77
+   write(77,*) p1,p2
++  call cs_unlock
+ ! ### Works OK without it (in both Windows and Linux) if compiled 
+ ! ### without optimization.  However, in Windows this is a colossal 
+ ! ### pain because of the way F2PY wants to run the compile step.
+
+Added: trunk/encode4.f90
+===================================================================
+--- trunk/encode4.f90	                        (rev 0)
++++ trunk/encode4.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -0,0 +1,20 @@
++subroutine encode4(message,ncode)
++
++  parameter (MAXCALLS=7000,MAXRPT=63)
++  integer ncode(206)
++  character*22 message          !Message to be generated
++  character*3 cok               !'   ' or 'OOO'
++  integer dgen(13)
++  integer*1 data0(13),symbol(216)
++  logical text
++
++  call chkmsg(message,cok,nspecial,flip)
++  call packmsg(message,dgen,text)  !Pack 72-bit message into 12 six-bit symbols
++  call entail(dgen,data0)
++  call encode232(data0,206,symbol)       !Convolutional encoding
++  call interleave24(symbol,1)            !Apply JT4 interleaving
++  do i=1,206
++     ncode(i)=symbol(i)
++  enddo
++
++end subroutine encode4
+
+Added: trunk/extract4.f90
+===================================================================
+--- trunk/extract4.f90	                        (rev 0)
++++ trunk/extract4.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -0,0 +1,63 @@
++subroutine extract4(sym,nadd,ncount,decoded)
++
++  real sym(207)
++  character decoded*22, submode*1
++  character*72 c72
++  integer*1 symbol(207)
++  integer*1 data1(13)                   !Decoded data (8-bit bytes)
++  integer   data4a(9)                   !Decoded data (8-bit bytes)
++  integer   data4(12)                   !Decoded data (6-bit bytes)
++  integer mettab(0:255,0:1)             !Metric table
++  logical first
++  data first/.true./
++  save first,mettab
++
++  if(first) then
++     call getmet24(mode,mettab)
++     first=.false.
++  endif
++
++  do j=1,207
++     r=sym(j) + 128.
++     if(r.gt.255.0) r=255.0
++     if(r.lt.0.0) r=0.0
++     i4=nint(r)
++     if(i4.gt.127) i4=i4-256
++     symbol(j)=i4
++  enddo
++
++  nbits=72+31
++  ndelta=50
++  limit=100000
++  ncycles=0
++  ncount=-1
++  decoded='                      '
++  submode=' '
++
++  call interleave24(symbol(2),-1)         !Remove the interleaving
++  call fano232(symbol(2),nbits,mettab,ndelta,limit,data1,ncycles,metric,ncount)
++  nlim=ncycles/nbits
++
++  if(ncount.ge.0) then
++     do i=1,9
++        i4=data1(i)
++        if(i4.lt.0) i4=i4+256
++        data4a(i)=i4
++     enddo
++     call cs_lock('extract4')
++     write(c72,1100) (data4a(i),i=1,9)
++1100 format(9b8.8)
++     read(c72,1102) data4
++1102 format(12b6)
++     call cs_unlock
++
++     call unpackmsg(data4,decoded)
++     submode=char(ichar('A')+ich-1)
++     if(decoded(1:6).eq.'000AAA') then
++        decoded='***WRONG MODE?***'
++        ncount=-1
++     endif
++  endif
++
++  return
++end subroutine extract4
+
+Added: trunk/getmet24.f90
+===================================================================
+--- trunk/getmet24.f90	                        (rev 0)
++++ trunk/getmet24.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -0,0 +1,52 @@
++subroutine getmet24(mode,mettab)
++
++! Return appropriate metric table for soft-decision convolutional decoder.
++
++! Metric table (RxSymbol,TxSymbol)
++  integer mettab(0:255,0:1)
++  real*4 xx0(0:255)
++  data xx0/                                                      &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        0.988, 1.000, 0.991, 0.993, 1.000, 0.995, 1.000, 0.991,  &amp;
++        1.000, 0.991, 0.992, 0.991, 0.990, 0.990, 0.992, 0.996,  &amp;
++        0.990, 0.994, 0.993, 0.991, 0.992, 0.989, 0.991, 0.987,  &amp;
++        0.985, 0.989, 0.984, 0.983, 0.979, 0.977, 0.971, 0.975,  &amp;
++        0.974, 0.970, 0.970, 0.970, 0.967, 0.962, 0.960, 0.957,  &amp;
++        0.956, 0.953, 0.942, 0.946, 0.937, 0.933, 0.929, 0.920,  &amp;
++        0.917, 0.911, 0.903, 0.895, 0.884, 0.877, 0.869, 0.858,  &amp;
++        0.846, 0.834, 0.821, 0.806, 0.790, 0.775, 0.755, 0.737,  &amp;
++        0.713, 0.691, 0.667, 0.640, 0.612, 0.581, 0.548, 0.510,  &amp;
++        0.472, 0.425, 0.378, 0.328, 0.274, 0.212, 0.146, 0.075,  &amp;
++        0.000,-0.079,-0.163,-0.249,-0.338,-0.425,-0.514,-0.606,  &amp;
++       -0.706,-0.796,-0.895,-0.987,-1.084,-1.181,-1.280,-1.376,  &amp;
++       -1.473,-1.587,-1.678,-1.790,-1.882,-1.992,-2.096,-2.201,  &amp;
++       -2.301,-2.411,-2.531,-2.608,-2.690,-2.829,-2.939,-3.058,  &amp;
++       -3.164,-3.212,-3.377,-3.463,-3.550,-3.768,-3.677,-3.975,  &amp;
++       -4.062,-4.098,-4.186,-4.261,-4.472,-4.621,-4.623,-4.608,  &amp;
++       -4.822,-4.870,-4.652,-4.954,-5.108,-5.377,-5.544,-5.995,  &amp;
++       -5.632,-5.826,-6.304,-6.002,-6.559,-6.369,-6.658,-7.016,  &amp;
++       -6.184,-7.332,-6.534,-6.152,-6.113,-6.288,-6.426,-6.313,  &amp;
++       -9.966,-6.371,-9.966,-7.055,-9.966,-6.629,-6.313,-9.966,  &amp;
++       -5.858,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
++  save
++
++  bias=0.5
++  scale=10.0
++  do i=0,255
++     mettab(i,0)=nint(scale*(xx0(i)-bias))
++     if(i.ge.1) mettab(256-i,1)=mettab(i,0)
++  enddo
++
++  return
++end subroutine getmet24
++
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-23 19:54:54 UTC (rev 2970)
++++ trunk/wsjt.py	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -26,7 +26,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;9.3 r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;9.4 r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;WSJT Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -1901,7 +1901,7 @@
+             text.see(END)
+ #            text.configure(state=DISABLED)
+ 
+-            if mode.get()[:4]=='JT65':
++            if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4':
+                 try:
+                     f=open(appdir+'/decoded.ave',mode='r')
+                     lines=f.readlines()
+@@ -2838,7 +2838,7 @@
+ else:
+     stopmon()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSJT 9.3     by K1JT')
++root.title('  WSJT 9.4     by K1JT')
+ from WsjtMod import astro
+ from WsjtMod import specjt
+ 
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-23 19:54:54 UTC (rev 2970)
++++ trunk/wsjt1.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -230,8 +230,9 @@
+ 
+ ! Offset data by about 1 s.
+      jztest=165000
+-     if(jz.ge.jztest) call wsjt24(dat(4097),jz-4096,cfile6,             &amp;
++     if(jz.ge.jztest) call wsjt24(dat,jz,cfile6,                        &amp;
+           NClearAve,MinSigdB,DFTolerance,NFreeze,mode,mode4,            &amp;
++          mycall,hiscall,hisgrid,                                       &amp;
+           Nseg,MouseDF2,NAgain,idf,lumsg,lcum,nspecial,ndf,             &amp;
+           NSyncOK,ccf,psavg,ndiag)
+      goto 900
+
+Modified: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-23 19:54:54 UTC (rev 2970)
++++ trunk/wsjt24.f90	2013-01-24 14:13:17 UTC (rev 2971)
+@@ -1,30 +1,32 @@
+ subroutine wsjt24(dat,npts,cfile6,NClearAve,MinSigdB,                  &amp;
+-     DFTolerance,NFreeze,mode,mode4,Nseg,MouseDF,NAgain,               &amp;
++     DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,            &amp;
++     Nseg,MouseDF,NAgain,                                              &amp;
+      idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag)
+ 
+-! Orchestrates the process of decoding JT4 messages, using 
+-! data that have been 2x downsampled.  
++! Orchestrates the process of decoding JT4 messages, using data that 
++! have been 2x downsampled.  
++! No message averaging and no deep search, at present.
+ 
+   parameter (MAXAVE=120)
+-  real dat(npts)                        !Raw data
++  real dat(npts)                                     !Raw data
++  real*4 ccfblue(-5:540)                             !CCF in time
++  real*4 ccfred(-224:224)                            !CCF in frequency
+   integer DFTolerance
+   logical first
+   logical lcum
+   character decoded*22,cfile6*6,special*5,cooo*3
+   character*22 avemsg1,avemsg2,deepmsg
+-  character*69 line,ave1,ave2
++  character*77 line,ave1,ave2
+   character*1 csync,c1
+   character*12 mycall
+   character*12 hiscall
+   character*6 hisgrid
+   character submode*1
+-  real ccfblue(-5:540),ccfred(-224:224)
+-  real ccfbluesum(-5:540),ccfredsum(-224:224)
+-  common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  real*4 ccfbluesum(-5:540),ccfredsum(-224:224)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data first/.true./,ns10/0/,ns20/0/
+   save
+ 
+-  mode65=2
+   if(first) then
+      nsave=0
+      first=.false.
+@@ -35,6 +37,7 @@
+      if(nspecial.eq.999) go to 900        !Silence compiler warning
+   endif
+ 
++  ndepth=3                                !###
+   naggressive=0
+   if(ndepth.ge.2) naggressive=1
+   nq1=3
+@@ -53,7 +56,7 @@
+      ns20=0
+   endif
+ 
+-! Attempt to synchronize: look for sync tone, get DF and DT.
++! Attempt to synchronize: look for sync pattern, get DF and DT.
+   call sync24(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
+        mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
+ 
+@@ -89,13 +92,13 @@
+      cooo='O ?'
+   endif
+ 
+-  call decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,           &amp;
+-       ncount,deepmsg,qual,submode)
++  call decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,        &amp;
++       hisgrid,decoded,ncount,deepmsg,qual,submode)
+ 
+ 200 kvqual=0
+   if(ncount.ge.0) kvqual=1
+   nqual=qual
+-  if(ndiag.eq.0 .and. nqual.gt.10) nqual=10
++! if(ndiag.eq.0 .and. nqual.gt.10) nqual=10
+   if(nqual.ge.nq1 .and.kvqual.eq.0) decoded=deepmsg
+ 
+   ndf=nint(dfx)
+@@ -111,50 +114,49 @@
+   call cs_lock('wsjt24')
+   write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
+        csync,special,decoded(1:19),cooo,kvqual,nqual,submode
+-1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4,1x,a1)
++1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i3,i5,1x,a1)
+ 
+ ! Blank all end-of-line stuff if no decode
+   if(line(31:40).eq.'          ') line=line(:30)
+ 
+   if(lcum) write(21,1011) line
+-1011 format(a69)
+ 
+ ! Write decoded msg unless this is an &quot;Exclude&quot; request:
+   if(MinSigdB.lt.99) write(lumsg,1011) line
++1011 format(a77)
++  call cs_unlock
+ 
+-  if(nsave.ge.1) call avemsg65(1,mode65,ndepth,                      &amp;
++  if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
+        avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,     &amp;
+        ns1,ncount1)
+-  if(nsave.ge.1) call avemsg65(2,mode65,ndepth,                      &amp;
++  if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
+        avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,     &amp;
+        ns2,ncount2)
+   nqual1=qual1
+   nqual2=qual2
+-  if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
+-  if(ndiag.eq.0 .and. nqual2.gt.10) nqual2=10
++! if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
++! if(ndiag.eq.0 .and. nqual2.gt.10) nqual2=10
+   nc1=0
+   nc2=0
+   if(ncount1.ge.0) nc1=1
+   if(ncount2.ge.0) nc2=1
+ 
+-! Write the average line
+-!      if(ns1.ge.1 .and. ns1.ne.ns10) then
+-  if(ns1.ge.1) then
++  call cs_lock('wsjt24  ')
++  if(ns1.ge.1) then                            !Write the average line
+      if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
+-1021 format(a6,i3,i4,'/',i1,20x,a19,i8,i4)
++1021 format(a6,i3,i4,'/',i1,20x,a19,i7,i5)
+      if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
+           1,nused1,ns1,avemsg1,nc1,nqual1
+-1022 format(a6,i3,i4,'/',i2,19x,a19,i8,i4)
++1022 format(a6,i3,i4,'/',i2,19x,a19,i7,i5)
+      if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
+           avemsg1,nc1,nqual1
+-1023 format(a6,i3,i4,'/',i3,18x,a19,i8,i4)
++1023 format(a6,i3,i4,'/',i3,18x,a19,i7,i5)
+      if(lcum .and. (avemsg1.ne.'                  '))                &amp;
+           write(21,1011) ave1
+      ns10=ns1
+   endif
+ 
+ ! If Monitor segment #2 is available, write that line also
+-!      if(ns2.ge.1 .and. ns2.ne.ns20) then     !***Why the 2nd part?? ***
+   if(ns2.ge.1) then
+      if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
+      if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,       &amp;
+@@ -170,8 +172,6 @@
+   write(12,1011) ave1
+   write(12,1011) ave2
+   call flush(12)
+- 
+-  if(lumsg.ne.6) end file 11
+   call cs_unlock
+   
+ 900 continue
+@@ -179,19 +179,5 @@
+   ccfbluesum=ccfbluesum + ccfblue
+   ccfredsum=ccfredsum + ccfred
+ 
+-! This was for testing message averaging:
+-
+-!  rewind 71
+-!  rewind 72
+-!  do i=-5,540
+-!     write(71,3001) 0.2 + i*0.057143,ccfbluesum(i)
+-!3001 format(2f12.3)
+-!  enddo
+-!  do i=-224,224
+-!     write(72,3001) i*2.1875,ccfredsum(i)
+-!  enddo
+-!  call flush(71)
+-!  call flush(72)
+-
+   return
+ end subroutine wsjt24
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002662.html">[WSJT-SVN] r2970 - branches/wsjtx/lib
+</A></li>
+	<LI>Next message: <A HREF="002664.html">[WSJT-SVN] r2972 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2663">[ date ]</a>
+              <a href="thread.html#2663">[ thread ]</a>
+              <a href="subject.html#2663">[ subject ]</a>
+              <a href="author.html#2663">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

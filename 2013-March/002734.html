@@ -1,0 +1,359 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3042 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3042%20-%20branches/wsjtx&In-Reply-To=%3C20130310024512.BF82A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002733.html">
+   <LINK REL="Next"  HREF="002735.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3042 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3042%20-%20branches/wsjtx&In-Reply-To=%3C20130310024512.BF82A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3042 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Mar 10 03:45:12 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002733.html">[WSJT-SVN] r3041 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002735.html">[WSJT-SVN] r3043 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2734">[ date ]</a>
+              <a href="thread.html#2734">[ thread ]</a>
+              <a href="subject.html#2734">[ subject ]</a>
+              <a href="author.html#2734">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-10 03:45:12 +0100 (Sun, 10 Mar 2013)
+New Revision: 3042
+
+Added:
+   branches/wsjtx/libpskreporter.a
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Starting to implement uploading to PSKReporter.
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/devsetup.cpp	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -99,12 +99,11 @@
+   ui.idIntSpinBox-&gt;setValue(m_idInt);
+   ui.pttComboBox-&gt;setCurrentIndex(m_pttPort);
+   ui.saveDirEntry-&gt;setText(m_saveDir);
+-  ui.dxccEntry-&gt;setText(m_dxccPfx);
+   ui.comboBoxSndIn-&gt;setCurrentIndex(m_nDevIn);
+   ui.comboBoxSndOut-&gt;setCurrentIndex(m_nDevOut);
++  ui.cbPSKReporter-&gt;setChecked(m_pskReporter);
+   m_paInDevice=m_inDevList[m_nDevIn];
+   m_paOutDevice=m_outDevList[m_nDevOut];
+-
+ }
+ 
+ //------------------------------------------------------- accept()
+@@ -125,7 +124,6 @@
+   m_idInt=ui.idIntSpinBox-&gt;value();
+   m_pttPort=ui.pttComboBox-&gt;currentIndex();
+   m_saveDir=ui.saveDirEntry-&gt;text();
+-  m_dxccPfx=ui.dxccEntry-&gt;text();
+   m_nDevIn=ui.comboBoxSndIn-&gt;currentIndex();
+   m_paInDevice=m_inDevList[m_nDevIn];
+   m_nDevOut=ui.comboBoxSndOut-&gt;currentIndex();
+@@ -146,3 +144,8 @@
+   t=t.mid(0,4).toUpper()+t.mid(4,2).toLower();
+   ui.myGridEntry-&gt;setText(t);
+ }
++
++void DevSetup::on_cbPSKReporter_clicked(bool b)
++{
++  m_pskReporter=b;
++}
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/devsetup.h	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -23,20 +23,20 @@
+ 
+   bool    m_restartSoundIn;
+   bool    m_restartSoundOut;
++  bool    m_pskReporter;
+ 
+   QString m_myCall;
+   QString m_myGrid;
+   QString m_saveDir;
+   QString m_azelDir;
+-  QString m_dxccPfx;
+ 
+ public slots:
+   void accept();
+ 
+ private slots:
+   void on_myCallEntry_editingFinished();
+-
+   void on_myGridEntry_editingFinished();
++  void on_cbPSKReporter_clicked(bool checked);
+ 
+ private:
+   Ui::DialogSndCard ui;
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/devsetup.ui	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -224,66 +224,14 @@
+            &lt;/layout&gt;
+           &lt;/item&gt;
+           &lt;item&gt;
+-           &lt;spacer name=&quot;horizontalSpacer_2&quot;&gt;
+-            &lt;property name=&quot;orientation&quot;&gt;
+-             &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-            &lt;/property&gt;
+-            &lt;property name=&quot;sizeType&quot;&gt;
+-             &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
+-            &lt;/property&gt;
+-            &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-             &lt;size&gt;
+-              &lt;width&gt;40&lt;/width&gt;
+-              &lt;height&gt;20&lt;/height&gt;
+-             &lt;/size&gt;
+-            &lt;/property&gt;
+-           &lt;/spacer&gt;
++           &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_4&quot;/&gt;
+           &lt;/item&gt;
+           &lt;item&gt;
+-           &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_4&quot;&gt;
+-            &lt;item&gt;
+-             &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
+-              &lt;property name=&quot;minimumSize&quot;&gt;
+-               &lt;size&gt;
+-                &lt;width&gt;0&lt;/width&gt;
+-                &lt;height&gt;20&lt;/height&gt;
+-               &lt;/size&gt;
+-              &lt;/property&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;DXCC:&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/widget&gt;
+-            &lt;/item&gt;
+-            &lt;item&gt;
+-             &lt;spacer name=&quot;verticalSpacer&quot;&gt;
+-              &lt;property name=&quot;orientation&quot;&gt;
+-               &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-              &lt;/property&gt;
+-              &lt;property name=&quot;sizeType&quot;&gt;
+-               &lt;enum&gt;QSizePolicy::Expanding&lt;/enum&gt;
+-              &lt;/property&gt;
+-              &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-               &lt;size&gt;
+-                &lt;width&gt;20&lt;/width&gt;
+-                &lt;height&gt;20&lt;/height&gt;
+-               &lt;/size&gt;
+-              &lt;/property&gt;
+-             &lt;/spacer&gt;
+-            &lt;/item&gt;
+-           &lt;/layout&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+            &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_5&quot;&gt;
+             &lt;item&gt;
+-             &lt;widget class=&quot;QLineEdit&quot; name=&quot;dxccEntry&quot;&gt;
+-              &lt;property name=&quot;maximumSize&quot;&gt;
+-               &lt;size&gt;
+-                &lt;width&gt;60&lt;/width&gt;
+-                &lt;height&gt;16777215&lt;/height&gt;
+-               &lt;/size&gt;
+-              &lt;/property&gt;
++             &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbPSKReporter&quot;&gt;
+               &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;PJ9&lt;/string&gt;
++               &lt;string&gt;ENable PSK Reporter&lt;/string&gt;
+               &lt;/property&gt;
+              &lt;/widget&gt;
+             &lt;/item&gt;
+
+Added: branches/wsjtx/libpskreporter.a
+===================================================================
+(Binary files differ)
+
+
+Property changes on: branches/wsjtx/libpskreporter.a
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/mainwindow.cpp	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -218,6 +218,28 @@
+   if(ui-&gt;actionCuteSDR-&gt;isChecked()) on_actionCuteSDR_triggered();
+   if(ui-&gt;actionAFMHot-&gt;isChecked()) on_actionAFMHot_triggered();
+   if(ui-&gt;actionBlue-&gt;isChecked()) on_actionBlue_triggered();
++
++  /*
++  if(m_pskReporter) {
++    int rc=0;
++    rc=ReporterInitialize(NULL,NULL);
++    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_pskReporter &lt;&lt; rc;
++
++    wchar_t buffer[256];
++    rc=ReporterGetInformation(buffer,256);
++    qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; rc &lt;&lt; QString::fromStdWString(buffer);
++
++    const wchar_t* tremote=L&quot;call\0W8WNA\0gridsquare\0EM77\0freq\050280000\0mode\0JT9\0snr\0-17\0\0&quot;;
++    const wchar_t* tlocal=L&quot;station_callsign\0K1JT\0my_gridsquare\0FN20qi\0programid\0WSJT-X\0\0&quot;;
++    int flags=REPORTER_SOURCE_AUTOMATIC | REPORTER_SOURCE_TEST;
++    rc=ReporterSeenCallsign(tremote,tlocal,flags);
++    rc=ReporterGetInformation(buffer,256);
++    qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; rc &lt;&lt; QString::fromStdWString(buffer);
++    rc=ReporterUninitialize();
++    qDebug() &lt;&lt; &quot;D&quot; &lt;&lt; rc;
++  }
++  */
++
+ }                                          // End of MainWindow constructor
+ 
+ //--------------------------------------------------- MainWindow destructor
+@@ -263,7 +285,6 @@
+   settings.setValue(&quot;IDint&quot;,m_idInt);
+   settings.setValue(&quot;PTTport&quot;,m_pttPort);
+   settings.setValue(&quot;SaveDir&quot;,m_saveDir);
+-  settings.setValue(&quot;DXCCpfx&quot;,m_dxccPfx);
+   settings.setValue(&quot;SoundInIndex&quot;,m_nDevIn);
+   settings.setValue(&quot;paInDevice&quot;,m_paInDevice);
+   settings.setValue(&quot;SoundOutIndex&quot;,m_nDevOut);
+@@ -285,6 +306,7 @@
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
+   settings.setValue(&quot;Tol&quot;,m_tol);
+   settings.setValue(&quot;InGain&quot;,m_inGain);
++  settings.setValue(&quot;PSKReporter&quot;,m_pskReporter);
+   settings.endGroup();
+ }
+ 
+@@ -310,7 +332,6 @@
+   m_idInt=settings.value(&quot;IDint&quot;,0).toInt();
+   m_pttPort=settings.value(&quot;PTTport&quot;,0).toInt();
+   m_saveDir=settings.value(&quot;SaveDir&quot;,m_appDir + &quot;/save&quot;).toString();
+-  m_dxccPfx=settings.value(&quot;DXCCpfx&quot;,&quot;&quot;).toString();
+   m_nDevIn = settings.value(&quot;SoundInIndex&quot;, 0).toInt();
+   m_paInDevice = settings.value(&quot;paInDevice&quot;,0).toInt();
+   m_nDevOut = settings.value(&quot;SoundOutIndex&quot;, 0).toInt();
+@@ -348,6 +369,7 @@
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
+   m_monitorStartOFF=settings.value(&quot;MonitorOFF&quot;,false).toBool();
+   ui-&gt;actionMonitor_OFF_at_startup-&gt;setChecked(m_monitorStartOFF);
++  m_pskReporter=settings.value(&quot;PSKReporter&quot;,false).toBool();
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -434,9 +456,9 @@
+   dlg.m_idInt=m_idInt;
+   dlg.m_pttPort=m_pttPort;
+   dlg.m_saveDir=m_saveDir;
+-  dlg.m_dxccPfx=m_dxccPfx;
+   dlg.m_nDevIn=m_nDevIn;
+   dlg.m_nDevOut=m_nDevOut;
++  dlg.m_pskReporter=m_pskReporter;
+ 
+   dlg.initDlg();
+   if(dlg.exec() == QDialog::Accepted) {
+@@ -445,11 +467,11 @@
+     m_idInt=dlg.m_idInt;
+     m_pttPort=dlg.m_pttPort;
+     m_saveDir=dlg.m_saveDir;
+-    m_dxccPfx=dlg.m_dxccPfx;
+     m_nDevIn=dlg.m_nDevIn;
+     m_paInDevice=dlg.m_paInDevice;
+     m_nDevOut=dlg.m_nDevOut;
+     m_paOutDevice=dlg.m_paOutDevice;
++    m_pskReporter=dlg.m_pskReporter;
+ 
+     if(dlg.m_restartSoundIn) {
+       soundInThread.quit();
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/mainwindow.h	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -6,6 +6,7 @@
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
++#include &quot;PSKReporter.h&quot;
+ 
+ //--------------------------------------------------------------- MainWindow
+ namespace Ui {
+@@ -159,6 +160,7 @@
+     bool    m_bsynced;
+     bool    m_bdecoded;
+     bool    m_monitorStartOFF;
++    bool    m_pskReporter;
+ 
+     char    m_decoded[80];
+ 
+@@ -223,6 +225,7 @@
+                    int minChan[], int maxChan[],
+                    int minSpeed[], int maxSpeed[]);
+ extern int ptt(int nport, int itx, int* iptt);
++//extern int ReporterInitialize(char* hostname, char* port);
+ 
+ 
+ extern &quot;C&quot; {
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-03-08 21:09:52 UTC (rev 3041)
++++ branches/wsjtx/wsjtx.pro	2013-03-10 02:45:12 UTC (rev 3042)
+@@ -63,6 +63,7 @@
+ INCLUDEPATH += c:/qwt-6.0.1/include
+ LIBS += ../wsjtx/lib/libjt9.a
+ LIBS += ../wsjtx/libfftw3f_win.a
++LIBS += ../wsjtx/libpskreporter.a
+ LIBS += ../QtSupport/palir-02.dll
+ LIBS += libwsock32
+ LIBS += C:/MinGW/lib/libf95.a
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002733.html">[WSJT-SVN] r3041 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002735.html">[WSJT-SVN] r3043 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2734">[ date ]</a>
+              <a href="thread.html#2734">[ thread ]</a>
+              <a href="subject.html#2734">[ subject ]</a>
+              <a href="author.html#2734">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,541 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3083 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3083%20-%20branches/wsjtx&In-Reply-To=%3C20130324172927.1E7C555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002773.html">
+   <LINK REL="Next"  HREF="002776.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3083 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3083%20-%20branches/wsjtx&In-Reply-To=%3C20130324172927.1E7C555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3083 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Mar 24 18:29:26 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002773.html">[WSJT-SVN] r3082 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002776.html">[WSJT-SVN] r3084 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2775">[ date ]</a>
+              <a href="thread.html#2775">[ thread ]</a>
+              <a href="subject.html#2775">[ subject ]</a>
+              <a href="author.html#2775">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-24 18:29:26 +0100 (Sun, 24 Mar 2013)
+New Revision: 3083
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+Continuing to work on Rig Control.
+Changed &quot;Tx = QSO Freq&quot; button to a band-change ComboBox.
+Rig control of frequency setting and T/R now works on TS-2000.
+T/R sequencing is not yet correct, but I thimnk it still works OK in the 
+DTR/RTS switching mode.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-24 15:01:36 UTC (rev 3082)
++++ branches/wsjtx/mainwindow.cpp	2013-03-24 17:29:26 UTC (rev 3083)
+@@ -16,7 +16,8 @@
+ bool btxok;                           //True if OK to transmit
+ bool btxMute;
+ double outputLatency;                 //Latency in seconds
+-//float c0[2*1800*1500];
++double dFreq[]={0.136,0.4742,1.838,3.578,5.2872,7.078,10.130,14.078,
++           18.1046,21.078,24.9246,28.078,50.293,70.091,144.489,0.0};
+ 
+ WideGraph* g_pWideGraph = NULL;
+ QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
+@@ -100,6 +101,12 @@
+   QTimer *guiTimer = new QTimer(this);
+   connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
++  ptt0Timer = new QTimer(this);
++  ptt0Timer-&gt;setSingleShot(true);
++  connect(ptt0Timer, SIGNAL(timeout()), this, SLOT(stopTx2()));
++  ptt1Timer = new QTimer(this);
++  ptt1Timer-&gt;setSingleShot(true);
++  connect(ptt1Timer, SIGNAL(timeout()), this, SLOT(startTx2()));
+ 
+   m_auto=false;
+   m_waterfallAvg = 1;
+@@ -901,7 +908,6 @@
+ 
+ void MainWindow::diskWriteFinished()                       //diskWriteFinished
+ {
+-//  qDebug() &lt;&lt; &quot;diskWriteFinished&quot;;
+ }
+ 
+ //Delete ../save/*.wav
+@@ -1202,7 +1208,7 @@
+ void MainWindow::guiUpdate()
+ {
+   static int iptt0=0;
+-  static int iptt=0;
++//  static int iptt=0;
+   static bool btxok0=false;
+   static int nc0=1;
+   static int nc1=1;
+@@ -1231,24 +1237,25 @@
+     if(f.exists() and fmod(tsec,m_TRperiod)&lt;1.0 + 85.0*m_nsps/12000.0)
+       bTxTime=true;
+ 
+-    if(bTxTime and iptt==0 and !btxMute) { 
+-/*
++    if(bTxTime and m_iptt==0 and !btxMute) {
++#define NEW
++#ifdef NEW
+       //Raise PTT
+       if(m_pttMethodIndex==0) {
+         m_cmnd=rig_command() + &quot; T 1&quot;;
+         p3.start(m_cmnd);
+         p3.waitForFinished();
++        m_iptt=1;
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+           ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
+ //        ptt(m_pttPort,1,&amp;m_iptt);
+       }
+-      qDebug() &lt;&lt; &quot;ptt1Timer A&quot;;
++//      qDebug() &lt;&lt; &quot;ptt1Timer&quot; &lt;&lt; m_iptt;
+       ptt1Timer-&gt;start(200);                       //Sequencer delay
+-*/
+-
++#else
+       int itx=1;
+-      ptt(m_pttPort,itx,&amp;iptt,&amp;m_COMportOpen);       // Raise PTT
++      ptt(m_pttPort,itx,&amp;m_iptt,&amp;m_COMportOpen);       // Raise PTT
+       if(!soundOutThread.isRunning()) {
+         QString t=ui-&gt;tx6-&gt;text();
+         double snr=t.mid(1,5).toDouble();
+@@ -1256,7 +1263,7 @@
+         soundOutThread.setTxSNR(snr);
+         soundOutThread.start(QThread::HighPriority);
+       }
+-
++#endif
+     }
+     if(!bTxTime || btxMute) {
+       btxok=false;
+@@ -1264,7 +1271,7 @@
+   }
+ 
+ // Calculate Tx tones when needed
+-  if((iptt==1 &amp;&amp; iptt0==0) || m_restart) {
++  if((m_iptt==1 &amp;&amp; iptt0==0) || m_restart) {
+     QByteArray ba;
+     if(m_ntx == 1) ba=ui-&gt;tx1-&gt;text().toLocal8Bit();
+     if(m_ntx == 2) ba=ui-&gt;tx2-&gt;text().toLocal8Bit();
+@@ -1314,7 +1321,7 @@
+   }
+ 
+ // If PTT was just raised, start a countdown for raising TxOK:
+-  if(iptt==1 &amp;&amp; iptt0==0) nc1=-9;    // TxDelay = 0.8 s
++  if(m_iptt==1 &amp;&amp; iptt0==0) nc1=-9;    // TxDelay = 0.8 s
+   if(nc1 &lt;= 0) nc1++;
+   if(nc1 == 0) {
+     ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
+@@ -1331,14 +1338,18 @@
+     f.close();
+   }
+ 
++//###
++  if(!btxok &amp;&amp; btxok0 &amp;&amp; m_iptt==1) stopTx();
++
+ // If btxok was just lowered, start a countdown for lowering PTT
+-  if(!btxok &amp;&amp; btxok0 &amp;&amp; iptt==1) nc0=-11;  //RxDelay = 1.0 s
++  if(!btxok &amp;&amp; btxok0 &amp;&amp; m_iptt==1) nc0=-11;  //RxDelay = 1.0 s
+   if(nc0 &lt;= 0) {
+     nc0++;
+   }
+   if(nc0 == 0) {
+ 
+-    /*
++#ifdef NEW
++
+     //Lower PTT
+       if(m_pttMethodIndex==0) {
+         m_cmnd=rig_command() + &quot; T 0&quot;;
+@@ -1347,12 +1358,10 @@
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+         ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+-//        ptt(m_pttPort,0,&amp;m_iptt);
+       }
+-      */
+-
++#else
+     int itx=0;
+-    ptt(m_pttPort,itx,&amp;iptt,&amp;m_COMportOpen);       // Lower PTT
++    ptt(m_pttPort,itx,&amp;m_iptt,&amp;m_COMportOpen);       // Lower PTT
+ 
+     if(!btxMute) soundOutThread.quitExecution=true;
+     m_transmitting=false;
+@@ -1360,9 +1369,10 @@
+       m_monitoring=true;
+       soundInThread.setMonitoring(m_monitoring);
+     }
++#endif
+   }
+ 
+-  if(iptt == 0 &amp;&amp; !btxok) {
++  if(m_iptt == 0 &amp;&amp; !btxok) {
+     // sending=&quot;&quot;
+     // nsendingsh=0
+   }
+@@ -1412,7 +1422,7 @@
+     m_sec0=nsec;
+ 
+   }
+-  iptt0=iptt;
++  iptt0=m_iptt;
+   btxok0=btxok;
+ }
+ 
+@@ -1427,6 +1437,65 @@
+   return cmnd1+cmnd2;
+ }
+ 
++void MainWindow::startTx2()
++{
++  if(!soundOutThread.isRunning()) {
++//    qDebug() &lt;&lt; &quot;startTx2&quot;;
++
++    if(!soundOutThread.isRunning()) {
++      QString t=ui-&gt;tx6-&gt;text();
++      double snr=t.mid(1,5).toDouble();
++      if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
++      soundOutThread.setTxSNR(snr);
++      soundOutThread.start(QThread::HighPriority);
++    }
++
++    ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
++    m_monitoring=false;
++    soundInThread.setMonitoring(false);
++    btxok=true;
++    m_transmitting=true;
++//    qDebug() &lt;&lt; btxok &lt;&lt; m_transmitting &lt;&lt; m_monitoring;
++/*
++    QFile f(&quot;ALL.TXT&quot;);
++    f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
++    QTextStream out(&amp;f);
++    out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
++        &lt;&lt; &quot;  Transmitting:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
++    f.close();
++*/
++    m_transmitting=true;
++  }
++}
++
++void MainWindow::stopTx()
++{
++  if (soundOutThread.isRunning()) {
++    soundOutThread.quitExecution=true;
++    soundOutThread.wait(3000);
++  }
++  m_transmitting=false;
++  m_iptt=0;
++  lab1-&gt;setStyleSheet(&quot;&quot;);
++  lab1-&gt;setText(&quot;&quot;);
++  ptt0Timer-&gt;start(200);                       //Sequencer delay
++  m_monitoring=true;
++  soundInThread.setMonitoring(true);
++}
++
++void MainWindow::stopTx2()
++{
++//Lower PTT
++  if(m_pttMethodIndex==0) {
++    m_cmnd=rig_command() + &quot; T 0&quot;;
++    p3.start(m_cmnd);
++    p3.waitForFinished();
++  }
++  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
++    ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
++  }
++}
++
+ void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
+ {
+   bool eom;
+@@ -1934,13 +2003,6 @@
+   soundOutThread.setTxFreq(n);
+ }
+ 
+-void MainWindow::on_pbTxFreq_clicked()
+-{
+-  int ntx=g_pWideGraph-&gt;QSOfreq();
+-  m_txFreq=ntx;
+-  ui-&gt;TxFreqSpinBox-&gt;setValue(ntx);
+-}
+-
+ void MainWindow::on_actionQuickDecode_triggered()
+ {
+   m_ndepth=1;
+@@ -2071,3 +2133,19 @@
+ {
+   m_dBtoComments=checked;
+ }
++
++void MainWindow::on_bandComboBox_currentIndexChanged(int index)
++{
++  m_band=index;
++  m_dialFreq=dFreq[index];
++  if(g_pWideGraph!=NULL) g_pWideGraph-&gt;setDialFreq(m_dialFreq);
++  if(m_catEnabled) {
++    int nHz=int(1000000.0*m_dialFreq + 0.5);
++    QString cmnd1,cmnd3;
++    cmnd1=rig_command();
++    cmnd3.sprintf(&quot; F %d&quot;,nHz);
++    m_cmnd=cmnd1 + cmnd3;
++    p3.start(m_cmnd);
++    p3.waitForFinished();
++  }
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-24 15:01:36 UTC (rev 3082)
++++ branches/wsjtx/mainwindow.h	2013-03-24 17:29:26 UTC (rev 3083)
+@@ -101,7 +101,6 @@
+   void on_NBcheckBox_toggled(bool checked);
+   void on_NBslider_valueChanged(int value);
+   void on_TxFreqSpinBox_valueChanged(int arg1);
+-  void on_pbTxFreq_clicked();
+   void on_actionSave_synced_triggered();
+   void on_actionSave_decoded_triggered();
+   void on_actionQuickDecode_triggered();
+@@ -127,7 +126,12 @@
+   void on_actionConvert_JT9_x_to_RTTY_triggered(bool checked);
+   void on_actionLog_JT9_without_submode_triggered(bool checked);
+   void on_actionLog_dB_reports_to_Comments_triggered(bool checked);
++  void startTx2();
++  void stopTx();
++  void stopTx2();
+ 
++  void on_bandComboBox_currentIndexChanged(int index);
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -174,6 +178,7 @@
+     qint32  m_secID;
+     qint32  m_COMportOpen;
+     qint32  m_iptt;
++    qint32  m_band;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+@@ -228,6 +233,9 @@
+     QProcess proc_jt9;
+     QProcess p3;
+ 
++    QTimer* ptt0Timer;
++    QTimer* ptt1Timer;
++
+     QString m_path;
+     QString m_pbdecoding_style1;
+     QString m_pbmonitor_style;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-03-24 15:01:36 UTC (rev 3082)
++++ branches/wsjtx/mainwindow.ui	2013-03-24 17:29:26 UTC (rev 3083)
+@@ -878,25 +878,6 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;2&quot; column=&quot;8&quot;&gt;
+-         &lt;widget class=&quot;QPushButton&quot; name=&quot;pbTxFreq&quot;&gt;
+-          &lt;property name=&quot;sizePolicy&quot;&gt;
+-           &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+-            &lt;horstretch&gt;0&lt;/horstretch&gt;
+-            &lt;verstretch&gt;0&lt;/verstretch&gt;
+-           &lt;/sizepolicy&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;minimumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;100&lt;/width&gt;
+-            &lt;height&gt;0&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Tx = QSO Freq&lt;/string&gt;
+-          &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+         &lt;item row=&quot;5&quot; column=&quot;5&quot; rowspan=&quot;2&quot; colspan=&quot;2&quot;&gt;
+          &lt;widget class=&quot;QLabel&quot; name=&quot;labUTC&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -1551,6 +1532,93 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
++        &lt;item row=&quot;2&quot; column=&quot;8&quot;&gt;
++         &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;&gt;
++          &lt;property name=&quot;currentIndex&quot;&gt;
++           &lt;number&gt;7&lt;/number&gt;
++          &lt;/property&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;2200 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;630 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;160 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;80 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;60 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;40 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;30 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;20 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;17 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;15 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;12 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;10 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;6 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;4 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;2 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Other&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
+        &lt;/layout&gt;
+       &lt;/item&gt;
+      &lt;/layout&gt;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-03-24 15:01:36 UTC (rev 3082)
++++ branches/wsjtx/widegraph.cpp	2013-03-24 17:29:26 UTC (rev 3083)
+@@ -259,6 +259,13 @@
+   ui-&gt;widePlot-&gt;setTxFreq(n);
+ }
+ 
++void WideGraph::setDialFreq(double f)
++{
++  m_dialFreq=f;
++  ui-&gt;fDialLineEdit-&gt;setText(QString::number(m_dialFreq));
++  emit dialFreqChanged(m_dialFreq);
++}
++
+ void WideGraph::on_spec2dComboBox_currentIndexChanged(const QString &amp;arg1)
+ {
+   ui-&gt;widePlot-&gt;m_bCurrent=false;
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2013-03-24 15:01:36 UTC (rev 3082)
++++ branches/wsjtx/widegraph.h	2013-03-24 17:29:26 UTC (rev 3083)
+@@ -31,6 +31,7 @@
+   void   setTxFreq(int n);
+   double fGreen();
+   double dialFreq();
++  void   setDialFreq(double freq);
+ 
+   qint32 m_qsoFreq;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002773.html">[WSJT-SVN] r3082 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002776.html">[WSJT-SVN] r3084 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2775">[ date ]</a>
+              <a href="thread.html#2775">[ thread ]</a>
+              <a href="subject.html#2775">[ subject ]</a>
+              <a href="author.html#2775">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,542 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2712 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2712%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121101195441.278D355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002405.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2712 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2712%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121101195441.278D355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2712 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Nov  1 20:54:40 CET 2012</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002405.html">[WSJT-SVN] r2713 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2404">[ date ]</a>
+              <a href="thread.html#2404">[ thread ]</a>
+              <a href="subject.html#2404">[ subject ]</a>
+              <a href="author.html#2404">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-01 20:54:40 +0100 (Thu, 01 Nov 2012)
+New Revision: 2712
+
+Modified:
+   branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+   branches/wsjtx/getfile.cpp
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/wsjtx.iss
+Log:
+Updates to Users Guide.
+Double-click on waterfall sets Tol to a reduced (mode-dependent) value.
+Tol is saved/restored on program restart.
+Added digital gain slider for setting input level.
+Garbage decode &quot;15P6715P67WCV&quot; is rejected.
+Arrays ss and c0 are copied and saved when newdat=1.  Further processing is
+done on the copies.
+
+
+Modified: branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/getfile.cpp
+===================================================================
+--- branches/wsjtx/getfile.cpp	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/getfile.cpp	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -24,6 +24,7 @@
+     fread(jt9com_.d2,1,44,fp);
+     int nrd=fread(jt9com_.d2,2,npts,fp);
+     fclose(fp);
++    jt9com_.newdat=1;
+   }
+ }
+ 
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/lib/decode9.f90	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -83,6 +83,7 @@
+      call packbits(i1DecodedBits,12,6,i4Decoded6BitWords)
+      call unpackmsg(i4Decoded6BitWords,msg)                !Unpack decoded msg
+      if(index(msg,'000AAA ').gt.0) msg='                      '
++     if(index(msg,'15P6715P67WCV').gt.0) msg='                      '
+   endif
+ 
+   return
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/lib/decoder.f90	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ntrSeconds,ndepth,nRxLog,c0)
++subroutine decoder(ntrSeconds,ndepth,nRxLog,c00)
+ 
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+@@ -13,13 +13,21 @@
+   real*4 ccfred(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+-  complex c0(NDMAX)
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
+-       ntr,nfqso,nagain,newdat,npts8,nfb,ntol,kin,nsynced,ndecoded
++  complex c0(NDMAX),c00(NDMAX)
++  common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
++       ntr,nfqso,nagain,newdat,npts80,nfb,ntol,kin,nsynced,ndecoded
++  common/jt9comB/ss(184,NSMAX),c0
+   logical first
+   data first/.true./
+   save
+ 
++  if(newdat.ne.0) then
++     ss=ss0
++     c0=c00
++     nutc=nutc0
++     npts8=npts80
++  endif
++
+   ntrMinutes=ntrSeconds/60
+   newdat=1
+   nsynced=0
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/lib/jt9sim.f90	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -140,15 +140,15 @@
+         enddo
+         call unpackbits(i4DataSymNoGray,69,3,i1ScrambledBits)
+         call interleave9(i1ScrambledBits,-1,i1Bits)
+-
++ 
+         do i=1,206
+            i4=-10
+            if(i1Bits(i).eq.1) i4=10
+            i4=i4+128
+            i1SoftSymbols(i)=i1
+         enddo
+-
+-        call decode9(i1SoftSymbols,msg)
++        limit=1000
++        call decode9(i1SoftSymbols,limit,nlim,msg)
+         if(msg.ne.msg0) print*,'Decode error: ',msg0,' ',msg
+      endif
+   enddo
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/lib/symspec.f90	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,ntrperiod,nsps,nb,nbslider,pxdb,s,red,    &amp;
++subroutine symspec(k,ntrperiod,nsps,ingain,nb,nbslider,pxdb,s,red,    &amp;
+      df3,ihsym,nzap,slimit,lstrong,c0,npts8)
+ 
+ ! Input:
+@@ -82,10 +82,11 @@
+   if(nwindow.ne.0) kstep1=NFFT1/2
+   fac=2.0/NFFT1
+   nblks=(k-k1)/kstep1
++  gain=10.0**(0.05*ingain)
+   do nblk=1,nblks
+      j=k1+1
+      do i=1,NFFT1
+-        x0(i)=id2(k1+i)
++        x0(i)=gain*id2(k1+i)
+      enddo
+      call timf2(x0,k,NFFT1,nwindow,nb,peaklimit,x1,   &amp;
+           slimit,lstrong,px,nzap)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/mainwindow.cpp	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -113,6 +113,8 @@
+   m_NB=false;
+   m_mode=&quot;JT9-1&quot;;
+   m_TRperiod=60;
++  m_inGain=0;
++  m_dataAvailable=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -159,8 +161,11 @@
+   m_monitoring=true;                           // Start with Monitoring ON
+   soundInThread.setMonitoring(m_monitoring);
+   m_diskData=false;
+-  m_tol=50;
+   g_pWideGraph-&gt;setTol(m_tol);
++  static int ntol[] = {1,2,5,10,20,50,100,200,500,1000};
++  for (int i=0; i&lt;10; i++) {
++    if(ntol[i]==m_tol) ui-&gt;tolSpinBox-&gt;setValue(i);
++  }
+ 
+ // Create &quot;m_worked&quot;, a dictionary of all calls in wsjt.log
+   QFile f(&quot;wsjt.log&quot;);
+@@ -240,6 +245,8 @@
+   settings.setValue(&quot;NB&quot;,m_NB);
+   settings.setValue(&quot;NBslider&quot;,m_NBslider);
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
++  settings.setValue(&quot;Tol&quot;,m_tol);
++  settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.endGroup();
+ }
+ 
+@@ -296,6 +303,9 @@
+   m_saveDecoded=ui-&gt;actionSave_decoded-&gt;isChecked();
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,0).toInt();
++  m_tol=settings.value(&quot;Tol&quot;,5).toInt();
++  m_inGain=settings.value(&quot;InGain&quot;,0).toInt();
++  ui-&gt;inGain-&gt;setValue(m_inGain);
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
+   settings.endGroup();
+ 
+@@ -340,7 +350,7 @@
+   nb=0;
+   if(m_NB) nb=1;
+   trmin=m_TRperiod/60;
+-  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
++  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;m_inGain, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
+            &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, c0, &amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+@@ -380,6 +390,7 @@
+   }
+   // This is a bit strange.  Why do we need the &quot;-3&quot; ???
+   if(ihsym == m_hsymStop-3) {
++    m_dataAvailable=true;
+     jt9com_.npts8=(ihsym*m_nsps)/16;
+     jt9com_.newdat=1;
+     jt9com_.nagain=0;
+@@ -731,6 +742,7 @@
+ 
+ void MainWindow::decoderFinished()                       //decoderFinished
+ {
++  jt9com_.newdat=0;
+   QFile f(&quot;decoded.txt&quot;);
+   f.open(QIODevice::ReadOnly);
+   QTextStream in(&amp;f);
+@@ -834,15 +846,26 @@
+ 
+ void MainWindow::freezeDecode(int n)                          //freezeDecode()
+ {
++  static int ntol[] = {1,2,5,10,20,50,100,200,500,1000};
+   if(!m_decoderBusy) {
+     jt9com_.newdat=0;
+     jt9com_.nagain=1;
++    int i;
++    if(m_mode==&quot;JT9-1&quot;) i=4;
++    if(m_mode==&quot;JT9-2&quot;) i=4;
++    if(m_mode==&quot;JT9-5&quot;) i=3;
++    if(m_mode==&quot;JT9-10&quot;) i=2;
++    if(m_mode==&quot;JT9-30&quot;) i=1;
++    m_tol=ntol[i];
++    g_pWideGraph-&gt;setTol(m_tol);
++    ui-&gt;tolSpinBox-&gt;setValue(i);
+     decode();
+   }
+ }
+ 
+ void MainWindow::decode()                                       //decode()
+ {
++  if(!m_dataAvailable) return;
+   decodeBusy(true);
+   ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+ 
+@@ -855,8 +878,6 @@
+     jt9com_.nutc=100*ihr + imin;
+   }
+ 
+-//  jt9com_.newdat=1;
+-//  jt9com_.nagain=0;
+   jt9com_.nfqso=g_pWideGraph-&gt;QSOfreq();
+   m_tol=g_pWideGraph-&gt;Tol();
+   jt9com_.ntol=m_tol;
+@@ -1561,3 +1582,8 @@
+   m_ndepth=3;
+   ui-&gt;actionDeepestDecode-&gt;setChecked(true);
+ }
++
++void MainWindow::on_inGain_valueChanged(int n)
++{
++  m_inGain=n;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/mainwindow.h	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -105,16 +105,12 @@
+   void on_NBslider_valueChanged(int value);
+   void on_TxFreqSpinBox_valueChanged(int arg1);
+   void on_pbTxFreq_clicked();
+-
+   void on_actionSave_synced_triggered();
+-
+   void on_actionSave_decoded_triggered();
+-
+   void on_actionQuickDecode_triggered();
+-
+   void on_actionMediumDecode_triggered();
+-
+   void on_actionDeepestDecode_triggered();
++  void on_inGain_valueChanged(int n);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -142,6 +138,7 @@
+     qint32  m_nsps;
+     qint32  m_hsymStop;
+     qint32  m_len1;
++    qint32  m_inGain;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+@@ -161,6 +158,7 @@
+     bool    m_kb8rq;
+     bool    m_NB;
+     bool    m_call3Modified;
++    bool    m_dataAvailable;
+ 
+     char    m_decoded[80];
+ 
+@@ -228,10 +226,10 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* ntrperiod, int* nsps, int* nb, int* m_NBslider,
+-              float* px, float s[], float red[], float* df3, int* nhsym,
+-              int* nzap, float* slimit, uchar lstrong[], float c0[],
+-              int* npts8);
++void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, int* nb,
++              int* m_NBslider, float* px, float s[], float red[],
++              float* df3, int* nhsym, int* nzap, float* slimit,
++              uchar lstrong[], float c0[], int* npts8);
+ 
+ void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/mainwindow.ui	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -40,7 +40,7 @@
+      &lt;rect&gt;
+       &lt;x&gt;11&lt;/x&gt;
+       &lt;y&gt;2&lt;/y&gt;
+-      &lt;width&gt;565&lt;/width&gt;
++      &lt;width&gt;571&lt;/width&gt;
+       &lt;height&gt;423&lt;/height&gt;
+      &lt;/rect&gt;
+     &lt;/property&gt;
+@@ -288,6 +288,25 @@
+         &lt;/widget&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
++        &lt;widget class=&quot;QSlider&quot; name=&quot;inGain&quot;&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;16777215&lt;/width&gt;
++           &lt;height&gt;190&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimum&quot;&gt;
++          &lt;number&gt;-50&lt;/number&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximum&quot;&gt;
++          &lt;number&gt;50&lt;/number&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;orientation&quot;&gt;
++          &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
+         &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
+          &lt;item&gt;
+           &lt;spacer name=&quot;verticalSpacer_2&quot;&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/plotter.cpp	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -382,6 +382,11 @@
+   DrawOverlay();
+ }
+ 
++int CPlotter::Tol()                                         //Tol()
++{
++  return m_tol;
++}
++
+ void CPlotter::setBinsPerPixel(int n)                       // set nbpp
+ {
+   m_binsPerPixel = n;
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/plotter.h	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -35,7 +35,6 @@
+   qint32  m_nSpan;
+   qint32  m_binsPerPixel;
+   qint32  m_fQSO;
+-  qint32  m_tol;
+   qint32  m_fCal;
+   qint32  m_w;
+ 
+@@ -52,6 +51,7 @@
+   void UpdateOverlay();
+   void setDataFromDisk(bool b);
+   void setTol(int n);
++  int  Tol();
+   void setBinsPerPixel(int n);
+   int  binsPerPixel();
+   void setFQSO(int n, bool bf);
+@@ -114,6 +114,7 @@
+   qint32  m_h;
+   qint32  m_h1;
+   qint32  m_h2;
++  qint32  m_tol;
+ 
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/soundin.cpp	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -29,6 +29,7 @@
+ {
+   int kin;          //Parameters sent to/from the portaudio callback function
+   bool bzero;
++  bool monitoring;
+ } paUserData;
+ 
+ //--------------------------------------------------------------- a2dCallback
+@@ -61,7 +62,9 @@
+ 
+   nbytes=2*framesToProcess;        //Bytes per frame
+   k=udata-&gt;kin;
+-  memcpy(&amp;jt9com_.d2[k],inputBuffer,nbytes);          //Copy all samples to d2
++  if(udata-&gt;monitoring) {
++    memcpy(&amp;jt9com_.d2[k],inputBuffer,nbytes);      //Copy all samples to d2
++  }
+   udata-&gt;kin += framesToProcess;
+   jt9com_.kin=udata-&gt;kin;
+ 
+@@ -80,6 +83,7 @@
+ 
+   udata.kin=0;                              //Buffer pointer
+   udata.bzero=false;                        //Flag to request reset of kin
++  udata.monitoring=m_monitoring;
+ 
+   inParam.device=m_nDevIn;                  //### Input Device Number ###
+   inParam.channelCount=1;                   //Number of analog channels
+@@ -99,7 +103,7 @@
+         FRAMES_PER_BUFFER,                  //Frames per buffer
+ //        paClipOff+paDitherOff,            //No clipping or dithering
+         paClipOff,                          //No clipping
+-        a2dCallback,                        //Input callbeck routine
++        a2dCallback,                        //Input callback routine
+         &amp;udata);                            //userdata
+ 
+   paerr=Pa_StartStream(inStream);
+@@ -121,6 +125,7 @@
+   while (!qe) {
+     qe = quitExecution;
+     if (qe) break;
++    udata.monitoring=m_monitoring;
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     nsec = ms/1000;             // Time according to this computer
+     ntr = nsec % m_TRperiod;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/widegraph.cpp	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -214,14 +214,14 @@
+ 
+ void WideGraph::setTol(int n)
+ {
+-  ui-&gt;widePlot-&gt;m_tol=n;
++  ui-&gt;widePlot-&gt;setTol(n);
+   ui-&gt;widePlot-&gt;DrawOverlay();
+   ui-&gt;widePlot-&gt;update();
+ }
+ 
+ int WideGraph::Tol()
+ {
+-  return ui-&gt;widePlot-&gt;m_tol;
++  return ui-&gt;widePlot-&gt;Tol();
+ }
+ 
+ void WideGraph::setFcal(int n)
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-10-31 19:23:10 UTC (rev 2711)
++++ branches/wsjtx/wsjtx.iss	2012-11-01 19:54:40 UTC (rev 2712)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.2 r2709
++AppVerName=wsjtx Version 0.2 r2712
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002405.html">[WSJT-SVN] r2713 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2404">[ date ]</a>
+              <a href="thread.html#2404">[ thread ]</a>
+              <a href="subject.html#2404">[ subject ]</a>
+              <a href="author.html#2404">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

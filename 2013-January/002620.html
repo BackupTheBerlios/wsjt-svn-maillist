@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2928 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2928%20-%20branches/wsprx&In-Reply-To=%3C20130111183019.7617655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002619.html">
+   <LINK REL="Next"  HREF="002621.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2928 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2928%20-%20branches/wsprx&In-Reply-To=%3C20130111183019.7617655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2928 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan 11 19:30:19 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002619.html">[WSJT-SVN] r2927 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002621.html">[WSJT-SVN] r2929 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2620">[ date ]</a>
+              <a href="thread.html#2620">[ thread ]</a>
+              <a href="subject.html#2620">[ subject ]</a>
+              <a href="author.html#2620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-11 19:30:19 +0100 (Fri, 11 Jan 2013)
+New Revision: 2928
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+Log:
+More fixups of GUI behavior.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-11 17:42:27 UTC (rev 2927)
++++ branches/wsprx/mainwindow.cpp	2013-01-11 18:30:19 UTC (rev 2928)
+@@ -597,7 +597,8 @@
+   int i,len;
+   QFileInfo fi(m_path);
+   QStringList list;
+-  list= fi.dir().entryList().filter(&quot;.wav&quot;);
++//  list= fi.dir().entryList().filter(&quot;.wav&quot;);
++  list= fi.dir().entryList();
+   for (i = 0; i &lt; list.size()-1; ++i) {
+     if(i==list.size()-2) m_loopall=false;
+     len=list.at(i).length();
+@@ -605,16 +606,12 @@
+       int n=m_path.length();
+       QString fname=m_path.replace(n-len,len,list.at(i+1));
+       m_path=fname;
+-      int i;
+-      i=fname.indexOf(&quot;.wav&quot;) - 11;
+-      if(i&gt;=0) {
+-        lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #66ff66}&quot;);
+-        lab1-&gt;setText(&quot; &quot; + fname.mid(i,len) + &quot; &quot;);
++      if(fname.indexOf(&quot;.wav&quot;)&gt;1 or fname.indexOf(&quot;.c2&quot;)&gt;1) {
++        m_diskData=true;
++        *future1 = QtConcurrent::run(getfile, fname, m_TRseconds);
++        watcher1-&gt;setFuture(*future1);
++        return;
+       }
+-      m_diskData=true;
+-      *future1 = QtConcurrent::run(getfile, fname, m_TRseconds);
+-      watcher1-&gt;setFuture(*future1);
+-      return;
+     }
+   }
+ }
+@@ -712,11 +709,11 @@
+         QFile f(&quot;wsprd.out&quot;);
+         if(f.exists()) f.remove();
+       }
+-      if(m_save==1 or m_save==3) {
++      if(m_save!=1 and m_save!=3) {
+         QFile savedWav(m_fname);
+         savedWav.remove();
+       }
+-      if(m_save==2 or m_save==3) {
++      if(m_save!=2 and m_save!=3) {
+         int i1=m_fname.indexOf(&quot;.wav&quot;);
+         QString sc2=m_fname.mid(0,i1) + &quot;.c2&quot;;
+         QFile savedC2(sc2);
+@@ -840,8 +837,9 @@
+ //  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; t;
+   reply = mNetworkManager-&gt;get(QNetworkRequest(url));
+   */
+-  ui-&gt;TxNextButton-&gt;setStyleSheet(m_txNext_style);
+-  m_txnext=true;
++  m_txnext=!m_txnext;
++  if(m_txnext) ui-&gt;TxNextButton-&gt;setStyleSheet(m_txNext_style);
++  if(!m_txnext) ui-&gt;TxNextButton-&gt;setStyleSheet(&quot;&quot;);
+ }
+ 
+ void MainWindow::onNetworkReply(QNetworkReply* reply)
+@@ -896,7 +894,7 @@
+     if(m_TxOK and (m_pctx&gt;0) and (m_txnext or ((m_nrx==0) and (m_ntr!=-1))) or
+        (m_TxOK and (m_pctx==100))) {
+ 
+-      //This will be a normal Tx sequence.  Compute # of Rx's to follow.
++//This will be a normal Tx sequence. Compute # of Rx's that will follow.
+       float x=(float)rand()/RAND_MAX;
+       if(m_pctx&lt;50) {
+         m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
+@@ -904,8 +902,7 @@
+         m_nrx=0;
+         if(x&lt;m_rxavg) m_nrx=1;
+       }
+-//    message=MyCall + MyGrid + &quot;ndbm&quot;;
+-    //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
++
+       m_ntr=-1;                         //This says we will have transmitted
+       m_txnext=false;
+       ui-&gt;TxNextButton-&gt;setStyleSheet(&quot;&quot;);
+@@ -931,7 +928,6 @@
+   if(m_RxOK) {
+     m_receiving=true;
+     soundInThread.setReceiving(true);
+-    //m_rxtime=hhmm
+     m_ntr=1;
+     loggit(&quot;Start Rx&quot;);
+     m_nrx=m_nrx-1;
+@@ -1041,6 +1037,7 @@
+ void MainWindow::on_cbIdle_toggled(bool b)
+ {
+   m_idle=b;
++  ui-&gt;cbIdle-&gt;setChecked(b);
+ }
+ 
+ void MainWindow::on_cbTxEnable_toggled(bool b)
+@@ -1109,11 +1106,16 @@
+ {
+ /*
+   QDateTime t2 = QDateTime::currentDateTimeUtc();
+-  double ts=tsec();
+-  int ms=1000.0*(ts-int(ts));
+-  qDebug() &lt;&lt; t &lt;&lt; t2.time().toString() &lt;&lt; ms &lt;&lt; m_nseq &lt;&lt; m_ntr &lt;&lt; m_rxavg
+-           &lt;&lt; m_nrx &lt;&lt; m_receiving &lt;&lt; m_transmitting;
++  qDebug() &lt;&lt; t2.time().toString(&quot;hh:mm:ss.zzz&quot;) &lt;&lt; t;
+ */
++
++  /*
++  QFile f(&quot;wsprx.log&quot;);
++  if(f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
++    //    message=MyCall + MyGrid + &quot;ndbm&quot;;
++        //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
++    f.write(t);
++    */
+ }
+ 
+ void MainWindow::on_TuneButton_clicked()
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002619.html">[WSJT-SVN] r2927 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002621.html">[WSJT-SVN] r2929 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2620">[ date ]</a>
+              <a href="thread.html#2620">[ thread ]</a>
+              <a href="subject.html#2620">[ subject ]</a>
+              <a href="author.html#2620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

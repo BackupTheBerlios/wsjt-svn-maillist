@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1654 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1654%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911110332.nAB3Wk7u029845%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001344.html">
+   <LINK REL="Next"  HREF="001346.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1654 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1654%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911110332.nAB3Wk7u029845%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1654 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 11 04:32:46 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001344.html">[WSJT-SVN] r1653 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001346.html">[WSJT-SVN] r1655 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1345">[ date ]</a>
+              <a href="thread.html#1345">[ thread ]</a>
+              <a href="subject.html#1345">[ subject ]</a>
+              <a href="author.html#1345">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-11 04:32:42 +0100 (Wed, 11 Nov 2009)
+New Revision: 1654
+
+Modified:
+   branches/wspr/WsprMod/advanced.py
+   branches/wspr/gencwid.f
+   branches/wspr/tx.F90
+   branches/wspr/wspr2.F90
+Log:
+Corrected a nasty problem that sometimes allowed starttx to be
+called twice in quick succession, in a transmission immediately 
+following one with a CW ID.  Perhaps waiting for the Tx thread 
+to be &quot;joined&quot; after its completion would have sufficed.  Instead,
+I shortened the CW ID by half a second.  This seemed to be enough.
+
+
+Modified: branches/wspr/WsprMod/advanced.py
+===================================================================
+--- branches/wspr/WsprMod/advanced.py	2009-11-10 17:52:39 UTC (rev 1653)
++++ branches/wspr/WsprMod/advanced.py	2009-11-11 03:32:42 UTC (rev 1654)
+@@ -33,10 +33,8 @@
+ g1=Pmw.Group(root,tag_pyclass=None)
+ 
+ t=&quot;&quot;&quot;
+-Important:
+-
+-Please read the WSPR User's Guide before
+-using any features on this screen.
++Important:   please read the WSPR User's
++Guide before using features on this screen.
+ &quot;&quot;&quot;
+ lab1=Label(g1.interior(),text=t,justify=LEFT)
+ 
+
+Modified: branches/wspr/gencwid.f
+===================================================================
+--- branches/wspr/gencwid.f	2009-11-10 17:52:39 UTC (rev 1653)
++++ branches/wspr/gencwid.f	2009-11-11 03:32:42 UTC (rev 1654)
+@@ -14,7 +14,7 @@
+  10   iz=i-1
+       msg2=msg(1:iz)//'                      '
+       call morse(msg2,idat,ndits) !Encode part 1 of msg
+-      nwave=5*48000
++      nwave=4.5*48000
+       dt=1.d0/48000.d0
+       wpm=1.2*ndits/(nwave*dt)
+       if(wpm.lt.wpm0) wpm=wpm0
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-10 17:52:39 UTC (rev 1653)
++++ branches/wspr/tx.F90	2009-11-11 03:32:42 UTC (rev 1654)
+@@ -10,7 +10,7 @@
+ #endif
+ 
+   parameter (NMAX2=120*48000)
+-  parameter (NMAX3=5*48000)
++  parameter (NMAX3=4.5*48000)
+   character message*22,call1*12,cdbm*3
+   character*22 msg0,msg1,msg2,cwmsg
+   character crig*6,cbaud*6,cdata*1,cstop*1,chs*8
+@@ -96,12 +96,11 @@
+      icwid=0
+      call gencwid(cwmsg,wpm,freqcw,icwid,ncwid)
+      k0=113*48000
+-     k1=k0+24000
+-     k2=k1+5*48000
++     k1=k0+12000
++     k2=k1+4.5*48000
+      jwave(k0:k1)=0
+      jwave(k1+1:k2)=icwid
+      jwave(k2:)=0
+-!     print*,'C',k0/48000.,k1/48000.,k2/48000.
+      npts=k2
+      ns0=nsec
+   endif
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-10 17:52:39 UTC (rev 1653)
++++ branches/wspr/wspr2.F90	2009-11-11 03:32:42 UTC (rev 1654)
+@@ -61,6 +61,7 @@
+   if(ntxdone.gt.0) then
+      transmitting=.false.
+      ntxdone=0
++     ntr=0
+   endif
+ 
+   if(ns120.ge.114 .and. ntune.eq.0) then
+@@ -96,7 +97,7 @@
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+   if(pctx.eq.0.0) nrx=1
+-  if(nrx.eq.0) then
++  if(nrx.eq.0 .and. ntr.ne.-1) then
+      transmitting=.true.
+      call random_number(x)
+      nrx=nint(rxavg + rr*(x-0.5))
+@@ -106,9 +107,10 @@
+      call msgtrim(message,msglen)
+      write(linetx,1030) cdate(3:8),utctime(1:4),ftx
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ')
+-     call cs_unlock
+      ntr=-1
+      nsectx=mod(nsec,86400)
++     ntxdone=0
++     call cs_unlock
+      if(ndevsok.eq.1) call starttx
+ 
+   else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001344.html">[WSJT-SVN] r1653 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001346.html">[WSJT-SVN] r1655 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1345">[ date ]</a>
+              <a href="thread.html#1345">[ thread ]</a>
+              <a href="subject.html#1345">[ subject ]</a>
+              <a href="author.html#1345">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,483 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r367 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r367%20-%20trunk&In-Reply-To=%3C200704241809.l3OI9tWH006951%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000053.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r367 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r367%20-%20trunk&In-Reply-To=%3C200704241809.l3OI9tWH006951%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r367 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 24 20:09:55 CEST 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000053.html">[WSJT-SVN] r368 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-04-24 20:09:44 +0200 (Tue, 24 Apr 2007)
+New Revision: 367
+
+Modified:
+   trunk/avemsg65.f
+   trunk/decode3.F90
+   trunk/decode65.f
+   trunk/deep65.F
+   trunk/gcom2.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjt65.f
+Log:
+Right-double-click on callsign generates JT65 messages with calls and reports.
+Use F11/F12 instead of Right/Left Arrows to anjust Freeze DF.
+Ctrl-D to force a decode, overriding the signal-level test.
+Replace Sked box with HF box.
+
+
+
+Modified: trunk/avemsg65.f
+===================================================================
+--- trunk/avemsg65.f	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/avemsg65.f	2007-04-24 18:09:44 UTC (rev 367)
+@@ -1,5 +1,5 @@
+       subroutine avemsg65(mseg,mode65,ndepth,decoded,nused,
+-     +  nq1,nq2,neme,nsked,mycall,hiscall,hisgrid,qual,
++     +  nq1,nq2,neme,mycall,hiscall,hisgrid,qual,
+      +  ns,ncount)
+ 
+ C  Decodes averaged JT65 data for the specified segment (mseg=1 or 2).
+@@ -43,7 +43,7 @@
+ C  Possibly should pass nadd=nused, also:
+       if(ndepth.ge.3) then
+          flipx=1.0                     !Normal flip not relevant for ave msg
+-         call deep65(s3,mode65,neme,nsked,flipx, 
++         call deep65(s3,mode65,neme,flipx, 
+      +   mycall,hiscall,hisgrid,deepmsg,qual)
+          nqual=qual
+          if(nqual.lt.nq1) deepmsg='                      '
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/decode3.F90	2007-04-24 18:09:44 UTC (rev 367)
+@@ -58,11 +58,12 @@
+      jz=min(60*11025,jz+nzero)
+   endif
+   call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,MinSigdB,           &amp;
+-       NQRN,DFTolerance,MouseButton,NClearAve,                        &amp;
++       NQRN,DFTolerance,MouseButton,NClearAve,nforce,                 &amp;
+        nMode,NFreeze,NAFC,NZap,mode65,idf,                            &amp;
+-       MyCall,HisCall,HisGrid,neme,nsked,ntx2,s2,                     &amp;
++       MyCall,HisCall,HisGrid,neme,nhf,ntx2,s2,                     &amp;
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,        &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
++  nforce=0
+   close(23)
+   if(basevb.le.-98.0) go to 999
+ 
+
+Modified: trunk/decode65.f
+===================================================================
+--- trunk/decode65.f	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/decode65.f	2007-04-24 18:09:44 UTC (rev 367)
+@@ -1,4 +1,4 @@
+-      subroutine decode65(dat,npts,dtx,dfx,flip,ndepth,neme,nsked,
++      subroutine decode65(dat,npts,dtx,dfx,flip,ndepth,neme,
+      +  mycall,hiscall,hisgrid,mode65,nafc,decoded,ncount,
+      +  deepmsg,qual)
+ 
+@@ -34,7 +34,7 @@
+       call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+       if(ndepth.ge.1) call deep65(s3,mode65,neme,
+-     +    nsked,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++     +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
+       if(ncount.lt.0) decoded='                      '
+ 
+
+Modified: trunk/deep65.F
+===================================================================
+--- trunk/deep65.F	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/deep65.F	2007-04-24 18:09:44 UTC (rev 367)
+@@ -1,4 +1,4 @@
+-      subroutine deep65(s3,mode65,neme,nsked,flip,mycall,hiscall,
++      subroutine deep65(s3,mode65,neme,flip,mycall,hiscall,
+      +  hisgrid,decoded,qual)
+ 
+       parameter (MAXCALLS=7000,MAXRPT=63)
+@@ -95,7 +95,6 @@
+                call encode65(message,ncode(1,k))
+             endif
+          enddo
+-         if(nsked.eq.1) go to 20
+  10      continue
+       enddo
+  20   ntot=k
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/gcom2.f90	2007-04-24 18:09:44 UTC (rev 367)
+@@ -37,6 +37,7 @@
+ integer ndebug         !Write debugging info?                   GUI
+ integer nblank         !Is NB checked?                          GUI
+ integer nfmid          !Center frequency of main display        GUI
++integer nforce         !Force decoding of questionable data  GUI,Decoder
+ integer nfrange        !Frequency range of main display         GUI
+ integer nport          !Requested COM port number               GUI
+ integer mousedf        !Mouse-selected freq offset, DF          GUI
+@@ -93,7 +94,7 @@
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,  &amp;
+-     ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
++     ndepth,nspecial,ndf,nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+      fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport
+ 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/wsjt.py	2007-04-24 18:09:44 UTC (rev 367)
+@@ -89,7 +89,7 @@
+ nopen=0
+ nosh441=IntVar()
+ noshjt65=IntVar()
+-nsked=IntVar()
++nhf=IntVar()
+ setseq=IntVar()
+ ShOK=IntVar()
+ slabel=&quot;Sync   &quot;
+@@ -222,15 +222,25 @@
+ def dbl_click_text(event):
+     t=text.get('1.0',END)           #Entire contents of text box
+     t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
++
++#------------------------------------------------------ dbl_click3_text
++def dbl_click3_text(event):
++    t=text.get('1.0',END)           #Entire contents of text box
++    t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
++    n=t1.rfind(&quot;\n&quot;)
++    rpt=t1[n+12:n+15]
++    dbl_click_call(t,t1,rpt,event)
++
+ #------------------------------------------------------ dbl_click_ave
+ def dbl_click_ave(event):
+     t=avetext.get('1.0',END)           #Entire contents of text box
+     t1=avetext.get('1.0',CURRENT)      #Contents from start to mouse pointer
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
+ #------------------------------------------------------ dbl_click_call
+-def dbl_click_call(t,t1,event):
++def dbl_click_call(t,t1,rpt,event):
+     global hiscall
++#    print rpt
+     i=len(t1)                       #Length to mouse pointer
+     i1=t1.rfind(' ')+1              #index of preceding space
+     i2=i1+t[i1:].find(' ')          #index of next space
+@@ -246,6 +256,17 @@
+         if setseq.get(): TxFirst.set((nsec/Audio.gcom1.trperiod)%2)
+         lookup()
+         GenStdMsgs()
++        if rpt &lt;&gt; &quot;OOO&quot;:
++            n=tx1.get().rfind(&quot; &quot;)
++            t=tx1.get()[0:n+1]
++            tx2.delete(0,END)
++            tx2.insert(0,t+rpt)
++            tx3.delete(0,END)
++            tx3.insert(0,t+&quot;R&quot;+rpt)
++            tx4.delete(0,END)
++            tx4.insert(0,t+&quot;RRR&quot;)
++            tx5.delete(0,END)
++            tx5.insert(0,t+&quot;73&quot;)
+         i3=t[:i1].strip().rfind(' ')+1
+         if t[i3:i1].strip() == 'CQ':
+             ntx.set(1)
+@@ -258,6 +279,12 @@
+ def avetextkey(event=NONE):
+     avetext.configure(state=DISABLED)
+ 
++#------------------------------------------------------ force_decode
++def force_decode(event=NONE):
++#    print event.keysym
++    Audio.gcom2.nforce=1
++    decode()
++    
+ #------------------------------------------------------ decode
+ def decode(event=NONE):
+     if Audio.gcom2.ndecoding==0:        #If already busy, ignore request
+@@ -525,7 +552,7 @@
+         bexclude.configure(state=DISABLED)
+         cbfreeze.configure(state=DISABLED)
+         cbafc.configure(state=DISABLED)
+-        sked.configure(state=DISABLED)
++        hf.configure(state=DISABLED)
+         report.configure(state=NORMAL)
+         shmsg.configure(state=NORMAL)
+         graph2.configure(bg='black')
+@@ -554,7 +581,7 @@
+     bexclude.configure(state=NORMAL)
+     cbfreeze.configure(state=NORMAL)
+     cbafc.configure(state=NORMAL)
+-    sked.configure(state=NORMAL)
++    hf.configure(state=NORMAL)
+     report.configure(state=DISABLED)
+     shmsg.configure(state=DISABLED)
+     graph2.configure(bg='#66FFFF')
+@@ -624,7 +651,7 @@
+         bexclude.configure(state=DISABLED)
+         cbfreeze.configure(state=DISABLED)
+         cbafc.configure(state=DISABLED)
+-        sked.configure(state=DISABLED)
++        hf.configure(state=DISABLED)
+         report.configure(state=NORMAL)
+         ntx.set(1)
+         GenStdMsgs()
+@@ -695,9 +722,12 @@
+ Shift+Ctrl+F8	Set CW mode
+ F10	Show SpecJT
+ Shift+F10   Show astronomical data
++F11	Decrement Freeze DF
++F12	Increment Freeze DF
+ Alt+1 to Alt+6	Tx1 to Tx6
+ Alt+A	Toggle Auto On/Off
+ Alt+D	Decode
++Ctrl+D	Force Decode 
+ Alt+E	Erase
+ Alt+F	Toggle Freeze
+ Alt+G	Generate Standard Messages
+@@ -712,7 +742,6 @@
+ Alt+V	Save Last
+ Alt+X	Exclude
+ Alt+Z	Toggle Zap
+-Right/Left Arrow	Increase/decrease Freeze DF
+ &quot;&quot;&quot;
+     Label(scwid,text=t,justify=LEFT).pack(padx=20)
+     scwid.focus_set()
+@@ -1434,7 +1463,6 @@
+     if Audio.gcom1.transmitting:
+         nmsg=int(Audio.gcom2.nmsg)
+         t=g.ftnstr(Audio.gcom2.sending)
+-        if t[:3]==&quot;CQ &quot;: nsked.set(0)
+         t=&quot;Txing:  &quot;+t[:nmsg]
+         bgcolor='yellow'
+         if Audio.gcom2.sendingsh==1:  bgcolor='#66FFFF'    #Shorthand (lt blue)
+@@ -1540,7 +1568,7 @@
+     Audio.gcom2.dftolerance=ntol[itol]
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+-    Audio.gcom2.nsked=nsked.get()
++    Audio.gcom2.nhf=nhf.get()
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+     except:
+@@ -1747,7 +1775,7 @@
+ iframe4 = Frame(frame, bd=1, relief=SUNKEN)
+ text=Text(iframe4, height=6, width=80)
+ text.bind('&lt;Double-Button-1&gt;',dbl_click_text)
+-#text.bind('&lt;Double-Button-3&gt;',dbl_click_text)
++text.bind('&lt;Double-Button-3&gt;',dbl_click3_text)
+ text.bind('&lt;Key&gt;',textkey)
+ 
+ root.bind_all('&lt;F1&gt;', shortcuts)
+@@ -1768,7 +1796,10 @@
+ #root.bind_all('&lt;F9&gt;', ModeEcho)
+ root.bind_all('&lt;F10&gt;', showspecjt)
+ root.bind_all('&lt;Shift-F10&gt;', astro1)
++root.bind_all('&lt;F11&gt;', left_arrow)
++root.bind_all('&lt;F12&gt;', right_arrow)
+ 
++
+ root.bind_all('&lt;Alt-Key-1&gt;',btx1)
+ root.bind_all('&lt;Alt-Key-2&gt;',btx2)
+ root.bind_all('&lt;Alt-Key-3&gt;',btx3)
+@@ -1782,6 +1813,8 @@
+ root.bind_all('&lt;Alt-C&gt;',clear_avg)
+ root.bind_all('&lt;Alt-d&gt;',decode)
+ root.bind_all('&lt;Alt-D&gt;',decode)
++root.bind_all('&lt;Control-d&gt;',force_decode)
++root.bind_all('&lt;Control-D&gt;',force_decode)
+ root.bind_all('&lt;Alt-e&gt;',erase)
+ root.bind_all('&lt;Alt-E&gt;',erase)
+ root.bind_all('&lt;Alt-f&gt;',toggle_freeze)
+@@ -1812,8 +1845,8 @@
+ root.bind_all('&lt;Alt-Z&gt;',toggle_zap)
+ root.bind_all('&lt;Control-l&gt;',lookup_gen)
+ root.bind_all('&lt;Control-L&gt;',lookup_gen)
+-root.bind_all('&lt;Left&gt;',left_arrow)
+-root.bind_all('&lt;Right&gt;',right_arrow)
++#root.bind_all('&lt;Left&gt;',left_arrow)
++#root.bind_all('&lt;Right&gt;',right_arrow)
+ 
+ text.pack(side=LEFT, fill=X, padx=1)
+ sb = Scrollbar(iframe4, orient=VERTICAL, command=text.yview)
+@@ -1942,7 +1975,7 @@
+ report.pack(side=RIGHT,expand=1,fill=BOTH)
+ shmsg=Checkbutton(f5c,text='Sh Msg',justify=RIGHT,variable=ShOK,
+             command=restart2)
+-sked=Checkbutton(f5c,text='Sked',justify=RIGHT,variable=nsked)
++hf=Checkbutton(f5c,text='HF',justify=RIGHT,variable=nhf)
+ genmsg=Button(f5c,text='GenStdMsgs',underline=0,command=GenStdMsgs,
+             padx=1,pady=1)
+ auto=Button(f5c,text='Auto is Off',underline=0,command=toggleauto,
+@@ -1952,7 +1985,7 @@
+ txfirst.grid(column=0,row=0,sticky='W',padx=4)
+ f5c2.grid(column=0,row=1,sticky='W',padx=4)
+ shmsg.grid(column=0,row=2,sticky='W',padx=4)
+-sked.grid(column=0,row=3,sticky='W',padx=4)
++hf.grid(column=0,row=3,sticky='W',padx=4)
+ genmsg.grid(column=0,row=4,sticky='W',padx=4)
+ auto.grid(column=0,row=5,sticky='EW',padx=4)
+ #txstop.grid(column=0,row=6,sticky='EW',padx=4)
+@@ -2026,7 +2059,7 @@
+ lauto=0
+ isync=1
+ ntx.set(1)
+-ndepth.set(1)
++ndepth.set(0)
+ import options
+ options.defaults()
+ ModeFSK441()
+@@ -2034,6 +2067,7 @@
+ balloon.unbind(ToRadio)
+ g.astro_geom0=&quot;+0+0&quot;
+ Audio.gcom1.mute=0
++Audio.gcom2.nforce=1
+ 
+ #---------------------------------------------------------- Process INI file
+ try:
+@@ -2144,7 +2178,7 @@
+         elif key == 'Zap': nzap.set(value)
+         elif key == 'NB': nblank.set(value)
+         elif key == 'NAFC': nafc.set(value)
+-        elif key == 'Sked': nsked.set(value)
++        elif key == 'HF': nhf.set(value)
+         elif key == 'NoSh441': nosh441.set(value)
+         elif key == 'NoShJT65': noshjt65.set(value)
+         elif key == 'NEME': neme.set(value)
+@@ -2238,7 +2272,7 @@
+ f.write(&quot;Zap &quot; + str(nzap.get()) + &quot;\n&quot;)
+ f.write(&quot;NB &quot; + str(nblank.get()) + &quot;\n&quot;)
+ f.write(&quot;NAFC &quot; + str(nafc.get()) + &quot;\n&quot;)
+-f.write(&quot;Sked &quot; + str(nsked.get()) + &quot;\n&quot;)
++f.write(&quot;HF &quot; + str(nhf.get()) + &quot;\n&quot;)
+ f.write(&quot;NoSh441 &quot; + str(nosh441.get()) + &quot;\n&quot;)
+ f.write(&quot;NoShJT65 &quot; + str(noshjt65.get()) + &quot;\n&quot;)
+ f.write(&quot;NEME &quot; + str(neme.get()) + &quot;\n&quot;)
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/wsjt1.F	2007-04-24 18:09:44 UTC (rev 367)
+@@ -1,7 +1,7 @@
+ 	subroutine wsjt1(d,jz0,istart,samfacin,FileID,ndepth,MinSigdB,
+-     +    NQRN,DFTolerance,MouseButton,NClearAve,
++     +    NQRN,DFTolerance,MouseButton,NClearAve,nforce,
+      +    Mode,NFreeze,NAFC,NZap,mode65,idf,
+-     +    MyCall,HisCall,HisGrid,neme,nsked,ntx2,s2,
++     +    MyCall,HisCall,HisGrid,neme,nhf,ntx2,s2,
+      +    ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,
+      +    MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+ 
+@@ -150,7 +150,8 @@
+ 
+ 	pick=.false.
+ 	if(istart.gt.1) pick=.true. !This is a mouse-picked decoding
+-   	if(.not.pick .and. (basevb.lt.-15.0 .or. basevb.gt.20.0)) goto 900
++   	if(.not.pick .and. nforce.eq.0 .and. 
++     +     (basevb.lt.-15.0 .or. basevb.gt.20.0)) goto 900
+ 	nchan=64                   !Save 64 spectral channels
+ 	nstep=221                  !Set step size to ~20 ms
+ 	nz=jz/nstep - 1            !# of spectra to compute
+@@ -190,7 +191,7 @@
+ !  Offset data by about 1 s.
+  	   if(jz.ge.126*2048) call wsjt65(dat(4097),jz-4096,cfile6,
+      +        NClearAve,MinSigdB,DFTolerance,NFreeze,NAFC,mode65,Nseg,
+-     +        MouseDF2,NAgain,ndepth,neme,nsked,idf,idfsh,
++     +        MouseDF2,NAgain,ndepth,neme,idf,idfsh,
+      +        mycall,hiscall,hisgrid,lumsg,lcum,nspecial,ndf,
+      +        nstest,dfsh,snrsh,
+      +        NSyncOK,ccf,psavg,ndiag,nwsh)
+
+Modified: trunk/wsjt65.f
+===================================================================
+--- trunk/wsjt65.f	2007-03-02 23:28:54 UTC (rev 366)
++++ trunk/wsjt65.f	2007-04-24 18:09:44 UTC (rev 367)
+@@ -1,6 +1,6 @@
+       subroutine wsjt65(dat,npts,cfile6,NClearAve,MinSigdB,
+      +  DFTolerance,NFreeze,NAFC,mode65,Nseg,MouseDF,NAgain,
+-     +  ndepth,neme,nsked,idf,idfsh,mycall,hiscall,hisgrid,
++     +  ndepth,neme,idf,idfsh,mycall,hiscall,hisgrid,
+      +  lumsg,lcum,nspecial,ndf,nstest,dfsh,
+      +  snrsh,NSyncOK,ccfblue,ccfred,ndiag,nwsh)
+ 
+@@ -110,7 +110,7 @@
+          cooo='O ?'
+       endif
+ 
+-      call decode65(dat,npts,dtx,dfx,flip,ndepth,neme,nsked,
++      call decode65(dat,npts,dtx,dfx,flip,ndepth,neme,
+      +   mycall,hiscall,hisgrid,mode65,nafc,decoded,
+      +   ncount,deepmsg,qual)
+       if(ncount.eq.-999) qual=0                 !Bad data
+@@ -154,10 +154,10 @@
+       if(MinSigdB.lt.99) write(lumsg,1011) line
+ 
+       if(nsave.ge.1) call avemsg65(1,mode65,ndepth,avemsg1,nused1,
+-     +   nq1,nq2,neme,nsked,mycall,hiscall,hisgrid,qual1,
++     +   nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,
+      +   ns1,ncount1)
+       if(nsave.ge.1) call avemsg65(2,mode65,ndepth,avemsg2,nused2,
+-     +   nq1,nq2,neme,nsked,mycall,hiscall,hisgrid,qual2,
++     +   nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,
+      +   ns2,ncount2)
+       nqual1=qual1
+       nqual2=qual2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000053.html">[WSJT-SVN] r368 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

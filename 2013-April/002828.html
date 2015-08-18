@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3136 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3136%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130408210130.DF56655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002827.html">
+   <LINK REL="Next"  HREF="002829.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3136 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3136%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130408210130.DF56655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3136 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Apr  8 23:01:30 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002827.html">[WSJT-SVN] r3135 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002829.html">[WSJT-SVN] r3137 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2828">[ date ]</a>
+              <a href="thread.html#2828">[ thread ]</a>
+              <a href="subject.html#2828">[ subject ]</a>
+              <a href="author.html#2828">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-08 23:01:30 +0200 (Mon, 08 Apr 2013)
+New Revision: 3136
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+1. Decode button does only the &quot;quick decode&quot; at QSO frequency.
+2. Correct a logic error in new Tx-message-selection code.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-08 18:31:21 UTC (rev 3135)
++++ branches/wsjtx/lib/decoder.f90	2013-04-08 21:01:30 UTC (rev 3136)
+@@ -140,6 +140,7 @@
+         endif
+      enddo
+      call flush(6)
++     if(nagain.ne.0) exit
+   enddo
+ 
+   write(*,1010) nsynced,ndecoded
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-08 18:31:21 UTC (rev 3135)
++++ branches/wsjtx/mainwindow.cpp	2013-04-08 21:01:30 UTC (rev 3136)
+@@ -1205,13 +1205,16 @@
+         cursor.insertHtml(s);
+         ui-&gt;decodedTextBrowser-&gt;setTextCursor(cursor);
+       }
+-      cursor = ui-&gt;decodedTextBrowser2-&gt;textCursor();
+-      cursor.movePosition(QTextCursor::End);
+-      bf = cursor.blockFormat();
+-      bf.setBackground(QBrush(QColor(bg)));
+-      cursor.insertHtml(s);
+-      ui-&gt;decodedTextBrowser2-&gt;setTextCursor(cursor);
+ 
++      if(jt9com_.nagain==0) {
++        cursor = ui-&gt;decodedTextBrowser2-&gt;textCursor();
++        cursor.movePosition(QTextCursor::End);
++        bf = cursor.blockFormat();
++        bf.setBackground(QBrush(QColor(bg)));
++        cursor.insertHtml(s);
++        ui-&gt;decodedTextBrowser2-&gt;setTextCursor(cursor);
++      }
++
+       QString msg=t.mid(34,22);
+       bool b=stdmsg_(msg.toAscii().constData(),22);
+       QStringList w=msg.split(&quot; &quot;,QString::SkipEmptyParts);
+@@ -1712,6 +1715,7 @@
+     if(ui-&gt;tabWidget-&gt;currentIndex()==1) {
+       ui-&gt;genMsg-&gt;setText(ui-&gt;tx2-&gt;text());
+       m_ntx=7;
++      ui-&gt;rbGenMsg-&gt;setChecked(true);
+     }
+   } else {
+     m_ntx=1;
+@@ -2318,20 +2322,6 @@
+   m_insertBlank=checked;
+ }
+ 
+-/*
+-void MainWindow::on_fMinSpinBox_valueChanged(int n)
+-{
+-  m_fMin=n;
+-  g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
+-}
+-
+-void MainWindow::on_fMaxSpinBox_valueChanged(int n)
+-{
+-  m_fMax=n;
+-  g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
+-}
+-*/
+-
+ void MainWindow::on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked)
+ {
+   m_clearCallGrid=checked;
+@@ -2348,7 +2338,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx6-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_pbAnswerCaller_clicked()
+@@ -2356,7 +2347,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx2-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_pbSendRRR_clicked()
+@@ -2364,7 +2356,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx4-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_pbAnswerCQ_clicked()
+@@ -2372,7 +2365,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx1-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_pbSendReport_clicked()
+@@ -2380,7 +2374,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx3-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_pbSend73_clicked()
+@@ -2388,7 +2383,8 @@
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx5-&gt;text());
+   m_ntx=7;
+-  if(m_freeText) m_ntx=8;
++  ui-&gt;rbGenMsg-&gt;setChecked(true);
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_rbGenMsg_toggled(bool checked)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002827.html">[WSJT-SVN] r3135 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002829.html">[WSJT-SVN] r3137 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2828">[ date ]</a>
+              <a href="thread.html#2828">[ thread ]</a>
+              <a href="subject.html#2828">[ subject ]</a>
+              <a href="author.html#2828">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

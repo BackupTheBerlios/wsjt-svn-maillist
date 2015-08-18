@@ -1,0 +1,1004 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3564 - in branches/wsjtx: . logbook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3564%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130825014846.487E455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003255.html">
+   <LINK REL="Next"  HREF="003257.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3564 - in branches/wsjtx: . logbook</H1>
+    <B>vk3acf at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3564%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130825014846.487E455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3564 - in branches/wsjtx: . logbook">vk3acf at scm.berlios.de
+       </A><BR>
+    <I>Sun Aug 25 03:48:46 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003255.html">[WSJT-SVN] r3563 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003257.html">[WSJT-SVN] r3565 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3256">[ date ]</a>
+              <a href="thread.html#3256">[ thread ]</a>
+              <a href="subject.html#3256">[ subject ]</a>
+              <a href="author.html#3256">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: vk3acf
+Date: 2013-08-25 03:48:45 +0200 (Sun, 25 Aug 2013)
+New Revision: 3564
+
+Added:
+   branches/wsjtx/decodedtext.cpp
+   branches/wsjtx/decodedtext.h
+Modified:
+   branches/wsjtx/CMakeLists.txt
+   branches/wsjtx/displaytext.cpp
+   branches/wsjtx/displaytext.h
+   branches/wsjtx/logbook/logbook.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/wsjtx.pro
+Log:
+1. Decoded text should now remain left justified even if the font is too large for the window
+2. The main window can be expanded wider to allow those with large screens to use larger fonts
+3. New class DecodedText handles the formatted text from decoder.f90.
+
+
+Modified: branches/wsjtx/CMakeLists.txt
+===================================================================
+--- branches/wsjtx/CMakeLists.txt	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/CMakeLists.txt	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -35,6 +35,7 @@
+   Detector.cpp
+   logqso.cpp
+   displaytext.cpp
++  decodedtext.cpp
+   getfile.cpp
+   soundout.cpp
+   soundin.cpp
+
+Added: branches/wsjtx/decodedtext.cpp
+===================================================================
+--- branches/wsjtx/decodedtext.cpp	                        (rev 0)
++++ branches/wsjtx/decodedtext.cpp	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -0,0 +1,145 @@
++#include &lt;QStringList&gt;
++#include &lt;QDebug&gt;
++#include &quot;decodedtext.h&quot;
++
++
++
++QString DecodedText::CQersCall()
++{
++    // extract the CQer's call   TODO: does this work with all call formats?  What about 'CQ DX'?
++    int s1 = 4 + _string.indexOf(&quot; CQ &quot;);
++    int s2 = _string.indexOf(&quot; &quot;,s1);
++    QString call = _string.mid(s1,s2-s1);
++    return call;
++}
++
++
++bool DecodedText::isJT65()
++{
++    return _string.indexOf(&quot;#&quot;) == column_mode;
++}
++
++bool DecodedText::isJT9()
++{
++    return _string.indexOf(&quot;@&quot;) == column_mode;
++}
++
++bool DecodedText::isTX()
++{
++    int i = _string.indexOf(&quot;Tx&quot;);
++    return (i &gt;= 0 &amp;&amp; i &lt; 15); // TODO guessing those numbers. Does Tx ever move?
++}
++
++int DecodedText::frequencyOffset()
++{
++    return _string.mid(column_freq,4).toInt();
++}
++
++int DecodedText::snr()
++{
++    return _string.mid(column_snr,3).toInt();
++}
++
++/*
++2343 -11  0.8 1259 # YV6BFE F6GUU R-08
++2343 -19  0.3  718 # VE6WQ SQ2NIJ -14
++2343  -7  0.3  815 # KK4DSD W7VP -16
++2343 -13  0.1 3627 @ CT1FBK IK5YZT R+02
++
++0605  Tx      1259 # CQ VK3ACF QF22
++*/
++
++// find and extract any report. Returns true if this is a standard message
++bool DecodedText::report(const QString myCall, /*mod*/QString&amp; report)
++{
++    QString msg=_string.mid(column_qsoText);
++    int i1=msg.indexOf(&quot;\r&quot;);
++    if (i1&gt;0)
++        msg=msg.mid(0,i1-1) + &quot;                      &quot;;
++    bool b = stdmsg_(msg.mid(0,22).toLatin1().constData(),22);  // stdmsg is a fortran routine that packs the text, unpacks it and compares the result
++
++    QStringList w=msg.split(&quot; &quot;,QString::SkipEmptyParts);
++    if(b and w[0]==myCall)
++    {
++        QString tt=&quot;&quot;;
++        if(w.length()&gt;=3) tt=w[2];
++        bool ok;
++        i1=tt.toInt(&amp;ok);
++        if (ok and i1&gt;=-50 and i1&lt;50)
++        {
++            report = tt;
++//            qDebug() &lt;&lt; &quot;report for &quot; &lt;&lt; _string &lt;&lt; &quot;::&quot; &lt;&lt; report;
++        }
++        else
++        {
++            if (tt.mid(0,1)==&quot;R&quot;)
++            {
++                i1=tt.mid(1).toInt(&amp;ok);
++                if(ok and i1&gt;=-50 and i1&lt;50)
++                {
++                    report = tt.mid(1);
++//                    qDebug() &lt;&lt; &quot;report for &quot; &lt;&lt; _string &lt;&lt; &quot;::&quot; &lt;&lt; report;
++                }
++            }
++        }
++    }
++    return b;
++}
++
++// get the first text word, usually the call
++QString DecodedText::call()
++{
++    QString call = _string.mid(column_qsoText);
++    int i = call.indexOf(&quot; &quot;);
++    call = call.mid(0,i);
++    return call;
++}
++
++// get the second word, most likely the de call and the third word, most likely grid
++void DecodedText::deCallAndGrid(/*out*/QString&amp; call, QString&amp; grid)
++{
++    QString msg=_string.mid(column_qsoText);
++    int i1 = msg.indexOf(&quot; &quot;);
++    call = msg.mid(i1+1);
++    int i2 = call.indexOf(&quot; &quot;);
++    grid = call.mid(i2+1,4);
++    call = call.mid(0,i2);
++}
++
++int DecodedText::timeInSeconds()
++{
++    return 60*_string.mid(column_time,2).toInt() + _string.mid(2,2).toInt();
++}
++
++/*
++2343 -11  0.8 1259 # YV6BFE F6GUU R-08
++2343 -19  0.3  718 # VE6WQ SQ2NIJ -14
++2343  -7  0.3  815 # KK4DSD W7VP -16
++2343 -13  0.1 3627 @ CT1FBK IK5YZT R+02
++
++0605  Tx      1259 # CQ VK3ACF QF22
++*/
++
++QString DecodedText::report()  // returns a string of the SNR field with a leading + or - followed by two digits
++{
++    int sr = snr();
++    if (sr&lt;-50)
++        sr = -50;
++    else
++        if (sr &gt; 49)
++            sr = 49;
++
++    QString rpt;
++    rpt.sprintf(&quot;%d&quot;,abs(sr));
++    if (sr &gt; 9)
++        rpt = &quot;+&quot; + rpt;
++    else
++        if (sr &gt;= 0)
++            rpt = &quot;+0&quot; + rpt;
++        else
++            if (sr &gt;= -9)
++                rpt = &quot;-0&quot; + rpt;
++            else
++                rpt = &quot;-&quot; + rpt;
++    return rpt;
++}
+
+Added: branches/wsjtx/decodedtext.h
+===================================================================
+--- branches/wsjtx/decodedtext.h	                        (rev 0)
++++ branches/wsjtx/decodedtext.h	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -0,0 +1,90 @@
++/*
++ * Class to handle the formatted string as returned from the fortran decoder
++ *
++ * VK3ACF August 2013
++ */
++
++
++#ifndef DECODEDTEXT_H
++#define DECODEDTEXT_H
++
++#include &lt;QString&gt;
++
++
++
++/*
++0123456789012345678901234567890123456789
++^    ^    ^   ^    ^ ^
++2343 -11  0.8 1259 # YV6BFE F6GUU R-08
++2343 -19  0.3  718 # VE6WQ SQ2NIJ -14
++2343  -7  0.3  815 # KK4DSD W7VP -16
++2343 -13  0.1 3627 @ CT1FBK IK5YZT R+02
++
++0605  Tx      1259 # CQ VK3ACF QF22
++*/
++
++class DecodedText
++{
++public:
++     // These define the columns in the decoded text where fields are to be found.
++     // We rely on these columns being the same in the fortran code (lib/decode.f90) that formats the decoded text
++     enum Columns { column_time    = 0,
++                    column_snr     = 5,
++                    column_freq    = 14,
++                    column_mode    = 19,
++                    column_qsoText = 21 };
++
++    void operator=(const QString &amp;rhs)
++    {
++        _string = rhs;
++    };
++    void operator=(const QByteArray &amp;rhs)
++    {
++        _string = rhs;
++    };
++
++    void operator+=(const QString &amp;rhs)
++    {
++        _string += rhs;
++    };
++
++    QString string() { return _string; };
++
++    int indexOf(QString s) { return _string.indexOf(s); };
++    int indexOf(QString s, int i) { return _string.indexOf(s,i); };
++    QString mid(int f, int t) { return _string.mid(f,t); };
++    QString left(int i) { return _string.left(i); };
++
++    void clear() { _string.clear(); };
++
++    QString CQersCall();
++
++    bool isJT65();
++    bool isJT9();
++    bool isTX();
++    int frequencyOffset();  // hertz offset from the tuned dial or rx frequency, aka audio frequency
++    int snr();
++
++    // find and extract any report. Returns true if this is a standard message
++    bool report(const QString myCall, /*mod*/QString&amp; report);
++
++    // get the first text word, usually the call
++    QString call();
++
++    // get the second word, most likely the de call and the third word, most likely grid
++    void deCallAndGrid(/*out*/QString&amp; call, QString&amp; grid);
++
++    int timeInSeconds();
++
++    // returns a string of the SNR field with a leading + or - followed by two digits
++    QString report();
++
++private:
++    QString _string;
++    
++};
++
++
++extern &quot;C&quot; {  bool stdmsg_(const char* msg, int len); }
++
++#endif // DECODEDTEXT_H
+
+Modified: branches/wsjtx/displaytext.cpp
+===================================================================
+--- branches/wsjtx/displaytext.cpp	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/displaytext.cpp	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -1,8 +1,8 @@
+ #include &quot;displaytext.h&quot;
+ #include &lt;QDebug&gt;
+ #include &lt;QMouseEvent&gt;
++#include &lt;QDateTime&gt;
+ 
+-
+ DisplayText::DisplayText(QWidget *parent) :
+     QTextBrowser(parent)
+ {
+@@ -37,27 +37,33 @@
+ 
+ void DisplayText::insertLineSpacer()
+ {
+-    QTextCursor cursor;
+-    QTextBlockFormat bf;
++    QString tt=&quot;----------------------------------------&quot;;
+     QString bg=&quot;#d3d3d3&quot;;
+-    bf.setBackground(QBrush(QColor(bg)));
+-    QString tt=&quot;----------------------------------------&quot;;
++    _insertText(tt,bg);
++}
++
++void DisplayText::_insertText(const QString text, const QString bg)
++{
++    QString tt = text.mid(0,_maxDisplayedCharacters); //truncate to max display chars
+     QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+-            bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + tt + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+-    cursor = this-&gt;textCursor();
++                bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + tt + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
++
++    QTextCursor cursor = textCursor();
+     cursor.movePosition(QTextCursor::End);
+-    bf = cursor.blockFormat();
++    QTextBlockFormat bf = cursor.blockFormat();
+     bf.setBackground(QBrush(QColor(bg)));
+     cursor.insertHtml(s);
++    this-&gt;setTextCursor(cursor);
+ }
+ 
+ 
+-void DisplayText::_appendDXCCWorkedB4(/*mod*/QString&amp; t1, QString&amp; bg, /*uses*/LogBook logBook)
++void DisplayText::_appendDXCCWorkedB4(/*mod*/DecodedText&amp; t1, QString&amp; bg, /*uses*/LogBook logBook)
+ {
+     // extract the CQer's call   TODO: does this work with all call formats?  What about 'CQ DX'?
+     int s1 = 4 + t1.indexOf(&quot; CQ &quot;);
+     int s2 = t1.indexOf(&quot; &quot;,s1);
+     QString call = t1.mid(s1,s2-s1);
++
+     QString countryName;
+     bool callWorkedBefore;
+     bool countryWorkedBefore;
+@@ -94,7 +100,7 @@
+     }
+ }
+ 
+-void DisplayText::displayDecodedText(QString decodedText, QString myCall, bool displayDXCCEntity, LogBook logBook)
++void DisplayText::displayDecodedText(DecodedText decodedText, QString myCall, bool displayDXCCEntity, LogBook logBook)
+ {
+     QString bg=&quot;white&quot;;
+     bool CQcall = false;
+@@ -110,14 +116,19 @@
+     if (displayDXCCEntity &amp;&amp; CQcall)
+         _appendDXCCWorkedB4(/*mod*/decodedText,bg,logBook);
+ 
++    _insertText(decodedText.string(),bg);
++}
+ 
+-    QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+-            bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + decodedText + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+ 
+-    QTextCursor cursor = textCursor();
+-    cursor.movePosition(QTextCursor::End);
+-    QTextBlockFormat bf = cursor.blockFormat();
+-    bf.setBackground(QBrush(QColor(bg)));
+-    cursor.insertHtml(s);
+-    this-&gt;setTextCursor(cursor);
++void DisplayText::displayTransmittedText(QString text, QString modeTx, qint32 txFreq)
++{
++    QString bg=&quot;yellow&quot;;
++    QString t1=&quot; @ &quot;;
++    if(modeTx==&quot;JT65&quot;) t1=&quot; # &quot;;
++    QString t2;
++    t2.sprintf(&quot;%4d&quot;,txFreq);
++    QString t = QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;) + \
++        &quot;  Tx      &quot; + t2 + t1 + text;   // The position of the 'Tx' is searched for in DecodedText and in MainWindow.  Not sure if thats required anymore? VK3ACF
++
++    _insertText(t,bg);
+ }
+
+Modified: branches/wsjtx/displaytext.h
+===================================================================
+--- branches/wsjtx/displaytext.h	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/displaytext.h	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -3,7 +3,9 @@
+ 
+ #include &lt;QTextBrowser&gt;
+ #include &quot;logbook/logbook.h&quot;
++#include &quot;decodedtext.h&quot;
+ 
++
+ class DisplayText : public QTextBrowser
+ {
+     Q_OBJECT
+@@ -13,7 +15,8 @@
+     void setFont(QFont font);
+ 
+     void insertLineSpacer();
+-    void displayDecodedText(QString decodedText, QString myCall, bool displayDXCCEntity, LogBook logBook);
++    void displayDecodedText(DecodedText decodedText, QString myCall, bool displayDXCCEntity, LogBook logBook);
++    void displayTransmittedText(QString text, QString modeTx, qint32 txFreq);
+ 
+ signals:
+     void selectCallsign(bool shift, bool ctrl);
+@@ -28,7 +31,8 @@
+ private:
+     int _fontWidth;
+     int _maxDisplayedCharacters;
+-    void _appendDXCCWorkedB4(/*mod*/QString&amp; t1, QString &amp;bg, LogBook logBook);
++    void _insertText(const QString text, const QString bg);
++    void _appendDXCCWorkedB4(/*mod*/DecodedText&amp; t1, QString &amp;bg, LogBook logBook);
+ 
+ };
+ 
+
+Modified: branches/wsjtx/logbook/logbook.cpp
+===================================================================
+--- branches/wsjtx/logbook/logbook.cpp	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/logbook/logbook.cpp	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -72,7 +72,7 @@
+ 
+ void LogBook::addAsWorked(const QString call)
+ {
+-    qDebug() &lt;&lt; &quot;adding &quot; &lt;&lt; call &lt;&lt; &quot; as worked&quot;;
++    //qDebug() &lt;&lt; &quot;adding &quot; &lt;&lt; call &lt;&lt; &quot; as worked&quot;;
+     _log.add(call);
+     QString countryName = _countries.find(call);
+     if (countryName.length() &gt; 0)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/mainwindow.cpp	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -14,6 +14,8 @@
+ #include &quot;getfile.h&quot;
+ #include &quot;logqso.h&quot;
+ 
++
++
+ #ifdef QT5
+ #include &lt;QtConcurrent/QtConcurrentRun&gt;
+ #endif
+@@ -268,7 +270,7 @@
+   m_dontReadFreq=false;
+   m_lockTxFreq=false;
+   ui-&gt;readFreq-&gt;setEnabled(false);
+-  m_QSOmsg=&quot;&quot;;
++  m_QSOText.clear();
+   m_CATerror=false;
+   decodeBusy(false);
+ 
+@@ -1390,9 +1392,11 @@
+ 
+ void MainWindow::readFromStdout()                             //readFromStdout
+ {
+-  while(proc_jt9.canReadLine()) {
++  while(proc_jt9.canReadLine())
++  {
+     QByteArray t=proc_jt9.readLine();
+-    if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
++    if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0)
++    {
+       m_bdecoded = (t.mid(23,1).toInt()==1);
+       bool keepFile=m_saveAll or (m_saveDecoded and m_bdecoded);
+       if(!keepFile and !m_diskData) killFileTimer-&gt;start(45*1000); //Kill in 45 s
+@@ -1426,75 +1430,46 @@
+           m_blankLine=false;
+       }
+ 
++      DecodedText decodedtext;
++      decodedtext = t.replace(&quot;\n&quot;,&quot;&quot;); //t.replace(&quot;\n&quot;,&quot;&quot;).mid(0,t.length()-4);
+ 
+-      QString t1=t.replace(&quot;\n&quot;,&quot;&quot;).mid(0,t.length()-4);
+-
+       // the left band display
+-      ui-&gt;decodedTextBrowser-&gt;displayDecodedText(t1,m_myCall,m_displayDXCCEntity,m_logBook);
++      ui-&gt;decodedTextBrowser-&gt;displayDecodedText(decodedtext,m_myCall,m_displayDXCCEntity,m_logBook);
+ 
+-      if (abs(t1.mid(14,4).toInt() - m_wideGraph-&gt;rxFreq()) &lt;= 10) // this msg is within 10 hertz of our tuned frequency
++      if (abs(decodedtext.frequencyOffset() - m_wideGraph-&gt;rxFreq()) &lt;= 10) // this msg is within 10 hertz of our tuned frequency
+       {
+           // the right QSO window
+-          ui-&gt;decodedTextBrowser2-&gt;displayDecodedText(t1,m_myCall,false,m_logBook);
++          ui-&gt;decodedTextBrowser2-&gt;displayDecodedText(decodedtext,m_myCall,false,m_logBook);
+ 
+-          bool b65=t1.indexOf(&quot;#&quot;)==19;
++          bool b65=decodedtext.isJT65();
+           if(b65 and m_modeTx!=&quot;JT65&quot;) on_pbTxMode_clicked();
+           if(!b65 and m_modeTx==&quot;JT65&quot;) on_pbTxMode_clicked();
+-          m_QSOmsg=t1;
++          m_QSOText=decodedtext;
+       }
+ 
+-      // find and extract any report
+-      QString msg=t.mid(21);
+-      int i1=msg.indexOf(&quot;\r&quot;);
+-      if(i1&gt;0) msg=msg.mid(0,i1-1) + &quot;                      &quot;;
+-      bool b=stdmsg_(msg.mid(0,22).toLatin1().constData(),22);
+-      QStringList w=msg.split(&quot; &quot;,QString::SkipEmptyParts);
+-      if(b and w[0]==m_myCall) {
+-        QString tt=&quot;&quot;;
+-        if(w.length()&gt;=3) tt=w[2];
+-        bool ok;
+-        i1=tt.toInt(&amp;ok);
+-        if(ok and i1&gt;=-50 and i1&lt;50) {
+-          m_rptRcvd=tt;
+-        } else {
+-          if(tt.mid(0,1)==&quot;R&quot;) {
+-            i1=tt.mid(1).toInt(&amp;ok);
+-            if(ok and i1&gt;=-50 and i1&lt;50) {
+-              m_rptRcvd=tt.mid(1);
+-            }
+-          }
+-        }
+-      }
++      // find and extract any report for myCall
++      bool stdMsg = decodedtext.report(m_myCall,/*mod*/m_rptRcvd);
+ 
+       // extract details and send to PSKreporter
+       int nsec=QDateTime::currentMSecsSinceEpoch()/1000-m_secBandChanged;
+       bool okToPost=(nsec&gt;50);
+-      QString msgmode=&quot;JT9&quot;;
+-      bool b65=t1.indexOf(&quot;#&quot;)==19;
+-      if(b65) msgmode=&quot;JT65&quot;;
+-      i1=msg.indexOf(&quot; &quot;);
+-      QString c2=msg.mid(i1+1);
+-      int i2=c2.indexOf(&quot; &quot;);
+-      QString g2=c2.mid(i2+1,4);
+-      c2=c2.mid(0,i2);
+-      QString remote=&quot;call,&quot; + c2 + &quot;,&quot;;
+-      if(gridOK(g2)) remote += &quot;gridsquare,&quot; + g2 + &quot;,&quot;;
+-      int nHz=t.mid(14,4).toInt();
+-      uint nfreq=1000000.0*m_dialFreq + nHz + 0.5;
+-      remote += &quot;freq,&quot; + QString::number(nfreq);
+-      int nsnr=t.mid(5,3).toInt();
+-      remote += &quot;,mode,&quot; + msgmode + &quot;,snr,&quot; + QString::number(nsnr) + &quot;,,&quot;;
+-      wchar_t tremote[256];
+-      remote.toWCharArray(tremote);
++      if(m_pskReporter and stdMsg and !m_diskData and okToPost)
++      {
++          QString msgmode=&quot;JT9&quot;;
++          if (decodedtext.isJT65())
++              msgmode=&quot;JT65&quot;;
+ 
+-      if(m_pskReporter and b and !m_diskData and okToPost) {
+-        psk_Reporter-&gt;setLocalStation(m_myCall, m_myGrid, m_antDescription[m_band], &quot;WSJT-X r&quot; + rev.mid(6,4) );
+-        QString freq = QString::number(nfreq);
+-        QString snr= QString::number(nsnr);
+-        if(gridOK(g2)) {
+-          psk_Reporter-&gt;addRemoteStation(c2,g2,freq,msgmode,snr,
+-                   QString::number(QDateTime::currentDateTime().toTime_t()));
+-        }
++          QString deCall;
++          QString grid;
++          decodedtext.deCallAndGrid(/*out*/deCall,grid);
++          int audioFrequency = decodedtext.frequencyOffset();
++          int snr = decodedtext.snr();
++          uint frequency = 1000000.0*m_dialFreq + audioFrequency + 0.5;
++
++          psk_Reporter-&gt;setLocalStation(m_myCall, m_myGrid, m_antDescription[m_band], &quot;WSJT-X r&quot; + rev.mid(6,4) );
++          if(gridOK(grid))
++              psk_Reporter-&gt;addRemoteStation(deCall,grid,QString::number(frequency),msgmode,QString::number(snr),
++                                             QString::number(QDateTime::currentDateTime().toTime_t()));
+       }
+     }
+   }
+@@ -1513,7 +1488,7 @@
+ {
+   qint64 ms=QDateTime::currentMSecsSinceEpoch();
+   ui-&gt;decodedTextBrowser2-&gt;clear();
+-  m_QSOmsg=&quot;&quot;;
++  m_QSOText.clear();
+   if((ms-m_msErase)&lt;500) {
+       ui-&gt;decodedTextBrowser-&gt;clear();
+       QFile f(m_appDir + &quot;/decoded.txt&quot;);
+@@ -1640,7 +1615,8 @@
+           &lt;&lt; &quot;  Transmitting &quot; &lt;&lt; m_dialFreq &lt;&lt; &quot; MHz  &quot; &lt;&lt; m_modeTx
+           &lt;&lt; &quot;:  &quot; &lt;&lt; t &lt;&lt; endl;
+       f.close();
+-      if(m_tx2QSO) displayTxMsg(t);
++      if(m_tx2QSO)
++          ui-&gt;decodedTextBrowser2-&gt;displayTransmittedText(t,m_modeTx,m_txFreq);
+     }
+ 
+     QStringList w=t.split(&quot; &quot;,QString::SkipEmptyParts);
+@@ -1717,7 +1693,8 @@
+           &lt;&lt; &quot;:  &quot; &lt;&lt; t &lt;&lt; endl;
+       f.close();
+     }
+-    if(m_tx2QSO and !m_tune) displayTxMsg(t);
++    if(m_tx2QSO and !m_tune)
++        ui-&gt;decodedTextBrowser2-&gt;displayTransmittedText(t,m_modeTx,m_txFreq);
+   }
+ 
+   if(!m_btxok &amp;&amp; btxok0 &amp;&amp; g_iptt==1) stopTx();
+@@ -1801,26 +1778,6 @@
+   btxok0=m_btxok;
+ }               //End of GUIupdate
+ 
+-void MainWindow::displayTxMsg(QString t)
+-{
+-      QString bg=&quot;yellow&quot;;
+-      QTextBlockFormat bf;
+-      QTextCursor cursor;
+-      QString t1=&quot; @ &quot;;
+-      if(m_modeTx==&quot;JT65&quot;) t1=&quot; # &quot;;
+-      QString t2;
+-      t2.sprintf(&quot;%4d&quot;,m_txFreq);
+-      t=QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;) + \
+-          &quot;  Tx      &quot; + t2 + t1 + t;
+-      QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+-          bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+-      cursor = ui-&gt;decodedTextBrowser2-&gt;textCursor();
+-      cursor.movePosition(QTextCursor::End);
+-      bf = cursor.blockFormat();
+-      bf.setBackground(QBrush(QColor(bg)));
+-      cursor.insertHtml(s);
+-      ui-&gt;decodedTextBrowser2-&gt;setTextCursor(cursor);
+-}
+ 
+ void MainWindow::startTx2()
+ {
+@@ -1966,12 +1923,13 @@
+ 
+   QString t1 = t.mid(0,i2);              //contents up to \n on selected line
+   int i1=t1.lastIndexOf(&quot;\n&quot;) + 1;       //points to first char of line
+-  QString t2 = t1.mid(i1,i2-i1);         //selected line
++  DecodedText decodedtext;
++  decodedtext = t1.mid(i1,i2-i1);         //selected line
+ 
+-  if (t2.indexOf(&quot; CQ &quot;) &gt; 0)
+-      t2 = t2.left(36);  // to remove DXCC entity and worked B4 status. TODO need a better way to do this
++  if (decodedtext.indexOf(&quot; CQ &quot;) &gt; 0)
++      decodedtext = decodedtext.left(36);  // to remove DXCC entity and worked B4 status. TODO need a better way to do this
+ 
+-//  if(t2.indexOf(&quot;Tx&quot;)==6) return;        //Ignore Tx line
++//  if(decodedtext.indexOf(&quot;Tx&quot;)==6) return;        //Ignore Tx line
+   int i4=t.mid(i1).length();
+   if(i4&gt;55) i4=55;
+   QString t3=t.mid(i1,i4);
+@@ -1980,46 +1938,74 @@
+   QStringList t4=t3.split(&quot; &quot;,QString::SkipEmptyParts);
+   if(t4.length() &lt;5) return;             //Skip the rest if no decoded text
+ 
+-  int i9=m_QSOmsg.indexOf(t2);
+-  if(i9&lt;0 and t2.indexOf(&quot;Tx&quot;)==-1) {
+-    QString bg=&quot;white&quot;;
+-    if(t2.indexOf(&quot; CQ &quot;)&gt;0) bg=&quot;#66ff66&quot;;                           //green
+-    if(m_myCall!=&quot;&quot; and t2.indexOf(&quot; &quot;+m_myCall+&quot; &quot;)&gt;0) bg=&quot;#ff6666&quot;; //red
+-    QTextBlockFormat bf;
+-    QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+-        bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t2 + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+-    cursor = ui-&gt;decodedTextBrowser2-&gt;textCursor();
+-    cursor.movePosition(QTextCursor::End);
+-    bf = cursor.blockFormat();
+-    bf.setBackground(QBrush(QColor(bg)));
+-    cursor.insertHtml(s);
+-    ui-&gt;decodedTextBrowser2-&gt;setTextCursor(cursor);
+-    m_QSOmsg=t2;
++  int i9=m_QSOText.indexOf(decodedtext.string());
++  if (i9&lt;0 and !decodedtext.isTX())
++  {
++    ui-&gt;decodedTextBrowser2-&gt;displayDecodedText(decodedtext,m_myCall,false,m_logBook);
++    m_QSOText=decodedtext;
+   }
+ 
+-  int nfreq=t4.at(3).toInt();
+-  if(t4.at(1)==&quot;Tx&quot;) nfreq=t4.at(2).toInt();
+-  m_wideGraph-&gt;setRxFreq(nfreq);                      //Set Rx freq
+-  if(t4.at(1)==&quot;Tx&quot;) {
+-    if(ctrl) ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);       //Set Tx freq
++  /*
++    int nfreq=t4.at(3).toInt();
++    if(t4.at(1)==&quot;Tx&quot;) nfreq=t4.at(2).toInt();
++    m_wideGraph-&gt;setRxFreq(nfreq);                      //Set Rx freq
++    if(t4.at(1)==&quot;Tx&quot;) {
++      if(ctrl) ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);       //Set Tx freq
++      return;
++    }
++  */
++
++  int frequency = decodedtext.frequencyOffset();
++  m_wideGraph-&gt;setRxFreq(frequency);                 //Set Rx freq
++  if (decodedtext.isTX())
++  {
++    if (ctrl)
++        ui-&gt;TxFreqSpinBox-&gt;setValue(frequency);      //Set Tx freq
+     return;
+   }
+-  if(t4.at(4)==&quot;@&quot;) {
++
++  /*
++    QString firstcall=t4.at(5);
++    // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
++    // is true or CTRL is held down or
++    if((firstcall!=m_myCall) or m_lockTxFreq or ctrl) {
++      ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);
++    }
++  */
++
++  QString firstcall = decodedtext.call();
++  // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
++  // is true or CTRL is held down
++  if ((firstcall!=m_myCall) or m_lockTxFreq or ctrl)
++    ui-&gt;TxFreqSpinBox-&gt;setValue(frequency);
++
++  /*
++    if(t4.at(4)==&quot;@&quot;) {
++      m_modeTx=&quot;JT9&quot;;
++      ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
++      m_wideGraph-&gt;setModeTx(m_modeTx);
++    }
++    if(t4.at(4)==&quot;#&quot;) {
++      m_modeTx=&quot;JT65&quot;;
++      ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
++      m_wideGraph-&gt;setModeTx(m_modeTx);
++    }
++  */
++
++  if (decodedtext.isJT9())
++  {
+     m_modeTx=&quot;JT9&quot;;
+     ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT9  @&quot;);
+     m_wideGraph-&gt;setModeTx(m_modeTx);
+   }
+-  if(t4.at(4)==&quot;#&quot;) {
+-    m_modeTx=&quot;JT65&quot;;
+-    ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
+-    m_wideGraph-&gt;setModeTx(m_modeTx);
+-  }
+-  QString firstcall=t4.at(5);
+-  // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
+-  // is true or CTRL is held down or
+-  if((firstcall!=m_myCall) or m_lockTxFreq or ctrl) {
+-    ui-&gt;TxFreqSpinBox-&gt;setValue(nfreq);
+-  }
++  else
++      if (decodedtext.isJT65())
++      {
++          m_modeTx=&quot;JT65&quot;;
++          ui-&gt;pbTxMode-&gt;setText(&quot;Tx JT65  #&quot;);
++          m_wideGraph-&gt;setModeTx(m_modeTx);
++      }
++/*
+   QString hiscall=t4.at(6);
+   QString hisgrid=&quot;&quot;;
+   if(t4.length()&gt;=8) hisgrid=t4.at(7);
+@@ -2028,10 +2014,32 @@
+   if(gridOK(hisgrid)) ui-&gt;dxGridEntry-&gt;setText(hisgrid);
+   if(ui-&gt;dxGridEntry-&gt;text()==&quot;&quot;) lookup();
+   m_hisGrid=ui-&gt;dxGridEntry-&gt;text();
+-  int n = 60*t2.mid(0,2).toInt() + t2.mid(2,2).toInt();
++*/
++
++  QString hiscall;
++  QString hisgrid;
++  decodedtext.deCallAndGrid(/*out*/hiscall,hisgrid);
++  if (hiscall != ui-&gt;dxCallEntry-&gt;text())
++      ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
++  ui-&gt;dxCallEntry-&gt;setText(hiscall);
++  if (gridOK(hisgrid))
++      ui-&gt;dxGridEntry-&gt;setText(hisgrid);
++  if (ui-&gt;dxGridEntry-&gt;text()==&quot;&quot;)
++      lookup();
++  m_hisGrid = ui-&gt;dxGridEntry-&gt;text();
++
++/*
++  int n = 60*decodedtext.mid(0,2).toInt() + decodedtext.mid(2,2).toInt();
+   int nmod=n%(m_TRperiod/30);
+   m_txFirst=(nmod!=0);
+   ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
++*/
++  int n = decodedtext.timeInSeconds();
++  int nmod=n%(m_TRperiod/30);
++  m_txFirst=(nmod!=0);
++  ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
++
++/*
+   QString rpt=t4.at(1);
+   if(rpt.indexOf(&quot;  &quot;)==0) rpt=&quot;+&quot; + rpt.mid(2,2);
+   if(rpt.indexOf(&quot; -&quot;)==0) rpt=rpt.mid(1,2);
+@@ -2042,10 +2050,17 @@
+   if(nr&gt;=-9 and nr&lt;=-1) rpt=&quot;-0&quot; + rpt.mid(1);
+   if(nr&gt;=0 and nr&lt;=9) rpt=&quot;+0&quot; + rpt;
+   if(nr&gt;=10) rpt=&quot;+&quot; + rpt;
++*/
++  QString rpt = decodedtext.report();
+   ui-&gt;rptSpinBox-&gt;setValue(rpt.toInt());
+   genStdMsgs(rpt);
+-  if(t2.indexOf(m_myCall)&gt;=0) {
+-    if(t4.length()&gt;=7 and !gridOK(t4.at(7))) {
++
++  // determine the appropriate response to the received msg
++  if(decodedtext.indexOf(m_myCall)&gt;=0)
++  {
++    if (t4.length()&gt;=7   // enough fields for a normal msg
++        and !gridOK(t4.at(7))) // but no grid on end of msg
++    {
+       QString r=t4.at(7);
+       if(r.mid(0,3)==&quot;RRR&quot;) {
+         m_ntx=5;
+@@ -2090,7 +2105,9 @@
+       }
+     }
+ 
+-  } else {
++  }
++  else // myCall not in msg
++  {
+     m_ntx=1;
+     ui-&gt;txrb1-&gt;setChecked(true);
+     if(ui-&gt;tabWidget-&gt;currentIndex()==1) {
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/mainwindow.h	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -21,7 +21,9 @@
+ #include &quot;logbook/logbook.h&quot;
+ #include &quot;Detector.hpp&quot;
+ #include &quot;Modulator.hpp&quot;
++#include &quot;decodedtext.h&quot;
+ 
++
+ #define NUM_JT65_SYMBOLS 126
+ #define NUM_JT9_SYMBOLS 85
+ #define NUM_CW_SYMBOLS 250
+@@ -372,7 +374,6 @@
+     QString m_cmnd;
+     QString m_msgSent0;
+     QString m_fileToSave;
+-    QString m_QSOmsg;
+ 
+     QStringList m_macro;
+     QStringList m_dFreq;           // per band frequency in MHz as a string
+@@ -387,6 +388,7 @@
+     PSK_Reporter *psk_Reporter;
+     SignalMeter *signalMeter;
+     LogBook m_logBook;
++    DecodedText m_QSOText;
+ 
+ 
+ //---------------------------------------------------- private functions
+@@ -403,7 +405,6 @@
+     void statusChanged();
+     void dialFreqChanged2(double f);
+     void freeText();
+-    void displayTxMsg(QString t);
+     void rigOpen();
+     void pollRigFreq();
+     bool gridOK(QString g);
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/mainwindow.ui	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -6,8 +6,8 @@
+    &lt;rect&gt;
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+-    &lt;width&gt;760&lt;/width&gt;
+-    &lt;height&gt;523&lt;/height&gt;
++    &lt;width&gt;780&lt;/width&gt;
++    &lt;height&gt;491&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -24,7 +24,7 @@
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+    &lt;size&gt;
+-    &lt;width&gt;936&lt;/width&gt;
++    &lt;width&gt;1280&lt;/width&gt;
+     &lt;height&gt;1028&lt;/height&gt;
+    &lt;/size&gt;
+   &lt;/property&gt;
+@@ -60,7 +60,7 @@
+         &lt;/property&gt;
+         &lt;property name=&quot;maximumSize&quot;&gt;
+          &lt;size&gt;
+-          &lt;width&gt;500&lt;/width&gt;
++          &lt;width&gt;600&lt;/width&gt;
+           &lt;height&gt;1000&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
+@@ -104,7 +104,7 @@
+         &lt;/property&gt;
+         &lt;property name=&quot;maximumSize&quot;&gt;
+          &lt;size&gt;
+-          &lt;width&gt;500&lt;/width&gt;
++          &lt;width&gt;600&lt;/width&gt;
+           &lt;height&gt;20&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
+@@ -193,7 +193,7 @@
+         &lt;/property&gt;
+         &lt;property name=&quot;maximumSize&quot;&gt;
+          &lt;size&gt;
+-          &lt;width&gt;500&lt;/width&gt;
++          &lt;width&gt;600&lt;/width&gt;
+           &lt;height&gt;20&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
+@@ -288,7 +288,7 @@
+         &lt;/property&gt;
+         &lt;property name=&quot;maximumSize&quot;&gt;
+          &lt;size&gt;
+-          &lt;width&gt;500&lt;/width&gt;
++          &lt;width&gt;600&lt;/width&gt;
+           &lt;height&gt;1000&lt;/height&gt;
+          &lt;/size&gt;
+         &lt;/property&gt;
+@@ -2278,8 +2278,8 @@
+     &lt;rect&gt;
+      &lt;x&gt;0&lt;/x&gt;
+      &lt;y&gt;0&lt;/y&gt;
+-     &lt;width&gt;760&lt;/width&gt;
+-     &lt;height&gt;21&lt;/height&gt;
++     &lt;width&gt;780&lt;/width&gt;
++     &lt;height&gt;20&lt;/height&gt;
+     &lt;/rect&gt;
+    &lt;/property&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuFile&quot;&gt;
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-08-17 19:21:14 UTC (rev 3563)
++++ branches/wsjtx/wsjtx.pro	2013-08-25 01:48:45 UTC (rev 3564)
+@@ -58,7 +58,8 @@
+ 	devsetup.cpp \
+ 	about.cpp \
+ 	mainwindow.cpp \
+-	main.cpp
++	main.cpp \
++    decodedtext.cpp
+ 
+ win32 {
+ SOURCES += killbyname.cpp
+@@ -75,6 +76,7 @@
+     logbook/countriesworked.h \
+     logbook/adif.h
+ 
++
+ FORMS    += mainwindow.ui about.ui devsetup.ui widegraph.ui \
+     logqso.ui
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003255.html">[WSJT-SVN] r3563 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003257.html">[WSJT-SVN] r3565 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3256">[ date ]</a>
+              <a href="thread.html#3256">[ thread ]</a>
+              <a href="subject.html#3256">[ subject ]</a>
+              <a href="author.html#3256">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2287 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2287%20-%20branches/wspr&In-Reply-To=%3C20101209204329.2481A480EBB%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001978.html">
+   <LINK REL="Next"  HREF="001980.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2287 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2287%20-%20branches/wspr&In-Reply-To=%3C20101209204329.2481A480EBB%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2287 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Dec  9 21:43:28 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001978.html">[WSJT-SVN] r2286 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001980.html">[WSJT-SVN] r2288 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1979">[ date ]</a>
+              <a href="thread.html#1979">[ thread ]</a>
+              <a href="subject.html#1979">[ subject ]</a>
+              <a href="author.html#1979">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-09 21:43:28 +0100 (Thu, 09 Dec 2010)
+New Revision: 2287
+
+Modified:
+   branches/wspr/WSPR.iss
+   branches/wspr/rxtxcoord.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Correct the Rx/Tx scheduling in coordinated hopping.  (I hope it's
+right, this time!)
+
+
+Modified: branches/wspr/WSPR.iss
+===================================================================
+--- branches/wspr/WSPR.iss	2010-12-09 14:08:17 UTC (rev 2286)
++++ branches/wspr/WSPR.iss	2010-12-09 20:43:28 UTC (rev 2287)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=WSPR
+-AppVerName=WSPR Version 2.11 r2285
++AppVerName=WSPR Version 2.11 r2287
+ 
+ AppCopyright=Copyright (C) 2008-2010 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSPR
+
+Modified: branches/wspr/rxtxcoord.f90
+===================================================================
+--- branches/wspr/rxtxcoord.f90	2010-12-09 14:08:17 UTC (rev 2286)
++++ branches/wspr/rxtxcoord.f90	2010-12-09 20:43:28 UTC (rev 2287)
+@@ -1,21 +1,23 @@
+-subroutine rxtxcoord(nsec,iband,pctx,nrx,ntxnext)
++subroutine rxtxcoord(ns0,pctx,nrx,ntxnext)
+ 
+ ! Determine Rx or Tx in coordinated hopping mode.
+ 
+-  integer tx(10,6)
+-  real r(6)
++  integer tx(10,6)    !T/R array for 2 hours: 10 bands, 6 time slots per band
++  real r(6)           !Random numbers
+   integer ii(1)
+-  data nsec0/-1/
++  data nsec0/-10000000/
+   save nsec0,tx
+   
+-  if(abs(nsec-nsec0).gt.2*3600) then
++  nsec=(ns0+10)/120
++  nsec=nsec*120
++  if(abs(nsec-nsec0).gt.7200 - 10) then
+ ! At startup and whenever 2 hours have elapsed, compute new Rx/Tx pattern
+-     nsec0=nsec
+-     tx=0
+-     do j=1,10
++     nsec0=nsec                       !Save time when new array is computed
++     tx=0                             !Clear the tx array
++     do j=1,10                        !Loop over all 10 bands
+         call random_number(r)
+-        do i=1,6,2
+-           if(r(i).gt.r(i+1)) then
++        do i=1,6,2                    !Select one each of 3 pairs of the 
++           if(r(i).gt.r(i+1)) then    !  6 slots for Tx
+               tx(j,i)=1
+               r(i+1)=0.
+            else
+@@ -24,7 +26,7 @@
+            endif
+         enddo
+ 
+-        if(pctx.lt.50.0) then
++        if(pctx.lt.50.0) then         !If pctx &lt; 50, we may kill one Tx slot
+            ii=maxloc(r)
+            i=ii(1)
+            call random_number(rr)
+@@ -35,7 +37,7 @@
+            endif
+         endif
+ 
+-        if(pctx.lt.33.333) then
++        if(pctx.lt.33.333) then       !If pctx &lt; 33, may kill another
+            ii=maxloc(r)
+            i=ii(1)
+            call random_number(rr)
+@@ -46,12 +48,15 @@
+            endif
+         endif
+      enddo
++
++! We now have 1 to 3 Tx periods per band in the 2-hour interval.
++
+   endif
+ 
+-  iseq=mod((nsec-nsec0)/120,6) + 1
++  iband=mod(nsec/120,10) + 1
++  iseq=mod((nsec-nsec0)/1200,6) + 1
+   if(iseq.lt.1) iseq=1
+-  ib=mod(iband+8,10) + 1
+-  if(tx(ib,iseq).eq.1) then
++  if(tx(iband,iseq).eq.1) then
+      ntxnext=1
+   else
+      nrx=1
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-09 14:08:17 UTC (rev 2286)
++++ branches/wspr/wspr.py	2010-12-09 20:43:28 UTC (rev 2287)
+@@ -807,12 +807,17 @@
+                         found=True
+             ipctx.set(hopping.hoppingpctx[b].get())
+             if b!=iband.get(): hopped=1
+-            w.acom1.iband=b
+             iband.set(b)
+ 
+     else:
+         w.acom1.nfhopping=0
+-            
++        ns=nsec % 86400
++        ns1=ns % (10*120)
++        b=ns1/120 + 3
++        if b==12: b=2
++        if iband.get()==b and random.randint(1,2)==1:
++            w.acom1.ntxnext=1
++
+     try:
+         f0.set(float(sf0.get()))
+         ftx.set(float(sftx.get()))
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-12-09 14:08:17 UTC (rev 2286)
++++ branches/wspr/wspr2.f90	2010-12-09 20:43:28 UTC (rev 2287)
+@@ -138,7 +138,7 @@
+               nrx=1
+            endif
+         else
+-           call rxtxcoord(nsec,iband,pctx,nrx,ntxnext)
++           call rxtxcoord(nsec,pctx,nrx,ntxnext)
+         endif
+      endif
+   else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001978.html">[WSJT-SVN] r2286 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001980.html">[WSJT-SVN] r2288 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1979">[ date ]</a>
+              <a href="thread.html#1979">[ thread ]</a>
+              <a href="subject.html#1979">[ subject ]</a>
+              <a href="author.html#1979">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2769 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2769%20-%20branches/wsjtx&In-Reply-To=%3C20121124161849.D505955B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002460.html">
+   <LINK REL="Next"  HREF="002462.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2769 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2769%20-%20branches/wsjtx&In-Reply-To=%3C20121124161849.D505955B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2769 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Nov 24 17:18:49 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002460.html">[WSJT-SVN] r2768 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002462.html">[WSJT-SVN] r2770 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2461">[ date ]</a>
+              <a href="thread.html#2461">[ thread ]</a>
+              <a href="subject.html#2461">[ subject ]</a>
+              <a href="author.html#2461">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-24 17:18:49 +0100 (Sat, 24 Nov 2012)
+New Revision: 2769
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+Implement &quot;Tx last: ...&quot; and &quot;Start with Monitor OFF&quot;.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-24 15:18:17 UTC (rev 2768)
++++ branches/wsjtx/mainwindow.cpp	2012-11-24 16:18:49 UTC (rev 2769)
+@@ -182,7 +182,7 @@
+   soundInThread.start(QThread::HighestPriority);
+   soundOutThread.setOutputDevice(m_paOutDevice);
+   soundOutThread.setTxFreq(m_txFreq);
+-  m_monitoring=false;                           // Start with Monitoring OFF
++  m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+   soundInThread.setMonitoring(m_monitoring);
+   m_diskData=false;
+   g_pWideGraph-&gt;setTol(m_tol);
+@@ -269,6 +269,7 @@
+   settings.setValue(&quot;SaveAll&quot;,ui-&gt;actionSave_all-&gt;isChecked());
+   settings.setValue(&quot;NDepth&quot;,m_ndepth);
+   settings.setValue(&quot;KB8RQ&quot;,m_kb8rq);
++  settings.setValue(&quot;MonitorOFF&quot;,m_monitorStartOFF);
+   settings.setValue(&quot;NB&quot;,m_NB);
+   settings.setValue(&quot;NBslider&quot;,m_NBslider);
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
+@@ -333,7 +334,10 @@
+   m_tol=settings.value(&quot;Tol&quot;,5).toInt();
+   m_inGain=settings.value(&quot;InGain&quot;,0).toInt();
+   ui-&gt;inGain-&gt;setValue(m_inGain);
++  m_kb8rq=settings.value(&quot;KB8RQ&quot;,false).toBool();
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
++  m_monitorStartOFF=settings.value(&quot;MonitorOFF&quot;,false).toBool();
++  ui-&gt;actionMonitor_OFF_at_startup-&gt;setChecked(m_monitorStartOFF);
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -602,7 +606,7 @@
+ 
+   lab5 = new QLabel(&quot;&quot;);
+   lab5-&gt;setAlignment(Qt::AlignHCenter);
+-  lab5-&gt;setMinimumSize(QSize(50,18));
++  lab5-&gt;setMinimumSize(QSize(100,18));
+   lab5-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab5);
+ }
+@@ -940,7 +944,6 @@
+       if(!keepFile) {
+         QFile savedFile(m_fname);
+         savedFile.remove();
+-        qDebug() &lt;&lt; &quot;Removed&quot; &lt;&lt; m_fname;
+       }
+       jt9com_.nagain=0;
+       jt9com_.ndiskdat=0;
+@@ -1049,6 +1052,7 @@
+     int len1=22;
+     genjt9_(message,msgsent,itone,len1,len1);
+     msgsent[22]=0;
++    lab5-&gt;setText(&quot;Last Tx:  &quot; + QString::fromAscii(msgsent));
+     if(m_restart) {
+       QFile f(&quot;wsjtx_tx.log&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+@@ -1056,6 +1060,7 @@
+       out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+           &lt;&lt; &quot;  Tx message:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
+       f.close();
++
+     }
+ 
+     m_restart=false;
+@@ -1149,16 +1154,19 @@
+     m_hsym0=khsym;
+     m_sec0=nsec;
+ 
++/*
+     if(m_myCall==&quot;K1JT&quot;) {
+       char s[20];
+       double t1=1.0;
+ //Better: use signals from sound threads?
+-//      if(soundInThread.isRunning()) t1=soundInThread.samFacIn();
++      if(soundInThread.isRunning()) t1=soundInThread.samFacIn();
+       double t2=1.0;
+-//      if(soundOutThread.isRunning()) t2=soundOutThread.samFacOut();
++      if(soundOutThread.isRunning()) t2=soundOutThread.samFacOut();
+       sprintf(s,&quot;%6.4f  %6.4f&quot;,t1,t2);
+       lab5-&gt;setText(s);
+     }
++*/
++
+   }
+   iptt0=iptt;
+   btxok0=btxok;
+@@ -1685,3 +1693,8 @@
+ {
+   m_inGain=n;
+ }
++
++void MainWindow::on_actionMonitor_OFF_at_startup_triggered()
++{
++  m_monitorStartOFF=!m_monitorStartOFF;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-11-24 15:18:17 UTC (rev 2768)
++++ branches/wsjtx/mainwindow.h	2012-11-24 16:18:49 UTC (rev 2769)
+@@ -108,6 +108,7 @@
+   void on_actionDeepestDecode_triggered();
+   void on_inGain_valueChanged(int n);
+   void bumpFqso(int n);
++  void on_actionMonitor_OFF_at_startup_triggered();
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -159,6 +160,7 @@
+     bool    m_killAll;
+     bool    m_bsynced;
+     bool    m_bdecoded;
++    bool    m_monitorStartOFF;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-11-24 15:18:17 UTC (rev 2768)
++++ branches/wsjtx/mainwindow.ui	2012-11-24 16:18:49 UTC (rev 2769)
+@@ -1202,6 +1202,7 @@
+     &lt;/property&gt;
+     &lt;addaction name=&quot;actionDeviceSetup&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
++    &lt;addaction name=&quot;actionMonitor_OFF_at_startup&quot;/&gt;
+     &lt;addaction name=&quot;actionF4_sets_Tx6&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
+    &lt;/widget&gt;
+@@ -1658,6 +1659,14 @@
+     &lt;string&gt;Deepest&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionMonitor_OFF_at_startup&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Monitor OFF at startup&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002460.html">[WSJT-SVN] r2768 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002462.html">[WSJT-SVN] r2770 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2461">[ date ]</a>
+              <a href="thread.html#2461">[ thread ]</a>
+              <a href="subject.html#2461">[ subject ]</a>
+              <a href="author.html#2461">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

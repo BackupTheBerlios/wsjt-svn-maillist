@@ -1,0 +1,413 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r378 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r378%20-%20trunk&In-Reply-To=%3C200704271755.l3RHt3k9025596%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000062.html">
+   <LINK REL="Next"  HREF="000064.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r378 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r378%20-%20trunk&In-Reply-To=%3C200704271755.l3RHt3k9025596%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r378 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 27 19:55:03 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000062.html">[WSJT-SVN] r377 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000064.html">[WSJT-SVN] r379 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-04-27 19:54:51 +0200 (Fri, 27 Apr 2007)
+New Revision: 378
+
+Added:
+   trunk/WSJT_Quick_Reference.pdf
+Modified:
+   trunk/Makefile.win
+   trunk/extract.f
+   trunk/spec2d65.f
+   trunk/wsjt.py
+Log:
+Added histogram test to JT65 decoder, in extract.f.
+Shift-F5 to display examples of minimal QSOs.
+Updated windows Makefile.
+Added WSJT Quick Reference file.
+
+
+Modified: trunk/Makefile.win
+===================================================================
+--- trunk/Makefile.win	2007-04-27 13:20:55 UTC (rev 377)
++++ trunk/Makefile.win	2007-04-27 17:54:51 UTC (rev 378)
+@@ -33,7 +33,7 @@
+ 	gentone.f syncf0.f syncf1.f synct.f decode6m.f avemsg6m.f \
+ 	set.f flatten.f db.f pctile.f sort.f ssort.f ps.f smooth.f ping.f \
+ 	longx.f peakup.f sync.f detect.f avemsg65.f decode65.f demod64a.f \
+-	encode65.f extract.f flat1.f four2.f gencw.f getpfx1.f \
++	encode65.f extract.f chkhist.f flat1.f four2.f gencw.f getpfx1.f \
+ 	getpfx2.f getsnr.f graycode.f grid2k.f interleave63.f k2grid.f \
+ 	limit.f lpf1.f deep65.f morse.f nchar.f packcall.f packgrid.f \
+ 	packmsg.f packtext.f setup65.f short65.f slope.f spec2d65.f \
+
+Added: trunk/WSJT_Quick_Reference.pdf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/WSJT_Quick_Reference.pdf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/extract.f
+===================================================================
+--- trunk/extract.f	2007-04-27 13:20:55 UTC (rev 377)
++++ trunk/extract.f	2007-04-27 17:54:51 UTC (rev 378)
+@@ -2,20 +2,31 @@
+ 
+       real s3(64,63)
+       character decoded*22
+-      integer era(51),dat4(12),indx(63)
++      integer era(51),dat4(12),indx(64)
+       integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
+       logical first
+       common/extcom/ntdecode
+       data first/.true./,nsec1/0/
+       save
+ 
+-      call demod64a(s3,nadd,mrsym,mrprob,mr2sym,mr2prob,ntest,nlow)
++      nfail=0
++ 1    call demod64a(s3,nadd,mrsym,mrprob,mr2sym,mr2prob,ntest,nlow)
+ 
+       if(ntest.lt.50 .or. nlow.gt.20) then
+          ncount=-999                         !Flag bad data
+          go to 900
+       endif
+ 
++      call chkhist(mrsym,nhist,ipk)
++      if(nhist.ge.20) then
++         nfail=nfail+1
++         call pctile(s3,tmp,4032,50,base)     ! ### or, use ave from demod64a ?
++         do j=1,63
++            s3(ipk,j)=base
++         enddo
++         go to 1
++      endif
++
+       call graycode(mrsym,63,-1)
+       call interleave63(mrsym,-1)
+       call interleave63(mrprob,-1)
+@@ -41,9 +52,9 @@
+          call flushqqq(22)
+          call runqqq('kvasd.exe','-q',iret)
+          if(iret.ne.0) then
+-            if(first) write(*,1000)
++            if(first) write(*,1000) iret
+  1000       format('Error in KV decoder, or no KV decoder present.'/
+-     +         'Using BM algorithm.')
++     +         'Return code:',i8,'.  Will use BM algorithm.')
+             ndec=0
+             first=.false.
+             go to 20
+
+Modified: trunk/spec2d65.f
+===================================================================
+--- trunk/spec2d65.f	2007-04-27 13:20:55 UTC (rev 377)
++++ trunk/spec2d65.f	2007-04-27 17:54:51 UTC (rev 378)
+@@ -1,90 +1,90 @@
+-      subroutine spec2d65(dat,jz,nsym,flip,istart,f0,
+-     +  ftrack,nafc,mode65,s2)
+-
+-C  Computes the spectrum for each of 126 symbols.
+-C  NB: At this point, istart, f0, and ftrack are supposedly known.
+-C  The JT65 signal has Sync bin + 2 guard bins + 64 data bins = 67 bins.
+-C  We add 5 extra bins at top and bottom for drift, making 77 bins in all.
+-
+-      parameter (NMAX=2048)                !Max length of FFTs
+-      real dat(jz)                         !Raw data
+-      real s2(77,126)                      !Spectra of all symbols
+-      real s(77)
+-      real ref(77)
+-      real ps(77)
+-      real x(NMAX)
+-      real ftrack(126)
+-      real*8 pha,dpha,twopi
+-      complex cx(NMAX)
+-c      complex work(NMAX)
+-      include 'prcom.h'
+-      equivalence (x,cx)
+-      data twopi/6.28318530718d0/
+-      save
+-
+-C  Peak up in frequency and time, and compute ftrack.
+-      call ftpeak65(dat,jz,istart,f0,flip,pr,nafc,ftrack)
+-
+-      nfft=2048/mode65                     !Size of FFTs
+-      dt=2.0/11025.0
+-      df=0.5*11025.0/nfft
+-      call zero(ps,77)
+-      k=istart-nfft
+-
+-C  NB: this could be done starting with array c3, in ftpeak65, instead
+-C  of the dat() array.  Would save some time this way ...
+-
+-      do j=1,nsym
+-         call zero(s,77)
+-         do m=1,mode65
+-            k=k+nfft
+-            if(k.ge.1 .and. k.le.(jz-nfft)) then
+-C  Mix sync tone down to f=5*df (==&gt; bin 6 of array cx, after FFT)
+-               dpha=twopi*dt*(f0 + ftrack(j) - 5.0*df)
+-               pha=0.0
+-               do i=1,nfft         
+-                  pha=pha+dpha
+-                  cx(i)=dat(k-1+i)*cmplx(cos(pha),-sin(pha))
+-               enddo
+-
+-               call four2a(cx,nfft,1,-1,1)
+-               do i=1,77
+-                  s(i)=s(i) + real(cx(i))**2 + aimag(cx(i))**2
+-               enddo
+-
+-            else
+-               call zero(s,77)
+-            endif
+-         enddo
+-         call move(s,s2(1,j),77)
+-         call add(ps,s,ps,77)
+-      enddo
+-
+-C  Flatten the spectra by dividing through by the average of the 
+-C  &quot;sync on&quot; spectra, with the sync tone explicitly deleted.
+-      nref=nsym/2
+-      do i=1,77
+-C  First we sum all the sync-on spectra:
+-         ref(i)=0.
+-         do j=1,nsym
+-            if(flip*pr(j).gt.0.0) ref(i)=ref(i)+s2(i,j)
+-         enddo
+-         ref(i)=ref(i)/nref                 !Normalize
+-      enddo
+-C  Remove the sync tone itself:
+-      base=0.25*(ref(1)+ref(2)+ref(10)+ref(11))
+-      do i=3,9
+-         ref(i)=base
+-      enddo
+-
+-C  Now flatten the spectra for all the data symbols:
+-      do i=1,77
+-         fac=1.0/ref(i)
+-         do j=1,nsym
+-            s2(i,j)=fac*s2(i,j)
+-            if(s2(i,j).eq.0.0) s2(i,j)=1.0   !### To fix problem in mfskprob
+-         enddo
+-      enddo
+-
+-      return
+-      end
++      subroutine spec2d65(dat,jz,nsym,flip,istart,f0,
++     +  ftrack,nafc,mode65,s2)
++
++C  Computes the spectrum for each of 126 symbols.
++C  NB: At this point, istart, f0, and ftrack are supposedly known.
++C  The JT65 signal has Sync bin + 2 guard bins + 64 data bins = 67 bins.
++C  We add 5 extra bins at top and bottom for drift, making 77 bins in all.
++
++      parameter (NMAX=2048)                !Max length of FFTs
++      real dat(jz)                         !Raw data
++      real s2(77,126)                      !Spectra of all symbols
++      real s(77)
++      real ref(77)
++      real ps(77)
++      real x(NMAX)
++      real ftrack(126)
++      real*8 pha,dpha,twopi
++      complex cx(NMAX)
++c      complex work(NMAX)
++      include 'prcom.h'
++      equivalence (x,cx)
++      data twopi/6.28318530718d0/
++      save
++
++C  Peak up in frequency and time, and compute ftrack.
++      call ftpeak65(dat,jz,istart,f0,flip,pr,nafc,ftrack)
++
++      nfft=2048/mode65                     !Size of FFTs
++      dt=2.0/11025.0
++      df=0.5*11025.0/nfft
++      call zero(ps,77)
++      k=istart-nfft
++
++C  NB: this could be done starting with array c3, in ftpeak65, instead
++C  of the dat() array.  Would save some time this way ...
++
++      do j=1,nsym
++         call zero(s,77)
++         do m=1,mode65
++            k=k+nfft
++            if(k.ge.1 .and. k.le.(jz-nfft)) then
++C  Mix sync tone down to f=5*df (==&gt; bin 6 of array cx, after FFT)
++               dpha=twopi*dt*(f0 + ftrack(j) - 5.0*df)
++               pha=0.0
++               do i=1,nfft         
++                  pha=pha+dpha
++                  cx(i)=dat(k-1+i)*cmplx(cos(pha),-sin(pha))
++               enddo
++
++               call four2a(cx,nfft,1,-1,1)
++               do i=1,77
++                  s(i)=s(i) + real(cx(i))**2 + aimag(cx(i))**2
++               enddo
++
++            else
++               call zero(s,77)
++            endif
++         enddo
++         call move(s,s2(1,j),77)
++         call add(ps,s,ps,77)
++      enddo
++
++C  Flatten the spectra by dividing through by the average of the 
++C  &quot;sync on&quot; spectra, with the sync tone explicitly deleted.
++      nref=nsym/2
++      do i=1,77
++C  First we sum all the sync-on spectra:
++         ref(i)=0.
++         do j=1,nsym
++            if(flip*pr(j).gt.0.0) ref(i)=ref(i)+s2(i,j)
++         enddo
++         ref(i)=ref(i)/nref                 !Normalize
++      enddo
++C  Remove the sync tone itself:
++      base=0.25*(ref(1)+ref(2)+ref(10)+ref(11))
++      do i=3,9
++         ref(i)=base
++      enddo
++
++C  Now flatten the spectra for all the data symbols:
++      do i=1,77
++         fac=1.0/ref(i)
++         do j=1,nsym
++            s2(i,j)=fac*s2(i,j)
++            if(s2(i,j).eq.0.0) s2(i,j)=1.0   !### To fix problem in mfskprob
++         enddo
++      enddo
++
++      return
++      end
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-04-27 13:20:55 UTC (rev 377)
++++ trunk/wsjt.py	2007-04-27 17:54:51 UTC (rev 378)
+@@ -277,7 +277,7 @@
+             ntx.set(1)
+         else:
+             ntx.set(2)
+-        if event.num==3 and not lauto: toggleauto()
++        if not lauto: toggleauto()
+ 
+ def textkey(event=NONE):
+     text.configure(state=DISABLED)
+@@ -718,6 +718,7 @@
+ F3	Tx Mute
+ F4	Clear &quot;To Radio&quot;
+ F5	What message to send?
++Shift+F5	Examples of minimal JT65 QSOs
+ F6	Open next file in directory
+ Shift+F6	Decode all wave files in directory
+ F7	Set FSK441 mode
+@@ -815,6 +816,33 @@
+     Label(screenf5,text=t,justify=LEFT).pack(padx=20)
+     screenf5.focus_set()
+ 
++#------------------------------------------------------ minimal_qso
++def minimal_qso(event=NONE):
++    screenf5s=Toplevel(root)
++    screenf5s.geometry(root_geom[root_geom.index(&quot;+&quot;):])
++    if g.Win32: screenf5s.iconbitmap(&quot;wsjt.ico&quot;)
++    t=&quot;&quot;&quot;
++The following are examples of minimal QSOs using standard
++JT65 messages:
++
++Station #1                            Station #2
++----------------------------------------------------------
++CQ K1JT FN20
++                                            K1JT DL3XYZ JO61
++DL3XYZ K1JT FN20 OOO
++                                            RO
++RRR
++                                            73
++----------------------------------------------------------
++CQ K1JT FN20
++                                            K1JT VK7ABC QE37
++VK7ABC K1JT -22
++                                            K1JT VK7ABC R-23
++VK7ABC K1JT RRR
++                                            TNX JOE 73
++&quot;&quot;&quot;
++    Label(screenf5s,text=t,justify=LEFT).pack(padx=20)
++    screenf5s.focus_set()
+ #------------------------------------------------------ prefixes
+ def prefixes(event=NONE):
+     pfx=Toplevel(root)
+@@ -1763,6 +1791,8 @@
+              command = mouse_commands, accelerator='Shift+F1')
+ helpmenu.add('command', label = 'What message to send?', \
+              command = what2send, accelerator='F5')
++helpmenu.add('command', label = 'Examples of minimal JT65 QSOs', \
++             command = minimal_qso, accelerator='Shift+F5')
+ helpmenu.add('command', label = 'Available suffixes and add-on prefixes', \
+              command = prefixes)
+ helpmenu.add('command', label = 'About WSJT', command = about, \
+@@ -1819,6 +1849,7 @@
+ root.bind_all('&lt;F3&gt;', txmute)
+ root.bind_all('&lt;F4&gt;', clrToRadio)
+ root.bind_all('&lt;F5&gt;', what2send)
++root.bind_all('&lt;Shift-F5&gt;', minimal_qso)
+ root.bind_all('&lt;F6&gt;', opennext)
+ root.bind_all('&lt;Shift-F6&gt;', decodeall)
+ root.bind_all('&lt;F7&gt;', ModeFSK441)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000062.html">[WSJT-SVN] r377 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000064.html">[WSJT-SVN] r379 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

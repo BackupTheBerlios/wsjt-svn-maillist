@@ -1,0 +1,935 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3574 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3574%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130926144626.639D655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003266.html">
+   <LINK REL="Next"  HREF="003268.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3574 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3574%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130926144626.639D655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3574 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Sep 26 16:46:26 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003266.html">[WSJT-SVN] r3573 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="003268.html">[WSJT-SVN] r3575 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3267">[ date ]</a>
+              <a href="thread.html#3267">[ thread ]</a>
+              <a href="subject.html#3267">[ subject ]</a>
+              <a href="author.html#3267">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-09-26 16:46:25 +0200 (Thu, 26 Sep 2013)
+New Revision: 3574
+
+Modified:
+   branches/wsprx/WSPR-X_Users_Guide.docx
+   branches/wsprx/lib/blanker.f90
+   branches/wsprx/lib/wsprd.f90
+   branches/wsprx/lib/wsprd_init.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/wsprx.pro
+Log:
+Better implementation of noise blanker, including a GUI control.
+
+
+Modified: branches/wsprx/WSPR-X_Users_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsprx/lib/blanker.f90
+===================================================================
+--- branches/wsprx/lib/blanker.f90	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/lib/blanker.f90	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -1,11 +1,13 @@
+-subroutine blanker(id,npts,nadd)
++subroutine blanker(id,npts,tblank,fblank)
+ 
+   integer*2 id(npts)
+   integer*2 nrms(900000)
+-  integer hist(0:3277)
++  integer hist(0:32767)
+ 
+   hist=0
++  nadd=nint(tblank*12000)
+   nblks=npts/nadd
++  nblank=fblank*nblks
+   k=0
+   do iblk=1,nblks
+      sq=0.
+@@ -14,16 +16,17 @@
+         xid=id(k)
+         sq=sq+xid*xid
+      enddo
+-     n=0.1*sqrt(sq/nadd)
++     n=sqrt(sq/nadd)
+      hist(n)=hist(n)+1
+      nrms(iblk)=n
+   enddo
+   nsum=0
+-  do i=0,3277
++  do i=32767,0,-1
+      nsum=nsum+hist(i)
+-     if(nsum.ge.nblks/2) exit
++     if(nsum.ge.nblank) exit
+   enddo
+-  idmax=10*i
++  idmax=i
++
+   do iblk=1,nblks
+      if(nrms(iblk).ge.idmax) then
+         ib=nadd*iblk
+
+Modified: branches/wsprx/lib/wsprd.f90
+===================================================================
+--- branches/wsprx/lib/wsprd.f90	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/lib/wsprd.f90	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -26,7 +26,7 @@
+      go to 999
+   endif
+ 
+-  call wsprd_init(ntrminutes,f0,infile)
++  call wsprd_init(ntrminutes,f0,tblank,fblank,infile)
+ 
+   open(13,file='ALL_WSPR.TXT',status='unknown',position='append')
+   open(14,file='wsprd.out',status='unknown',position='append')
+@@ -65,8 +65,7 @@
+ ! WSPR-2: mix from nbfo +/- 100 Hz to baseband, downsample by 1/32
+ ! WSPR-15: mix from (nbfo+112.5) +/- 12.5 Hz to baseband, downsample by 1/256
+ 
+-     nadd=12
+-     call blanker(id,npts,nadd)
++     if(fblank.gt.0.0) call blanker(id,npts,tblank,fblank)
+      call mix162(id,npts,nbfo,c2,jz,ps)
+   endif
+ 
+
+Modified: branches/wsprx/lib/wsprd_init.f90
+===================================================================
+--- branches/wsprx/lib/wsprd_init.f90	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/lib/wsprd_init.f90	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -1,10 +1,12 @@
+-subroutine wsprd_init(ntrminutes,f0,infile)
++subroutine wsprd_init(ntrminutes,f0,tblank,fblank,infile)
+ 
+   real*8 f0
+   character arg*12,infile*80
+ 
+   ntrminutes=2
+   f0=0.
++  tblank=0.001
++  fblank=0.1
+   nargs=iargc()
+   j=0
+   do i=1,999
+@@ -18,6 +20,14 @@
+         j=j+1
+         call getarg(j,arg)
+         read(arg,*) f0
++     else if(arg(1:2).eq.'-t') then
++        j=j+1
++        call getarg(j,arg)
++        read(arg,*) tblank
++     else if(arg(1:2).eq.'-b') then
++        j=j+1
++        call getarg(j,arg)
++        read(arg,*) fblank
+      else
+         call getarg(j,infile)
+      endif
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/mainwindow.cpp	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -146,7 +146,8 @@
+   m_secID=0;
+   m_iptt=0;
+   m_COMportOpen=0;
+-
++  m_tBlank=1;
++  m_fBlank=1;
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+   for(int i=0; i&lt;28; i++)  {                      //Initialize dBm values
+@@ -290,6 +291,8 @@
+   settings.setValue(&quot;StopBitsIndex&quot;,m_stopBitsIndex);
+   settings.setValue(&quot;Handshake&quot;,m_handshake);
+   settings.setValue(&quot;HandshakeIndex&quot;,m_handshakeIndex);
++  settings.setValue(&quot;TBlank&quot;,m_tBlank);
++  settings.setValue(&quot;FBlank&quot;,m_fBlank);
+ 
+   settings.endGroup();
+ }
+@@ -373,7 +376,11 @@
+   m_stopBitsIndex=settings.value(&quot;StopBitsIndex&quot;,1).toInt();
+   m_handshake=settings.value(&quot;Handshake&quot;,&quot;None&quot;).toString();
+   m_handshakeIndex=settings.value(&quot;HandshakeIndex&quot;,0).toInt();
+-
++  m_tBlank=settings.value(&quot;TBlank&quot;,1).toInt();
++  ui-&gt;tBlankSpinBox-&gt;setValue(m_tBlank);
++  ui-&gt;tBlankSpinBox-&gt;setVisible(false);
++  m_fBlank=settings.value(&quot;FBlank&quot;,1).toInt();
++  ui-&gt;fBlankSpinBox-&gt;setValue(m_fBlank);
+   ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   settings.endGroup();
+ 
+@@ -441,12 +448,18 @@
+     if(m_diskData) {
+       t2.sprintf(&quot; -f %.6f &quot;,f0m1500);
+ 
+-      cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path + '&quot;';
++      cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path;
+       if(m_TRseconds==900) cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd -m 15&quot; + t2 +
+           m_path + '&quot;';
+     } else {
+       cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_c2name + '&quot;';
+     }
++    QString t3=cmnd;
++    int i1=cmnd.indexOf(&quot;/wsprd &quot;);
++    QString t4;
++    t4.sprintf(&quot;-t %.4f -b %.2f &quot;,0.001*m_tBlank,0.01*m_fBlank);
++    cmnd=t3.mid(0,i1+7) + t4 + t3.mid(i1+7);
++    qDebug() &lt;&lt; cmnd;
+     p1.start(QDir::toNativeSeparators(cmnd));
+   }
+   soundInThread.m_dataSinkBusy=false;
+@@ -1367,3 +1380,13 @@
+     stopTx();
+   }
+ }
++
++void MainWindow::on_tBlankSpinBox_valueChanged(int n)
++{
++  m_tBlank=n;
++}
++
++void MainWindow::on_fBlankSpinBox_valueChanged(int n)
++{
++  m_fBlank=n;
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/mainwindow.h	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -90,6 +90,8 @@
+   void on_actionSave_all_triggered();
+   void uploadSpots();
+   void uploadResponse(QString response);
++  void on_tBlankSpinBox_valueChanged(int n);
++  void on_fBlankSpinBox_valueChanged(int n);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -141,6 +143,8 @@
+     qint32  m_ncw;
+     qint32  m_secID;
+     qint32  m_COMportOpen;
++    qint32  m_tBlank;
++    qint32  m_fBlank;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/mainwindow.ui	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -36,12 +36,6 @@
+   &lt;/property&gt;
+   &lt;widget class=&quot;QWidget&quot; name=&quot;centralWidget&quot;&gt;
+    &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_2&quot;&gt;
+-    &lt;property name=&quot;topMargin&quot;&gt;
+-     &lt;number&gt;2&lt;/number&gt;
+-    &lt;/property&gt;
+-    &lt;property name=&quot;bottomMargin&quot;&gt;
+-     &lt;number&gt;4&lt;/number&gt;
+-    &lt;/property&gt;
+     &lt;item&gt;
+      &lt;widget class=&quot;QLabel&quot; name=&quot;legendLabel&quot;&gt;
+       &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -189,12 +183,6 @@
+     &lt;/item&gt;
+     &lt;item&gt;
+      &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
+-      &lt;property name=&quot;spacing&quot;&gt;
+-       &lt;number&gt;2&lt;/number&gt;
+-      &lt;/property&gt;
+-      &lt;property name=&quot;sizeConstraint&quot;&gt;
+-       &lt;enum&gt;QLayout::SetDefaultConstraint&lt;/enum&gt;
+-      &lt;/property&gt;
+       &lt;item&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
+         &lt;item&gt;
+@@ -345,12 +333,99 @@
+        &lt;/spacer&gt;
+       &lt;/item&gt;
+       &lt;item&gt;
+-       &lt;layout class=&quot;QGridLayout&quot; name=&quot;gridLayout_3&quot;&gt;
+-        &lt;property name=&quot;verticalSpacing&quot;&gt;
+-         &lt;number&gt;2&lt;/number&gt;
+-        &lt;/property&gt;
+-        &lt;item row=&quot;5&quot; column=&quot;0&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;lab2&quot;&gt;
++       &lt;layout class=&quot;QGridLayout&quot; name=&quot;gridLayout&quot;&gt;
++        &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
++         &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;90&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;2200 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;630 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;160 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;80 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;60 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;40 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;30 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;20 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;17 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;15 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;12 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;10 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;6 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;4 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;2 m&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++          &lt;item&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Other&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/item&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
+           &lt;property name=&quot;minimumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;85&lt;/width&gt;
+@@ -364,26 +439,32 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt; Tx (MHz):&lt;/string&gt;
++           &lt;string&gt;Band:&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;4&quot; column=&quot;0&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;lab1&quot;&gt;
++        &lt;item row=&quot;1&quot; column=&quot;4&quot; colspan=&quot;2&quot;&gt;
++         &lt;widget class=&quot;QPushButton&quot; name=&quot;TxNextButton&quot;&gt;
++          &lt;property name=&quot;sizePolicy&quot;&gt;
++           &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
++            &lt;horstretch&gt;0&lt;/horstretch&gt;
++            &lt;verstretch&gt;0&lt;/verstretch&gt;
++           &lt;/sizepolicy&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;minimumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;85&lt;/width&gt;
++            &lt;width&gt;70&lt;/width&gt;
+             &lt;height&gt;0&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;85&lt;/width&gt;
+-            &lt;height&gt;20&lt;/height&gt;
++            &lt;width&gt;70&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Dial (MHz):&lt;/string&gt;
++           &lt;string&gt;Tx Next&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -406,27 +487,8 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;3&quot; column=&quot;1&quot;&gt;
+-         &lt;widget class=&quot;QSpinBox&quot; name=&quot;sbTxAudio&quot;&gt;
+-          &lt;property name=&quot;maximumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;90&lt;/width&gt;
+-            &lt;height&gt;16777215&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;prefix&quot;&gt;
+-           &lt;string/&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;maximum&quot;&gt;
+-           &lt;number&gt;24000&lt;/number&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;value&quot;&gt;
+-           &lt;number&gt;1500&lt;/number&gt;
+-          &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+-        &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++        &lt;item row=&quot;3&quot; column=&quot;0&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
+           &lt;property name=&quot;minimumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;85&lt;/width&gt;
+@@ -440,17 +502,14 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Band:&lt;/string&gt;
++           &lt;string&gt;Tx Audio (Hz):&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;3&quot; column=&quot;3&quot; colspan=&quot;2&quot;&gt;
+-         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbBandHop&quot;&gt;
+-          &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;false&lt;/bool&gt;
+-          &lt;/property&gt;
++        &lt;item row=&quot;2&quot; column=&quot;3&quot; colspan=&quot;2&quot;&gt;
++         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbUpload&quot;&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Band Hop&lt;/string&gt;
++           &lt;string&gt;Upload Spots&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -485,32 +544,13 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;5&quot; column=&quot;1&quot;&gt;
+-         &lt;widget class=&quot;QLineEdit&quot; name=&quot;txFreqLineEdit&quot;&gt;
+-          &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;false&lt;/bool&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;sizePolicy&quot;&gt;
+-           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-            &lt;horstretch&gt;0&lt;/horstretch&gt;
+-            &lt;verstretch&gt;0&lt;/verstretch&gt;
+-           &lt;/sizepolicy&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;maximumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;90&lt;/width&gt;
+-            &lt;height&gt;16777215&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
++        &lt;item row=&quot;3&quot; column=&quot;5&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;10.140200&lt;/string&gt;
++           &lt;string&gt;Blanker&lt;/string&gt;
+           &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+-        &lt;item row=&quot;2&quot; column=&quot;3&quot; colspan=&quot;2&quot;&gt;
+-         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbUpload&quot;&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Upload Spots&lt;/string&gt;
++          &lt;property name=&quot;alignment&quot;&gt;
++           &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -527,193 +567,135 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
++        &lt;item row=&quot;2&quot; column=&quot;5&quot;&gt;
++         &lt;spacer name=&quot;horizontalSpacer_4&quot;&gt;
++          &lt;property name=&quot;orientation&quot;&gt;
++           &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;30&lt;/width&gt;
++            &lt;height&gt;20&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++         &lt;/spacer&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;5&quot; column=&quot;0&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;lab2&quot;&gt;
++          &lt;property name=&quot;minimumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;85&lt;/width&gt;
++            &lt;height&gt;0&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;16777215&lt;/width&gt;
++            &lt;width&gt;85&lt;/width&gt;
+             &lt;height&gt;20&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;TX Pwr:&lt;/string&gt;
++           &lt;string&gt; Tx (MHz):&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;4&quot; column=&quot;1&quot;&gt;
+-         &lt;widget class=&quot;QLineEdit&quot; name=&quot;dialFreqLineEdit&quot;&gt;
+-          &lt;property name=&quot;sizePolicy&quot;&gt;
+-           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-            &lt;horstretch&gt;0&lt;/horstretch&gt;
+-            &lt;verstretch&gt;0&lt;/verstretch&gt;
+-           &lt;/sizepolicy&gt;
++        &lt;item row=&quot;4&quot; column=&quot;3&quot;&gt;
++         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbIdle&quot;&gt;
++          &lt;property name=&quot;enabled&quot;&gt;
++           &lt;bool&gt;true&lt;/bool&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;maximumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;90&lt;/width&gt;
+-            &lt;height&gt;16777215&lt;/height&gt;
+-           &lt;/size&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Idle&lt;/string&gt;
+           &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;5&quot; column=&quot;3&quot;&gt;
++         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxEnable&quot;&gt;
++          &lt;property name=&quot;enabled&quot;&gt;
++           &lt;bool&gt;true&lt;/bool&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;10.138700&lt;/string&gt;
++           &lt;string&gt;Tx Enable&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;1&quot; column=&quot;4&quot;&gt;
+-         &lt;widget class=&quot;QPushButton&quot; name=&quot;TxNextButton&quot;&gt;
++        &lt;item row=&quot;5&quot; column=&quot;1&quot;&gt;
++         &lt;widget class=&quot;QLineEdit&quot; name=&quot;txFreqLineEdit&quot;&gt;
++          &lt;property name=&quot;enabled&quot;&gt;
++           &lt;bool&gt;false&lt;/bool&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+-           &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+             &lt;horstretch&gt;0&lt;/horstretch&gt;
+             &lt;verstretch&gt;0&lt;/verstretch&gt;
+            &lt;/sizepolicy&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;minimumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;70&lt;/width&gt;
+-            &lt;height&gt;0&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;70&lt;/width&gt;
++            &lt;width&gt;90&lt;/width&gt;
+             &lt;height&gt;16777215&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Tx Next&lt;/string&gt;
++           &lt;string&gt;10.140200&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
+-         &lt;widget class=&quot;QComboBox&quot; name=&quot;dBmComboBox&quot;&gt;
++        &lt;item row=&quot;4&quot; column=&quot;5&quot;&gt;
++         &lt;widget class=&quot;QSpinBox&quot; name=&quot;fBlankSpinBox&quot;&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;90&lt;/width&gt;
++            &lt;width&gt;60&lt;/width&gt;
+             &lt;height&gt;16777215&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+-        &lt;item row=&quot;5&quot; column=&quot;3&quot; colspan=&quot;2&quot;&gt;
+-         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxEnable&quot;&gt;
+-          &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;true&lt;/bool&gt;
++          &lt;property name=&quot;suffix&quot;&gt;
++           &lt;string&gt; %&lt;/string&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Tx Enable&lt;/string&gt;
++          &lt;property name=&quot;maximum&quot;&gt;
++           &lt;number&gt;20&lt;/number&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;3&quot; column=&quot;0&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
+-          &lt;property name=&quot;minimumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;85&lt;/width&gt;
+-            &lt;height&gt;0&lt;/height&gt;
+-           &lt;/size&gt;
++        &lt;item row=&quot;4&quot; column=&quot;1&quot;&gt;
++         &lt;widget class=&quot;QLineEdit&quot; name=&quot;dialFreqLineEdit&quot;&gt;
++          &lt;property name=&quot;sizePolicy&quot;&gt;
++           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++            &lt;horstretch&gt;0&lt;/horstretch&gt;
++            &lt;verstretch&gt;0&lt;/verstretch&gt;
++           &lt;/sizepolicy&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;85&lt;/width&gt;
+-            &lt;height&gt;20&lt;/height&gt;
++            &lt;width&gt;90&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Tx Audio (Hz):&lt;/string&gt;
++           &lt;string&gt;10.138700&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
+-         &lt;widget class=&quot;QComboBox&quot; name=&quot;bandComboBox&quot;&gt;
++        &lt;item row=&quot;3&quot; column=&quot;1&quot;&gt;
++         &lt;widget class=&quot;QSpinBox&quot; name=&quot;sbTxAudio&quot;&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;90&lt;/width&gt;
+             &lt;height&gt;16777215&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;2200 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;630 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;160 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;80 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;60 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;40 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;30 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;20 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;17 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;15 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;12 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;10 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;6 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;4 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;2 m&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;Other&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
++          &lt;property name=&quot;prefix&quot;&gt;
++           &lt;string/&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;maximum&quot;&gt;
++           &lt;number&gt;24000&lt;/number&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;value&quot;&gt;
++           &lt;number&gt;1500&lt;/number&gt;
++          &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;0&quot; column=&quot;4&quot;&gt;
++        &lt;item row=&quot;0&quot; column=&quot;4&quot; colspan=&quot;2&quot;&gt;
+          &lt;widget class=&quot;QPushButton&quot; name=&quot;TuneButton&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+            &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -738,16 +720,6 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;4&quot; column=&quot;3&quot; colspan=&quot;2&quot;&gt;
+-         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbIdle&quot;&gt;
+-          &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;true&lt;/bool&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Idle&lt;/string&gt;
+-          &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+         &lt;item row=&quot;0&quot; column=&quot;3&quot;&gt;
+          &lt;widget class=&quot;QPushButton&quot; name=&quot;EraseButton&quot;&gt;
+           &lt;property name=&quot;minimumSize&quot;&gt;
+@@ -767,6 +739,35 @@
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
++        &lt;item row=&quot;3&quot; column=&quot;3&quot;&gt;
++         &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbBandHop&quot;&gt;
++          &lt;property name=&quot;enabled&quot;&gt;
++           &lt;bool&gt;false&lt;/bool&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Band Hop&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;4&quot; column=&quot;0&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;lab1&quot;&gt;
++          &lt;property name=&quot;minimumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;85&lt;/width&gt;
++            &lt;height&gt;0&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;85&lt;/width&gt;
++            &lt;height&gt;20&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Dial (MHz):&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
+         &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
+          &lt;spacer name=&quot;horizontalSpacer&quot;&gt;
+           &lt;property name=&quot;orientation&quot;&gt;
+@@ -780,6 +781,48 @@
+           &lt;/property&gt;
+          &lt;/spacer&gt;
+         &lt;/item&gt;
++        &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;16777215&lt;/width&gt;
++            &lt;height&gt;20&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;TX Pwr:&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
++         &lt;widget class=&quot;QComboBox&quot; name=&quot;dBmComboBox&quot;&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;90&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;5&quot; column=&quot;5&quot;&gt;
++         &lt;widget class=&quot;QSpinBox&quot; name=&quot;tBlankSpinBox&quot;&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;60&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;suffix&quot;&gt;
++           &lt;string&gt; ms&lt;/string&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;maximum&quot;&gt;
++           &lt;number&gt;20&lt;/number&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;value&quot;&gt;
++           &lt;number&gt;1&lt;/number&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
+        &lt;/layout&gt;
+       &lt;/item&gt;
+      &lt;/layout&gt;
+
+Modified: branches/wsprx/wsprx.pro
+===================================================================
+--- branches/wsprx/wsprx.pro	2013-09-26 00:18:12 UTC (rev 3573)
++++ branches/wsprx/wsprx.pro	2013-09-26 14:46:25 UTC (rev 3574)
+@@ -9,7 +9,7 @@
+ #CONFIG   += console
+ 
+ TARGET = wsprx
+-VERSION = 0.5
++VERSION = 0.8
+ TEMPLATE = app
+ 
+ win32 {
+@@ -72,5 +72,5 @@
+ } else {
+    LIBS += C:/qwt-6.0.1/lib/qwtd.dll
+ }
+-LIBS += -lusb
++#LIBS += -lusb
+ }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003266.html">[WSJT-SVN] r3573 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="003268.html">[WSJT-SVN] r3575 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3267">[ date ]</a>
+              <a href="thread.html#3267">[ thread ]</a>
+              <a href="subject.html#3267">[ subject ]</a>
+              <a href="author.html#3267">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3139 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3139%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130409151635.314A555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002830.html">
+   <LINK REL="Next"  HREF="002832.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3139 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3139%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130409151635.314A555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3139 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr  9 17:16:35 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002830.html">[WSJT-SVN] r3138 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002832.html">[WSJT-SVN] r3140 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2831">[ date ]</a>
+              <a href="thread.html#2831">[ thread ]</a>
+              <a href="subject.html#2831">[ subject ]</a>
+              <a href="author.html#2831">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-09 17:16:34 +0200 (Tue, 09 Apr 2013)
+New Revision: 3139
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/soundout.cpp
+Log:
+1. Click on spectrum sets Rx freq; double-click also invokes narrow-band 
+decoder at the new frequency.  CTRL-click (or CTRL-double-click) sets both 
+Rx and Tx freqs.
+2. Amplitude at end of transmission is ramped down to prevent a &quot;key click&quot;.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-09 00:34:39 UTC (rev 3138)
++++ branches/wsjtx/lib/decoder.f90	2013-04-09 15:16:34 UTC (rev 3139)
+@@ -29,18 +29,8 @@
+   newdat=1
+   nsynced=0
+   ndecoded=0
+-  limit=5000
+-  ccflim=4.0
+-  if(ndepth.ge.2) then
+-     limit=50000
+-     ccflim=3.0
+-  endif
+-  if(ndepth.ge.3) then
+-     limit=200000
+-     ccflim=2.5
+-  endif
++  nsps=0
+ 
+-  nsps=0
+   if(ntrMinutes.eq.1) then
+      nsps=6912
+      df3=1500.0/2048.0
+@@ -69,6 +59,18 @@
+   idf=ntol/df3 + 0.999
+ 
+   do nqd=1,0,-1
++
++     limit=5000
++     ccflim=4.0
++     if(ndepth.ge.2) then
++        limit=50000
++        ccflim=3.0
++     endif
++     if(ndepth.ge.3 .or. nqd.eq.1) then
++        limit=200000
++        ccflim=2.5
++     endif
++
+      if(nqd.eq.1) then
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-09 00:34:39 UTC (rev 3138)
++++ branches/wsjtx/mainwindow.cpp	2013-04-09 15:16:34 UTC (rev 3139)
+@@ -760,7 +760,7 @@
+   if(n==11) i--;
+   if(n==12) i++;
+   g_pWideGraph-&gt;setQSOfreq(i);
+-  if(!ctrl) {
++  if(ctrl) {
+     ui-&gt;TxFreqSpinBox-&gt;setValue(i);
+     g_pWideGraph-&gt;setTxFreq(i);
+   }
+@@ -1063,9 +1063,14 @@
+ 
+ void MainWindow::freezeDecode(int n)                          //freezeDecode()
+ {
+-  if(n==1) {
+-    bumpFqso(0);
++  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; n;
++  bool ctrl = (n&gt;=100);
++  int i=g_pWideGraph-&gt;QSOfreq();
++  if(ctrl) {
++    ui-&gt;TxFreqSpinBox-&gt;setValue(i);
++    g_pWideGraph-&gt;setTxFreq(i);
+   }
++  if((n%100)==2) on_DecodeButton_clicked();
+ }
+ 
+ void MainWindow::decode()                                       //decode()
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2013-04-09 00:34:39 UTC (rev 3138)
++++ branches/wsjtx/plotter.cpp	2013-04-09 15:16:34 UTC (rev 3139)
+@@ -418,18 +418,20 @@
+   int x=event-&gt;x();
+   setFQSO(x,false);                               // Wideband waterfall
+   bool ctrl = (event-&gt;modifiers() &amp; Qt::ControlModifier);
+-  if(!ctrl) {
+-    setTxFreq(m_fQSO);
+-    emit freezeDecode1(1);                  //### ???
+-  }
++  int n=1;
++  if(ctrl) n+=100;
++  emit freezeDecode1(n);
++  if(ctrl) setTxFreq(m_fQSO);
+ }
+ 
+ void CPlotter::mouseDoubleClickEvent(QMouseEvent *event)  //mouse2click
+ {
+-//  int h = (m_Size.height()-60)/2;
+-  int x=event-&gt;x();
+-  setFQSO(x,false);
+-  emit freezeDecode1(2);                  //### ???
++//  int x=event-&gt;x();
++//  setFQSO(x,false);
++  bool ctrl = (event-&gt;modifiers() &amp; Qt::ControlModifier);
++  int n=2;
++  if(ctrl) n+=100;
++  emit freezeDecode1(n);
+ }
+ 
+ void CPlotter::setNSpan(int n)                                  //setNSpan()
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2013-04-09 00:34:39 UTC (rev 3138)
++++ branches/wsjtx/plotter.h	2013-04-09 15:16:34 UTC (rev 3139)
+@@ -65,7 +65,6 @@
+   void SetPercent2DScreen(int percent){m_Percent2DScreen=percent;}
+ 
+ signals:
+-  void freezeDecode0(int n);
+   void freezeDecode1(int n);
+ 
+ protected:
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-04-09 00:34:39 UTC (rev 3138)
++++ branches/wsjtx/soundout.cpp	2013-04-09 15:16:34 UTC (rev 3139)
+@@ -96,10 +96,15 @@
+   baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/48000.0;
++  double amp=32767.0;
++  int i0=84.983*4.0*udata-&gt;nsps;
+   for(uint i=0 ; i&lt;framesToProcess; i++ )  {
+     phi += dphi;
+     if(phi&gt;twopi) phi -= twopi;
+-    i2=32767.0*sin(phi);
++    if(ic&gt;i0) {
++      amp=0.98*amp;
++    }
++    i2=amp*sin(phi);
+     if(udata-&gt;txsnrdb &lt; 0.0) {
+       int i4=fac*(gran() + i2*snr/32768.0);
+       if(i4&gt;32767) i4=32767;
+@@ -113,6 +118,7 @@
+ #endif
+     ic++;
+   }
++  if(amp&lt;1.0 and itone[0]&gt;=0) return paComplete;
+   return paContinue;
+ }
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002830.html">[WSJT-SVN] r3138 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002832.html">[WSJT-SVN] r3140 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2831">[ date ]</a>
+              <a href="thread.html#2831">[ thread ]</a>
+              <a href="subject.html#2831">[ subject ]</a>
+              <a href="author.html#2831">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

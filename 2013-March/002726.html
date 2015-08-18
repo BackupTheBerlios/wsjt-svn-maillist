@@ -1,0 +1,409 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3034 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3034%20-%20branches/wsprx&In-Reply-To=%3C20130304135301.C71DC55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002725.html">
+   <LINK REL="Next"  HREF="002727.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3034 - branches/wsprx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3034%20-%20branches/wsprx&In-Reply-To=%3C20130304135301.C71DC55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3034 - branches/wsprx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Mon Mar  4 14:53:01 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002725.html">[WSJT-SVN] r3033 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002727.html">[WSJT-SVN] r3035 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2726">[ date ]</a>
+              <a href="thread.html#2726">[ thread ]</a>
+              <a href="subject.html#2726">[ subject ]</a>
+              <a href="author.html#2726">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-03-04 14:53:01 +0100 (Mon, 04 Mar 2013)
+New Revision: 3034
+
+Added:
+   branches/wsprx/wsprnet.cpp
+   branches/wsprx/wsprnet.h
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/soundin.cpp
+   branches/wsprx/wsprx.pro
+Log:
+Implemented new interface for uploading spots to WSPRnet
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-03-02 02:43:00 UTC (rev 3033)
++++ branches/wsprx/mainwindow.cpp	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -103,7 +103,8 @@
+   connect(tuneTimer, SIGNAL(timeout()), this, SLOT(stopTx()));
+   uploadTimer = new QTimer(this);
+   uploadTimer-&gt;setSingleShot(true);
+-  connect(uploadTimer, SIGNAL(timeout()), this, SLOT(p2Start()));
++  //connect(uploadTimer, SIGNAL(timeout()), this, SLOT(p2Start()));
++  connect(uploadTimer, SIGNAL(timeout()), this, SLOT(uploadSpots()));
+ 
+   m_auto=false;
+   m_waterfallAvg = 1;
+@@ -203,6 +204,15 @@
+   if(ui-&gt;actionCuteSDR-&gt;isChecked()) on_actionCuteSDR_triggered();
+   if(ui-&gt;actionAFMHot-&gt;isChecked()) on_actionAFMHot_triggered();
+   if(ui-&gt;actionBlue-&gt;isChecked()) on_actionBlue_triggered();
++
++  ui-&gt;legendLabel-&gt;setFont(ui-&gt;decodedTextBrowser-&gt;font());
++  //                        2058   -9  -0.4   14.097140    0   HS0ZKM        OK03     37
++  ui-&gt;legendLabel-&gt;setText(&quot; UTC   dB    DT        Freq   DF   Call          Grid    dBm&quot;);
++
++  wsprNet = new WSPRNet(this);
++  //connect( ui-&gt;wsprnet_pushButton, SIGNAL(clicked()), this, SLOT(uploadSpots()));
++  connect( wsprNet, SIGNAL(wsprNetResponse(QString)), this, SLOT(wsprNetResponse(QString)));
++
+   freezeDecode(2);
+ }                                          // End of MainWindow constructor
+ 
+@@ -801,7 +811,24 @@
+     } else {
+       int n=t.length();
+       t=t.mid(0,n-2) + &quot;                                                  &quot;;
+-      ui-&gt;decodedTextBrowser-&gt;append(t);
++      t.remove(QRegExp(&quot;\\s+$&quot;));
++      QStringList rxFields = t.split(QRegExp(&quot;\\s+&quot;));
++      qDebug() &lt;&lt; &quot;++&gt; Rx: &quot; &lt;&lt; rxFields;
++      QString rxLine;
++      if ( rxFields.count() == 8 ) {
++        rxLine = QString(&quot;%1 %2 %3 %4 %5   %6  %7  %8&quot;)
++          .arg(rxFields.at(0), 4)
++          .arg(rxFields.at(1), 4)
++          .arg(rxFields.at(2), 5)
++          .arg(rxFields.at(3), 11)
++          .arg(rxFields.at(4), 4)
++          .arg(rxFields.at(5), -12)
++          .arg(rxFields.at(6), -6)
++          .arg(rxFields.at(7), 3);
++      } else {
++          rxLine = t;
++      }
++      ui-&gt;decodedTextBrowser-&gt;append(rxLine);
+     }
+   }
+ }
+@@ -817,6 +844,28 @@
+   msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/wsprd&quot;);
+ }
+ 
++void MainWindow::uploadSpots()
++{
++    if(m_uploading)
++        return;
++    wsprNet-&gt;upload(m_myCall, m_myGrid, m_appDir + &quot;/wsprd.out&quot;);
++    loggit(&quot;Start WSPRNet Upload&quot;);
++    m_uploading = true;
++    lab3-&gt;setStyleSheet(&quot;QLabel{background-color:yellow}&quot;);
++    lab3-&gt;setText(&quot;Uploading Spots&quot;);
++}
++
++void MainWindow::wsprNetResponse(QString serverResponse)
++{
++    qDebug() &lt;&lt; serverResponse;
++    m_uploading=false;
++    if(serverResponse.indexOf(&quot;spot(s) added&quot;) &gt; 0) {
++      QFile::remove(m_appDir + &quot;/wsprd.out&quot;);
++    }
++    lab3-&gt;setStyleSheet(&quot;&quot;);
++    lab3-&gt;setText(&quot;&quot;);
++}
++
+ void MainWindow::p2Start()
+ {
+   if(m_uploading) return;
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-03-02 02:43:00 UTC (rev 3033)
++++ branches/wsprx/mainwindow.h	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -8,6 +8,7 @@
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
++#include &quot;wsprnet.h&quot;
+ 
+ //--------------------------------------------------------------- MainWindow
+ namespace Ui {
+@@ -40,7 +41,6 @@
+   void p3ReadFromStderr();
+   void p3Error();
+ 
+-
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
+   void  closeEvent(QCloseEvent*);
+@@ -88,6 +88,8 @@
+   void on_actionSave_wav_triggered();
+   void on_actionSave_c2_triggered();
+   void on_actionSave_all_triggered();
++  void uploadSpots();
++  void wsprNetResponse(QString serverResponse);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -192,6 +194,8 @@
+     QTimer* uploadTimer;
+     QTimer* tuneTimer;
+ 
++    WSPRNet *wsprNet;
++
+     QString m_path;
+     QString m_myCall;
+     QString m_myGrid;
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-03-02 02:43:00 UTC (rev 3033)
++++ branches/wsprx/mainwindow.ui	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -43,7 +43,7 @@
+      &lt;number&gt;4&lt;/number&gt;
+     &lt;/property&gt;
+     &lt;item&gt;
+-     &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
++     &lt;widget class=&quot;QLabel&quot; name=&quot;legendLabel&quot;&gt;
+       &lt;property name=&quot;sizePolicy&quot;&gt;
+        &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+         &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -135,6 +135,9 @@
+       &lt;property name=&quot;text&quot;&gt;
+        &lt;string&gt;    UTC        dB        DT                  Freq        Drift&lt;/string&gt;
+       &lt;/property&gt;
++      &lt;property name=&quot;indent&quot;&gt;
++       &lt;number&gt;5&lt;/number&gt;
++      &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+     &lt;item&gt;
+@@ -277,7 +280,7 @@
+          &lt;/widget&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
+-         &lt;widget class=&quot;QwtThermo&quot; name=&quot;xThermo&quot; native=&quot;true&quot;&gt;
++         &lt;widget class=&quot;QwtThermo&quot; name=&quot;xThermo&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+            &lt;sizepolicy hsizetype=&quot;Minimum&quot; vsizetype=&quot;Expanding&quot;&gt;
+             &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -290,19 +293,19 @@
+             &lt;height&gt;160&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;borderWidth&quot; stdset=&quot;0&quot;&gt;
++          &lt;property name=&quot;borderWidth&quot;&gt;
+            &lt;number&gt;1&lt;/number&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;maxValue&quot; stdset=&quot;0&quot;&gt;
++          &lt;property name=&quot;maxValue&quot;&gt;
+            &lt;double&gt;60.000000000000000&lt;/double&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;minValue&quot; stdset=&quot;0&quot;&gt;
++          &lt;property name=&quot;minValue&quot;&gt;
+            &lt;double&gt;0.000000000000000&lt;/double&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;pipeWidth&quot; stdset=&quot;0&quot;&gt;
++          &lt;property name=&quot;pipeWidth&quot;&gt;
+            &lt;number&gt;8&lt;/number&gt;
+           &lt;/property&gt;
+-          &lt;property name=&quot;value&quot; stdset=&quot;0&quot;&gt;
++          &lt;property name=&quot;value&quot;&gt;
+            &lt;double&gt;0.000000000000000&lt;/double&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+@@ -789,7 +792,7 @@
+      &lt;x&gt;0&lt;/x&gt;
+      &lt;y&gt;0&lt;/y&gt;
+      &lt;width&gt;614&lt;/width&gt;
+-     &lt;height&gt;21&lt;/height&gt;
++     &lt;height&gt;25&lt;/height&gt;
+     &lt;/rect&gt;
+    &lt;/property&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuFile&quot;&gt;
+
+Modified: branches/wsprx/soundin.cpp
+===================================================================
+--- branches/wsprx/soundin.cpp	2013-03-02 02:43:00 UTC (rev 3033)
++++ branches/wsprx/soundin.cpp	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -79,6 +79,7 @@
+   inParam.suggestedLatency=0.05;
+   inParam.hostApiSpecificStreamInfo=NULL;
+ 
++  qDebug() &lt;&lt; &quot;Pa_IsFormatSuported&quot;;
+   paerr=Pa_IsFormatSupported(&amp;inParam,NULL,12000.0);
+   if(paerr&lt;0) {
+     emit error(&quot;PortAudio says requested soundcard format not supported.&quot;);
+
+Added: branches/wsprx/wsprnet.cpp
+===================================================================
+--- branches/wsprx/wsprnet.cpp	                        (rev 0)
++++ branches/wsprx/wsprnet.cpp	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -0,0 +1,59 @@
++// Interface to WSPRnet website
++//
++// by Edson Pereira - PY2SDR
++
++#include &quot;wsprnet.h&quot;
++
++WSPRNet::WSPRNet(QObject *parent) :
++    QObject(parent)
++{
++  wsprNetUrl = &quot;<A HREF="http://wsprnet.org/meptspots.php">http://wsprnet.org/meptspots.php</A>&quot;;
++  networkManager = new QNetworkAccessManager(this);
++  connect( networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkReply(QNetworkReply*)) );
++}
++
++void WSPRNet::upload( QString call, QString grid, QString fileName )
++{
++    // Open the wsprd.out file
++    QFile wsprdOutFile(fileName);
++    if (!wsprdOutFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
++        qDebug() &lt;&lt; &quot;Failed to open &quot; + fileName;
++    }
++
++    // Read the contents
++    QByteArray wsprdOutData;
++    while (!wsprdOutFile.atEnd()) {
++        wsprdOutData.append(wsprdOutFile.readLine());
++    }
++
++    // WSPRnet URL
++    QUrl url(wsprNetUrl);
++    QNetworkRequest request(url);
++
++    QString boundary = &quot;--------------------WSPRnet_Boundary_$&quot;;
++    request.setHeader( QNetworkRequest::ContentTypeHeader, QString(&quot;multipart/form-data, boundary=&quot; + boundary));
++
++    QByteArray data(QString(&quot;--&quot; + boundary + &quot;\r\n&quot;).toAscii());
++    data += &quot;Content-Disposition: form-data; name=\&quot;allmept\&quot;; filename=\&quot;&quot; + wsprdOutFile.fileName() + &quot;\&quot;\r\n&quot;;
++    data += &quot;Content-Type: application/octet-stream\r\n\r\n&quot;;
++    data += wsprdOutData + &quot;\r\n&quot;;
++    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
++    data += &quot;Content-Disposition: form-data; name=\&quot;call\&quot;\r\n\r\n&quot;;
++    data += call + &quot;\r\n&quot;;
++    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
++    data += &quot;Content-Disposition: form-data; name=\&quot;grid\&quot;\r\n\r\n&quot;;
++    data += grid + &quot;\r\n&quot;;
++    data += &quot;--&quot; + boundary + &quot;\r\n&quot;;
++
++    qDebug() &lt;&lt; &quot;Uploading spots to WSPRNet: &quot; &lt;&lt; url;
++    networkManager-&gt;post( request, data );
++}
++
++void WSPRNet::networkReply( QNetworkReply *reply )
++{
++    QString serverResponse = reply-&gt;readAll();
++    emit wsprNetResponse(serverResponse);
++}
++
++
++
+
+Added: branches/wsprx/wsprnet.h
+===================================================================
+--- branches/wsprx/wsprnet.h	                        (rev 0)
++++ branches/wsprx/wsprnet.h	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -0,0 +1,25 @@
++#ifndef WSPRNET_H
++#define WSPRNET_H
++
++#include &lt;QObject&gt;
++#include &lt;QtNetwork&gt;
++
++class WSPRNet : public QObject
++{
++Q_OBJECT
++public:
++    explicit WSPRNet(QObject *parent = 0);
++    void upload(QString call, QString grid, QString fileName);
++
++signals:
++    void wsprNetResponse(QString);
++
++public slots:
++    void networkReply( QNetworkReply * );
++
++private:
++    QNetworkAccessManager *networkManager;
++    QString wsprNetUrl;
++};
++
++#endif // WSPRNET_H
+
+Modified: branches/wsprx/wsprx.pro
+===================================================================
+--- branches/wsprx/wsprx.pro	2013-03-02 02:43:00 UTC (rev 3033)
++++ branches/wsprx/wsprx.pro	2013-03-04 13:53:01 UTC (rev 3034)
+@@ -35,7 +35,8 @@
+ SOURCES += main.cpp mainwindow.cpp plotter.cpp about.cpp \
+     soundin.cpp soundout.cpp devsetup.cpp \
+     widegraph.cpp getfile.cpp \
+-    getdev.cpp displaytext.cpp
++    getdev.cpp displaytext.cpp \
++    wsprnet.cpp
+ 
+ win32 {
+ SOURCES +=
+@@ -43,7 +44,8 @@
+ 
+ HEADERS  += mainwindow.h plotter.h soundin.h soundout.h \
+             about.h devsetup.h widegraph.h getfile.h \
+-            commons.h displaytext.h
++            commons.h displaytext.h \
++    wsprnet.h
+ 
+ DEFINES += __cplusplus
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002725.html">[WSJT-SVN] r3033 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002727.html">[WSJT-SVN] r3035 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2726">[ date ]</a>
+              <a href="thread.html#2726">[ thread ]</a>
+              <a href="subject.html#2726">[ subject ]</a>
+              <a href="author.html#2726">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

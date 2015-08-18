@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r342 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r342%20-%20branches/map65&In-Reply-To=%3C200701112152.l0BLqYZh013802%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000026.html">
+   <LINK REL="Next"  HREF="000028.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r342 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r342%20-%20branches/map65&In-Reply-To=%3C200701112152.l0BLqYZh013802%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r342 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jan 11 22:52:34 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000026.html">[WSJT-SVN] r341 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000028.html">[WSJT-SVN] r343 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-11 22:52:32 +0100 (Thu, 11 Jan 2007)
+New Revision: 342
+
+Added:
+   branches/map65/ccf2.f
+Removed:
+   branches/map65/ccf1.f
+Log:
+
+
+Deleted: branches/map65/ccf1.f
+===================================================================
+--- branches/map65/ccf1.f	2007-01-11 21:52:00 UTC (rev 341)
++++ branches/map65/ccf1.f	2007-01-11 21:52:32 UTC (rev 342)
+@@ -1,68 +0,0 @@
+-      subroutine ccf1(cx,cy,n5,nflip,a,ccfmax,dtmax)
+-
+-      parameter (NMAX=60*96000)          !Approx samples per half symbol
+-      complex cx(n5)
+-      complex cy(n5)
+-      real a(5)
+-      complex w,wstep,za,zb,z
+-      real ss(2600)
+-      complex csx(0:NMAX/64),csy(0:NMAX/64)
+-      data twopi/6.283185307/a1,a2,a3/99.,99.,99./
+-      save
+-
+-      if(a(1).ne.a1 .or. a(2).ne.a2 .or. a(3).ne.a3) then
+-         a1=a(1)
+-         a2=a(2)
+-         a3=a(3)
+-
+-C  Mix and integrate the complex X and Y signals
+-         csx(0)=0.
+-         csy(0)=0.
+-         w=1.0
+-         x0=0.5*(n5+1)
+-         s=2.0/n5
+-         do i=1,n5
+-            x=s*(i-x0)
+-            if(mod(i,1000).eq.1) then
+-               p2=1.5*x*x - 0.5
+-!               p3=2.5*(x**3) - 1.5*x
+-!               p4=4.375*(x**4) - 3.75*(x**2) + 0.375
+-               dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/1378.125)
+-               wstep=cmplx(cos(dphi),sin(dphi))
+-            endif
+-            w=w*wstep
+-            csx(i)=csx(i-1) + w*cx(i)
+-            csy(i)=csy(i-1) + w*cy(i)
+-         enddo
+-      endif
+-
+-C  Compute 1/2-symbol powers at 1/16-symbol steps.
+-      n6=n5/32
+-      fac=1.e-4
+-      pol=a(4)/57.2957795
+-      aa=cos(pol)
+-      bb=sin(pol)
+-      fsample=1378.125
+-      baud=11025.0/4096.0
+-      nsph=nint(0.5*fsample/baud)                !Samples per half symbol
+-      do i=1,n6
+-         j=32*i
+-         k=j-nsph
+-         ss(i)=0.
+-         if(k.ge.1) then
+-            za=csx(j)-csx(k)
+-            zb=csy(j)-csy(k)
+-            z=aa*za + bb*zb
+-            ss(i)=fac*(real(z)**2 + aimag(z)**2)
+-         endif
+-      enddo
+-
+-      ccfmax=0.
+-      call ccf2(ss,n6,nflip,ccf,lagpk)
+-      if(ccf.gt.ccfmax) then
+-         ccfmax=ccf
+-         dtmax=0.5*lagpk*(512.0/11025.0)
+-      endif
+-
+-      return
+-      end
+
+Added: branches/map65/ccf2.f
+===================================================================
+--- branches/map65/ccf2.f	2007-01-11 21:52:00 UTC (rev 341)
++++ branches/map65/ccf2.f	2007-01-11 21:52:32 UTC (rev 342)
+@@ -0,0 +1,44 @@
++      subroutine ccf2(ss,nz,nflip,ccfbest,lagpk)
++
++      parameter (LAGMAX=20)
++      real ss(nz)
++      real ccf(-LAGMAX:LAGMAX)
++      integer npr(126)
++
++C  The JT65 pseudo-random sync pattern:
++      data npr/
++     + 1,0,0,1,1,0,0,0,1,1,1,1,1,1,0,1,0,1,0,0,
++     + 0,1,0,1,1,0,0,1,0,0,0,1,1,1,0,0,1,1,1,1,
++     + 0,1,1,0,1,1,1,1,0,0,0,1,1,0,1,0,1,0,1,1,
++     + 0,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0,0,0,1,
++     + 1,0,0,0,0,0,0,0,1,1,0,1,0,0,1,0,1,1,0,1,
++     + 0,1,0,1,0,0,1,1,0,0,1,0,0,1,0,0,0,0,1,1,
++     + 1,1,1,1,1,1/
++      save
++
++      ccfbest=0.
++      lag1=-LAGMAX
++      lag2=LAGMAX
++      do lag=lag1,lag2
++         s0=0.
++         s1=0.
++         do i=1,126
++            j=2*(8*i + 43) + lag
++            if(j.ge.1 .and. j.le.nz-8) then
++               x=ss(j)+ss(j+8)
++               if(npr(i).eq.0) then
++                  s0=s0 + x
++               else
++                  s1=s1 + x
++               endif
++            endif
++         enddo
++         ccf(lag)=nflip*(s1-s0)
++         if(ccf(lag).gt.ccfbest) then
++            ccfbest=ccf(lag)
++            lagpk=lag
++         endif
++      enddo
++
++      return
++      end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000026.html">[WSJT-SVN] r341 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000028.html">[WSJT-SVN] r343 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

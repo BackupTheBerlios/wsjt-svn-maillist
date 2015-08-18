@@ -1,0 +1,460 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1993 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1993%20-%20wsjt7a&In-Reply-To=%3C20100715151337.CA87E480C94%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001684.html">
+   <LINK REL="Next"  HREF="001686.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1993 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1993%20-%20wsjt7a&In-Reply-To=%3C20100715151337.CA87E480C94%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1993 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 15 17:13:37 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001684.html">[WSJT-SVN] r1992 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001686.html">[WSJT-SVN] r1994 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1685">[ date ]</a>
+              <a href="thread.html#1685">[ thread ]</a>
+              <a href="subject.html#1685">[ subject ]</a>
+              <a href="author.html#1685">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-15 17:13:37 +0200 (Thu, 15 Jul 2010)
+New Revision: 1993
+
+Modified:
+   wsjt7a/decode3.f90
+   wsjt7a/gcom2.f90
+   wsjt7a/geniscat.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt1.f90
+   wsjt7a/wsjtgen.f90
+Log:
+Fig generation of shorthands in ISCAT_2 mode.
+Optional enable/disable of FSK441++ decoder.
+Save/restore of ISCAT parameters.
+A few minor fixes.
+
+
+Modified: wsjt7a/decode3.f90
+===================================================================
+--- wsjt7a/decode3.f90	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/decode3.f90	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -57,7 +57,7 @@
+   endif
+   call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,                     &amp;
+        MinSigdB,NQRN,DFTolerance,MouseButton,NClearAve,nforce,         &amp;
+-       nMode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,              &amp;
++       nMode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,n441pp,       &amp;
+        MyCall,HisCall,HisGrid,neme,ntx2,s2,                            &amp;
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,         &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+
+Modified: wsjt7a/gcom2.f90
+===================================================================
+--- wsjt7a/gcom2.f90	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/gcom2.f90	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -20,6 +20,7 @@
+ integer ierr           !(why is this here?)
+ integer lauto          !Are we in Auto mode?                    GUI
+ integer mantx          !Manual transmission requested?       GUI,SoundIn
++integer n441pp         !1 enables FSK441++ mode                 GUI
+ integer nrestart       !True if transmission should restart  GUI,SoundIn
+ integer ntr            !Are we in 2nd sequence?                 SoundIn
+ integer nmsg           !Length of Tx message                    SoundIn
+@@ -100,10 +101,10 @@
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,iter,iyr,imo,ida,                        &amp;
+      ndecoding,ndecoding0,mousebutton,nhighpri,                       &amp;
+-     ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+-     dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+-     nclearave,newdat2,nfreeze,nafc,nmode,mode65,mode4,nclip,ndebug,  &amp;
+-     nblank,nport,   &amp;
++     ndecdone,npingtime,ierr,lauto,mantx,n441pp,nrestart,ntr,nmsg,    &amp;
++     nsave,nadd5,dftolerance,LDecoded,rxdone,monitoring,nzap,         &amp;
++     nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
++     mode4,nclip,ndebug,nblank,nport,                                 &amp;
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf, &amp;
+      shok,sendingsh,d2a(ND2MAX),d2b(ND2MAX),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nfsam,nlines,nflat,      &amp;
+
+Modified: wsjt7a/geniscat.f90
+===================================================================
+--- wsjt7a/geniscat.f90	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/geniscat.f90	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -1,10 +1,11 @@
+-subroutine geniscat(msg,nmsg,iwave,nwave,sendingsh,msgsent)
++subroutine geniscat(msg,nmsg,shok,iwave,nwave,sendingsh,msgsent)
+ 
+   parameter (NMAX=30*11025,NSZ=1291,NSPS=256)
+   character msg*28,msgsent*22
+   integer*2 iwave(NMAX)
+   integer sendingsh
+   logical first
++  integer shok
+   integer imsg(30)
+   integer itone(NSZ)
+   character c*42
+@@ -25,62 +26,68 @@
+   sendingsh=0
+ 
+ ! Check for shorthand message
+-  if(nmsg.gt.4 .or. (msg(1:1).ne.'R' .and. msg(1:1).ne.'7')) go to 10
++  if(shok.eq.1 .and. nmsg.le.4 .and.                                   &amp;
++       (msg(1:1).eq.'R' .or. msg(1:1).eq.'7')) then
++     n=0
++     m=0
++     if(nmsg.eq.2 .and. msg(1:3).eq.'RO') n=5
++     if(nmsg.eq.3 .and. msg(1:3).eq.'R26') n=10
++     if(nmsg.eq.3 .and. msg(1:3).eq.'R27') n=20
++     if(nmsg.eq.3 .and. msg(1:3).eq.'RRR') n=30
++     if(nmsg.eq.2 .and. msg(1:2).eq.'73') n=40
++     if(n.eq.0 .and. msg(1:1).eq.'R') then
++        read(msg(2:4),*,err=10) m
++        if(m.lt.-20) m=-20
++        if(m.gt.10) m=10
++        write(msgsent,1002) m
++1002    format('R',i3)
++        if(msgsent(2:2).eq.' ') msgsent=msgsent(1:1)//msgsent(3:)
++        if(msgsent(2:2).eq.' ') msgsent=msgsent(1:1)//msgsent(3:)
++        n=irpt(m+21)
++     endif
+ 
+-  n=0
+-  m=0
+-  if(nmsg.eq.2 .and. msg(1:3).eq.'RO') n=5
+-  if(nmsg.eq.3 .and. msg(1:3).eq.'R26') n=10
+-  if(nmsg.eq.3 .and. msg(1:3).eq.'R27') n=20
+-  if(nmsg.eq.3 .and. msg(1:3).eq.'RRR') n=30
+-  if(nmsg.eq.2 .and. msg(1:2).eq.'73') n=40
+-  if(n.eq.0 .and. msg(1:1).eq.'R') then
+-     read(msg(2:4),*,err=10) m
+-     if(m.lt.-20) m=-20
+-     if(m.gt.10) m=10
+-     n=irpt(m+21)
+-  endif
+-
+-  if(n.eq.0) go to 10
+-  do i=1,nsym-1,2
+-     itone(i)=0
+-     itone(i+1)=n
+-  enddo
+-  sendingsh=1
+-  go to 20
+-
+-10 nblk=nsync+nlen+ndat
+-  msglen=nmsg+1
+-  k=0
+-  kk=1
+-  imsg(1)=40
+-  do i=1,nmsg
+-     imsg(i+1)=36
+-     do j=1,42
+-        if(msg(i:i).eq.c(j:j)) imsg(i+1)=j-1
++     if(n.ne.0) then
++        do i=1,nsym-1,2
++           itone(i)=0
++           itone(i+1)=n
++        enddo
++        sendingsh=1
++     endif
++  else
++10   nblk=nsync+nlen+ndat
++     msglen=nmsg+1
++     k=0
++     kk=1
++     imsg(1)=40
++     do i=1,nmsg
++        imsg(i+1)=36
++        do j=1,42
++           if(msg(i:i).eq.c(j:j)) imsg(i+1)=j-1
++        enddo
+      enddo
+-  enddo
+ 
+-  do i=1,nsym
+-     j=mod(i-1,nblk)+1
+-     if(j.le.nsync) then
+-        itone(i)=icos(j)
+-     else if(j.gt.nsync .and. j.le.nsync+nlen) then
+-        itone(i)=msglen
+-        if(j.ge.nsync+2) then
+-           n=msglen + 5*(j-nsync-1)
+-           if(n.gt.41) n=n-42
+-           itone(i)=n
++     do i=1,nsym
++        j=mod(i-1,nblk)+1
++        if(j.le.nsync) then
++           itone(i)=icos(j)
++        else if(j.gt.nsync .and. j.le.nsync+nlen) then
++           itone(i)=msglen
++           if(j.ge.nsync+2) then
++              n=msglen + 5*(j-nsync-1)
++              if(n.gt.41) n=n-42
++              itone(i)=n
++           endif
++        else
++           k=k+1
++           kk=mod(k-1,msglen)+1
++           itone(i)=imsg(kk)
+         endif
+-     else
+-        k=k+1
+-        kk=mod(k-1,msglen)+1
+-        itone(i)=imsg(kk)
+-     endif
+-  enddo
++     enddo
++     msgsent=msg
++  endif
+ 
+ ! Generate iwave
+-20 k=0
++  k=0
+   pha=0.
+   do m=1,nsym
+      f=f0 + itone(m)*df
+@@ -92,7 +99,6 @@
+      enddo
+   enddo
+   nwave=k
+-  msgsent=msg
+ 
+   return
+ end subroutine geniscat
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/mtdecode.f	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -1,5 +1,5 @@
+       subroutine mtdecode(dat,jz,nz,MinSigdB,MinWidth,
+-     +    NQRN,DFTolerance,istart,pick,cfile6,ps0)
++     +    NQRN,DFTolerance,istart,pick,cfile6,n441pp,ps0)
+ 
+ C  Decode Multi-Tone FSK441 mesages.
+ 
+@@ -116,8 +116,8 @@
+          nrpt=10*nwidth + nstrength
+          t2=tstart + dt*(istart-1)
+ 
+-         call pp441(dat,jz,cfile6,tstart,t2,width,npeak,nrpt,
+-     +              dftolerance,frag,0)
++         if(np441.eq.1) call pp441(dat,jz,cfile6,tstart,t2,width,
++     +       npeak,nrpt,dftolerance,frag,0)
+ 
+          if(msglen.eq.0) go to 100
+ 
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/wsjt.py	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -56,6 +56,7 @@
+ isync=0
+ isync441=2
+ isync6m=-10
++isync_iscat=-20
+ isync65=1
+ isync_save=0
+ iclip=0
+@@ -95,6 +96,7 @@
+ nhotabetter=0
+ nopen=0
+ nosh441=IntVar()
++n441pp=IntVar()
+ noshjt65=IntVar()
+ noshjt65all=IntVar()
+ qdecode=IntVar()
+@@ -631,13 +633,16 @@
+ 
+ #------------------------------------------------------ ModeISCAT
+ def ModeISCAT(event=NONE):
+-    global isync
++    global isync,isync_iscat
+     if g.mode != &quot;ISCAT&quot;:
+         if lauto: toggleauto()
+     ModeJT6M()
+     mode.set(&quot;ISCAT&quot;)
+     lab2.configure(text='FileID      Avg dB        DF')
+-    isync=-18
++    isync=isync_iscat
++    lsync.configure(text=slabel+str(isync))
++    shmsg.configure(state=NORMAL)
++    nfreeze.set(0)
+     report.configure(state=NORMAL)
+     report.delete(0,END)
+     report.insert(0,'-15')
+@@ -1100,6 +1105,7 @@
+     ltol.configure(text='Tol    '+str(ntol[itol]))
+     if g.mode==&quot;JT6M&quot; or g.mode==&quot;ISCAT&quot;:
+         isync=-10
++        if g.mode==&quot;ISCAT&quot;: isync=-20
+         itol=4
+         ltol.configure(text='Tol    '+str(ntol[itol]))
+     lsync.configure(text=slabel+str(isync))
+@@ -1492,8 +1498,8 @@
+ #------------------------------------------------------ update
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nhotaz,nhotabetter,nopen, \
+-           im,pim,cmap0,isync,isync441,isync6m,isync65,isync_save,idsec, \
+-           first,itol,txsnrdb,tx6alt
++           im,pim,cmap0,isync,isync441,isync6m,isync_iscat,isync65,       \
++           isync_save,idsec,first,itol,txsnrdb,tx6alt
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -1735,8 +1741,8 @@
+     g.mode=mode.get()
+     g.report=report.get()
+     if mode.get()=='FSK441': isync441=isync
+-    elif mode.get()=='JT6M' or mode.get()==&quot;ISCAT&quot;:
+-        isync6m=isync
++    elif mode.get()=='JT6M': isync6m=isync
++    elif mode.get()==&quot;ISCAT&quot;: isync_iscat=isync
+     elif mode.get()[:4]=='JT65': isync65=isync
+     Audio.gcom1.txfirst=TxFirst.get()
+     try:
+@@ -1785,6 +1791,7 @@
+ #    Audio.gcom1.txdelay=float('0'+options.TxDelay.get())
+     Audio.gcom2.nslim2=isync-4
+     if nosh441.get()==1 and mode.get()=='FSK441': Audio.gcom2.nslim2=99
++    Audio.gcom2.n441pp=n441pp.get()
+     try:
+         Audio.gcom2.nport=int(options.PttPort.get())
+     except:
+@@ -1929,6 +1936,7 @@
+     decodemenu = Menu(mbar, tearoff=use_tearoff)
+ decodemenu.FSK441=Menu(decodemenu,tearoff=0)
+ decodemenu.FSK441.add_checkbutton(label='No shorthands',variable=nosh441)
++decodemenu.FSK441.add_checkbutton(label='Enable FSK441++',variable=n441pp)
+ decodemenu.JT65=Menu(decodemenu,tearoff=0)
+ decodemenu.JT65.add_checkbutton(label='Only EME calls in Deep Search',variable=neme)
+ decodemenu.JT65.add_checkbutton(label='No Shorthand decodes',variable=noshjt65all)
+@@ -2482,12 +2490,14 @@
+         elif key == 'Band': nfreq.set(value)
+         elif key == 'S441': isync441=int(value)
+         elif key == 'S6m': isync6m=int(value)
++        elif key == 'Siscat': isync_iscat=int(value)
+         elif key == 'Sync': isync65=int(value)
+         elif key == 'Clip': iclip=int(value)
+         elif key == 'Zap': nzap.set(value)
+         elif key == 'NB': nblank.set(value)
+         elif key == 'NAFC': nafc.set(value)
+         elif key == 'NoSh441': nosh441.set(value)
++        elif key == 'N441pp': n441pp.set(value)
+         elif key == 'NoShJT65all': noshjt65all.set(value)
+         elif key == 'NoShJT65': noshjt65.set(value)
+         elif key == 'QDecode': qdecode.set(value)
+@@ -2511,7 +2521,8 @@
+ 
+ g.mode=mode.get()
+ if mode.get()=='FSK441': isync=isync441
+-elif mode.get()=='JT6M' or mode.get()==&quot;JT6M&quot;: isync=isync6m
++elif mode.get()=='JT6M': isync=isync6m
++elif mode.get()==&quot;ISCAT&quot;: isync=isync_iscat
+ elif mode.get()[:4]=='JT65': isync=isync65
+ elif mode.get()[:3]=='JT4':
+     if mode.get()[3:4]=='A': Audio.gcom2.mode4=1
+@@ -2589,12 +2600,14 @@
+ f.write(&quot;Band &quot; + str(nfreq.get()) + &quot;\n&quot;)
+ f.write(&quot;S441 &quot; + str(isync441) + &quot;\n&quot;)
+ f.write(&quot;S6m &quot; + str(isync6m) + &quot;\n&quot;)
++f.write(&quot;Siscat &quot; + str(isync_iscat) + &quot;\n&quot;)
+ f.write(&quot;Sync &quot; + str(isync65) + &quot;\n&quot;)
+ f.write(&quot;Clip &quot; + str(iclip) + &quot;\n&quot;)
+ f.write(&quot;Zap &quot; + str(nzap.get()) + &quot;\n&quot;)
+ f.write(&quot;NB &quot; + str(nblank.get()) + &quot;\n&quot;)
+ f.write(&quot;NAFC &quot; + str(nafc.get()) + &quot;\n&quot;)
+ f.write(&quot;NoSh441 &quot; + str(nosh441.get()) + &quot;\n&quot;)
++f.write(&quot;N441pp &quot; + str(n441pp.get()) + &quot;\n&quot;)
+ f.write(&quot;NoShJT65all &quot; + str(noshjt65all.get()) + &quot;\n&quot;)
+ f.write(&quot;NoShJT65 &quot; + str(noshjt65.get()) + &quot;\n&quot;)
+ f.write(&quot;QDecode &quot; + str(qdecode.get()) + &quot;\n&quot;)
+
+Modified: wsjt7a/wsjt1.f90
+===================================================================
+--- wsjt7a/wsjt1.f90	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/wsjt1.f90	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -1,6 +1,6 @@
+ subroutine wsjt1(d,jz0,istart,samfacin,FileID,ndepth,              &amp;
+      MinSigdB,NQRN,DFTolerance,MouseButton,NClearAve,nforce,       &amp;
+-     Mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,            &amp;
++     Mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,n441pp,     &amp;
+      MyCall,HisCall,HisGrid,neme,ntx2,s2,                          &amp;
+      ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,       &amp;
+      MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+@@ -324,7 +324,7 @@
+ ! Now the multi-tone decoding
+ !        write(72) jz,nz,cfile6,(dat(j),j=1,jz)
+   call mtdecode(dat,jz,nz,MinSigdB,MinWidth,                           &amp;
+-       NQRN,DFTolerance,istart,pick,cfile6,ps0)
++       NQRN,DFTolerance,istart,pick,cfile6,n441pp,ps0)
+ 
+   npkept=nline             !Number of pings that were kept
+   smax=0.
+
+Modified: wsjt7a/wsjtgen.f90
+===================================================================
+--- wsjt7a/wsjtgen.f90	2010-07-15 13:27:15 UTC (rev 1992)
++++ wsjt7a/wsjtgen.f90	2010-07-15 15:13:37 UTC (rev 1993)
+@@ -117,7 +117,7 @@
+         call gen65(msg,mode65,samfacout,ntxdf,ndebug,iwave,nwave,sendingsh,   &amp;
+              msgsent,nmsg0)
+      else if(mode(1:5).eq.'ISCAT') then
+-        call geniscat(msg,nmsg,iwave,nwave,sendingsh,msgsent)
++        call geniscat(msg,nmsg,shok,iwave,nwave,sendingsh,msgsent)
+      else if(mode(1:3).eq.'JT4' ) then
+         call gen24(msg,mode,mode4,samfacout,ntxdf,ndebug,iwave,nwave,      &amp;
+              sendingsh,msgsent,nmsg0)
+@@ -216,6 +216,7 @@
+   
+ 900 sending=txmsg
+   if(mode(1:4).eq.'JT65' .and. sendingsh.ne.1) sending=msgsent
++  if(mode(1:5).eq.'ISCAT') sending=msgsent
+   do i=NMSGMAX,1,-1
+      if(sending(i:i).ne.' '.and. ichar(sending(i:i)).ne.0) go to 910
+   enddo
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001684.html">[WSJT-SVN] r1992 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001686.html">[WSJT-SVN] r1994 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1685">[ date ]</a>
+              <a href="thread.html#1685">[ thread ]</a>
+              <a href="subject.html#1685">[ subject ]</a>
+              <a href="author.html#1685">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2764 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2764%20-%20branches/wsjtx&In-Reply-To=%3C20121123164441.08D1655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002455.html">
+   <LINK REL="Next"  HREF="002457.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2764 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2764%20-%20branches/wsjtx&In-Reply-To=%3C20121123164441.08D1655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2764 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Nov 23 17:44:40 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002455.html">[WSJT-SVN] r2763 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002457.html">[WSJT-SVN] r2765 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-23 17:44:40 +0100 (Fri, 23 Nov 2012)
+New Revision: 2764
+
+Modified:
+   branches/wsjtx/displaytext.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+Log:
+Make freqs in mainwindow properly follow mouse clicks on waterfall.
+
+
+Modified: branches/wsjtx/displaytext.cpp
+===================================================================
+--- branches/wsjtx/displaytext.cpp	2012-11-23 16:05:50 UTC (rev 2763)
++++ branches/wsjtx/displaytext.cpp	2012-11-23 16:44:40 UTC (rev 2764)
+@@ -9,7 +9,7 @@
+ 
+ void DisplayText::mouseDoubleClickEvent(QMouseEvent *e)
+ {
+-  bool ctrl = (e-&gt;modifiers() &amp; 0x4000000);
++  bool ctrl = (e-&gt;modifiers() &amp; Qt::ControlModifier);
+   emit(selectCallsign(ctrl));
+   QTextBrowser::mouseDoubleClickEvent(e);
+ }
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-23 16:05:50 UTC (rev 2763)
++++ branches/wsjtx/mainwindow.cpp	2012-11-23 16:44:40 UTC (rev 2764)
+@@ -553,18 +553,17 @@
+ 
+ void MainWindow::bumpFqso(int n)                                 //bumpFqso()
+ {
+-  if((n%100)==11) {
+-    int i=g_pWideGraph-&gt;QSOfreq();
+-    i--;
+-    g_pWideGraph-&gt;setQSOfreq(i);
+-    if(n&lt;100) g_pWideGraph-&gt;setTxFreq(i);
++  int i;
++  bool ctrl = (n&gt;=100);
++  n=n%100;
++  i=g_pWideGraph-&gt;QSOfreq();
++  if(n==11) i--;
++  if(n==12) i++;
++  g_pWideGraph-&gt;setQSOfreq(i);
++  if(!ctrl) {
++    ui-&gt;TxFreqSpinBox-&gt;setValue(i);
++    g_pWideGraph-&gt;setTxFreq(i);
+   }
+-  if((n%100)==12) {
+-    int i=g_pWideGraph-&gt;QSOfreq();
+-    i++;
+-    g_pWideGraph-&gt;setQSOfreq(i);
+-    if(n&lt;100) g_pWideGraph-&gt;setTxFreq(i);
+-  }
+ }
+ 
+ bool MainWindow::eventFilter(QObject *object, QEvent *event)  //eventFilter()
+@@ -866,20 +865,24 @@
+ 
+ void MainWindow::freezeDecode(int n)                          //freezeDecode()
+ {
+-  static int ntol[] = {1,2,5,10,20,50,100,200,500};
+-  if(!m_decoderBusy) {
+-    jt9com_.newdat=0;
+-    jt9com_.nagain=1;
+-    int i;
+-    if(m_mode==&quot;JT9-1&quot;) i=4;
+-    if(m_mode==&quot;JT9-2&quot;) i=4;
+-    if(m_mode==&quot;JT9-5&quot;) i=3;
+-    if(m_mode==&quot;JT9-10&quot;) i=2;
+-    if(m_mode==&quot;JT9-30&quot;) i=1;
+-    m_tol=ntol[i];
+-    g_pWideGraph-&gt;setTol(m_tol);
+-    ui-&gt;tolSpinBox-&gt;setValue(i);
+-    decode();
++  if(n==1) {
++    bumpFqso(0);
++  } else {
++    static int ntol[] = {1,2,5,10,20,50,100,200,500};
++    if(!m_decoderBusy) {
++      jt9com_.newdat=0;
++      jt9com_.nagain=1;
++      int i;
++      if(m_mode==&quot;JT9-1&quot;) i=4;
++      if(m_mode==&quot;JT9-2&quot;) i=4;
++      if(m_mode==&quot;JT9-5&quot;) i=3;
++      if(m_mode==&quot;JT9-10&quot;) i=2;
++      if(m_mode==&quot;JT9-30&quot;) i=1;
++      m_tol=ntol[i];
++      g_pWideGraph-&gt;setTol(m_tol);
++      ui-&gt;tolSpinBox-&gt;setValue(i);
++      decode();
++    }
+   }
+ }
+ 
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-11-23 16:05:50 UTC (rev 2763)
++++ branches/wsjtx/plotter.cpp	2012-11-23 16:44:40 UTC (rev 2764)
+@@ -427,8 +427,11 @@
+ {
+   int x=event-&gt;x();
+   setFQSO(x,false);                               // Wideband waterfall
+-  bool ctrl = (event-&gt;modifiers() &amp; 0x4000000);
+-  if(!ctrl) setTxFreq(m_fQSO);
++  bool ctrl = (event-&gt;modifiers() &amp; Qt::ControlModifier);
++  if(!ctrl) {
++    setTxFreq(m_fQSO);
++    emit freezeDecode1(1);                  //### ???
++  }
+ }
+ 
+ void CPlotter::mouseDoubleClickEvent(QMouseEvent *event)  //mouse2click
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002455.html">[WSJT-SVN] r2763 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002457.html">[WSJT-SVN] r2765 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

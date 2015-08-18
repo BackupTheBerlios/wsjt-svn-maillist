@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r806 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r806%20-%20trunk&In-Reply-To=%3C200805281919.m4SJJJuM003552%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000493.html">
+   <LINK REL="Next"  HREF="000495.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r806 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r806%20-%20trunk&In-Reply-To=%3C200805281919.m4SJJJuM003552%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r806 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 28 21:19:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000493.html">[WSJT-SVN] r805 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000495.html">[WSJT-SVN] r807 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#494">[ date ]</a>
+              <a href="thread.html#494">[ thread ]</a>
+              <a href="subject.html#494">[ subject ]</a>
+              <a href="author.html#494">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-28 21:19:17 +0200 (Wed, 28 May 2008)
+New Revision: 806
+
+Added:
+   trunk/genwspr.f90
+Log:
+Again
+
+
+Added: trunk/genwspr.f90
+===================================================================
+--- trunk/genwspr.f90	2008-05-28 19:18:32 UTC (rev 805)
++++ trunk/genwspr.f90	2008-05-28 19:19:17 UTC (rev 806)
+@@ -0,0 +1,107 @@
++subroutine genwspr(message,samfacout,ntxdf,iwave,nwave,msgsent)
++
++!  Encode a WSPR message and generate the corresponding wavefile.
++
++  parameter (NMAX=120*12000)     !Max length of wave file
++  parameter (MAXSYM=176)
++  character*12 call1,call2
++  character*4 grid,grid2
++  character*22 message           !Message to be generated
++  integer*2 iwave(NMAX)          !Generated wave file
++  real*8 samfacout,fsample
++  integer*1 symbol(MAXSYM)
++  integer*1 data0(11),i1
++  integer npr3(162)
++  real pr3(162)
++  logical first,lbad1,lbad2
++  real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
++  character*22 msgsent           !Message sent
++  equivalence(i1,i4)
++  data npr3/                                    &amp;
++       1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
++       0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
++       0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1, &amp;
++       1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1, &amp;
++       0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0, &amp;
++       0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1, &amp;
++       0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1, &amp;
++       0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0, &amp;
++       0,0/
++
++  data first/.true./,idum/0/
++  save
++
++  nsym=162                               !Symbols per transmission
++  if(first) then
++     do i=1,nsym
++        pr3(i)=2*npr3(i)-1
++     enddo
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     fsample=11025.d0
++     first=.false.
++  endif
++
++  call wqencode(message,ntype,data0)
++  nbytes=(50+31+7)/8
++  call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
++  call inter_mept(symbol,1)                   !Apply interleaving
++  call wqdecode(data0,msgsent,ntype2)
++
++  tsymbol=8192.d0/12000.d0
++  
++  dt=1.d0/fsample
++  f0=1500 + ntxdf
++  dfgen=12000.d0/8192.d0                     !1.4649 Hz
++  nsigs=1
++  snrdb=99.
++  if(snrdb.eq.10.0) nsigs=10
++  nwave=111*fsample
++  if(snrdb.le.10.0) nwave=NMAX
++
++  do isig=1,nsigs
++     if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
++     fac=3000.0
++     if(snr.gt.1.0) fac=3000.0/snr
++     if(nsigs.eq.10) then
++        snr=10.0**(0.05*(-20-isig-1))
++        f0=1390 + 20*isig
++     endif
++!     t=-2.d0 - 0.1*(isig-1)
++     t=-0.2d0
++     phi=0.d0
++     j0=0
++
++     do i=1,nwave
++        t=t+dt
++        j=int(t/tsymbol) + 1                          !Symbol number
++        sig=0.
++        if(j.ge.1 .and. j.le.162) then
++           if(j.ne.j0) then
++              f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
++              j0=j
++              dphi=twopi*dt*f
++           endif
++           sig=0.9999
++        endif
++        phi=phi+dphi
++        if(snrdb.gt.50.0) then
++           n=32767.0*sin(phi)           !Normal transmission, signal only
++        else
++           if(isig.eq.1) then
++              n=fac*(gran(idum) + sig*snr*sin(phi))
++           else
++              n=iwave(i) + fac*sig*snr*sin(phi)
++           endif
++           if(n.gt.32767) n=32767
++           if(n.lt.-32767) n=-32767
++        endif
++        iwave(i)=n
++10      continue
++     enddo
++  enddo
++
++100 continue
++
++  return
++end subroutine genwspr
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000493.html">[WSJT-SVN] r805 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000495.html">[WSJT-SVN] r807 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#494">[ date ]</a>
+              <a href="thread.html#494">[ thread ]</a>
+              <a href="subject.html#494">[ subject ]</a>
+              <a href="author.html#494">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

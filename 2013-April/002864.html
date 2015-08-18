@@ -1,0 +1,2472 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3172 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3172%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415202007.9274655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002863.html">
+   <LINK REL="Next"  HREF="002865.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3172 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3172%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415202007.9274655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3172 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Apr 15 22:20:07 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002863.html">[WSJT-SVN] r3171 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002865.html">[WSJT-SVN] r3173 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2864">[ date ]</a>
+              <a href="thread.html#2864">[ thread ]</a>
+              <a href="subject.html#2864">[ subject ]</a>
+              <a href="author.html#2864">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-15 22:20:06 +0200 (Mon, 15 Apr 2013)
+New Revision: 3172
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/lib/rig_control.c
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+1. CAT control now working with calls to hamlib functions.  
+   Needs testing!!!
+2. Added &quot;Test CAT Control&quot; and &quot;Test PTT&quot; buttons on 
+   Setup | Configuration screen.  (Must fix flaky behavior of calls to ptt().)
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/devsetup.cpp	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -14,6 +14,9 @@
+   m_restartSoundIn=false;
+   m_restartSoundOut=false;
+   m_firstCall=true;
++  m_count=0;
++  m_iptt=0;
++  m_bRigOpen=false;
+ }
+ 
+ DevSetup::~DevSetup()
+@@ -369,3 +372,38 @@
+ {
+   m_After73=checked;
+ }
++
++void DevSetup::on_testCATButton_clicked()
++{
++  if(!m_catEnabled) return;
++  if(!m_bRigOpen) {
++    QString conf_parms;
++    conf_parms.sprintf(&quot;data_bits=%d,stop_bits=%d,serial_handshake=&quot;,
++                       m_dataBits,m_stopBits);
++    conf_parms+=m_handshake;
++    int iret=rigOpen(0,m_rig,m_catPort.toAscii().data(),m_serialRate,
++                     conf_parms.toAscii().data());
++    if(iret!=0) {
++      msgBox(&quot;Failed to open connection to radio.&quot;);
++      return;
++    }
++    m_bRigOpen=true;
++  }
++  m_count=1-m_count;
++  int freq=10130000;
++  if(m_count!=1) freq=14078000;
++  rigSetFreq(freq);
++}
++
++void DevSetup::on_testPTTButton_clicked()
++{
++  int iret=0;
++  m_iptt=1-m_iptt;
++  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
++    int iptt=m_iptt;
++    ptt(m_pttPort,iptt,&amp;m_iptt,&amp;m_COMportOpen);
++  }
++  if(m_pttMethodIndex==0 and m_bRigOpen) {
++    iret=rigSetPTT(m_iptt);
++  }
++}
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/devsetup.h	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -34,6 +34,9 @@
+   qint32  m_stopBits;
+   qint32  m_stopBitsIndex;
+   qint32  m_handshakeIndex;
++  qint32  m_count;
++  qint32  m_iptt;
++  qint32  m_COMportOpen;
+ 
+   bool    m_restartSoundIn;
+   bool    m_restartSoundOut;
+@@ -41,6 +44,7 @@
+   bool    m_firstCall;
+   bool    m_catEnabled;
+   bool    m_After73;
++  bool    m_bRigOpen;
+ 
+   QString m_myCall;
+   QString m_myGrid;
+@@ -74,7 +78,10 @@
+   void on_stopBitsComboBox_activated(int index);
+   void on_rigComboBox_activated(int index);
+   void on_cbID73_toggled(bool checked);
++  void on_testCATButton_clicked();
+ 
++  void on_testPTTButton_clicked();
++
+ private:
+   void msgBox(QString t);
+   Ui::DialogSndCard ui;
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/devsetup.ui	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -35,851 +35,1083 @@
+       &lt;attribute name=&quot;title&quot;&gt;
+        &lt;string&gt;Station&lt;/string&gt;
+       &lt;/attribute&gt;
+-      &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_3&quot;&gt;
++      &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
+        &lt;item&gt;
+-        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout&quot;&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_5&quot;&gt;
+          &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_5&quot;&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;My Call:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLineEdit&quot; name=&quot;myCallEntry&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string/&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_8&quot;/&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;verticalSpacer_2&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;My Grid:&lt;/string&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;alignment&quot;&gt;
++            &lt;set&gt;Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter&lt;/set&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLineEdit&quot; name=&quot;myGridEntry&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string/&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_2&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;PTT method:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;pttMethodComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;1&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;My Call:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;CAT&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLineEdit&quot; name=&quot;myCallEntry&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string/&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;DTR&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_8&quot;/&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;RTS&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;verticalSpacer_2&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;VOX&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_2&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_9&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;80&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;PTT Port:&lt;/string&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;alignment&quot;&gt;
++            &lt;set&gt;Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter&lt;/set&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;pttComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;My Grid:&lt;/string&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;alignment&quot;&gt;
+-              &lt;set&gt;Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter&lt;/set&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;None&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLineEdit&quot; name=&quot;myGridEntry&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string/&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM1&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+-          &lt;/layout&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_2&quot;&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;PTT method:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM2&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;pttMethodComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;1&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;CAT&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;DTR&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;RTS&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;VOX&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM3&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_2&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM4&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_9&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;80&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;PTT Port:&lt;/string&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;alignment&quot;&gt;
+-              &lt;set&gt;Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter&lt;/set&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM5&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;pttComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;None&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM1&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM2&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM3&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM4&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM5&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM6&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM7&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM8&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM9&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM10&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM11&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM12&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM13&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM14&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;COM15&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;USB&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM6&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+-          &lt;/layout&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_6&quot;&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;0&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;ID Interval (min):&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM7&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QSpinBox&quot; name=&quot;idIntSpinBox&quot;&gt;
+-             &lt;property name=&quot;enabled&quot;&gt;
+-              &lt;bool&gt;true&lt;/bool&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimum&quot;&gt;
+-              &lt;number&gt;-20&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximum&quot;&gt;
+-              &lt;number&gt;10&lt;/number&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM8&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_7&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM9&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbID73&quot;&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;ID after 73&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM10&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_3&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM11&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbPSKReporter&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;146&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;146&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Enable PSK Reporter&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM12&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+-          &lt;/layout&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM13&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM14&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;COM15&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;USB&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++          &lt;/widget&gt;
+          &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_6&quot;&gt;
+          &lt;item&gt;
+-          &lt;spacer name=&quot;verticalSpacer&quot;&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;0&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;ID Interval (min):&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QSpinBox&quot; name=&quot;idIntSpinBox&quot;&gt;
++           &lt;property name=&quot;enabled&quot;&gt;
++            &lt;bool&gt;true&lt;/bool&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimum&quot;&gt;
++            &lt;number&gt;-20&lt;/number&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximum&quot;&gt;
++            &lt;number&gt;10&lt;/number&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_7&quot;&gt;
+            &lt;property name=&quot;orientation&quot;&gt;
+-            &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+             &lt;size&gt;
+-             &lt;width&gt;20&lt;/width&gt;
+-             &lt;height&gt;15&lt;/height&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
+             &lt;/size&gt;
+            &lt;/property&gt;
+           &lt;/spacer&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_7&quot;&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbID73&quot;&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;ID after 73&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_3&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbPSKReporter&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;146&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;146&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Enable PSK Reporter&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;spacer name=&quot;verticalSpacer&quot;&gt;
++         &lt;property name=&quot;orientation&quot;&gt;
++          &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;20&lt;/width&gt;
++           &lt;height&gt;13&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/spacer&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_7&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbEnableCAT&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Enable CAT&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_4&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;20&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;20&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Rig:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;rigComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Expanding&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;200&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_1&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_21&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;CAT port:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;catPortComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;0&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbEnableCAT&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Enable CAT&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;None&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_4&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_24&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Data bits:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;dataBitsComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;50&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;50&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;1&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_4&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;20&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;20&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Rig:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;7&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;rigComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Expanding&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;200&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;8&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+-          &lt;/layout&gt;
++          &lt;/widget&gt;
+          &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_9&quot;&gt;
+          &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_1&quot;&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_22&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Serial rate:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;serialRateComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;1&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_21&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;CAT port:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;1200&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;catPortComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;0&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;None&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;4800&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_4&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;9600&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_24&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Data bits:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;19200&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;dataBitsComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;50&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;50&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;1&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;7&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;8&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;38400&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+-          &lt;/layout&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;57600&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++          &lt;/widget&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_9&quot;&gt;
++          &lt;spacer name=&quot;horizontalSpacer_5&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_25&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;60&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Stop bits:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;stopBitsComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;50&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;50&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;1&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_22&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Serial rate:&lt;/string&gt;
+-             &lt;/property&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;1&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;serialRateComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;1&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;1200&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;4800&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;9600&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;19200&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;38400&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;57600&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;2&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_10&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_23&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Handshake:&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QComboBox&quot; name=&quot;handshakeComboBox&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;currentIndex&quot;&gt;
++            &lt;number&gt;2&lt;/number&gt;
++           &lt;/property&gt;
+            &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_5&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+-               &lt;height&gt;20&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-            &lt;/spacer&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;None&lt;/string&gt;
++            &lt;/property&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_25&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
+-             &lt;/property&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;XonXoff&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++           &lt;item&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;Hardware&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/item&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_6&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_11&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QPushButton&quot; name=&quot;testCATButton&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Test CAT Control&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QPushButton&quot; name=&quot;testPTTButton&quot;&gt;
++           &lt;property name=&quot;sizePolicy&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++             &lt;horstretch&gt;0&lt;/horstretch&gt;
++             &lt;verstretch&gt;0&lt;/verstretch&gt;
++            &lt;/sizepolicy&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Test PTT&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;spacer name=&quot;horizontalSpacer_12&quot;&gt;
++           &lt;property name=&quot;orientation&quot;&gt;
++            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;40&lt;/width&gt;
++             &lt;height&gt;20&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++          &lt;/spacer&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;spacer name=&quot;verticalSpacer_1&quot;&gt;
++         &lt;property name=&quot;orientation&quot;&gt;
++          &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;20&lt;/width&gt;
++           &lt;height&gt;13&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/spacer&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_13&quot;&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_26&quot;&gt;
++           &lt;property name=&quot;minimumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;0&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;maximumSize&quot;&gt;
++            &lt;size&gt;
++             &lt;width&gt;90&lt;/width&gt;
++             &lt;height&gt;16777215&lt;/height&gt;
++            &lt;/size&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;Dev Channel&lt;/string&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;widget class=&quot;QLabel&quot; name=&quot;label_8&quot;&gt;
++           &lt;property name=&quot;text&quot;&gt;
++            &lt;string&gt;API Name&lt;/string&gt;
++           &lt;/property&gt;
++           &lt;property name=&quot;alignment&quot;&gt;
++            &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++           &lt;/property&gt;
++          &lt;/widget&gt;
++         &lt;/item&gt;
++        &lt;/layout&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
++        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_6&quot;&gt;
++         &lt;item&gt;
++          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
++           &lt;item&gt;
++            &lt;widget class=&quot;QLabel&quot; name=&quot;label_6&quot;&gt;
+              &lt;property name=&quot;minimumSize&quot;&gt;
+               &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
++               &lt;width&gt;90&lt;/width&gt;
+                &lt;height&gt;0&lt;/height&gt;
+               &lt;/size&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;maximumSize&quot;&gt;
+               &lt;size&gt;
+-               &lt;width&gt;60&lt;/width&gt;
++               &lt;width&gt;75&lt;/width&gt;
+                &lt;height&gt;16777215&lt;/height&gt;
+               &lt;/size&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Stop bits:&lt;/string&gt;
++              &lt;string&gt;Audio In:&lt;/string&gt;
+              &lt;/property&gt;
+             &lt;/widget&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;stopBitsComboBox&quot;&gt;
+-             &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-               &lt;horstretch&gt;0&lt;/horstretch&gt;
+-               &lt;verstretch&gt;0&lt;/verstretch&gt;
+-              &lt;/sizepolicy&gt;
++            &lt;widget class=&quot;QComboBox&quot; name=&quot;comboBoxSndIn&quot;&gt;
++             &lt;property name=&quot;enabled&quot;&gt;
++              &lt;bool&gt;true&lt;/bool&gt;
+              &lt;/property&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;50&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;50&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;1&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;1&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;2&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+             &lt;/widget&gt;
+            &lt;/item&gt;
+           &lt;/layout&gt;
+          &lt;/item&gt;
+          &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_10&quot;&gt;
++          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_4&quot;&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_23&quot;&gt;
++            &lt;widget class=&quot;QLabel&quot; name=&quot;label_7&quot;&gt;
+              &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++              &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Preferred&quot;&gt;
+                &lt;horstretch&gt;0&lt;/horstretch&gt;
+                &lt;verstretch&gt;0&lt;/verstretch&gt;
+               &lt;/sizepolicy&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;minimumSize&quot;&gt;
+               &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
++               &lt;width&gt;90&lt;/width&gt;
+                &lt;height&gt;0&lt;/height&gt;
+               &lt;/size&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;maximumSize&quot;&gt;
+               &lt;size&gt;
+-               &lt;width&gt;100&lt;/width&gt;
++               &lt;width&gt;75&lt;/width&gt;
+                &lt;height&gt;16777215&lt;/height&gt;
+               &lt;/size&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Handshake:&lt;/string&gt;
++              &lt;string&gt;Audio Out:&lt;/string&gt;
+              &lt;/property&gt;
+             &lt;/widget&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QComboBox&quot; name=&quot;handshakeComboBox&quot;&gt;
++            &lt;widget class=&quot;QComboBox&quot; name=&quot;comboBoxSndOut&quot;/&gt;
++           &lt;/item&gt;
++          &lt;/layout&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
++           &lt;item&gt;
++            &lt;widget class=&quot;QLabel&quot; name=&quot;label_10&quot;&gt;
+              &lt;property name=&quot;sizePolicy&quot;&gt;
+-              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++              &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+                &lt;horstretch&gt;0&lt;/horstretch&gt;
+                &lt;verstretch&gt;0&lt;/verstretch&gt;
+               &lt;/sizepolicy&gt;
+@@ -887,192 +1119,23 @@
+              &lt;property name=&quot;minimumSize&quot;&gt;
+               &lt;size&gt;
+                &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;currentIndex&quot;&gt;
+-              &lt;number&gt;2&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;None&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;XonXoff&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;property name=&quot;text&quot;&gt;
+-               &lt;string&gt;Hardware&lt;/string&gt;
+-              &lt;/property&gt;
+-             &lt;/item&gt;
+-            &lt;/widget&gt;
+-           &lt;/item&gt;
+-           &lt;item&gt;
+-            &lt;spacer name=&quot;horizontalSpacer_6&quot;&gt;
+-             &lt;property name=&quot;orientation&quot;&gt;
+-              &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;40&lt;/width&gt;
+                &lt;height&gt;20&lt;/height&gt;
+               &lt;/size&gt;
+              &lt;/property&gt;
+-            &lt;/spacer&gt;
+-           &lt;/item&gt;
+-          &lt;/layout&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;spacer name=&quot;verticalSpacer_1&quot;&gt;
+-           &lt;property name=&quot;orientation&quot;&gt;
+-            &lt;enum&gt;Qt::Vertical&lt;/enum&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-            &lt;size&gt;
+-             &lt;width&gt;20&lt;/width&gt;
+-             &lt;height&gt;15&lt;/height&gt;
+-            &lt;/size&gt;
+-           &lt;/property&gt;
+-          &lt;/spacer&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_13&quot;&gt;
+-           &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_26&quot;&gt;
+-             &lt;property name=&quot;minimumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;0&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+-             &lt;property name=&quot;maximumSize&quot;&gt;
+-              &lt;size&gt;
+-               &lt;width&gt;90&lt;/width&gt;
+-               &lt;height&gt;16777215&lt;/height&gt;
+-              &lt;/size&gt;
+-             &lt;/property&gt;
+              &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;Dev Channel&lt;/string&gt;
++              &lt;string&gt;Save Directory:&lt;/string&gt;
+              &lt;/property&gt;
+             &lt;/widget&gt;
+            &lt;/item&gt;
+            &lt;item&gt;
+-            &lt;widget class=&quot;QLabel&quot; name=&quot;label_8&quot;&gt;
++            &lt;widget class=&quot;QLineEdit&quot; name=&quot;saveDirEntry&quot;&gt;
+              &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;API Name&lt;/string&gt;
++              &lt;string&gt;C:\Users\joe\wsjt\map65\save&lt;/string&gt;
+              &lt;/property&gt;
+-             &lt;property name=&quot;alignment&quot;&gt;
+-              &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+-             &lt;/property&gt;
+             &lt;/widget&gt;
+            &lt;/item&gt;
+           &lt;/layout&gt;
+          &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_6&quot;&gt;
+-           &lt;item&gt;
+-            &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QLabel&quot; name=&quot;label_6&quot;&gt;
+-               &lt;property name=&quot;minimumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;0&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;maximumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;75&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;text&quot;&gt;
+-                &lt;string&gt;Audio In:&lt;/string&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QComboBox&quot; name=&quot;comboBoxSndIn&quot;&gt;
+-               &lt;property name=&quot;enabled&quot;&gt;
+-                &lt;bool&gt;true&lt;/bool&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-            &lt;/layout&gt;
+-           &lt;/item&gt;
+-           &lt;item&gt;
+-            &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_4&quot;&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QLabel&quot; name=&quot;label_7&quot;&gt;
+-               &lt;property name=&quot;sizePolicy&quot;&gt;
+-                &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Preferred&quot;&gt;
+-                 &lt;horstretch&gt;0&lt;/horstretch&gt;
+-                 &lt;verstretch&gt;0&lt;/verstretch&gt;
+-                &lt;/sizepolicy&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;minimumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;0&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;maximumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;75&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;text&quot;&gt;
+-                &lt;string&gt;Audio Out:&lt;/string&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QComboBox&quot; name=&quot;comboBoxSndOut&quot;/&gt;
+-             &lt;/item&gt;
+-            &lt;/layout&gt;
+-           &lt;/item&gt;
+-           &lt;item&gt;
+-            &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QLabel&quot; name=&quot;label_10&quot;&gt;
+-               &lt;property name=&quot;sizePolicy&quot;&gt;
+-                &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Fixed&quot;&gt;
+-                 &lt;horstretch&gt;0&lt;/horstretch&gt;
+-                 &lt;verstretch&gt;0&lt;/verstretch&gt;
+-                &lt;/sizepolicy&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;minimumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;90&lt;/width&gt;
+-                 &lt;height&gt;20&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;text&quot;&gt;
+-                &lt;string&gt;Save Directory:&lt;/string&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QLineEdit&quot; name=&quot;saveDirEntry&quot;&gt;
+-               &lt;property name=&quot;text&quot;&gt;
+-                &lt;string&gt;C:\Users\joe\wsjt\map65\save&lt;/string&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-            &lt;/layout&gt;
+-           &lt;/item&gt;
+-          &lt;/layout&gt;
+-         &lt;/item&gt;
+         &lt;/layout&gt;
+        &lt;/item&gt;
+       &lt;/layout&gt;
+
+Modified: branches/wsjtx/lib/rig_control.c
+===================================================================
+--- branches/wsjtx/lib/rig_control.c	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/lib/rig_control.c	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -12,7 +12,7 @@
+ int set_conf(RIG *my_rig, char *conf_parms)
+ {
+   char *p, *q, *n;
+-  int ret;
++  int iret;
+ 
+   p = conf_parms;
+   while (p &amp;&amp; *p != '\0') {
+@@ -26,38 +26,40 @@
+ 
+     printf(&quot;%s   %s\n&quot;,p,q);
+ 
+-    ret = rig_set_conf(my_rig, rig_token_lookup(my_rig, p), q);
+-    if (ret != RIG_OK)
+-      return ret;
++    iret = rig_set_conf(my_rig, rig_token_lookup(my_rig, p), q);
++    if (iret != RIG_OK)
++      return iret;
+     p = n;
+   }
+   return RIG_OK;
+ }
+ 
+ //------------------------------------------------------------------------
+-int rigOpen(rig_model_t my_model, int verbose)
++int rigOpen(int verbose, rig_model_t my_model, const char* rig_file,
++	    int serial_rate, const char* conf_parms2)
+ {
+-  int retcode;		/* generic return code from functions */
++  int iret;		/* generic return code from functions */
+   char *civaddr = NULL;	/* NULL means no need to set conf */
+-  const char *rig_file;
+-  const char *conf_parms2;
+-  int serial_rate;
++  //  const char *rig_file;
++  //  const char *conf_parms2;
++  //  int serial_rate;
+ 
+   rig_set_debug(verbose);
+   my_rig=rig_init(my_model);
+   
+   if (!my_rig) {
+-    fprintf(stderr, &quot;Unknown rig num %d, or initialization error.\n&quot;,my_model);
+-    exit(2);
++    //    fprintf(stderr, &quot;Unknown rig num %d, or initialization error.\n&quot;,my_model);
++    return -1;
+   }
+-  rig_file=&quot;COM1&quot;;
+-  serial_rate=4800;
+-  conf_parms2=&quot;data_bits=8,stop_bits=2,serial_handshake=Hardware&quot;;
+ 
+-  retcode=set_conf(my_rig, conf_parms2);
+-  if (retcode!=RIG_OK) {
+-    fprintf(stderr, &quot;Config parameter error: %s\n&quot;, rigerror(retcode));
+-    exit(2);
++  //  rig_file=&quot;COM1&quot;;
++  //  serial_rate=4800;
++  //  conf_parms2=&quot;data_bits=8,stop_bits=2,serial_handshake=Hardware&quot;;
++
++  iret=set_conf(my_rig, conf_parms2);
++  if (iret!=RIG_OK) {
++    //    fprintf(stderr, &quot;Config parameter error: %s\n&quot;, rigerror(iret));
++    return -2;
+   }
+ 
+   if (rig_file)
+@@ -69,7 +71,8 @@
+   if (civaddr)
+     rig_set_conf(my_rig, rig_token_lookup(my_rig, &quot;civaddr&quot;), civaddr);
+ 
+-  retcode = rig_open(my_rig);
++  iret = rig_open(my_rig);
++  if(iret!=0) return -3;
+   return 0;
+ }
+ 
+@@ -78,19 +81,20 @@
+   return rig_set_freq(my_rig,RIG_VFO_CURR,fHz);
+ }
+ 
+-int rigFreq()
++int rigFreq(int *fHz)
+ {
+   int iret=0;
+   freq_t freq;
+   iret=rig_get_freq(my_rig, RIG_VFO_CURR, &amp;freq);
+-  if (iret == RIG_OK ) {
+-    printf(&quot;rig_get_freq: freq = %&quot;PRIfreq&quot;\n&quot;, freq);
+-  } else {
+-    printf(&quot;rig_get_freq: error =  %s \n&quot;, rigerror(iret));
+-  }
+-  return freq;
++  *fHz=freq;
++  return iret;
+ }
+ 
++int rigSetPTT(int iptt)
++{
++  return rig_set_ptt(my_rig, RIG_VFO_CURR, iptt);
++}
++
+ void rigClose()
+ {
+   rig_close(my_rig);
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/mainwindow.cpp	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -177,6 +177,7 @@
+   m_watchdogLimit=5;
+   m_tune=false;
+   m_repeatMsg=0;
++  m_bRigOpen=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -285,6 +286,23 @@
+     }
+   }
+ #endif
++
++//###
++  if(m_catEnabled) {
++    QString conf_parms;
++    conf_parms.sprintf(&quot;data_bits=%d,stop_bits=%d,serial_handshake=&quot;,
++                       m_dataBits,m_stopBits);
++    conf_parms+=m_handshake;
++    int iret=rigOpen(0,m_rig,m_catPort.toAscii().data(),m_serialRate,
++                     conf_parms.toAscii().data());
++    if(iret!=0) {
++      msgBox(&quot;Failed to open connection to radio.&quot;);
++      return;
++    }
++    m_bRigOpen=true;
++  }
++//###
++
+ }                                          // End of MainWindow constructor
+ 
+ //--------------------------------------------------- MainWindow destructor
+@@ -599,6 +617,7 @@
+   dlg.m_stopBitsIndex=m_stopBitsIndex;
+   dlg.m_handshake=m_handshake;
+   dlg.m_handshakeIndex=m_handshakeIndex;
++  dlg.m_bRigOpen=m_bRigOpen;
+ 
+   dlg.initDlg();
+   if(dlg.exec() == QDialog::Accepted) {
+@@ -627,6 +646,7 @@
+     m_stopBitsIndex=dlg.m_stopBitsIndex;
+     m_handshake=dlg.m_handshake;
+     m_handshakeIndex=dlg.m_handshakeIndex;
++    m_bRigOpen=dlg.m_bRigOpen;
+ 
+ #ifdef WIN32
+     if(dlg.m_pskReporter!=m_pskReporter) {
+@@ -1406,8 +1426,8 @@
+       //Raise PTT
+       if(m_pttMethodIndex==0) {                  //CAT control for PTT
+         m_cmnd=rig_command() + &quot; T 1&quot;;
+-        p3.start(m_cmnd);
+-        p3.waitForFinished();
++//        p3.start(m_cmnd);
++//        p3.waitForFinished();
+         m_iptt=1;
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {  //DTR or RTS
+@@ -1539,8 +1559,8 @@
+     //Lower PTT
+       if(m_pttMethodIndex==0) {                         //CAT
+         m_cmnd=rig_command() + &quot; T 0&quot;;
+-        p3.start(m_cmnd);
+-        p3.waitForFinished();
++//        p3.start(m_cmnd);
++//        p3.waitForFinished();
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {  //DTR-RTS
+         ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -1598,12 +1618,20 @@
+     }
+     m_hsym0=khsym;
+     m_sec0=nsec;
+-
++/*
+     if(m_catEnabled) {
+       m_cmnd=rig_command() + &quot; f&quot;;
+       p3.start(m_cmnd);
+       p3.waitForFinished();
+     }
++*/
++    if(m_bRigOpen) {
++      int fHz;
++      int iret=rigFreq(&amp;fHz);
++      double fMHz=fHz/1000000.0;
++      int d=1000000.0*(fMHz-m_dialFreq);
++      if(abs(d)&gt;0) dialFreqChanged2(fMHz);
++    }
+   }
+ 
+   iptt0=m_iptt;
+@@ -1675,8 +1703,8 @@
+ //Lower PTT
+   if(m_pttMethodIndex==0) {
+     m_cmnd=rig_command() + &quot; T 0&quot;;
+-    p3.start(m_cmnd);
+-    p3.waitForFinished();
++//    p3.start(m_cmnd);
++//    p3.waitForFinished();
+   }
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -2407,8 +2435,9 @@
+   m_dialFreq=t.toDouble();
+   dialFreqChanged2(m_dialFreq);
+   m_repeatMsg=0;
++  int nHz=int(1000000.0*m_dialFreq + 0.5);
++/*
+   if(m_catEnabled) {
+-    int nHz=int(1000000.0*m_dialFreq + 0.5);
+     QString cmnd1,cmnd3;
+     cmnd1=rig_command();
+     cmnd3.sprintf(&quot; F %d&quot;,nHz);
+@@ -2416,6 +2445,9 @@
+     p3.start(m_cmnd);
+     p3.waitForFinished();
+   }
++*/
++
++  if(m_bRigOpen) rigSetFreq(nHz);
+ }
+ 
+ void MainWindow::on_actionPrompt_to_log_QSO_triggered(bool checked)
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/mainwindow.h	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -247,6 +247,7 @@
+     bool    m_runaway;
+     bool    m_tx2QSO;
+     bool    m_tune;
++    bool    m_bRigOpen;
+ 
+     char    m_decoded[80];
+ 
+@@ -341,7 +342,7 @@
+ extern void getDev(int* numDevices,char hostAPI_DeviceName[][50],
+                    int minChan[], int maxChan[],
+                    int minSpeed[], int maxSpeed[]);
+-extern int ptt(int nport, int itx, int* iptt);
++extern int ptt(int nport, int itx, int* iptt, int* nopen);
+ //extern int ReporterInitialize(char* hostname, char* port);
+ 
+ 
+@@ -365,9 +366,13 @@
+ 
+ //void rig_control(int nrig, int verbose);
+ 
+-int rigOpen(int nrig, int verbose);
++int rigOpen(int vervose, int nrig, const char* rig_file, int serial_rate,
++            const char* conf_parms);
++
+ void rigSetFreq(int fHz);
+-int rigFreq();
++int rigFreq(int *fHz);
++int rigSetPTT(int iptt);
++void rigClose();
+ 
+ }
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-15 16:06:22 UTC (rev 3171)
++++ branches/wsjtx/mainwindow.ui	2013-04-15 20:20:06 UTC (rev 3172)
+@@ -2097,7 +2097,7 @@
+   &lt;/action&gt;
+   &lt;action name=&quot;actionDeviceSetup&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;Configuration&lt;/string&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002863.html">[WSJT-SVN] r3171 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002865.html">[WSJT-SVN] r3173 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2864">[ date ]</a>
+              <a href="thread.html#2864">[ thread ]</a>
+              <a href="subject.html#2864">[ subject ]</a>
+              <a href="author.html#2864">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

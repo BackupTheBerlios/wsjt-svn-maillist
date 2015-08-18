@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2365 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2365%20-%20branches/wspr&In-Reply-To=%3C20110302193736.C7649480D83%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002056.html">
+   <LINK REL="Next"  HREF="002058.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2365 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2365%20-%20branches/wspr&In-Reply-To=%3C20110302193736.C7649480D83%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2365 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar  2 20:37:35 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002056.html">[WSJT-SVN] r2364 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002058.html">[WSJT-SVN] r2366 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2057">[ date ]</a>
+              <a href="thread.html#2057">[ thread ]</a>
+              <a href="subject.html#2057">[ subject ]</a>
+              <a href="author.html#2057">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-03-02 20:37:34 +0100 (Wed, 02 Mar 2011)
+New Revision: 2365
+
+Modified:
+   branches/wspr/ccf.f90
+   branches/wspr/qth.f90
+Log:
+Some changes to ccf and qth, when analyzing multi-station WCKY 
+recordings made on 2-MAR-2011.
+
+
+Modified: branches/wspr/ccf.f90
+===================================================================
+--- branches/wspr/ccf.f90	2011-03-01 22:42:23 UTC (rev 2364)
++++ branches/wspr/ccf.f90	2011-03-02 19:37:34 UTC (rev 2365)
+@@ -44,9 +44,11 @@
+   call getarg(4,file2)
+   open(12,file=file1,access='stream',status='old')
+   call read_wav(12,id1,npts1,nfs1,nch1)       !Read data from disk
+-  read(12) tsec,fkhz,call1,grid1,mode1,ctime      !Get header info
+-  cdate='?'
+-  read(12,end=1) cdate
++  if(file1(1:4).ne.'K9AN') then
++     read(12) tsec,fkhz,call1,grid1,mode1,ctime      !Get header info
++     cdate='?'
++     read(12,end=1) cdate
++  endif
+ 1 close(12)
+ 
+   open(12,file=file2,access='stream',status='old')
+@@ -230,9 +232,9 @@
+ 
+   call four2a(cc,nfft,1,1,-1)               !Inverse FFT ==&gt; CCF of signal
+ 
+-!  do i=-512,12511
+   i1=-512
+-  i2=511
++!  i2=511
++  i2=12511
+   pk1=0.
+   pk2=0.
+   do i=i1,i2
+@@ -244,12 +246,24 @@
+      pk2=max(pk2,xcf2(i))
+   enddo
+ 
++  xpk1=0.
++  xpk2=0.
+   do i=i1,i2
+      xcf1(i)=xcf1(i)/pk1
+      xcf2(i)=xcf2(i)/pk2
+      write(34,1110) 1000.0*i*dt,xcf1(i),xcf2(i)       !Write CCFs to disk
+ 1110 format(f10.3,2f12.6)
++     if(xcf1(i).gt.xpk1) then
++        xpk1=xcf1(i)
++        ipk1=i
++     endif
++     if(xcf2(i).gt.xpk2) then
++        xpk2=xcf2(i)
++        ipk2=i
++     endif
+   enddo
++  write(*,1112) 1000.0*(ipk2-ipk1)*dt
++1112 format('Delay:',f8.2)
+ 
+   nfft2=1024
+   xx1(:nfft2)=xcf1(-512:511)
+
+Modified: branches/wspr/qth.f90
+===================================================================
+--- branches/wspr/qth.f90	2011-03-01 22:42:23 UTC (rev 2364)
++++ branches/wspr/qth.f90	2011-03-02 19:37:34 UTC (rev 2365)
+@@ -1,34 +1,96 @@
+ program qth
+ 
+-  parameter (NMAX=20)
+-  real xlon(NMAX)
+-  real xlat(NMAX)
+-  character*6 callsign(NMAX)
+-  character*6 grid(NMAX)
+-  character*6 unknown
++  parameter (NMAX=100)
++  real xlon1(NMAX),xlon2(NMAX)
++  real xlat1(NMAX),xlat2(NMAX)
++  real ddelay(NMAX)
++  real sigma(NMAX)
++  real chisq(-10:10,-10:10)
++  character*6 call1(NMAX),call2(NMAX)
++  character*6 grid1(NMAX),grid2(NMAX)
++  character infile*40
++  character*12 arg
+ 
+   nargs=iargc()
+-  if(nargs.ne.1) then
+-     print*,'Usage: qth &lt;call&gt;'
++  if(nargs.ne.2) then
++     print*,'Usage: qth &lt;infile&gt; &lt;iters&gt;'
+      go to 999
+   endif
+-  call getarg(1,unknown)
++  call getarg(1,infile)
++  call getarg(2,arg)
++  read(arg,*) iters
+ 
+-  open(10,file='qth.dat',status='old')
++  open(10,file=infile,status='old')
++  open(12,file='qth.out',status='unknown')
++
+   do i=1,NMAX
+-     read(10,1010,end=10) callsign(i),grid(i),xlon(i),xlat(i)
+-1010 format(a6,2x,a6,1x,2f10.4)
++     read(10,1010,end=10) call1(i),grid1(i),call2(i),grid2(i),ddelay(i)
++1010 format(a6,1x,a6,2x,a6,1x,a6,f7.2)
++     sigma(i)=0.08
++     call grid2deg(grid1(i),xlon1(i),xlat1(i))
++     call grid2deg(grid2(i),xlon2(i),xlat2(i))
++     xlon1(i)=-xlon1(i)
++     xlon2(i)=-xlon2(i)
+   enddo
+   i=NMAX+1
+ 
+ 10 iz=i-1
+ 
+-  do i=1,iz
+-     do j=i+1,iz
+-        call geodist(xlat(i),-xlon(i),xlat(j),-xlon(j),az,baz,dist)
+-        write(*,1020) callsign(i),callsign(j),az,dist,dist/300.0
+-1020    format(a6,2x,a6,2x,2f8.0,f8.2)
++  xlon0=-80
++  xlat0=40
++  dlon=1.0
++  dlat=1.0
++  i0=10
++
++  sqmin=1.e30
++  do iter=1,iters
++     do ilon=-i0,i0
++        xlon=xlon0 + ilon*dlon
++        do ilat=-i0,i0
++           xlat=xlat0 + ilat*dlat
++           sq=0.
++           do i=1,iz
++              call geodist(xlat,-xlon,xlat1(i),-xlon1(i),az1,baz1,dist1)
++              call geodist(xlat,-xlon,xlat2(i),-xlon2(i),az2,baz2,dist2)
++              calc_ddelay=(dist1-dist2)/300.0
++              resid=ddelay(i)-calc_ddelay
++              sq=sq + (resid/sigma(i))**2
++           enddo
++           chisq(ilon,ilat)=sq/(iz-2)
++           if(sq.lt.sqmin) then
++              blon=xlon
++              blat=xlat
++              sqmin=sq
++           endif
++        enddo
+      enddo
++     
++     call geodist(39.0653,-84.6075,blat,blon,az,baz,dist)
++     write(*,1030) iter,blon,blat,sqmin,dist
++1030 format(i3,2f10.4,f10.2,3f8.0)
++     if(iter.eq.iters) then
++        call geodist(blat,blon,blat,blon+dlon,az,baz,dx)
++        call geodist(blat,blon,blat+dlat,blon,az,baz,dy)
++        write(*,1030)
++        write(*,1032) blon,blat,dx,dy
++        write(12,1032) blon,blat,dx,dy
++1032    format('Lon:',f7.2,'   Lat:',f7.2,'   dx_km:',f6.1,'   dy_km:',f6.1)
++        write(*,1040) (i*dlon,i=-5,5)
++1040    format(7x,13f5.2)
++        write(12,1042) (i*dlon,i=-5,5)
++1042    format(7x,13f6.2)
++        do j=6,-6,-1
++           write(*,1050)  j*dlat,(nint(chisq(i,j)),i=-5,5)
++1050       format(f5.2,2x,13i5)
++           write(12,1060) j*dlat,(nint(chisq(i,j)),i=-5,5)
++1060       format(f5.2,2x,13i6)
++        enddo
++     endif
++     xlon0=blon
++     xlat0=blat
++     dlon=0.5*dlon
++     dlat=0.5*dlat
++     sqmin=1.e30
+   enddo
+ 
+ 999 end program qth
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002056.html">[WSJT-SVN] r2364 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002058.html">[WSJT-SVN] r2366 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2057">[ date ]</a>
+              <a href="thread.html#2057">[ thread ]</a>
+              <a href="subject.html#2057">[ subject ]</a>
+              <a href="author.html#2057">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

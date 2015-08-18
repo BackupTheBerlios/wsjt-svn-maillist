@@ -1,0 +1,321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3008 - in trunk: . jt4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3008%20-%20in%20trunk%3A%20.%20jt4&In-Reply-To=%3C20130222212351.6E49755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002699.html">
+   <LINK REL="Next"  HREF="002701.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3008 - in trunk: . jt4</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3008%20-%20in%20trunk%3A%20.%20jt4&In-Reply-To=%3C20130222212351.6E49755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3008 - in trunk: . jt4">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Feb 22 22:23:51 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002699.html">[WSJT-SVN] r3007 - trunk/jt4
+</A></li>
+        <LI>Next message: <A HREF="002701.html">[WSJT-SVN] r3009 - in trunk: . jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2700">[ date ]</a>
+              <a href="thread.html#2700">[ thread ]</a>
+              <a href="subject.html#2700">[ subject ]</a>
+              <a href="author.html#2700">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-22 22:23:50 +0100 (Fri, 22 Feb 2013)
+New Revision: 3008
+
+Modified:
+   trunk/jt4/decode4.f90
+   trunk/jt4/exhaust.f90
+   trunk/jt4/simjt4.f90
+   trunk/wsjt.py
+Log:
+Working versions of more or less everything ...
+
+
+Modified: trunk/jt4/decode4.f90
+===================================================================
+--- trunk/jt4/decode4.f90	2013-02-22 18:22:09 UTC (rev 3007)
++++ trunk/jt4/decode4.f90	2013-02-22 21:23:50 UTC (rev 3008)
+@@ -13,37 +13,29 @@
+   iknown0=.false.
+   call fano232(sym,nadd,amp,iknown0,imsg,nbits,ndelta,limit,    &amp;
+        data1,ncycles,metric,ncount)
+-  ncount=-1  !###
+ 
+   if(ndepth.lt.2 .or. ncount.eq.0) return
+ ! Depth=2: MyCall known, Fano for the rest
+   call fano232(sym,nadd,amp,iknown,imsg,nbits,ndelta,limit,    &amp;
+        data1,ncycles,metric,ncount)
+-  ncount=-1  !###
+ 
+-  if(ndepth.lt.3 .or. ncount.eq.0) return
+-! Depth=3: MyCall known, grid field blank; exhaustive search for xcall
++  if(ndepth.lt.3) return
++! Depth=4: MyCall and HisCall known, exhaustive search for xrpt
+   write(c72a,1002) imsg
+ 1002 format(72i1)
+   c72=c72a
+-  c72(1:14)='              '
+-!###  call exhaust(1,sym,c72,data1,nqual)
+-  nqual=0  !###
++  call exhaust(sym,c72,data1,nqual)
+   ncount=-1
+-  if(nqual.gt.0) ncount=3
++  if(nqual.gt.0) then
++     ncount=3
++     return
++  endif
+ 
+-  if(ndepth.lt.4 .or. nqual.ge.1) return
+-! Depth=4: MyCall and HisCall known, exhaustive search for xrpt
+-  c72=c72a
+-  call exhaust(2,sym,c72,data1,nqual)
+-  ncount=-1
+-  if(nqual.gt.0) ncount=4
++  if(ndepth.lt.4) return
++! Depth=5: MyCall known, DS for xcall+xgrid
+ 
+   if(ndepth.lt.5) return
+-! Depth=5: MyCall known, DS for xcall+xgrid
++! Depth=6: HisCall and HisGrid known, DS for xcall
+ 
+-  if(ndepth.lt.6) return
+-! Depth=6: HisCall and HisGrid known, exhaustive search for xcall
+-
+   return
+ end subroutine decode4
+
+Modified: trunk/jt4/exhaust.f90
+===================================================================
+--- trunk/jt4/exhaust.f90	2013-02-22 18:22:09 UTC (rev 3007)
++++ trunk/jt4/exhaust.f90	2013-02-22 21:23:50 UTC (rev 3008)
+@@ -1,88 +1,20 @@
+-subroutine exhaust(itype,sym,c72,data1,nqual)
++subroutine exhaust(sym,c72,data1,nqual)
+ 
++! Exhaustive search for xrpt
++
+   real sym(0:1,206)
+   character*72 c72,c72a
+   integer*1 data0(13),data1(13)
+   integer*1 symbol(206)
+-  real s(0:16383)
++  real s(0:63)
+ 
+-  if(itype.eq.1) go to 100      !###
+-  if(itype.eq.2) go to 100
+   c72a=c72
+   sumbest=0.
+-  do n2a=0,16383
+-     write(c72(1:14),1002) n2a
+-1002 format(b14.14)
+-     read(c72,1004) data0(1:9)
+-1004 format(9b8)
+-     data0(10:13)=0
+-     call encode232(data0,206,symbol)       !Convolutional encoding
+-     sum=0.
+-     do i=1,90
+-        if(symbol(i).eq.0) then
+-           sum=sum + sym(0,i)
+-        else 
+-           sum=sum + sym(1,i)
+-        endif
+-     enddo
+-     s(n2a)=sum
+-     if(sum.gt.sumbest) then
+-        sumbest=sum
+-        n2abest=n2a
+-     endif
+-  enddo
+-  s(n2abest)=0.
+-  s1a=sumbest
+-  s2a=maxval(s)
+-  qa=100.0*(s1a/s2a - 1.0)
+-
+-  c72=c72a
+-  sumbest=0.
+-  do n2b=0,16383
+-     write(c72(59:72),1002) n2b
+-     read(c72,1004) data0(1:9)
+-     data0(10:13)=0
+-     call encode232(data0,206,symbol)       !Convolutional encoding
+-     sum=0.
+-     do i=117,206
+-        if(symbol(i).eq.0) then
+-           sum=sum + sym(0,i)
+-        else 
+-           sum=sum + sym(1,i)
+-        endif
+-     enddo
+-     s(n2b)=sum
+-     if(sum.gt.sumbest) then
+-        sumbest=sum
+-        n2bbest=n2b
+-     endif
+-  enddo
+-  s(n2bbest)=0.
+-  s1b=sumbest
+-  s2b=maxval(s)
+-  qb=100.0*(s1b/s2b - 1.0)
+-  q=min(qa,qb)
+-  nqual=1.5*(q-4.0)
+-  if(nqual.lt.0) nqual=0
+-  if(nqual.gt.10) nqual=10
+-
+-  write(c72(1:14),1002) n2abest
+-  write(c72(59:72),1002) n2bbest
+-  read(c72,1004) data1(1:9)
+-  data1(10:13)=0
+-  return
+-
+-!  write(72,3002) n2abest,qa,n2bbest,qb
+-!3002 format(i8,f10.3,i10,f10.3)
+-
+-100 continue
+-! Exhaustive search for xrpt
+-  c72a=c72
+-  sumbest=0.
+   do ng=32402,32464
+      write(c72(57:72),1003) ng
+ 1003 format(b16.16)
+      read(c72,1004) data0(1:9)
++1004 format(9b8)
+      data0(10:13)=0
+      call encode232(data0,206,symbol)       !Convolutional encoding
+      sum=0.
+@@ -103,7 +35,11 @@
+   s1a=sumbest
+   s2a=maxval(s(1:63))
+   q=100.0*(s1a/s2a - 1.0)
+-  nqual=q-8.0
++  nqual=q-8.0                              !### nadd=1
++!  nqual=q-1.0                              !### nadd=72
++  
++  write(71,3007) ngbest,sum,q,nqual
++3007 format(i6,2f10.3,i6)
+   if(ngbest.ne.32425) write(72,3002) sum,q,nqual
+ 3002 format(2f10.3,i6)
+   if(nqual.lt.0) nqual=0
+
+Modified: trunk/jt4/simjt4.f90
+===================================================================
+--- trunk/jt4/simjt4.f90	2013-02-22 18:22:09 UTC (rev 3007)
++++ trunk/jt4/simjt4.f90	2013-02-22 21:23:50 UTC (rev 3008)
+@@ -12,12 +12,14 @@
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
++  integer nlim(10)
+   common/scalecom/scale
++  data nlim/1,2,5,10,20,50,100,200,500,1000/
+ 
+   nargs=iargc()
+   if(nargs.ne.8) then
+-     print*,'Usage: simjt4 nadd scale ndelta limit snr amp depth iters'
+-     print*,'               1    10.0   30   10000  0   6    1   100'
++     print*,'Usage: simjt4 nadd scale ndelta lim snr amp depth iters'
++     print*,'               1    10.0   30    1   0   6    1   100'
+      go to 999
+   endif
+ 
+@@ -28,7 +30,7 @@
+   call getarg(3,arg)
+   read(arg,*) ndelta
+   call getarg(4,arg)
+-  read(arg,*) limit
++  read(arg,*) lim
+   call getarg(5,arg)
+   read(arg,*) snrdb
+   call getarg(6,arg)
+@@ -38,25 +40,30 @@
+   call getarg(8,arg)
+   read(arg,*) iters
+ 
++  if(lim.lt.1) lim=1
++  if(lim.gt.10) lim=10
++  write(*,1000) nadd,lim,ndepth
++1000 format(/'nadd:',i4,'   lim:',i3,'   ndepth:',i2)
++
++  limit=10000*nlim(lim)
+   iknown=.false.
++!                          ndepth=1: Fano
+   if(ndepth.eq.2) then
+-     iknown(1:28)=.true.             !N1 known (CQ or MyCall); then Fano
++     iknown(1:28)=.true.             !MyCall or CQ known, Fano for the rest
+   else if(ndepth.eq.3) then
+-     iknown(15:58)=.true.            !New msg order; N1 known, blank grid;
+-                                     !exhaustive search for N2=xcall
++     iknown(1:56)=.true.             !MyCall+HisCall known; ex search for xrpt
+   else if(ndepth.eq.4) then
+-     iknown(1:56)=.true.             !N1 and N2 known; ex search for xrpt
++     iknown(1:28)=.true.             !MyCall or CQ known, DS for xcall+xgrid
+   else if(ndepth.eq.5) then
+-     iknown(1:28)=.true.             !N1 known, DS for xcall+xgrid
+-  else if(ndepth.eq.6) then
+-     iknown(29:72)=.true.            !N2 and NG known, DS for xcall
++     iknown(29:72)=.true.            !HisCall+HisGrid known, DS for xcall
+   endif
+ 
+   write(*,1010) 
+-1010 format(/                                                              &amp;
++1010 format(                                                               &amp;
+   ' EsNo  EbNo  db65   false   fcopy  cycles   ber   ave0   ave1   time'/  &amp;
+   '---------------------------------------------------------------------')
+ 
++!  msg='CQ K1JT FN20'
+   msg='K1JT VK7MO -24'
+   call encode4(msg,imsg,icode)
+   symbol=icode
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-02-22 18:22:09 UTC (rev 3007)
++++ trunk/wsjt.py	2013-02-22 21:23:50 UTC (rev 3008)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002699.html">[WSJT-SVN] r3007 - trunk/jt4
+</A></li>
+	<LI>Next message: <A HREF="002701.html">[WSJT-SVN] r3009 - in trunk: . jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2700">[ date ]</a>
+              <a href="thread.html#2700">[ thread ]</a>
+              <a href="subject.html#2700">[ subject ]</a>
+              <a href="author.html#2700">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

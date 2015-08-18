@@ -1,0 +1,420 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2489 - in branches/jtms3: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2489%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120705161604.2AE1D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002180.html">
+   <LINK REL="Next"  HREF="002182.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2489 - in branches/jtms3: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2489%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120705161604.2AE1D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2489 - in branches/jtms3: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jul  5 18:16:04 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002180.html">[WSJT-SVN] r2488 - branches/jtms3
+</A></li>
+        <LI>Next message: <A HREF="002182.html">[WSJT-SVN] r2490 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2181">[ date ]</a>
+              <a href="thread.html#2181">[ thread ]</a>
+              <a href="subject.html#2181">[ subject ]</a>
+              <a href="author.html#2181">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-05 18:16:03 +0200 (Thu, 05 Jul 2012)
+New Revision: 2489
+
+Modified:
+   branches/jtms3/commons.h
+   branches/jtms3/getfile.cpp
+   branches/jtms3/libm65/genjtms3.f90
+   branches/jtms3/mainwindow.cpp
+   branches/jtms3/soundin.cpp
+Log:
+Changed soundin to i*2 rather than r*4.
+Activated saving of WAV files. (but so far, without headers).
+Tx waveform now uses sinc() pulses.
+
+
+Modified: branches/jtms3/commons.h
+===================================================================
+--- branches/jtms3/commons.h	2012-07-04 22:18:52 UTC (rev 2488)
++++ branches/jtms3/commons.h	2012-07-05 16:16:03 UTC (rev 2489)
+@@ -6,7 +6,7 @@
+ extern &quot;C&quot; {
+ 
+ extern struct {                     //This is &quot;common/datcom/...&quot; in Fortran
+-  float d4[30*48000];               //Raw data
++  float d2[30*48000];               //Raw data
+   int kin;
+   int ndiskdat;
+   /*
+
+Modified: branches/jtms3/getfile.cpp
+===================================================================
+--- branches/jtms3/getfile.cpp	2012-07-04 22:18:52 UTC (rev 2488)
++++ branches/jtms3/getfile.cpp	2012-07-05 16:16:03 UTC (rev 2489)
+@@ -8,76 +8,39 @@
+ 
+ void getfile(QString fname, bool xpol, int dbDgrd)
+ {
+-  int npts=2*52*96000;
+-  if(xpol) npts=2*npts;
+ 
+-// Degrade S/N by dbDgrd dB -- for tests only!!
+-  float dgrd=0.0;
+-  if(dbDgrd&lt;0) dgrd = 23.0*sqrt(pow(10.0,-0.1*(double)dbDgrd) - 1.0);
+-  float fac=23.0/sqrt(dgrd*dgrd + 23.0*23.0);
+-
+-  memset(id,0,2*npts);
+   char name[80];
+   strcpy(name,fname.toAscii());
+   FILE* fp=fopen(name,&quot;rb&quot;);
+ 
+-  if(fp != NULL) {
+-//    fread(&amp;datcom_.fcenter,sizeof(datcom_.fcenter),1,fp);
+-    fread(id,2,npts,fp);
+-    int j=0;
++  int npts=30*48000;
++  memset(datcom_.d2,0,2*npts);
+ 
+-    if(dbDgrd&lt;0) {
+-      for(int i=0; i&lt;npts; i+=2) {
+-        datcom_.d4[j++]=fac*((float)id[i] + dgrd*gran());
+-        datcom_.d4[j++]=fac*((float)id[i+1] + dgrd*gran());
+-        if(!xpol) j+=2;               //Skip over d4(3,x) and d4(4,x)
+-      }
+-    } else {
+-      for(int i=0; i&lt;npts; i+=2) {
+-        datcom_.d4[j++]=(float)id[i];
+-        datcom_.d4[j++]=(float)id[i+1];
+-        if(!xpol) j+=2;               //Skip over d4(3,x) and d4(4,x)
+-      }
+-    }
++  if(fp != NULL) {
++//    Should read WAV header first
++    fread(datcom_.d2,2,npts,fp);
+     fclose(fp);
+-
+-    /*
+-    datcom_.ndiskdat=1;
+-    int nfreq=(int)datcom_.fcenter;
+-    if(nfreq!=144 and nfreq != 432 and nfreq != 1296) datcom_.fcenter=144.125;
+-    int i0=fname.indexOf(&quot;.tf2&quot;);
+-    if(i0&lt;0) i0=fname.indexOf(&quot;.iq&quot;);
+-    datcom_.nutc=0;
+-    if(i0&gt;0) datcom_.nutc=100*fname.mid(i0-4,2).toInt() +
+-        fname.mid(i0-2,2).toInt();
+-        */
+   }
+ }
+ 
+ void savewav(QString fname)
+ {
+-  /*
+-  int npts=2*52*96000;
+-  if(xpol) npts=2*npts;
+-
+-  qint16* buf=(qint16*)malloc(2*npts);
++  int npts=30*48000;
++//  qint16* buf=(qint16*)malloc(2*npts);
+   char name[80];
+   strcpy(name,fname.toAscii());
+   FILE* fp=fopen(name,&quot;wb&quot;);
+ 
+   if(fp != NULL) {
+-    fwrite(&amp;datcom_.fcenter,sizeof(datcom_.fcenter),1,fp);
+-    int j=0;
+-    for(int i=0; i&lt;npts; i+=2) {
+-      buf[i]=(qint16)datcom_.d4[j++];
+-      buf[i+1]=(qint16)datcom_.d4[j++];
+-      if(!xpol) j+=2;               //Skip over d4(3,x) and d4(4,x)
+-    }
+-    fwrite(buf,2,npts,fp);
++// Write a WAV header
++//    fwrite(&amp;datcom_.fcenter,sizeof(datcom_.fcenter),1,fp);
++
++//    memcpy(datcom_.d2,buf,2*npts);
++//    fwrite(buf,2,npts,fp);
++    fwrite(datcom_.d2,2,npts,fp);
+     fclose(fp);
+   }
+-  free(buf);
+-  */
++//  free(buf);
+ }
+ 
+ //#define	MAX_RANDOM	0x7fffffff
+
+Modified: branches/jtms3/libm65/genjtms3.f90
+===================================================================
+--- branches/jtms3/libm65/genjtms3.f90	2012-07-04 22:18:52 UTC (rev 2488)
++++ branches/jtms3/libm65/genjtms3.f90	2012-07-05 16:16:03 UTC (rev 2489)
+@@ -6,9 +6,46 @@
+   integer dgen(13)
+   integer*1 data0(13)                   
+   integer*1 datsym(215)
+-  integer indx0(9)                        !Indices of duplicated data symbols
++  real*8 pi,twopi,f0,dt,phi,dphi
++  real*4 p(-3095:3096)
++  real*4 s(6192)
++  real*4 carrier(6192)
++  logical first
++  integer indx0(9)                               !Indices of duplicated symbols
+   data indx0 /16,38,60,82,104,126,148,170,192/
++  data first/.true./
++  save
++  sinc(x)=sin(pi*x)/(pi*x)
+ 
++  if(first) then
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     k=0
++     x=0.
++     dx=1.0/24.0
++     do i=1,3096                             !Generate the BPSK pulse shape
++        k=k+1
++        if(k.gt.3096) k=k-6192
++        x=x+dx
++        p(k)=sinc(x) * (sinc(x/2.0))**2
++!        p(k)=sinc(x) * exp(-(x/2.0)**2)
++        if(k.ne.3096) p(-k)=p(k)
++     enddo
++     p(0)=1.0
++
++     f0=193.d0*48000.d0/(258.d0*24.d0)
++     dt=1.d0/48000.d0
++     dphi=twopi*f0*dt
++     phi=0.d0
++     nmax=0.
++     do i=1,6192                             !Generate the carrier
++        phi=phi+dphi
++        if(phi.gt.twopi)phi=phi-twopi
++        xphi=phi
++        carrier(i)=sin(xphi)
++     enddo
++  endif
++
+   call packmsg(msg,dgen)                  !Pack message into 12 six-bit symbols
+   call entail(dgen,data0)           !Move from 6-bit to 8-bit symbols, add tail
+   ndat=(72+31)*2
+@@ -21,24 +58,25 @@
+   call scr258(isync,datsym,1,chansym)   !Insert sync and data into chansym(258)
+ 
+   if(msg(1:1).eq.'@') chansym=0
+-  twopi=8.0*atan(1.0)
+-  f0=1500.0
+-  dphi=twopi*f0/48000.0
+-  phi=0.
+-  k=0
++
++  s=0.
+   do j=1,258
+-     do i=1,24
+-        phi=phi+dphi
+-        if(phi.gt.twopi) phi=phi-twopi
+-        n=32767.0*sin(phi)
+-        if(chansym(j).eq.0) n=-n
+-        k=k+1
+-        iwave(k)=n
+-     enddo
++     k1=-3096-24*j
++     if(chansym(j).eq.1) s=s + cshift(p,k1)
++     if(chansym(j).eq.0) s=s - cshift(p,k1)
+   enddo
+-  nwave=k
+ 
+-!  call genjtms3a(chansym,258,iwave,nwave)
++  nmax=0
++  do i=1,6192
++     n=30000.0*carrier(i)*s(i)
++     nmax=max(nmax,abs(n))
++     if(n.gt.32767) n=32767
++     if(n.lt.-32767) n=-32767
++     iwave(i)=n
++  enddo
++
++!  print*,'nmax:',nmax
++  nwave=6192
+   msgsent=msg
+ 
+   return
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-04 22:18:52 UTC (rev 2488)
++++ branches/jtms3/mainwindow.cpp	2012-07-05 16:16:03 UTC (rev 2489)
+@@ -194,8 +194,7 @@
+   soundInThread.start(QThread::HighestPriority);
+ 
+   // Assign output device and start output thread
+-//  soundOutThread.setOutputDevice(m_paOutDevice);
+-  soundOutThread.setOutputDevice(13);                      //###???###
++  soundOutThread.setOutputDevice(m_paOutDevice);
+ //  soundOutThread.start(QThread::HighPriority);
+ 
+   m_monitoring=true;                           // Start with Monitoring ON
+@@ -399,8 +398,14 @@
+ void MainWindow::dataSink(int k)
+ {
+   static int ndiskdat;
++  static int nwrite=0;
++  static int k0=99999999;
+   static float px=0.0;
+ 
++  if(k &lt; k0) {
++    nwrite=0;
++  }
++
+   if(m_diskData) {
+     ndiskdat=1;
+     datcom_.ndiskdat=1;
+@@ -412,7 +417,7 @@
+   double sq=0.0;
+   float x;
+   for(int i=0; i&lt;6192; i++) {
+-    x=datcom_.d4[k-6192+i];
++    x=datcom_.d2[k-6192+i];
+     sq += x*x;
+   }
+   px = 10.0*log10(sq/6192.0) + 70.0;          // Why +70 ???
+@@ -456,17 +461,18 @@
+   }
+ */
+ 
+-  int ihsym=0;
+-  if(ihsym == 279) {
+-    QDateTime t = QDateTime::currentDateTimeUtc();
+-    m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
++  if(k &gt;= (int)(29.5*48000) and nwrite==0) {
++    nwrite=1;
+     if(m_saveAll) {
++      QDateTime t = QDateTime::currentDateTimeUtc();
++      m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+       QString fname=m_saveDir + &quot;/&quot; + t.date().toString(&quot;yyMMdd&quot;) + &quot;_&quot; +
+           t.time().toString(&quot;hhmm&quot;) + &quot;.wav&quot;;
+       *future2 = QtConcurrent::run(savewav, fname);
+       watcher2-&gt;setFuture(*future2);
+     }
+   }
++  k0=k;
+   soundInThread.m_dataSinkBusy=false;
+ }
+ 
+@@ -861,10 +867,8 @@
+     QList&lt;QString&gt;::iterator f;
+     for(f=files.begin(); f!=files.end(); ++f) {
+       fname=*f;
+-      i=(fname.indexOf(&quot;.tf2&quot;));
++      i=(fname.indexOf(&quot;.wav&quot;));
+       if(i==11) dir.remove(fname);
+-      i=(fname.indexOf(&quot;.iq&quot;));
+-      if(i==11) dir.remove(fname);
+     }
+   }
+ }
+
+Modified: branches/jtms3/soundin.cpp
+===================================================================
+--- branches/jtms3/soundin.cpp	2012-07-04 22:18:52 UTC (rev 2488)
++++ branches/jtms3/soundin.cpp	2012-07-05 16:16:03 UTC (rev 2489)
+@@ -7,7 +7,7 @@
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+-  float d4[30*48000];                //This is &quot;common/datcom/...&quot; in fortran
++  short int d2[30*48000];             //This is &quot;common/datcom/...&quot; in fortran
+   int kin;
+ } datcom_;
+ }
+@@ -46,22 +46,12 @@
+     udata-&gt;bzero=false;
+   }
+ 
+-  nbytes=4*framesToProcess;        //Bytes per frame
++  nbytes=2*framesToProcess;        //Bytes per frame
+   k=udata-&gt;kin;
+-  memcpy(&amp;datcom_.d4[k],inputBuffer,nbytes);          //Copy all samples to d4
++  memcpy(&amp;datcom_.d2[k],inputBuffer,nbytes);          //Copy all samples to d2
+   udata-&gt;kin += framesToProcess;
+   datcom_.kin=udata-&gt;kin;
+ 
+-/*
+-  double sq=0.0;
+-  float x;
+-  for(i=0; i&lt;int(framesToProcess); i++) {
+-    x=datcom_.d4[k++];
+-    sq += x*x;
+-  }
+-  float rms = 32767.0*sqrt(sq/framesToProcess);
+-  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; udata-&gt;kin/48000.0 &lt;&lt; rms;
+-*/
+   return paContinue;
+ }
+ 
+@@ -80,7 +70,7 @@
+ 
+   inParam.device=m_nDevIn;                  //### Input Device Number ###
+   inParam.channelCount=1;                   //Number of analog channels
+-  inParam.sampleFormat=paFloat32;           //Get floats from Portaudio
++  inParam.sampleFormat=paInt16;             //Get i*2 from Portaudio
+   inParam.suggestedLatency=0.05;
+   inParam.hostApiSpecificStreamInfo=NULL;
+ 
+@@ -94,7 +84,7 @@
+         NULL,                               //No output parameters
+         48000.0,                            //Sample rate
+         FRAMES_PER_BUFFER,                  //Frames per buffer
+-//        paClipOff+paDitherOff,              //No clipping or dithering
++//        paClipOff+paDitherOff,            //No clipping or dithering
+         paClipOff,                          //No clipping
+         a2dCallback,                        //Input callbeck routine
+         &amp;udata);                            //userdata
+@@ -134,6 +124,7 @@
+           nBusy++;
+         } else {
+ //          m_dataSinkBusy=true;
++//          qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; k;
+           emit readyForFFT(k);         //Signal to compute new FFTs
+         }
+         nstep0=m_step;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002180.html">[WSJT-SVN] r2488 - branches/jtms3
+</A></li>
+	<LI>Next message: <A HREF="002182.html">[WSJT-SVN] r2490 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2181">[ date ]</a>
+              <a href="thread.html#2181">[ thread ]</a>
+              <a href="subject.html#2181">[ subject ]</a>
+              <a href="author.html#2181">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

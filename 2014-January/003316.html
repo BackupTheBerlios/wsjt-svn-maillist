@@ -1,0 +1,317 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3623 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3623%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20140108183815.DA2D155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003315.html">
+   <LINK REL="Next"  HREF="003317.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3623 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3623%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20140108183815.DA2D155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3623 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jan  8 19:38:15 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003315.html">[WSJT-SVN] r3622 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003317.html">[WSJT-SVN] r3624 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3316">[ date ]</a>
+              <a href="thread.html#3316">[ thread ]</a>
+              <a href="subject.html#3316">[ subject ]</a>
+              <a href="author.html#3316">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-08 19:38:15 +0100 (Wed, 08 Jan 2014)
+New Revision: 3623
+
+Added:
+   branches/wsjtx/lib/determ.f90
+   branches/wsjtx/lib/flat3.f90
+   branches/wsjtx/lib/polfit.f90
+Modified:
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/wsjtx.pro
+Log:
+Testing a new spectrum-flattening procedure, flat3.
+
+
+Added: branches/wsjtx/lib/determ.f90
+===================================================================
+--- branches/wsjtx/lib/determ.f90	                        (rev 0)
++++ branches/wsjtx/lib/determ.f90	2014-01-08 18:38:15 UTC (rev 3623)
+@@ -0,0 +1,32 @@
++real*8 function determ(array,norder)
++  implicit real*8 (a-h,o-z)
++  real*8 array(10,10)
++
++  determ=1.
++  do k=1,norder
++     if (array(k,k).ne.0) go to 41
++     do j=k,norder
++        if(array(k,j).ne.0) go to 31
++     enddo
++     determ=0.
++     go to 60
++
++31   do i=k,norder
++        s8=array(i,j)
++        array(i,j)=array(i,k)
++        array(i,k)=s8
++     enddo
++     determ=-1.*determ
++41   determ=determ*array(k,k)
++     if(k.lt.norder) then
++        k1=k+1
++        do i=k1,norder
++           do j=k1,norder
++              array(i,j)=array(i,j)-array(i,k)*array(k,j)/array(k,k)
++           enddo
++        enddo
++     end if
++  enddo
++
++60 return
++end function determ
+
+Added: branches/wsjtx/lib/flat3.f90
+===================================================================
+--- branches/wsjtx/lib/flat3.f90	                        (rev 0)
++++ branches/wsjtx/lib/flat3.f90	2014-01-08 18:38:15 UTC (rev 3623)
+@@ -0,0 +1,74 @@
++subroutine flat3(savg0,iz,nterms,ynoise,savg)
++
++  implicit real*8 (a-h,o-z)
++  parameter (NSMAX=6827)
++  real*4 savg0(iz)
++  real*4 savg(iz)
++  real*4 ynoise,y4
++
++  real*8 x(NSMAX)
++  real*8 y(NSMAX)
++  real*8 y0(NSMAX)
++  real*8 yfit(NSMAX)
++  real*8 a(10)
++  integer ii(NSMAX)
++
++  npts0=999999
++  df=12000.0/16384.0
++
++  do i=1,iz
++     y0(i)=db(savg0(i))
++  enddo
++  ia=200.0/df
++  ib=4500.0/df
++  j=0
++  do i=ia,ib
++     j=j+1
++     x(j)=i*df
++     y(j)=y0(i)
++     ii(j)=i
++  enddo
++
++  npts=j
++  mode=0
++  a=0.0
++
++  do iter=1,99
++     call polfit(x,y,y,npts,nterms,mode,a,chisqr)
++!     print*,iter,npts,a(1:nterms)
++
++     rewind 21
++     do i=1,ib
++        f=i*df
++        yfit(i)=0.0
++        do n=1,nterms
++           yfit(i)=yfit(i) + a(n) * f**(n-1)
++        enddo
++!        write(21,1010) f,y0(i),yfit(i),y0(i)-yfit(i)
++!1010    format(4f12.3)
++     enddo
++     k=0
++     do j=1,npts
++        y1=y(j)-yfit(ii(j))
++        if(y1.lt.ynoise) then
++           k=k+1
++           x(k)=x(j)
++           y(k)=y(j)
++           ii(k)=ii(j)
++        endif
++     enddo
++     npts=k
++     if(npts.eq.npts0 .or. npts.lt.(ib-ia)/10) exit
++     npts0=npts
++  enddo
++
++!  do j=1,npts
++!     write(22,1010) x(j),y(j),yfit(ii(j)),y(j)-yfit(ii(j))
++!  enddo
++
++  do i=1,ib
++     y4=y0(i)-yfit(i)
++     savg(i)=10.0**(0.1*y4)
++  enddo
++
++end subroutine flat3
+
+Added: branches/wsjtx/lib/polfit.f90
+===================================================================
+--- branches/wsjtx/lib/polfit.f90	                        (rev 0)
++++ branches/wsjtx/lib/polfit.f90	2014-01-08 18:38:15 UTC (rev 3623)
+@@ -0,0 +1,72 @@
++subroutine polfit(x,y,sigmay,npts,nterms,mode,a,chisqr)
++  implicit real*8 (a-h,o-z)
++  real*8 x(npts), y(npts), sigmay(npts), a(nterms)
++  real*8 sumx(19), sumy(10), array(10,10)
++
++! Accumulate weighted sums
++  nmax = 2*nterms-1
++  sumx=0.
++  sumy=0.
++  chisq=0.
++  do i=1,npts
++     xi=x(i)
++     yi=y(i)
++     if(mode.lt.0) then
++        weight=1./abs(yi)
++     else if(mode.eq.0) then
++        weight=1
++     else
++        weight=1./sigmay(i)**2
++     end if
++     xterm=weight
++     do n=1,nmax
++        sumx(n)=sumx(n)+xterm
++        xterm=xterm*xi
++     enddo
++     yterm=weight*yi
++     do n=1,nterms
++        sumy(n)=sumy(n)+yterm
++        yterm=yterm*xi
++     enddo
++     chisq=chisq+weight*yi**2
++  enddo
++
++! Construct matrices and calculate coefficients
++  do j=1,nterms
++     do k=1,nterms
++        n=j+k-1
++        array(j,k)=sumx(n)
++     enddo
++  enddo
++
++  delta=determ(array,nterms)
++  if(delta.eq.0) then
++     chisqr=0.
++     a=0.
++  else
++     do l=1,nterms
++        do j=1,nterms
++           do k=1,nterms
++              n=j+k-1
++              array(j,k)=sumx(n)
++           enddo
++           array(j,l)=sumy(j)
++        enddo
++        a(l)=determ(array,nterms)/delta
++     enddo
++
++! Calculate chi square
++
++     do j=1,nterms
++        chisq=chisq-2*a(j)*sumy(j)
++        do k=1,nterms
++           n=j+k-1
++           chisq=chisq+a(j)*a(k)*sumx(n)
++        enddo
++     enddo
++     free=npts-nterms
++     chisqr=chisq/free
++  end if
++  
++  return
++end subroutine polfit
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2014-01-07 21:09:58 UTC (rev 3622)
++++ branches/wsjtx/lib/symspec.f90	2014-01-08 18:38:15 UTC (rev 3623)
+@@ -40,7 +40,8 @@
+      go to 900                                 !Wait for enough samples to start
+   endif
+ 
+-  if(nfft3.ne.nfft3z .or. slope.ne.slope0) then    !New nfft3, compute window
++  if(nfft3.ne.nfft3z .or. (slope.ne.slope0 .and. abs(slope+0.1).gt.0.05)) then
++! Compute new window and adjust scale factor
+      pi=4.0*atan(1.0)
+      do i=1,nfft3
+         w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+@@ -103,10 +104,14 @@
+      s(i)=gain*sx
+   enddo
+ 
+-!  s=0.05*s/ref
+   s=scale*s
+   savg=scale*ssum/ihsym
+ 
++  if(abs(slope+0.1).lt.0.01) then
++     call flat3(s,iz,3,1.0,s)
++     call flat3(savg,iz,3,1.0,savg)
++  endif
++
+ 900 npts8=k/8
+ 
+   return
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2014-01-07 21:09:58 UTC (rev 3622)
++++ branches/wsjtx/wsjtx.pro	2014-01-08 18:38:15 UTC (rev 3623)
+@@ -7,7 +7,7 @@
+ QT       += network multimedia
+ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+ CONFIG   += thread
+-CONFIG   += console
++#CONFIG   += console
+ 
+ TARGET = wsjtx
+ #DESTDIR = ../qt4_install
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003315.html">[WSJT-SVN] r3622 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003317.html">[WSJT-SVN] r3624 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3316">[ date ]</a>
+              <a href="thread.html#3316">[ thread ]</a>
+              <a href="subject.html#3316">[ subject ]</a>
+              <a href="author.html#3316">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

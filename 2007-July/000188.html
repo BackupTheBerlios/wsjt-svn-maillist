@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r503 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r503%20-%20branches/map65&In-Reply-To=%3C200707122045.l6CKjJbg008972%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000187.html">
+   <LINK REL="Next"  HREF="000189.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r503 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r503%20-%20branches/map65&In-Reply-To=%3C200707122045.l6CKjJbg008972%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r503 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 12 22:45:19 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000187.html">[WSJT-SVN] r502 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000189.html">[WSJT-SVN] r504 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#188">[ date ]</a>
+              <a href="thread.html#188">[ thread ]</a>
+              <a href="subject.html#188">[ subject ]</a>
+              <a href="author.html#188">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-12 22:45:14 +0200 (Thu, 12 Jul 2007)
+New Revision: 503
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/options.py
+   branches/map65/recvpkt.F90
+Log:
+User-defined params nt1, nt2 to set timing of state machine.
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-07-12 16:09:28 UTC (rev 502)
++++ branches/map65/gcom2.f90	2007-07-12 20:45:14 UTC (rev 503)
+@@ -49,6 +49,8 @@
+ integer ndebug         !Write debugging info?                   GUI
+ integer ndphi          !Set to 1 to compute dphi             GUI,Decoder
+ integer nhispol        !Pol angle matching HisCall or HisGrid Decoder
++integer nt1            !Time to start FFTs                      GUI
++integer nt2            !Time to start quick decode              GUI
+ integer nblank         !Is NB checked?                          GUI
+ integer nfmid          !Center frequency of main display        GUI
+ integer nfrange        !Frequency range of main display         GUI
+@@ -106,7 +108,7 @@
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,     &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+      nclearave,nfreeze,nafc,ncsmin,newspec,nfa,nfb,nfcal,idphi,nkeep,       &amp;
+-     nmode,mode65,nbpp,nfullspec,ndebug,ndphi,nhispol,                      &amp;
++     nmode,mode65,nbpp,nfullspec,ndebug,ndphi,nhispol,nt1,nt2,              &amp;
+      nblank,nport,mousedf,mousefqso,neme,nrw26,naggressive,ntx2,nagain,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,         &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,    &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-12 16:09:28 UTC (rev 502)
++++ branches/map65/map65.py	2007-07-12 20:45:14 UTC (rev 503)
+@@ -1224,7 +1224,6 @@
+     Audio.gcom2.dftolerance=ntol[itol]
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+-    Audio.gcom2.ncsmin=options.ncsmin.get()
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+     except:
+@@ -1250,6 +1249,19 @@
+         Audio.gcom2.nfcal=options.fcal.get()
+     except:
+         Audio.gcom2.nfcal=0
++    try:
++        Audio.gcom2.ncsmin=options.ncsmin.get()
++    except:
++        Audio.gcom2.ncsmin=20
++    try:
++        Audio.gcom2.nt1=options.nt1.get()
++    except:
++        Audio.gcom2.nt1=48
++    try:
++        Audio.gcom2.nt2=options.nt2.get()
++    except:
++        Audio.gcom2.nt2=52
++
+     t=options.savedir.get() + \
+         '                                        ' + \
+         '                                        '
+@@ -1738,6 +1750,8 @@
+         elif key == 'fb': options.fb.set(value)
+         elif key == 'fcal': options.fcal.set(value)
+         elif key == 'CSmin': options.ncsmin.set(value)
++        elif key == 'Nt1': options.nt1.set(value)
++        elif key == 'Nt2': options.nt2.set(value)
+         elif key == 'dphi': options.dphi.set(value)
+         elif key == 'SaveDir': options.savedir.set(value)
+         
+@@ -1831,6 +1845,8 @@
+ f.write(&quot;fb &quot; + str(options.fb.get()) + &quot;\n&quot;)
+ f.write(&quot;fcal &quot; + str(options.fcal.get()) + &quot;\n&quot;)
+ f.write(&quot;CSmin &quot; + str(options.ncsmin.get()) + &quot;\n&quot;)
++f.write(&quot;Nt1 &quot; + str(options.nt1.get()) + &quot;\n&quot;)
++f.write(&quot;Nt2 &quot; + str(options.nt2.get()) + &quot;\n&quot;)
+ f.write(&quot;SaveDir &quot; + str(options.savedir.get()) + &quot;\n&quot;)
+ f.write(&quot;TxFirst &quot; + str(TxFirst.get()) + &quot;\n&quot;)
+ f.write(&quot;KB8RQ &quot; + str(kb8rq.get()) + &quot;\n&quot;)
+
+Modified: branches/map65/options.py
+===================================================================
+--- branches/map65/options.py	2007-07-12 16:09:28 UTC (rev 502)
++++ branches/map65/options.py	2007-07-12 20:45:14 UTC (rev 503)
+@@ -47,6 +47,8 @@
+ fb=IntVar()
+ fcal=IntVar()
+ ncsmin=IntVar()
++nt1=IntVar()
++nt2=IntVar()
+ savedir=StringVar()
+ 
+ mycall=Pmw.EntryField(g1.interior(),labelpos=W,label_text='My Call:',
+@@ -104,10 +106,15 @@
+     entry_width=9,entry_textvariable=fcal)
+ min_callsign_entry=Pmw.EntryField(g3.interior(),labelpos=W, \
+     label_text='CSmin:',entry_width=9,value=4,entry_textvariable=ncsmin)
++nt1_entry=Pmw.EntryField(g3.interior(),labelpos=W, \
++    label_text='Rx t1:',entry_width=9,value=48,entry_textvariable=nt1)
++nt2_entry=Pmw.EntryField(g3.interior(),labelpos=W, \
++    label_text='Rx t2:',entry_width=9,value=52,entry_textvariable=nt2)
+ savedir_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='SaveDir:',
+     entry_width=23,value=g.appdir+'\save',entry_textvariable=savedir)
+ widgets = (temp_prefix,aux_ra,aux_dec,nkeep_entry,dphi_entry, \
+-           fa_entry,fb_entry,fcal_entry,min_callsign_entry,savedir_entry,)
++           fa_entry,fb_entry,fcal_entry,min_callsign_entry, \
++           nt1_entry,nt2_entry,savedir_entry,)
+ for widget in widgets:
+     widget.pack(padx=2,pady=2)
+ Pmw.alignlabels(widgets)
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-07-12 16:09:28 UTC (rev 502)
++++ branches/map65/recvpkt.F90	2007-07-12 20:45:14 UTC (rev 503)
+@@ -110,7 +110,7 @@
+      nsec0=nsec
+      ntx=ntx+transmitting
+ 
+-     if(ns.eq.48) then
++     if(ns.eq.nt1) then
+         nutc=mutc
+         fcenter=center_freq
+         kbuf=kb
+@@ -119,7 +119,7 @@
+         if(ndebug.eq.2) write(*,3001) nutc,mod(int(sec_midn()),60),ns
+ 3001    format('recvpkt 1:',i5.4,2i3.2)
+      endif
+-     if(ns.eq.52) then
++     if(ns.eq.nt2) then
+         kk=k
+         if(ndebug.eq.2) write(*,3002) nutc,mod(int(sec_midn()),60),ns
+ 3002    format('recvpkt 2:',i5.4,2i3.2)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000187.html">[WSJT-SVN] r502 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000189.html">[WSJT-SVN] r504 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#188">[ date ]</a>
+              <a href="thread.html#188">[ thread ]</a>
+              <a href="subject.html#188">[ subject ]</a>
+              <a href="author.html#188">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

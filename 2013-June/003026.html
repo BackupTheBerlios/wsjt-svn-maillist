@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3334 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3334%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130605145114.7F45455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003025.html">
+   <LINK REL="Next"  HREF="003027.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3334 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3334%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130605145114.7F45455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3334 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jun  5 16:51:14 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003025.html">[WSJT-SVN] r3333 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003027.html">[WSJT-SVN] r3335 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3026">[ date ]</a>
+              <a href="thread.html#3026">[ thread ]</a>
+              <a href="subject.html#3026">[ subject ]</a>
+              <a href="author.html#3026">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-05 16:51:14 +0200 (Wed, 05 Jun 2013)
+New Revision: 3334
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/symspec.f90
+   branches/wsjtx_k1jt_p1/lib/sync9.f90
+   branches/wsjtx_k1jt_p1/plotter.cpp
+   branches/wsjtx_k1jt_p1/wsjtx.pro
+Log:
+More progress toward full capabilities at wide bandwidth.
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-04 19:35:59 UTC (rev 3333)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-05 14:51:14 UTC (rev 3334)
+@@ -59,8 +59,10 @@
+   tstep=0.5*nsps/12000.0                      !Half-symbol step (seconds)
+   done=.false.
+ 
+-  ia=max(1,nint((nfa-1000)/df3))
+-  ib=min(NSMAX,nint((nfb-1000)/df3))
++!  nf0=1000
++  nf0=0
++  ia=max(1,nint((nfa-nf0)/df3))
++  ib=min(NSMAX,nint((nfb-nf0)/df3))
+   lag1=-(2.5/tstep + 0.9999)
+   lag2=5.0/tstep + 0.9999
+   call timer('sync9   ',0)
+@@ -91,15 +93,15 @@
+         ccfok(ia:ib)=.true.
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
+-        ia=max(1,nint((nfa1-1000)/df3))
+-        ib=min(NSMAX,nint((nfb1-1000)/df3))
++        ia=max(1,nint((nfa1-nf0)/df3))
++        ib=min(NSMAX,nint((nfb1-nf0)/df3))
+         ia1=ia
+         ib1=ib
+      else
+         nfa1=nfa
+         nfb1=nfb
+-        ia=max(1,nint((nfa1-1000)/df3))
+-        ib=min(NSMAX,nint((nfb1-1000)/df3))
++        ia=max(1,nint((nfa1-nf0)/df3))
++        ib=min(NSMAX,nint((nfb1-nf0)/df3))
+         do i=ia,ib
+            ccfok(i)=ccfred(i).gt.ccflim .and. red2(i).gt.red2lim
+         enddo
+@@ -119,7 +121,7 @@
+            if(nqd.eq.1) nfreqs1=nfreqs1+1
+ 
+            call timer('softsym ',0)
+-           fpk=1000.0 + df3*(i-1)
++           fpk=nf0 + df3*(i-1)
+            call softsym(id2,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,    &amp;
+                 freq,drift,schk,i1SoftSymbols)
+            call timer('softsym ',1)
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-04 19:35:59 UTC (rev 3333)
++++ branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-05 14:51:14 UTC (rev 3334)
+@@ -10,9 +10,13 @@
+ 
+ ! Output:
+ !  pxdb      power (0-60 dB)
+-!  s()       spectrum for waterfall display
++!  s()       current spectrum for waterfall display
+ !  ihsym     index number of this half-symbol (1-184)
+ 
++! jt9com
++!  ss()      JT9 symbol spectra at half-symbol steps
++!  savg()    average spectra for waterfall display
++
+   include 'constants.f90'
+   real*4 s(NSMAX),w3(MAXFFT3)
+   real*4 ssum(NSMAX)
+@@ -53,15 +57,15 @@
+      sq=sq + x1*x1
+   enddo
+   sq=sq * gain**2
+-  k0=k
+-
+-  ja=ja+jstep                         !Index of first sample
+-
+   rms=sqrt(sq/(k-k0))
+   pxdb=0.
+   if(rms.gt.0.0) pxdb=20.0*log10(rms)
+   if(pxdb.gt.60.0) pxdb=60.0
+ 
++
++  k0=k
++  ja=ja+jstep                         !Index of first sample
++
+   fac0=0.1
+   do i=0,nfft3-1                      !Copy data into cx
+      j=ja+i-(nfft3-1)
+@@ -76,7 +80,8 @@
+ 
+   n=min(184,ihsym)
+   df3=12000.0/nfft3                   !JT9-1: 0.732 Hz = 0.42 * tone spacing
+-  i0=nint(1000.0/df3)
++!  i0=nint(1000.0/df3)
++  i0=0
+   iz=min(NSMAX,nint(5000.0/df3))
+   fac=(1.0/nfft3)**2
+   do i=1,iz
+
+Modified: branches/wsjtx_k1jt_p1/lib/sync9.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/sync9.f90	2013-06-04 19:35:59 UTC (rev 3333)
++++ branches/wsjtx_k1jt_p1/lib/sync9.f90	2013-06-05 14:51:14 UTC (rev 3334)
+@@ -1,6 +1,7 @@
+ subroutine sync9(ss,nzhsym,lag1,lag2,ia,ib,ccfred,red2,ipkbest)
+ 
+-  parameter (NSMAX=1365)             !Max length of saved spectra
++  include 'constants.f90'
++!  parameter (NSMAX=1365)             !Max length of saved spectra
+   real ss(184,NSMAX)
+   real ss1(184)
+   real ccfred(NSMAX)
+
+Modified: branches/wsjtx_k1jt_p1/plotter.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-04 19:35:59 UTC (rev 3333)
++++ branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-05 14:51:14 UTC (rev 3334)
+@@ -15,8 +15,8 @@
+   setAttribute(Qt::WA_OpaquePaintEvent, false);
+   setAttribute(Qt::WA_NoSystemBackground, true);
+ 
+-  m_StartFreq = 1000;
+-  m_nSpan=1000;                    //Units: Hz
++  m_StartFreq = 0;
++  m_nSpan=2;                         //used for FFT bins/pixel
+   m_fSpan=(float)m_nSpan;
+   m_hdivs = HORZ_DIVS;
+   m_FreqUnits = 1;
+@@ -316,7 +316,8 @@
+ 
+ float CPlotter::FreqfromX(int x)                               //FreqfromX()
+ {
+-  return float(1000.0 + x*m_binsPerPixel*m_fftBinWidth);
++//  return float(1000.0 + x*m_binsPerPixel*m_fftBinWidth);
++  return float(x*m_binsPerPixel*m_fftBinWidth);
+ }
+ 
+ void CPlotter::SetRunningState(bool running)              //SetRunningState()
+
+Modified: branches/wsjtx_k1jt_p1/wsjtx.pro
+===================================================================
+--- branches/wsjtx_k1jt_p1/wsjtx.pro	2013-06-04 19:35:59 UTC (rev 3333)
++++ branches/wsjtx_k1jt_p1/wsjtx.pro	2013-06-05 14:51:14 UTC (rev 3334)
+@@ -13,7 +13,7 @@
+ DESTDIR = ../wsjtx_install
+ VERSION = 1.0
+ TEMPLATE = app
+-DEFINES = QT5
++DEFINES = QT4
+ 
+ win32 {
+ DEFINES += WIN32
+@@ -65,13 +65,14 @@
+ win32 {
+ #INCLUDEPATH += c:/qwt-6.0.1/include
+ INCLUDEPATH += ../../hamlib-1.2.15.3/include
+-LIBS += ../../hamlib-1.2.15.3/src/.libs/libhamlib.dll.a
++#LIBS += ../../hamlib-1.2.15.3/src/.libs/libhamlib.dll.a
++LIBS += ../../hamlib-1.2.15.3/lib/gcc/libhamlib.dll.a
+ LIBS += ../wsjtx/lib/libjt9.a
+ LIBS += ../wsjtx/libfftw3f_win.a
+ LIBS += ../wsjtx/libpskreporter.a
+ LIBS += ../wsjtx/libHRDInterface001.a
+ #LIBS += ../QtSupport/palir-02.dll
+-LIBS += /users/joe/wsjt/QtSupport/palir-02.dll
++LIBS += ../QtSupport/palir-02.dll
+ LIBS += libwsock32
+ LIBS += C:/MinGW/lib/libf95.a
+ #CONFIG(release) {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003025.html">[WSJT-SVN] r3333 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003027.html">[WSJT-SVN] r3335 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3026">[ date ]</a>
+              <a href="thread.html#3026">[ thread ]</a>
+              <a href="subject.html#3026">[ subject ]</a>
+              <a href="author.html#3026">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

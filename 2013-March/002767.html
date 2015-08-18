@@ -1,0 +1,422 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3075 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3075%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130323154131.E218255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002766.html">
+   <LINK REL="Next"  HREF="002768.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3075 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3075%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130323154131.E218255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3075 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Mar 23 16:41:31 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002766.html">[WSJT-SVN] r3074 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002768.html">[WSJT-SVN] r3076 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2767">[ date ]</a>
+              <a href="thread.html#2767">[ thread ]</a>
+              <a href="subject.html#2767">[ subject ]</a>
+              <a href="author.html#2767">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-23 16:41:31 +0100 (Sat, 23 Mar 2013)
+New Revision: 3075
+
+Added:
+   branches/wsjtx/lib/azdist.f90
+   branches/wsjtx/lib/geodist.f90
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+Display Az and Dist when &quot;hisGrid&quot; is known and valid.
+
+
+Added: branches/wsjtx/lib/azdist.f90
+===================================================================
+--- branches/wsjtx/lib/azdist.f90	                        (rev 0)
++++ branches/wsjtx/lib/azdist.f90	2013-03-23 15:41:31 UTC (rev 3075)
+@@ -0,0 +1,107 @@
++subroutine azdist(MyGrid,HisGrid,utch,nAz,nEl,nDmiles,nDkm,nHotAz,nHotABetter)
++
++  character*6 MyGrid,HisGrid,mygrid0,hisgrid0
++  real*8 utch,utch0
++  logical HotABetter,IamEast
++  real eltab(22),daztab(22)
++  data eltab/18.,15.,13.,11.,9.,8.,7.,6.,5.3,4.7,4.,3.3,2.7,    &amp;
++       2.,1.5,1.,0.8,0.6,0.4,0.2,0.0,0.0/
++  data daztab/21.,18.,16.,15.,14.,13.,12.,11.,10.7,10.3,10.,    &amp;
++       10.,10.,10.,10.,10.,10.,9.,9.,9.,8.,8./
++  data mygrid0/&quot;      &quot;/,hisgrid0/&quot;      &quot;/,utch0/-999.d0/
++  save
++
++  if(MyGrid.eq.HisGrid) then
++     naz=0
++     nel=0
++     ndmiles=0
++     ndkm=0
++     nhotaz=0
++     nhotabetter=1
++     go to 999
++  endif
++
++  if(mygrid.eq.mygrid0 .and. hisgrid.eq.hisgrid0 .and.              &amp;
++       abs(utch-utch0).lt.0.1666667d0) go to 900
++  utch0=utch
++  mygrid0=mygrid
++  hisgrid0=hisgrid
++  utchours=utch
++
++  if(MyGrid(5:5).eq.' ') MyGrid(5:5)='m'
++  if(MyGrid(6:6).eq.' ') MyGrid(6:6)='m'
++  if(HisGrid(5:5).eq.' ') HisGrid(5:5)='m'
++  if(HisGrid(6:6).eq.' ') HisGrid(6:6)='m'
++
++  if(MyGrid.eq.HisGrid) then
++     Az=0.
++     Dmiles=0.
++     Dkm=0.0
++     El=0.
++     HotA=0.
++     HotB=0.
++     HotABetter=.true.
++     go to 900
++  endif
++
++  call grid2deg(MyGrid,dlong1,dlat1)
++  call grid2deg(HisGrid,dlong2,dlat2)
++  call geodist(dlat1,dlong1,dlat2,dlong2,Az,Baz,Dkm)
++
++  ndkm=Dkm/100
++  j=ndkm-4
++  if(j.lt.1) j=1
++  if(j.gt.21)j=21
++  if(Dkm.lt.500.0) then
++     El=18.0
++  else
++     u=(Dkm-100.0*ndkm)/100.0
++     El=(1.0-u)*eltab(j) + u*eltab(j+1)
++  endif
++
++  daz=daztab(j) + u * (daztab(j+1)-daztab(j))
++  Dmiles=Dkm/1.609344
++
++  tmid=mod(UTChours-0.5*(dlong1+dlong2)/15.0+48.0,24.0)
++  IamEast=.false.
++  if(dlong1.lt.dlong2) IamEast=.true.
++  if(dlong1.eq.dlong2 .and. dlat1.gt.dlat2) IamEast=.false.
++  azEast=baz
++  if(IamEast) azEast=az
++  if((azEast.ge.45.0 .and. azEast.lt.135.0) .or.                    &amp;
++       (azEast.ge.225.0 .and. azEast.lt.315.0)) then
++! The path will be taken as &quot;east-west&quot;.
++     HotABetter=.true.
++     if(abs(tmid-6.0).lt.6.0) HotABetter=.false.
++     if((dlat1+dlat2)/2.0 .lt. 0.0) HotABetter=.not.HotABetter
++  else
++! The path will be taken as &quot;north-south&quot;.
++     HotABetter=.false.
++     if(abs(tmid-12.0).lt.6.0) HotABetter=.true.
++  endif
++  if(IamEast) then
++     HotA = Az - daz
++     HotB = Az + daz
++  else
++     HotA = Az + daz
++     HotB = Az - daz
++  endif
++  if(HotA.lt.0.0)   HotA=HotA+360.0
++  if(HotA.gt.360.0) HotA=HotA-360.0
++  if(HotB.lt.0.0)   HotB=HotB+360.0
++  if(HotB.gt.360.0) HotB=HotB-360.0
++
++900 continue
++  naz=nint(Az)
++  nel=nint(el)
++  nDmiles=nint(Dmiles)
++  nDkm=nint(Dkm)
++  nHotAz=nint(HotB)
++  nHotABetter=0
++  if(HotABetter) then
++     nHotAz=nint(HotA)
++     nHotABetter=1
++  endif
++
++999 return
++end subroutine azdist
+
+Added: branches/wsjtx/lib/geodist.f90
+===================================================================
+--- branches/wsjtx/lib/geodist.f90	                        (rev 0)
++++ branches/wsjtx/lib/geodist.f90	2013-03-23 15:41:31 UTC (rev 3075)
+@@ -0,0 +1,96 @@
++subroutine geodist(Eplat,Eplon,Stlat,Stlon,Az,Baz,Dist)
++  implicit none
++  real eplat, eplon, stlat, stlon, az, baz, dist
++
++! JHT: In actual fact, I use the first two arguments for &quot;My Location&quot;,
++!     the second two for &quot;His location&quot;; West longitude is positive.
++
++!      Taken directly from:
++!      Thomas, P.D., 1970, Spheroidal geodesics, reference systems,
++!      &amp; local geometry, U.S. Naval Oceanographi!Office SP-138,
++!      165 pp.
++!      assumes North Latitude and East Longitude are positive
++
++!      EpLat, EpLon = End point Lat/Long
++!      Stlat, Stlon = Start point lat/long
++!      Az, BAz = direct &amp; reverse azimuith
++!      Dist = Dist (km); Deg = central angle, discarded
++
++  real BOA, F, P1R, P2R, L1R, L2R, DLR, T1R, T2R, TM,          &amp;
++       DTM, STM, CTM, SDTM,CDTM, KL, KK, SDLMR, L,                &amp;
++       CD, DL, SD, T, U, V, D, X, E, Y, A, FF64, TDLPM,           &amp;
++       HAPBR, HAMBR, A1M2, A2M1
++
++  real AL,BL,D2R,Pi2
++
++  data AL/6378206.4/              ! Clarke 1866 ellipsoid
++  data BL/6356583.8/
++!      real pi /3.14159265359/
++  data D2R/0.01745329251994/      ! degrees to radians conversion factor
++  data Pi2/6.28318530718/
++
++  BOA = BL/AL
++  F = 1.0 - BOA
++! Convert st/end pts to radians
++  P1R = Eplat * D2R
++  P2R = Stlat * D2R
++  L1R = Eplon * D2R
++  L2R = StLon * D2R
++  DLR = L2R - L1R                 ! DLR = Delta Long in Rads
++  T1R = ATan(BOA * Tan(P1R))
++  T2R = ATan(BOA * Tan(P2R))
++  TM = (T1R + T2R) / 2.0
++  DTM = (T2R - T1R) / 2.0
++  STM = Sin(TM)
++  CTM = Cos(TM)
++  SDTM = Sin(DTM)
++  CDTM = Cos(DTM)
++  KL = STM * CDTM
++  KK = SDTM * CTM
++  SDLMR = Sin(DLR/2.0)
++  L = SDTM * SDTM + SDLMR * SDLMR * (CDTM * CDTM - STM * STM)
++  CD = 1.0 - 2.0 * L
++  DL = ACos(CD)
++  SD = Sin(DL)
++  T = DL/SD
++  U = 2.0 * KL * KL / (1.0 - L)
++  V = 2.0 * KK * KK / L
++  D = 4.0 * T * T
++  X = U + V
++  E = -2.0 * CD
++  Y = U - V
++  A = -D * E
++  FF64 = F * F / 64.0
++  Dist = AL*SD*(T -(F/4.0)*(T*X-Y)+FF64*(X*(A+(T-(A+E)                 &amp;
++       /2.0)*X)+Y*(-2.0*D+E*Y)+D*X*Y))/1000.0
++  TDLPM = Tan((DLR+(-((E*(4.0-X)+2.0*Y)*((F/2.0)*T+FF64*               &amp;
++       (32.0*T+(A-20.0*T)*X-2.0*(D+2.0)*Y))/4.0)*Tan(DLR)))/2.0)
++  HAPBR = ATan2(SDTM,(CTM*TDLPM))
++  HAMBR = Atan2(CDTM,(STM*TDLPM))
++  A1M2 = Pi2 + HAMBR - HAPBR
++  A2M1 = Pi2 - HAMBR - HAPBR
++
++1 If ((A1M2 .ge. 0.0) .AND. (A1M2 .lt. Pi2)) GOTO 5
++  If (A1M2 .lt. Pi2) GOTO 4
++  A1M2 = A1M2 - Pi2
++  GOTO 1
++4 A1M2 = A1M2 + Pi2
++  GOTO 1
++
++! All of this gens the proper az, baz (forward and back azimuth)
++
++5 If ((A2M1 .ge. 0.0) .AND. (A2M1 .lt. Pi2)) GOTO 9
++  If (A2M1 .lt. Pi2) GOTO 8
++  A2M1 = A2M1 - Pi2
++  GOTO 5
++8 A2M1 = A2M1 + Pi2
++  GOTO 5
++
++9 Az = A1M2 / D2R
++  BAZ = A2M1 / D2R
++
++!Fix the mirrored coords here.
++  
++  az = 360.0 - az
++  baz = 360.0 - baz
++end subroutine geodist
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-23 15:35:32 UTC (rev 3074)
++++ branches/wsjtx/mainwindow.cpp	2013-03-23 15:41:31 UTC (rev 3075)
+@@ -133,6 +133,7 @@
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
++  ui-&gt;labAzDist-&gt;setStyleSheet(&quot;border: 0px;&quot;);
+ 
+ #ifdef WIN32
+   while(true) {
+@@ -1702,6 +1703,19 @@
+   if(n==6) m_hisGrid=t.mid(0,2).toUpper() + t.mid(2,2) +
+       t.mid(4,2).toLower();
+   ui-&gt;dxGridEntry-&gt;setText(m_hisGrid);
++  if(gridOK(m_hisGrid)) {
++    qint64 nsec = QDateTime::currentMSecsSinceEpoch() % 86400;
++    double utch=nsec/3600.0;
++    int nAz,nEl,nDmiles,nDkm,nHotAz,nHotABetter;
++
++    azdist_(m_myGrid.toAscii().data(),m_hisGrid.toAscii().data(),&amp;utch,
++           &amp;nAz,&amp;nEl,&amp;nDmiles,&amp;nDkm,&amp;nHotAz,&amp;nHotABetter,6,6);
++    QString t;
++    t.sprintf(&quot;Az: %d       %d km&quot;,nAz,nDkm);
++    ui-&gt;labAzDist-&gt;setText(t);
++  } else {
++    ui-&gt;labAzDist-&gt;setText(&quot;&quot;);
++  }
+ }
+ 
+ void MainWindow::on_genStdMsgsPushButton_clicked()         //genStdMsgs button
+@@ -1891,6 +1905,7 @@
+ 
+ void MainWindow::showMacros(const QPoint &amp;pos)
+ {
++  if(m_macro.length()&lt;10) return;
+   QPoint globalPos = ui-&gt;tx5-&gt;mapToGlobal(pos);
+   QMenu popupMenu;
+   QAction* popup1 = new QAction(m_macro[0],ui-&gt;tx5);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-23 15:35:32 UTC (rev 3074)
++++ branches/wsjtx/mainwindow.h	2013-03-23 15:41:31 UTC (rev 3075)
+@@ -268,6 +268,10 @@
+              int* itext, int len1, int len2);
+ 
+ bool stdmsg_(const char* msg);
++
++void azdist_(char* MyGrid, char* HisGrid, double* utch, int* nAz, int* nEl,
++             int* nDmiles, int* nDkm, int* nHotAz, int* nHotABetter,
++             int len1, int len2);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-03-23 15:35:32 UTC (rev 3074)
++++ branches/wsjtx/mainwindow.ui	2013-03-23 15:41:31 UTC (rev 3075)
+@@ -7,7 +7,7 @@
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+     &lt;width&gt;643&lt;/width&gt;
+-    &lt;height&gt;536&lt;/height&gt;
++    &lt;height&gt;527&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -321,7 +321,7 @@
+             &lt;property name=&quot;maximumSize&quot;&gt;
+              &lt;size&gt;
+               &lt;width&gt;290&lt;/width&gt;
+-              &lt;height&gt;115&lt;/height&gt;
++              &lt;height&gt;135&lt;/height&gt;
+              &lt;/size&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;styleSheet&quot;&gt;
+@@ -355,7 +355,7 @@
+                &lt;x&gt;8&lt;/x&gt;
+                &lt;y&gt;14&lt;/y&gt;
+                &lt;width&gt;128&lt;/width&gt;
+-               &lt;height&gt;87&lt;/height&gt;
++               &lt;height&gt;113&lt;/height&gt;
+               &lt;/rect&gt;
+              &lt;/property&gt;
+              &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_6&quot;&gt;
+@@ -457,6 +457,22 @@
+                &lt;/layout&gt;
+               &lt;/item&gt;
+               &lt;item&gt;
++               &lt;widget class=&quot;QLabel&quot; name=&quot;labAzDist&quot;&gt;
++                &lt;property name=&quot;minimumSize&quot;&gt;
++                 &lt;size&gt;
++                  &lt;width&gt;0&lt;/width&gt;
++                  &lt;height&gt;20&lt;/height&gt;
++                 &lt;/size&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;text&quot;&gt;
++                 &lt;string/&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;alignment&quot;&gt;
++                 &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++                &lt;/property&gt;
++               &lt;/widget&gt;
++              &lt;/item&gt;
++              &lt;item&gt;
+                &lt;widget class=&quot;QPushButton&quot; name=&quot;genStdMsgsPushButton&quot;&gt;
+                 &lt;property name=&quot;maximumSize&quot;&gt;
+                  &lt;size&gt;
+@@ -478,7 +494,7 @@
+             &lt;property name=&quot;maximumSize&quot;&gt;
+              &lt;size&gt;
+               &lt;width&gt;150&lt;/width&gt;
+-              &lt;height&gt;60&lt;/height&gt;
++              &lt;height&gt;52&lt;/height&gt;
+              &lt;/size&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;font&quot;&gt;
+@@ -499,7 +515,8 @@
+              &lt;number&gt;0&lt;/number&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;text&quot;&gt;
+-             &lt;string&gt; 01:23:45 &lt;/string&gt;
++             &lt;string&gt;2013 Mar 23
++ 01:23:45 &lt;/string&gt;
+             &lt;/property&gt;
+             &lt;property name=&quot;alignment&quot;&gt;
+              &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002766.html">[WSJT-SVN] r3074 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002768.html">[WSJT-SVN] r3076 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2767">[ date ]</a>
+              <a href="thread.html#2767">[ thread ]</a>
+              <a href="subject.html#2767">[ subject ]</a>
+              <a href="author.html#2767">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

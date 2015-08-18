@@ -1,0 +1,726 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2505 - in branches/jtms3: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2505%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120712191039.C4A2F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002196.html">
+   <LINK REL="Next"  HREF="002198.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2505 - in branches/jtms3: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2505%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120712191039.C4A2F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2505 - in branches/jtms3: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jul 12 21:10:39 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002196.html">[WSJT-SVN] r2504 - in branches/jtms3: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002198.html">[WSJT-SVN] r2506 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2197">[ date ]</a>
+              <a href="thread.html#2197">[ thread ]</a>
+              <a href="subject.html#2197">[ subject ]</a>
+              <a href="author.html#2197">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-12 21:10:39 +0200 (Thu, 12 Jul 2012)
+New Revision: 2505
+
+Modified:
+   branches/jtms3/jtms3.txt
+   branches/jtms3/libm65/genjtms3.f90
+   branches/jtms3/libm65/scr258.f90
+   branches/jtms3/libm65/specjtms.f90
+   branches/jtms3/mainwindow.cpp
+   branches/jtms3/mainwindow.h
+   branches/jtms3/soundout.cpp
+Log:
+New JTMS3 definition (again).  Now using 7-bit characters, as in
+the JTMS of WSJT9.  Modulation changed to BPSK, speed increased 
+from 1378.125 to 2000 baud.
+
+
+Modified: branches/jtms3/jtms3.txt
+===================================================================
+--- branches/jtms3/jtms3.txt	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/jtms3.txt	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -3,63 +3,48 @@
+ 
+ 1. Transmitting
+ 
+-Type 1 messages are 72 user-information bits, source encoded as in
+-JT65.  Convolutional FEC (K=32, r=1/2) increases the number of bits to
+-(72+31)*2 = 206; nine bits are sent twice, extending the array to 215
+-bits.  These are interleaved by bit-reversal of index values.  Then 43
+-sync bits are inserted, spread evenly so as to fall at positions 1, 7,
+-13, ...  253.  Frame size is 258 bits: 215 information-carrying bits
+-and 43 sync bits.  Frame duration is 129 ms.
++Messages are sent character-by character, 6 bits plus even parity.
++Message length can be one of {5 7 9 11 13 17 19 23 29}; if necessary
++the message is padded with blanks to the next available length.  No
++other FEC is used.
+ 
+-Type 2 messages convey 4 user information bits (report, R+report, RRR,
+-73) encoded with a (15,4,8) block code, plus an 11-bit CRC derived
+-from MyCall + HisCall, encoded with the (16,11) extended Hamming code.
+-This makes for 31 information-carrying bits.  They are interspersed
+-with 31 sync bits, making a frame of 62 bits and frame time 31 ms.
++Modulation is BPSK at 2000 baud.  The baseband waveform is built by
++inserting a tapered sinc function for each bit, then multiplying by a
++sine wave at frequency f0 = 10000.0/7 = 1428.57 Hz.  Agt sample rate
++48000 Hz there are 24 samples per PSK symbol and 7*24=168 samples per
++character.  The carrier phase increment over one character is 
++f0*(168/48000) = 5 cycles.  
+ 
+-2. Modulation is BPSK at 2000 baud, 24 samples per symbol at 48000 Hz
+-asmple rate.  The baseband waveform is built by inserting a tapered
+-sinc function for each bit, then multiplying by a 1500 Hz sine wave.
++2. Receiving
+ 
+-3. Receiving
++  a. Pings are detected (or mouse-picked data is selected) as in
++     WSJT9.
+ 
+-  a. Compute real-to-complex windowed FFTs, N=8192 (t=170 ms),
+-     stepped by 4k (say).  Zap birdies, remove frequency components
+-     outside the range 300 - 2700 Hz, and convert to analytic
+-     time-domain signal.
++  b. Compute real-to-complex FFT.  Zap birdies, remove frequency 
++     components outside the range 300 - 2700 Hz, and convert to analytic
++     time-domain signal.  (analytic)
+ 
+-  b. Square the complex signal, cx2=cx*cx, and compute N=8k FFT of
+-     cx2 (resolution = 5.9 Hz).  Look for carrier at 3000 + 2*DF Hz
+-     +/- 2*Tol.
++  c. Square the complex signal, cx2=cx*cx, and compute FFT.  Look for
++     carrier at frequency 3000 + 2*DF +/- 2*Tol.  (msdf)
+ 
+-  c. If carrier is found, measure frequency f and phase phi.  Multiply
++  d. If carrier is found, measure frequency f and phase phi.  Multiply
+      cx by exp(-twopi*i*f*t - phi) to recover the real baseband signal
+-     x() to within a sign ambiguity.
++     x() to within a sign ambiguity.  (tweak1)
+ 
+-  d. Apply matched filter for the Tx pulse shape to x().  This is 
+-     essentially a rectangular BPF, -1000 to +1000 Hz ?
++  e. Apply matched filter for the Tx pulse shape to x().  This is
++     essentially a rectangular BPF, -1000 to +1000 Hz ?  (Or convolve
++     with the generated PSK pulse shape, the tapered sinc() function.)
+ 
+-  e. Establish PSK symbol sync (offset i0, 0 to nsps-1 samples) by finding
+-     maximum of Sum(sum*sum) over groups of nsps consecutive samples.
++  f. Establish symbol and character sync by cross-correlating with
++     conjg(cwb), where cwb is the baseband PSK waveform for the
++     &lt;space&gt; character.
+ 
+-  f. Read off the soft symbols, sym(1:512), and compute CCF with 3
+-     versions of the 43-bit sync vector (rotated by 0, 14, 29 out of
+-     its 43 positions) and three of the 31-bit sync vector (rotated by
+-     0, 10, 20 of 31).
++  g. Find message length by computing ACF (of what?  cdat?  soft
++     symbol values?)
+ 
+-  g. If the best CCF abs(peak) exceeds a specified threshold, the
+-     signal is detected and synchronized.  Sign of peak resolves the
+-     sign ambiguity.
++  h. Decode the message by cross-correlating character-length segments
++     of cdat against complex waveforms for each possible character.
+ 
+-  h. For Type 1 messages: Gather the proper set of 215
+-     information-carrying soft symbols.  Form averages using the 9
+-     extra symbols, reducing the number to 206; and remove
+-     interleaving to re-order the symbols.  Then run the fano232
+-     decoder.  If decoding fails, add soft symbols into an
+-     accumulation array and (if nsum is 2 or more) try decoding the
+-     average.
++  i. If msglen is established and long enough, try folding the data and
++     determining best-fit characters as above.
+ 
+-  i. For Type 2 messages: Gather the proper set of 31 soft symbols.
+-     Decode Nrpt using exhaustive search (find peak lag of ccf).  For
+-     the CRC, also do an exhaustive search -- and make sure that the
+-     expected value is best (or in the top few, anyway).
+
+Modified: branches/jtms3/libm65/genjtms3.f90
+===================================================================
+--- branches/jtms3/libm65/genjtms3.f90	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/libm65/genjtms3.f90	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -1,93 +1,158 @@
+-subroutine genjtms3(msg,msgsent,iwave,nwave)
+-
+-  character*22 msg,msgsent
+-  integer*1 chansym(258)
+-  integer*2 iwave(30*48000)
+-  integer dgen(13)
+-  integer*1 data0(13)                   
+-  integer*1 datsym(215)
+-  real*8 pi,twopi,f0,dt,phi,dphi
+-  real*4 p(-3095:3096)
+-  real*4 s(6192)
+-  real*4 carrier(6192)
+-  logical first
+-  integer*1 isync(43)
+-  integer indx0(9)                               !Indices of duplicated symbols
+-  data indx0 /16,38,60,82,104,126,148,170,192/
+-  data first/.true./
+-  data isync/0,1,0,0,1,0,1,0,0,1,1,1,0,1,1,1,1,1,0,0,                 &amp;
+-             0,1,0,1,1,1,0,0,0,0,0,1,0,0,0,1,1,0,1,0,                 &amp;
+-             1,1,0/                              !Hadamard-43 sync code
+-  save
+-
+-  sinc(x)=sin(pi*x)/(pi*x)
+-
+-  if(first) then
+-     pi=4.d0*atan(1.d0)
+-     twopi=2.d0*pi
+-     k=0
+-     x=0.
+-     dx=1.0/24.0
+-     do i=1,3096                             !Generate the BPSK pulse shape
+-        k=k+1
+-        if(k.gt.3096) k=k-6192
+-        x=x+dx
+-        p(k)=sinc(x) * (sinc(x/2.0))**2
+-        if(k.ne.3096) p(-k)=p(k)
+-     enddo
+-     p(0)=1.0
+-
+-     f0=193.d0*48000.d0/(258.d0*24.d0)
+-     dt=1.d0/48000.d0
+-     dphi=twopi*f0*dt
+-     phi=0.d0
+-     nmax=0.
+-     do i=1,6192                             !Generate the carrier
+-        phi=phi+dphi
+-        if(phi.gt.twopi)phi=phi-twopi
+-        xphi=phi
+-        carrier(i)=sin(xphi)
+-     enddo
+-  endif
+-
+-  call packmsg(msg,dgen)                  !Pack message into 12 six-bit symbols
+-  call entail(dgen,data0)           !Move from 6-bit to 8-bit symbols, add tail
+-  ndat=(72+31)*2
+-  call encode232(data0,ndat,datsym)       !Convolutional encoding
+-
+-  do i=1,9                              !Duplicate 9 symbols at end of datsym
+-     datsym(206+i)=datsym(indx0(i))
+-  enddo
+-
+-  call scr258(isync,datsym,1,chansym)   !Insert sync and data into chansym(258)
+-
+-  if(msg(1:1).eq.'@') chansym=0
+-
+-  s=0.
+-  do j=1,258
+-     k1=-3096-24*j
+-     if(chansym(j).eq.1) s=s + cshift(p,k1)
+-     if(chansym(j).eq.0) s=s - cshift(p,k1)
+-  enddo
+-
+-  nmax=0
+-  do i=1,6192
+-     n=30000.0*carrier(i)*s(i)
+-     nmax=max(nmax,abs(n))
+-     if(n.gt.32767) n=32767
+-     if(n.lt.-32767) n=-32767
+-     iwave(i)=n
+-  enddo
+-
+-  nblk=30*48000/6192
+-  do n=2,nblk
+-     ib=n*6192
+-     ia=ib-6191
+-     iwave(ia:ib)=iwave(1:6192)
+-  enddo
+-
+-  nwave=ib
+-  msgsent=msg
+-
+-  return
+-end subroutine genjtms3
++subroutine genjtms3(msg28,iwave,nwave)
++!subroutine genjtms3(msg28,iwave,cwave,isrch,nwave)
++
++! Generate a JTMS3 wavefile.
++
++  parameter (NMAX=30*48000)     !Max length of wave file
++  integer*2 iwave(NMAX)         !Generated wave file
++  complex cwave(NMAX)           !Alternative for searchms
++  character*28 msg28            !User message
++  character*29 msg
++  character cc*64
++  integer sentsym(203)          !Transmitted symbols (0/1)
++  real sentsam(4872)            !Transmitted waveform
++  real*8 dt,phi,f0,dphi,pi,twopi,samfac
++  real p(0:420)
++  real carrier(4872)
++  real dat(4872),bb(4872),wave(4872)
++  complex cdat(0:2436)
++  logical first
++  integer np(9)
++  data np/5,7,9,11,13,17,19,23,29/  !Permissible message lengths
++!                   1         2         3         4         5         6
++!          0123456789012345678901234567890123456789012345678901234567890123
++  data cc/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ./?-                 _     @'/
++  data samfac/1.d0/,first/.true./
++  equivalence (dat,cdat)
++  save
++
++  sinc(x)=sin(pi*x)/(pi*x)
++
++  if(first) then
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     x=0.
++     dx=1.0/24.0
++     width=3.0
++     do i=1,420                                !Generate the BPSK pulse shape
++        x=x+dx
++        fac=0.0
++        if(x/width.lt.0.5*pi) then
++           fac=(cos(x/width))**2
++           ipz=i
++        endif
++        p(i)=fac*sinc(x)
++     enddo
++     p(0)=1.0
++
++     f0=10000.d0/7.d0
++     dt=1.d0/48000.d0
++     dphi=twopi*f0*dt
++     phi=0.d0
++     do i=1,4872                             !Generate the carrier
++        phi=phi+dphi
++        if(phi.gt.twopi)phi=phi-twopi
++        xphi=phi
++        carrier(i)=sin(xphi)
++     enddo
++
++     first=.false.
++  endif
++
++  msg=msg28//' '                               !Extend to 29 characters
++  do i=28,1,-1                                 !Find user's message length
++     if(msg(i:i).ne.' ') go to 1
++  enddo
++1 iz=i+1                                       !Add one for space at EOM
++  msglen=iz
++  if(isrch.ne.0) go to 3
++  do i=1,9
++     if(np(i).ge.iz) go to 2
++  enddo
++  i=8
++2 msglen=np(i)
++
++! Convert message to a bit sequence, 7 bits per character (6 + even parity)
++3  sentsym=0
++  k=0
++  do j=1,msglen
++     if(msg(j:j).eq.' ') then
++        i=58
++        go to 5
++     else
++        do i=1,64
++           if(msg(j:j).eq.cc(i:i)) go to 5
++        enddo
++     endif
++5    m=0
++     do n=5,0,-1                            !Each character gets 6 bits
++        k=k+1
++        sentsym(k)=iand(1,ishft(i-1,-n))
++        m=m+sentsym(k)
++     enddo
++     k=k+1
++     sentsym(k)=iand(m,1)                   !Insert bit for even parity
++  enddo
++  nsym=7*msglen                             !# symbols in message
++  nsam=24*nsym                              !# samples in message
++
++  bb(1:nsam)=0.
++  do j=1,nsym
++     fac=1.0
++     if(sentsym(j).eq.0) fac=-1.0
++     k0=24*j - 23
++     do i=0,ipz
++        k=k0+i
++        if(k.gt.nsam) k=k-nsam
++        bb(k)=bb(k) + fac*p(i)
++        if(i.gt.0) then
++           k=k0-i
++           if(k.lt.1) k=k+nsam
++           bb(k)=bb(k) + fac*p(i)
++        endif
++     enddo
++  enddo
++
++  sq=0.
++  wmax=0.
++  do i=1,nsam
++     wave(i)=carrier(i)*bb(i)
++     sq=sq + wave(i)**2
++     wmax=max(wmax,abs(wave(i)))
++!     write(15,3002) i*dt,bb(i),wave(i)
++!3002 format(f12.6,2f12.3)
++  enddo
++
++  rms=sqrt(sq/nsam)
++!  print*,rms,wmax,wmax/rms
++
++  fac=32767.0/wmax
++  iwave(1:nsam)=fac*wave(1:nsam)
++
++  nwave=nsam
++
++!  nblk=30*48000/nsam
++!  do n=2,nblk
++!     i0=(n-1)*nsam
++!     iwave(i0+1:i0+nsam)=iwave(1:nsam)
++!  enddo
++!  nwave=i0+nsam
++
++! Compute the spectrum
++!  nfft=nsam
++!  df=48000.0/nfft
++!  ib=4000.0/df
++!  fac=10.0/nfft
++!  dat(1:nfft)=fac*bb(1:nfft)
++!  call four2a(dat,nfft,1,-1,0)
++!  do i=0,ib
++!     sq=real(cdat(i))**2 + aimag(cdat(i))**2
++!     write(14,3010) i*df,sq,10.0*log10(sq)
++!3010 format(3f12.3)
++!  enddo
++
++!  if(isrch.eq.0) iwave(k+1:)=0
++!  nwave=k
++
++  return
++end subroutine genjtms3
+
+Modified: branches/jtms3/libm65/scr258.f90
+===================================================================
+--- branches/jtms3/libm65/scr258.f90	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/libm65/scr258.f90	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -43,7 +43,7 @@
+   else
+      do i=1,258
+         j=indx(i)
+-!        if(j.lt.0) isync(-j)=ichan(i)
++        if(j.lt.0) isync(-j)=ichan(i)
+         if(j.gt.0) idat(j)=ichan(i)
+      enddo
+   endif
+
+Modified: branches/jtms3/libm65/specjtms.f90
+===================================================================
+--- branches/jtms3/libm65/specjtms.f90	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/libm65/specjtms.f90	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -3,16 +3,26 @@
+ ! Starting code for a JTMS3 decoder.
+ 
+   parameter (NSMAX=30*48000)
+-  parameter (NFFT=8192,NH=NFFT/2)
++  parameter (NFFT=16384,NH=NFFT/2)
++  character*22 decoded
++  character*72 c72
+   integer*2 id
+   real x(NFFT),w(NFFT)
+   real p(24)
+-  real chansym(258),softsym(341)
++  real rsent(258),softsym(683),sym2(258)
+   integer nsum(24)
+   complex cx(NFFT),cx2(NFFT),cx0(NFFT)
+   complex covx(NH)
+-  real s1a(NH),s2a(580)
++  real s1a(NH),s2a(NH)
++  integer mettab(0:255,0:1)             !Metric table
++  integer data4a(9)                     !Decoded data (8-bit byte values)
++  integer data4(12)                     !Decoded data (6-bit byte values)
++  integer*1 data1(13)
++  integer*1 isync(43)
++  integer*1 chansym1(258),datsym2(215)
+   logical first,window
++  integer*1 i1
++  equivalence (i1,i4)
+   common/mscom/id(1440000),s1(215,703),s2(215,703)
+   data first/.true./
+   save
+@@ -28,23 +38,37 @@
+      jb=nint(3400.0)/df
+      iz=3000.0/df
+      covx=0.
+-     read(10,3001) chansym
++     kstep=4096
++     read(10,3001) rsent
+ 3001 format(50f1.0)
+-     chansym=2.0*chansym - 1.0
++     do i=1,258,6
++        rsent(i)=0.
++     enddo
++     rsent=2.0*rsent - 1.0
++
++     open(11,file='bpskmetrics.dat',status='old')
++     bias=0.5
++     scale=20.0
++     do i=0,255
++        read(11,*) xjunk,x0,x1
++        mettab(i,0)=nint(scale*(x0-bias))
++        mettab(i,1)=nint(scale*(x1-bias))
++     enddo
++     close(11)
+      window=.false.
+      first=.false.
+   endif
+ 
+   ib=k
+-  ia=k-4095
+-  i0=ib-8191
++  ia=k-kstep+1
++  i0=k-nfft+1
+   sq=0.
+   do i=ia,ib
+      sq=sq + (0.001*id(i))**2
+   enddo
+   write(13,1010) t,sq,db(sq)
+ 1010 format(3f12.3)
+-  if(k.lt.8192) return
++  if(k.lt.nfft) return
+ 
+   x(1:nfft)=0.001*id(i0:ib)
+ 
+@@ -79,30 +103,19 @@
+         f0=0.5*(f-3000.0)
+         phi0=0.5*atan2(aimag(cx2(j)),real(cx2(j)))
+      endif
+-     write(15,1020) (j-1)*df,sq
++     write(15,1020) f,sq
+ 1020 format(f10.3,f12.3)
+   enddo
+ 
+-  slimit=2.0
+-!  slimit=87.5
++  slimit=2.5
+ !  if(spk0.gt.slimit) then
+-  if(abs(spk0-87.3).lt.0.1) then
++  if(abs(spk0-43.5).lt.0.1) then
+      write(*,1030) t,f0,phi0,spk0
+ 1030 format('t:',f6.2,'   f0:',f7.1,'   phi0:',f6.2,'   spk0:',f8.1)
+-     do i=1,iz
+-        write(16,1040) i*df,s1a(i),db(s1a(i))
+-1040    format(3f12.3)
+-     enddo
+-     do j=ja,jb
+-        f=(j-1)*df
+-        f0a=0.5*(f-3000.0)
+-        write(17,1050) f0a,s2a(j)
+-1050    format(2f12.3)
+-     enddo
+ 
+      phi=phi0
+-     phi=3.9
+-     dphi=2.0*pi*(f0+1500.0 -1.1)/48000.0
++     phi=3.9                                   !### test ###
++     dphi=twopi*(f0+1500.0 -1.1)/48000.0
+      p=0.
+      nsum=0
+      do i=1,nfft
+@@ -110,8 +123,8 @@
+         if(phi.gt.twopi) phi=phi-twopi        
+         cx0(i)=cx(i)*cmplx(cos(phi),-sin(phi))
+         pha=atan2(aimag(cx0(i)),real(cx0(i)))
+-        write(18,1060) i,cx0(i),pha
+-1060    format(i6,5f12.3)
++!        write(18,1060) i,cx0(i),pha
++!1060    format(i6,5f12.3)
+         j=mod(i-1,24) + 1
+ !        p(j)=p(j)+abs(cx0(i))
+         p(j)=p(j) + real(cx0(i))**2 + aimag(cx0(i))**2
+@@ -124,18 +137,20 @@
+ 1070    format(i6,f12.3)
+      enddo
+ 
+-     do i=16,nfft,24
++     do i=19,nfft,24
+         amp=abs(cx0(i))
+         pha=atan2(aimag(cx0(i)),real(cx0(i)))
+         j=(i+23)/24
+         write(21,1060) j,cx0(i),pha,pha+twopi,amp
++1060    format(i6,5f12.3)
+         softsym(j)=real(cx0(i))
+      enddo
+ 
+ !     do iter=1,5
+-     chansym=cshift(chansym,-86)
+-     do lag=0,83
+-        sum=dot_product(chansym,softsym(lag+1:lag+258))
++     rsent=cshift(rsent,86)
++     lagmax=nfft/24 - 258
++     do lag=0,lagmax
++        sum=dot_product(rsent,softsym(lag+1:lag+258))
+         if(abs(sum).gt.smax) then
+            smax=abs(sum)
+            lagpk=lag
+@@ -143,18 +158,27 @@
+         write(22,1080) lag,sum
+ 1080    format(i3,f12.3)
+      enddo
+-!     chansym=cshift(chansym,43)
++!     rsent=cshift(rsent,43)
+ !     enddo
+ 
+      do i=1,258
+-        prod=-chansym(i)*softsym(lagpk+i)
+-        write(23,1090) i,prod,chansym(i),softsym(lagpk+i)
+-1090    format(i5,3f10.3)
++        j=mod(i-1+2580,258) + 1
++        prod=rsent(j)*softsym(lagpk+i)
++        nchsym=nint(0.5*(rsent(j)+1.0))
++        write(23,1090) i,prod,rsent(j),softsym(lagpk+i),j,nchsym,lagpk+i
++1090    format(i5,3f10.3,3i5)
++        
+      enddo
+-
+-     do i=1,258,6
+-        write(24,1100) (i+5)/6,int(chansym(i)),softsym(lagpk+i)
+-1100    format(2i5,f8.1)
++     
++     sym2=softsym(lagpk+1:lagpk+258)
++     sym2=cshift(sym2,-86)
++     do i=1,258
++        i4=128 + nint(6.0*sym2(i))
++        if(i4.lt.0) i4=0
++        if(i4.gt.255) i4=255
++        chansym1(i)=i1
++        write(24,2001) i,sym2(i),i4,chansym1(i)
++2001    format(i6,f8.3,2i6)
+      enddo
+   endif
+ 
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/mainwindow.cpp	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -408,7 +408,7 @@
+     mscom_.ndiskdat=0;
+   }
+ 
+-  specjtms_(&amp;k,&amp;px);
++//  specjtms_(&amp;k,&amp;px);
+   QString t;
+   t.sprintf(&quot; Rx noise: %5.1f &quot;,px);
+   lab2-&gt;setText(t);
+@@ -1116,7 +1116,7 @@
+   static bool btxok0=false;
+   static int nc0=1;
+   static int nc1=1;
+-  static char msgsent[23];
++  static char msgsent[29];
+   static int nsendingsh=0;
+   int khsym=0;
+   double trperiod=30.0;
+@@ -1147,7 +1147,6 @@
+       if(!soundOutThread.isRunning()) {
+         soundOutThread.start(QThread::HighPriority);
+       }
+-      qDebug() &lt;&lt; &quot;PTT raised, soundOut started&quot;;
+     }
+     if(!bTxTime || m_txMute) {
+       btxok=false;
+@@ -1156,7 +1155,7 @@
+ 
+ // Calculate Tx waveform when needed
+   if((iptt==1 &amp;&amp; iptt0==0) || m_restart) {
+-    char message[23];
++    char message[29];
+     QByteArray ba;
+     if(m_ntx == 1) ba=ui-&gt;tx1-&gt;text().toLocal8Bit();
+     if(m_ntx == 2) ba=ui-&gt;tx2-&gt;text().toLocal8Bit();
+@@ -1166,9 +1165,9 @@
+     if(m_ntx == 6) ba=ui-&gt;tx6-&gt;text().toLocal8Bit();
+ 
+     ba2msg(ba,message);
+-    int len1=22;
+-    genjtms3_(message,msgsent,iwave,&amp;nwave,len1,len1);
+-    msgsent[22]=0;
++    ba2msg(ba,msgsent);
++    int len1=28;
++    genjtms3_(message,iwave,&amp;nwave,len1);
+ 
+     if(m_restart) {
+       QFile f(&quot;jtms3_tx.log&quot;);
+
+Modified: branches/jtms3/mainwindow.h
+===================================================================
+--- branches/jtms3/mainwindow.h	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/mainwindow.h	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -237,8 +237,7 @@
+ //----------------------------------------------------- C and Fortran routines
+   void specjtms_(int* k, float* px);
+ 
+-  void genjtms3_(char* message, char* msgsent, short iwave[],
+-                 int* nwave, int len1, int len2);
++  void genjtms3_(char* message, short iwave[], int* nwave, int len1);
+ 
+   void gen65_(char* msg, int* mode65, double* samfac, int* nsendingsh,
+               char* msgsent, short iwave[], int* nwave, int len1, int len2);
+
+Modified: branches/jtms3/soundout.cpp
+===================================================================
+--- branches/jtms3/soundout.cpp	2012-07-10 13:44:17 UTC (rev 2504)
++++ branches/jtms3/soundout.cpp	2012-07-12 19:10:39 UTC (rev 2505)
+@@ -83,7 +83,6 @@
+   }
+   const PaStreamInfo* p=Pa_GetStreamInfo(outStream);
+   outputLatency = p-&gt;outputLatency;
+-  qDebug() &lt;&lt; &quot;SoundOut started, latency =&quot; &lt;&lt; outputLatency;
+   bool qe = quitExecution;
+ 
+ //---------------------------------------------- Soundcard output loop
+@@ -97,7 +96,6 @@
+   }
+   Pa_StopStream(outStream);
+   Pa_CloseStream(outStream);
+-  qDebug() &lt;&lt; &quot;SoundOut terminated&quot;;
+ }
+ 
+ void SoundOutThread::setOutputDevice(int n)      //setOutputDevice()
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002196.html">[WSJT-SVN] r2504 - in branches/jtms3: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002198.html">[WSJT-SVN] r2506 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2197">[ date ]</a>
+              <a href="thread.html#2197">[ thread ]</a>
+              <a href="subject.html#2197">[ subject ]</a>
+              <a href="author.html#2197">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

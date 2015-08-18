@@ -1,0 +1,376 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3077 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3077%20-%20branches/wsjtx&In-Reply-To=%3C20130323182428.A3A3055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002768.html">
+   <LINK REL="Next"  HREF="002770.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3077 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3077%20-%20branches/wsjtx&In-Reply-To=%3C20130323182428.A3A3055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3077 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Mar 23 19:24:28 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002768.html">[WSJT-SVN] r3076 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002770.html">[WSJT-SVN] r3078 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2769">[ date ]</a>
+              <a href="thread.html#2769">[ thread ]</a>
+              <a href="subject.html#2769">[ subject ]</a>
+              <a href="author.html#2769">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-23 19:24:27 +0100 (Sat, 23 Mar 2013)
+New Revision: 3077
+
+Modified:
+   branches/wsjtx/logqso.cpp
+   branches/wsjtx/logqso.h
+   branches/wsjtx/logqso.ui
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+1. Activated &quot;Name&quot; and Comments&quot; fields on the LogQSO confirmation screen.
+2. Decoding now starts at t=50 s rather than t=52 s.
+3. Label on &quot;Auto is On/Off&quot; button changed to &quot;Enable Tx&quot;.
+4. Three new options on the Setup menu, to help importing ADIF log into some
+   fussy loggers:
+   - Log HT9 without submode
+   - Convert JT9-x to RTTY for logging
+   - Log dB reports to Comments
+
+
+
+Modified: branches/wsjtx/logqso.cpp
+===================================================================
+--- branches/wsjtx/logqso.cpp	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/logqso.cpp	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -19,10 +19,19 @@
+ void LogQSO::initLogQSO(QString hisCall, QString hisGrid, QString mode,
+                         QString rptSent, QString rptRcvd, QString date,
+                         QString qsoStart, QString qsoStop, double dialFreq,
+-                        QString myCall, QString myGrid)
++                        QString myCall, QString myGrid, bool noSuffix,
++                        bool toRTTY, bool dBtoComments)
+ {
+   ui-&gt;call-&gt;setText(hisCall);
+   ui-&gt;grid-&gt;setText(hisGrid);
++  if(dBtoComments) {
++    QString t=mode;
++    if(rptSent!=&quot;&quot;) t+=&quot;  Sent: &quot; + rptSent;
++    if(rptRcvd!=&quot;&quot;) t+=&quot;  Rcvd: &quot; + rptRcvd;
++    ui-&gt;comments-&gt;setText(t);
++  }
++  if(noSuffix and mode.mid(0,3)==&quot;JT9&quot;) mode=&quot;JT9&quot;;
++  if(toRTTY and mode.mid(0,3)==&quot;JT9&quot;) mode=&quot;RTTY&quot;;
+   ui-&gt;mode-&gt;setText(mode);
+   ui-&gt;sent-&gt;setText(rptSent);
+   ui-&gt;rcvd-&gt;setText(rptRcvd);
+@@ -71,6 +80,7 @@
+     m.exec();
+   } else {
+     QString hisCall,hisGrid,mode,rptSent,rptRcvd,date,qsoStart,band;
++    QString comments,name;
+ //    if(qsoStart==&quot;&quot;) qsoStart=qsoStop;
+ //    if(qsoStop==&quot;&quot;) qsoStop=qsoStart;
+ 
+@@ -83,6 +93,8 @@
+     date=date.mid(0,4) + date.mid(5,2) + date.mid(8,2);
+     qsoStart=ui-&gt;time-&gt;text();
+     band=ui-&gt;band-&gt;text();
++    name=ui-&gt;name-&gt;text();
++    comments=ui-&gt;comments-&gt;text();
+ 
+     QString strDialFreq(QString::number(m_dialFreq,'f',6));
+ 
+@@ -104,6 +116,10 @@
+         m_myCall;
+     t+=&quot; &lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; +
+         m_myGrid;
++    if(comments!=&quot;&quot;) t+=&quot; &lt;comment:&quot; + QString::number(comments.length()) +
++        &quot;&gt;&quot; + comments;
++    if(name!=&quot;&quot;) t+=&quot; &lt;name:&quot; + QString::number(name.length()) +
++        &quot;&gt;&quot; + name;
+     t+=&quot; &lt;eor&gt;&quot;;
+     out &lt;&lt; t &lt;&lt; endl;
+     f2.close();
+
+Modified: branches/wsjtx/logqso.h
+===================================================================
+--- branches/wsjtx/logqso.h	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/logqso.h	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -18,7 +18,8 @@
+   void initLogQSO(QString hisCall, QString hisGrid, QString mode,
+                   QString rptSent, QString rptRcvd, QString date,
+                   QString qsoStart, QString qsoStop, double dialFreq,
+-                  QString myCall, QString myGrid);
++                  QString myCall, QString myGrid, bool noSuffix,
++                  bool toRTTY, bool dBtoComments);
+ 
+   double m_dialFreq;
+   QString m_myCall;
+
+Modified: branches/wsjtx/logqso.ui
+===================================================================
+--- branches/wsjtx/logqso.ui	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/logqso.ui	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -406,7 +406,7 @@
+       &lt;item&gt;
+        &lt;widget class=&quot;QLabel&quot; name=&quot;lab9&quot;&gt;
+         &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;false&lt;/bool&gt;
++         &lt;bool&gt;true&lt;/bool&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;sizePolicy&quot;&gt;
+          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+@@ -427,7 +427,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+-         &lt;string&gt;Op Name&lt;/string&gt;
++         &lt;string&gt;Name&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;alignment&quot;&gt;
+          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
+@@ -507,7 +507,7 @@
+       &lt;item&gt;
+        &lt;widget class=&quot;QLineEdit&quot; name=&quot;name&quot;&gt;
+         &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;false&lt;/bool&gt;
++         &lt;bool&gt;true&lt;/bool&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;sizePolicy&quot;&gt;
+          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -549,7 +549,7 @@
+       &lt;item&gt;
+        &lt;widget class=&quot;QLabel&quot; name=&quot;lab10&quot;&gt;
+         &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;false&lt;/bool&gt;
++         &lt;bool&gt;true&lt;/bool&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;text&quot;&gt;
+          &lt;string&gt;Comments&lt;/string&gt;
+@@ -559,7 +559,7 @@
+       &lt;item&gt;
+        &lt;widget class=&quot;QLineEdit&quot; name=&quot;comments&quot;&gt;
+         &lt;property name=&quot;enabled&quot;&gt;
+-         &lt;bool&gt;false&lt;/bool&gt;
++         &lt;bool&gt;true&lt;/bool&gt;
+         &lt;/property&gt;
+        &lt;/widget&gt;
+       &lt;/item&gt;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/mainwindow.cpp	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -306,6 +306,9 @@
+   settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.setValue(&quot;PSKReporter&quot;,m_pskReporter);
+   settings.setValue(&quot;Macros&quot;,m_macro);
++  settings.setValue(&quot;toRTTY&quot;,m_toRTTY);
++  settings.setValue(&quot;NoSuffix&quot;,m_noSuffix);
++  settings.setValue(&quot;dBtoComments&quot;,m_dBtoComments);
+   settings.endGroup();
+ }
+ 
+@@ -370,6 +373,12 @@
+   ui-&gt;actionMonitor_OFF_at_startup-&gt;setChecked(m_monitorStartOFF);
+   m_pskReporter=settings.value(&quot;PSKReporter&quot;,false).toBool();
+   m_macro=settings.value(&quot;Macros&quot;,&quot;&quot;).toStringList();
++  m_toRTTY=settings.value(&quot;toRTTY&quot;,false).toBool();
++  ui-&gt;actionConvert_JT9_x_to_RTTY-&gt;setChecked(m_toRTTY);
++  m_noSuffix=settings.value(&quot;NoSuffix&quot;,false).toBool();
++  ui-&gt;actionLog_JT9_without_submode-&gt;setChecked(m_noSuffix);
++  m_dBtoComments=settings.value(&quot;dBtoComments&quot;,false).toBool();
++  ui-&gt;actionLog_dB_reports_to_Comments-&gt;setChecked(m_dBtoComments);
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -546,11 +555,11 @@
+   m_auto = !m_auto;
+   if(m_auto) {
+     ui-&gt;autoButton-&gt;setStyleSheet(m_pbAutoOn_style);
+-    ui-&gt;autoButton-&gt;setText(&quot;Auto is ON&quot;);
++//    ui-&gt;autoButton-&gt;setText(&quot;Auto is ON&quot;);
+   } else {
+     btxok=false;
+     ui-&gt;autoButton-&gt;setStyleSheet(&quot;&quot;);
+-    ui-&gt;autoButton-&gt;setText(&quot;Auto is OFF&quot;);
++//    ui-&gt;autoButton-&gt;setText(&quot;Auto is OFF&quot;);
+     on_monitorButton_clicked();
+   }
+ }
+@@ -1743,7 +1752,8 @@
+ 
+   LogQSO logDlg(this);
+   logDlg.initLogQSO(m_hisCall,m_hisGrid,m_mode,m_rptSent,m_rptRcvd,date,
+-                    m_qsoStart,m_qsoStop,m_dialFreq,m_myCall,m_myGrid);
++                    m_qsoStart,m_qsoStop,m_dialFreq,m_myCall,m_myGrid,
++                    m_noSuffix,m_toRTTY,m_dBtoComments);
+   if(logDlg.exec() == QDialog::Accepted) {
+   }
+   m_rptSent=&quot;&quot;;
+@@ -1758,7 +1768,7 @@
+   statusChanged();
+   m_TRperiod=60;
+   m_nsps=6912;
+-  m_hsymStop=181;
++  m_hsymStop=173;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1967,3 +1977,18 @@
+       g.mid(3,1).compare(&quot;9&quot;)&lt;=0;
+   return b;
+ }
++
++void MainWindow::on_actionConvert_JT9_x_to_RTTY_triggered(bool checked)
++{
++  m_toRTTY=checked;
++}
++
++void MainWindow::on_actionLog_JT9_without_submode_triggered(bool checked)
++{
++  m_noSuffix=checked;
++}
++
++void MainWindow::on_actionLog_dB_reports_to_Comments_triggered(bool checked)
++{
++  m_dBtoComments=checked;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/mainwindow.h	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -125,8 +125,12 @@
+   void onPopup8();
+   void onPopup9();
+   void onPopup10();
++  void on_actionConvert_JT9_x_to_RTTY_triggered(bool checked);
++  void on_actionLog_JT9_without_submode_triggered(bool checked);
+ 
+-  private:
++  void on_actionLog_dB_reports_to_Comments_triggered(bool checked);
++
++private:
+     Ui::MainWindow *ui;
+ 
+     double  m_dialFreq;
+@@ -181,6 +185,9 @@
+     bool    m_monitorStartOFF;
+     bool    m_pskReporter;
+     bool    m_pskReporterInit;
++    bool    m_noSuffix;
++    bool    m_toRTTY;
++    bool    m_dBtoComments;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-03-23 15:43:39 UTC (rev 3076)
++++ branches/wsjtx/mainwindow.ui	2013-03-23 18:24:27 UTC (rev 3077)
+@@ -206,7 +206,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;&amp;Auto is OFF&lt;/string&gt;
++           &lt;string&gt;Enable Tx&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -225,7 +225,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;St&amp;op Tx&lt;/string&gt;
++           &lt;string&gt;Halt Tx&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -1222,6 +1222,9 @@
+     &lt;addaction name=&quot;actionMonitor_OFF_at_startup&quot;/&gt;
+     &lt;addaction name=&quot;actionF4_sets_Tx6&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
++    &lt;addaction name=&quot;actionLog_JT9_without_submode&quot;/&gt;
++    &lt;addaction name=&quot;actionConvert_JT9_x_to_RTTY&quot;/&gt;
++    &lt;addaction name=&quot;actionLog_dB_reports_to_Comments&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuView&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -1684,6 +1687,30 @@
+     &lt;string&gt;Erase wsjtx_log.adi&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionLog_JT9_without_submode&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Log JT9 without submode&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionConvert_JT9_x_to_RTTY&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Convert JT9-x to RTTY for logging&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionLog_dB_reports_to_Comments&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Log dB reports to Comments&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002768.html">[WSJT-SVN] r3076 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002770.html">[WSJT-SVN] r3078 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2769">[ date ]</a>
+              <a href="thread.html#2769">[ thread ]</a>
+              <a href="subject.html#2769">[ subject ]</a>
+              <a href="author.html#2769">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

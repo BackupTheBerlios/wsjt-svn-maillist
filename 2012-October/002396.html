@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2704 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2704%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121030150227.BB8AF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002395.html">
+   <LINK REL="Next"  HREF="002397.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2704 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2704%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121030150227.BB8AF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2704 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Oct 30 16:02:27 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002395.html">[WSJT-SVN] r2703 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002397.html">[WSJT-SVN] r2705 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2396">[ date ]</a>
+              <a href="thread.html#2396">[ thread ]</a>
+              <a href="subject.html#2396">[ subject ]</a>
+              <a href="author.html#2396">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-30 16:02:27 +0100 (Tue, 30 Oct 2012)
+New Revision: 2704
+
+Modified:
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/genjt9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/wsjtx.iss
+Log:
+Fixed the &quot;Eddie's ghost&quot; problem.
+Fixed the &quot;long decode time&quot; problem.
+Leading blanks in Tx message are now ignored.
+Decodes of callsign '000AAA ' are now suppressed.
+
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/lib/decode9.f90	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -49,6 +49,7 @@
+      call unpackbits(i4DecodedBytes,nbytes,8,i1DecodedBits)
+      call packbits(i1DecodedBits,12,6,i4Decoded6BitWords)
+      call unpackmsg(i4Decoded6BitWords,msg)                !Unpack decoded msg
++     if(index(msg,'000AAA ').gt.0) msg='                      '
+   endif
+ 
+   return
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/lib/decoder.f90	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -68,10 +68,8 @@
+      if((i.eq.ipk .or. ccfred(i).ge.10.0) .and. f.gt.fgood+10.0*df8) then
+         call spec9(c0,npts8,nsps,f,fpk,xdt,i1SoftSymbols)
+         call decode9(i1SoftSymbols,msg)
+-        call pctile(ccfred(ia),ib-ia+1,50,xmed)
+-
+-        snr=10.0*log10(ccfred(i)/xmed) - 10.0*log10(2500.0/df3) + 2.0
+-        sync=ccfred(i)/xmed - 2.0
++        snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
++        sync=ccfred(i) - 2.0
+         if(sync.lt.0.0) sync=0.0
+         nsync=sync
+         if(nsync.gt.10) nsync=10
+
+Modified: branches/wsjtx/lib/genjt9.f90
+===================================================================
+--- branches/wsjtx/lib/genjt9.f90	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/lib/genjt9.f90	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -16,6 +16,11 @@
+   include 'jt9sync.f90'
+   save
+ 
++  do i=1,22
++     if(message(1:1).ne.' ') exit
++     message=message(i+1:)
++  enddo
++
+   call packmsg(message,i4Msg6BitWords)    !Pack message into 12 6-bit bytes
+   call unpackmsg(i4Msg6BitWords,msgsent)  !Unpack to get msgsent
+   call entail(i4Msg6BitWords,i1Msg8BitBytes)  !Add tail, convert to 8-bit bytes
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/lib/symspec.f90	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -64,7 +64,10 @@
+      k1=0
+      k8=0
+      x2=0.
+-     if(ndiskdat.eq.0) id2(k+1:60*ntrperiod*12000)=0
++     if(ndiskdat.eq.0) then
++        id2(k+1:)=0
++        c0=0.          !This is necessary to prevent &quot;ghosts&quot;.  Not sure why.
++     endif
+   endif
+   k0=k
+  
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/lib/sync9.f90	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -44,5 +44,8 @@
+      endif
+   enddo
+ 
++  call pctile(ccfred(ia),ib-ia+1,50,xmed)
++  ccfred=ccfred/xmed
++
+   return
+ end subroutine sync9
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-10-29 21:10:03 UTC (rev 2703)
++++ branches/wsjtx/wsjtx.iss	2012-10-30 15:02:27 UTC (rev 2704)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.1 r2695
++AppVerName=wsjtx Version 0.2 r2704
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+@@ -14,7 +14,7 @@
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Quick_Start_Guide.pdf&quot;;  DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\QtSupport\*.dll&quot;;                 DestDir: &quot;{sys}&quot;;  Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjtx_install\save\000000_0000.wav&quot;; DestDir: &quot;{app}\save&quot;;
++Source: &quot;c:\Users\joe\wsjt\wsjtx_install\000000_0000.wav&quot;;   DestDir: &quot;{app}\save&quot;;
+ 
+ [Icons]
+ Name: &quot;{group}\wsjtx&quot;;        Filename: &quot;{app}\wsjtx.exe&quot;;   WorkingDir: {app}; IconFilename: {app}\wsjt.ico
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002395.html">[WSJT-SVN] r2703 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002397.html">[WSJT-SVN] r2705 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2396">[ date ]</a>
+              <a href="thread.html#2396">[ thread ]</a>
+              <a href="subject.html#2396">[ subject ]</a>
+              <a href="author.html#2396">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

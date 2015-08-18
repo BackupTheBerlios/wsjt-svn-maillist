@@ -1,0 +1,402 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3569 - in branches/wsjtx: . logbook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3569%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130906050028.E414C55B13%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003261.html">
+   <LINK REL="Next"  HREF="003263.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3569 - in branches/wsjtx: . logbook</H1>
+    <B>vk3acf at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3569%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130906050028.E414C55B13%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3569 - in branches/wsjtx: . logbook">vk3acf at scm.berlios.de
+       </A><BR>
+    <I>Fri Sep  6 07:00:28 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003261.html">[WSJT-SVN] r3568 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003263.html">[WSJT-SVN] r3570 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3262">[ date ]</a>
+              <a href="thread.html#3262">[ thread ]</a>
+              <a href="subject.html#3262">[ subject ]</a>
+              <a href="author.html#3262">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: vk3acf
+Date: 2013-09-06 07:00:28 +0200 (Fri, 06 Sep 2013)
+New Revision: 3569
+
+Modified:
+   branches/wsjtx/logbook/adif.cpp
+   branches/wsjtx/logbook/adif.h
+   branches/wsjtx/logbook/logbook.cpp
+   branches/wsjtx/logbook/logbook.h
+   branches/wsjtx/logqso.cpp
+   branches/wsjtx/mainwindow.cpp
+Log:
+Moved code that writes to the ADIF log from logqso into logbook/adif
+
+
+
+Modified: branches/wsjtx/logbook/adif.cpp
+===================================================================
+--- branches/wsjtx/logbook/adif.cpp	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/logbook/adif.cpp	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -2,6 +2,7 @@
+ 
+ #include &lt;QFile&gt;
+ #include &lt;QTextStream&gt;
++#include &lt;QDebug&gt;
+ 
+ /*
+ &lt;CALL:4&gt;W1XT&lt;BAND:3&gt;20m&lt;FREQ:6&gt;14.076&lt;GRIDSQUARE:4&gt;DM33&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-21&lt;RST_SENT:3&gt;-14&lt;QSO_DATE:8&gt;20110422&lt;TIME_ON:4&gt;0417&lt;TIME_OFF:4&gt;0424&lt;TX_PWR:1&gt;4&lt;COMMENT:34&gt;1st JT65A QSO.   Him: mag loop 20W&lt;STATION_CALLSIGN:6&gt;VK3ACF&lt;MY_GRIDSQUARE:6&gt;qf22lb&lt;eor&gt;
+@@ -73,14 +74,15 @@
+ }
+ 
+ 
+-void ADIF::add(const QString call)
++void ADIF::add(const QString call, const QString band, const QString mode, const QString date)
+ {
+     QSO q;
+     q.call = call;
+-    q.band = &quot;&quot;;     //TODO
+-    q.mode = &quot;JT9&quot;;  //TODO
+-    q.date = &quot;&quot;;     //TODO
++    q.band = band;
++    q.mode = mode;
++    q.date = date;
+     _data.insert(q.call,q);
++    //qDebug() &lt;&lt; &quot;Added as worked:&quot; &lt;&lt; call &lt;&lt; band &lt;&lt; mode &lt;&lt; date;
+ }
+ 
+ // return true if in the log same band and mode (where JT65 == JT9)
+@@ -92,7 +94,7 @@
+         QSO q;
+         foreach(q,qsos)
+         {
+-            if (     (band.compare(q.band) == 0)
++            if (     (band.compare(q.band,Qt::CaseInsensitive) == 0)
+                   || (band==&quot;&quot;)
+                   || (q.band==&quot;&quot;))
+             {
+@@ -102,8 +104,9 @@
+                        &amp;&amp;
+                        ((q.mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (q.mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
+                      )
+-                        || (mode.compare(q.mode)==0)
++                        || (mode.compare(q.mode,Qt::CaseInsensitive)==0)
+                         || (mode==&quot;&quot;)
++                        || (q.mode==&quot;&quot;)
+                     )
+                 return true;
+             }
+@@ -129,3 +132,75 @@
+     return _data.size();
+ }   
+     
++
++// open ADIF file and append the QSO details. Return true on success
++bool ADIF::addQSOToFile(const QString hisCall, const QString hisGrid, const QString mode, const QString rptSent, const QString rptRcvd, const QString date, const QString time, const QString band,
++                        const QString comments, const QString name, const QString strDialFreq, const QString m_myCall, const QString m_myGrid, const QString m_txPower)
++{
++    QFile f2(_filename);
++    if (!f2.open(QIODevice::Text | QIODevice::Append))
++        return false;
++    else
++    {
++        QTextStream out(&amp;f2);
++        if (f2.size()==0)
++            out &lt;&lt; &quot;WSJT-X ADIF Export&lt;eoh&gt;&quot; &lt;&lt; endl;  // new file
++
++        QString t;
++        t=&quot;&lt;call:&quot; + QString::number(hisCall.length()) + &quot;&gt;&quot; + hisCall;
++        t+=&quot; &lt;gridsquare:&quot; + QString::number(hisGrid.length()) + &quot;&gt;&quot; + hisGrid;
++        t+=&quot; &lt;mode:&quot; + QString::number(mode.length()) + &quot;&gt;&quot; + mode;
++        t+=&quot; &lt;rst_sent:&quot; + QString::number(rptSent.length()) + &quot;&gt;&quot; + rptSent;
++        t+=&quot; &lt;rst_rcvd:&quot; + QString::number(rptRcvd.length()) + &quot;&gt;&quot; + rptRcvd;
++        t+=&quot; &lt;qso_date:8&gt;&quot; + date;
++        t+=&quot; &lt;time_on:4&gt;&quot; + time;
++        t+=&quot; &lt;band:&quot; + QString::number(band.length()) + &quot;&gt;&quot; + band;
++        t+=&quot; &lt;freq:&quot; + QString::number(strDialFreq.length()) + &quot;&gt;&quot; + strDialFreq;
++        t+=&quot; &lt;station_callsign:&quot; + QString::number(m_myCall.length()) + &quot;&gt;&quot; +
++                m_myCall;
++        t+=&quot; &lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; +
++                m_myGrid;
++        if(m_txPower!=&quot;&quot;) t+= &quot; &lt;tx_pwr:&quot; + QString::number(m_txPower.length()) +
++                &quot;&gt;&quot; + m_txPower;
++        if(comments!=&quot;&quot;) t+=&quot; &lt;comment:&quot; + QString::number(comments.length()) +
++                &quot;&gt;&quot; + comments;
++        if(name!=&quot;&quot;) t+=&quot; &lt;name:&quot; + QString::number(name.length()) +
++                &quot;&gt;&quot; + name;
++        t+=&quot; &lt;eor&gt;&quot;;
++        out &lt;&lt; t &lt;&lt; endl;
++        f2.close();
++    }
++    return true;
++}
++
++QString ADIF::bandFromFrequency(double dialFreq)
++{
++    QString band=&quot;&quot;;
++    if(dialFreq&gt;0.135 and dialFreq&lt;0.139) band=&quot;2200m&quot;;
++    else if(dialFreq&gt;0.45 and dialFreq&lt;0.55) band=&quot;630m&quot;;
++    else if(dialFreq&gt;1.8 and dialFreq&lt;2.0) band=&quot;160m&quot;;
++    else if(dialFreq&gt;3.5 and dialFreq&lt;4.0) band=&quot;80m&quot;;
++    else if(dialFreq&gt;5.1 and dialFreq&lt;5.45) band=&quot;60m&quot;;
++    else if(dialFreq&gt;7.0 and dialFreq&lt;7.3) band=&quot;40m&quot;;
++    else if(dialFreq&gt;10.0 and dialFreq&lt;10.15) band=&quot;30m&quot;;
++    else if(dialFreq&gt;14.0 and dialFreq&lt;14.35) band=&quot;20m&quot;;
++    else if(dialFreq&gt;18.068 and dialFreq&lt;18.168) band=&quot;17m&quot;;
++    else if(dialFreq&gt;21.0 and dialFreq&lt;21.45) band=&quot;15m&quot;;
++    else if(dialFreq&gt;24.890 and dialFreq&lt;24.990) band=&quot;12m&quot;;
++    else if(dialFreq&gt;28.0 and dialFreq&lt;29.7) band=&quot;10m&quot;;
++    else if(dialFreq&gt;50.0 and dialFreq&lt;54.0) band=&quot;6m&quot;;
++    else if(dialFreq&gt;70.0 and dialFreq&lt;71.0) band=&quot;4m&quot;;
++    else if(dialFreq&gt;144.0 and dialFreq&lt;148.0) band=&quot;2m&quot;;
++    else if(dialFreq&gt;222.0 and dialFreq&lt;225.0) band=&quot;1.25m&quot;;
++    else if(dialFreq&gt;420.0 and dialFreq&lt;450.0) band=&quot;70cm&quot;;
++    else if(dialFreq&gt;902.0 and dialFreq&lt;928.0) band=&quot;33cm&quot;;
++    else if(dialFreq&gt;1240.0 and dialFreq&lt;1300.0) band=&quot;23cm&quot;;
++    else if(dialFreq&gt;2300.0 and dialFreq&lt;2450.0) band=&quot;13cm&quot;;
++    else if(dialFreq&gt;3300.0 and dialFreq&lt;3500.0) band=&quot;9cm&quot;;
++    else if(dialFreq&gt;5650.0 and dialFreq&lt;5925.0) band=&quot;6cm&quot;;
++    else if(dialFreq&gt;10000.0 and dialFreq&lt;10500.0) band=&quot;3cm&quot;;
++    else if(dialFreq&gt;24000.0 and dialFreq&lt;24250.0) band=&quot;1.25cm&quot;;
++    else if(dialFreq&gt;47000.0 and dialFreq&lt;47200.0) band=&quot;6mm&quot;;
++    else if(dialFreq&gt;75500.0 and dialFreq&lt;81000.0) band=&quot;4mm&quot;;
++    return band;
++}
+
+Modified: branches/wsjtx/logbook/adif.h
+===================================================================
+--- branches/wsjtx/logbook/adif.h	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/logbook/adif.h	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -22,12 +22,17 @@
+ 	public:
+         void init(QString filename);
+ 		void load();
+-        void add(const QString call);
++        void add(const QString call, const QString band, const QString mode, const QString date);
+         bool match(const QString call, const QString band, const QString mode);
+         QList&lt;QString&gt; getCallList();
+ 		int getCount();
+ 		
+-		
++        // open ADIF file and append the QSO details. Return true on success
++        bool addQSOToFile(const QString hisCall, const QString hisGrid, const QString mode, const QString rptSent, const QString rptRcvd, const QString date, const QString time, const QString band,
++                                const QString comments, const QString name, const QString strDialFreq, const QString m_myCall, const QString m_myGrid, const QString m_txPower);
++
++        static QString bandFromFrequency(double dialFreq);
++
+ 	private:
+ 		struct QSO
+ 		{
+
+Modified: branches/wsjtx/logbook/logbook.cpp
+===================================================================
+--- branches/wsjtx/logbook/logbook.cpp	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/logbook/logbook.cpp	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -70,10 +70,10 @@
+     //qDebug() &lt;&lt; &quot;Logbook:&quot; &lt;&lt; call &lt;&lt; &quot;:&quot; &lt;&lt; countryName &lt;&lt; &quot;Cty B4:&quot; &lt;&lt; countryWorkedBefore &lt;&lt; &quot;call B4:&quot; &lt;&lt; callWorkedBefore;
+ }
+ 
+-void LogBook::addAsWorked(const QString call)
++void LogBook::addAsWorked(const QString call, const QString band, const QString mode, const QString date)
+ {
+     //qDebug() &lt;&lt; &quot;adding &quot; &lt;&lt; call &lt;&lt; &quot; as worked&quot;;
+-    _log.add(call);
++    _log.add(call,band,mode,date);
+     QString countryName = _countries.find(call);
+     if (countryName.length() &gt; 0)
+         _worked.setAsWorked(countryName);
+
+Modified: branches/wsjtx/logbook/logbook.h
+===================================================================
+--- branches/wsjtx/logbook/logbook.h	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/logbook/logbook.h	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -22,7 +22,7 @@
+               /*out*/ QString &amp;countryName,
+                       bool &amp;callWorkedBefore,
+                       bool &amp;countryWorkedBefore);
+-    void addAsWorked(const QString call);
++    void addAsWorked(const QString call, const QString band, const QString mode, const QString date);
+ 
+ private:
+    CountryDat _countries;
+
+Modified: branches/wsjtx/logqso.cpp
+===================================================================
+--- branches/wsjtx/logqso.cpp	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/logqso.cpp	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -1,5 +1,6 @@
+ #include &quot;logqso.h&quot;
+ #include &quot;ui_logqso.h&quot;
++#include &quot;logbook/adif.h&quot;
+ #include &lt;QString&gt;
+ #include &lt;QDebug&gt;
+ 
+@@ -70,33 +71,7 @@
+   m_dialFreq=dialFreq;
+   m_myCall=myCall;
+   m_myGrid=myGrid;
+-  QString band=&quot;&quot;;
+-  if(dialFreq&gt;0.135 and dialFreq&lt;0.139) band=&quot;2200m&quot;;
+-  if(dialFreq&gt;0.45 and dialFreq&lt;0.55) band=&quot;630m&quot;;
+-  if(dialFreq&gt;1.8 and dialFreq&lt;2.0) band=&quot;160m&quot;;
+-  if(dialFreq&gt;3.5 and dialFreq&lt;4.0) band=&quot;80m&quot;;
+-  if(dialFreq&gt;5.1 and dialFreq&lt;5.45) band=&quot;60m&quot;;
+-  if(dialFreq&gt;7.0 and dialFreq&lt;7.3) band=&quot;40m&quot;;
+-  if(dialFreq&gt;10.0 and dialFreq&lt;10.15) band=&quot;30m&quot;;
+-  if(dialFreq&gt;14.0 and dialFreq&lt;14.35) band=&quot;20m&quot;;
+-  if(dialFreq&gt;18.068 and dialFreq&lt;18.168) band=&quot;17m&quot;;
+-  if(dialFreq&gt;21.0 and dialFreq&lt;21.45) band=&quot;15m&quot;;
+-  if(dialFreq&gt;24.890 and dialFreq&lt;24.990) band=&quot;12m&quot;;
+-  if(dialFreq&gt;28.0 and dialFreq&lt;29.7) band=&quot;10m&quot;;
+-  if(dialFreq&gt;50.0 and dialFreq&lt;54.0) band=&quot;6m&quot;;
+-  if(dialFreq&gt;70.0 and dialFreq&lt;71.0) band=&quot;4m&quot;;
+-  if(dialFreq&gt;144.0 and dialFreq&lt;148.0) band=&quot;2m&quot;;
+-  if(dialFreq&gt;222.0 and dialFreq&lt;225.0) band=&quot;1.25m&quot;;
+-  if(dialFreq&gt;420.0 and dialFreq&lt;450.0) band=&quot;70cm&quot;;
+-  if(dialFreq&gt;902.0 and dialFreq&lt;928.0) band=&quot;33cm&quot;;
+-  if(dialFreq&gt;1240.0 and dialFreq&lt;1300.0) band=&quot;23cm&quot;;
+-  if(dialFreq&gt;2300.0 and dialFreq&lt;2450.0) band=&quot;13cm&quot;;
+-  if(dialFreq&gt;3300.0 and dialFreq&lt;3500.0) band=&quot;9cm&quot;;
+-  if(dialFreq&gt;5650.0 and dialFreq&lt;5925.0) band=&quot;6cm&quot;;
+-  if(dialFreq&gt;10000.0 and dialFreq&lt;10500.0) band=&quot;3cm&quot;;
+-  if(dialFreq&gt;24000.0 and dialFreq&lt;24250.0) band=&quot;1.25cm&quot;;
+-  if(dialFreq&gt;47000.0 and dialFreq&lt;47200.0) band=&quot;6mm&quot;;
+-  if(dialFreq&gt;75500.0 and dialFreq&lt;81000.0) band=&quot;4mm&quot;;
++  QString band= ADIF::bandFromFrequency(dialFreq);
+   ui-&gt;band-&gt;setText(band);
+ 
+   show ();
+@@ -122,39 +97,15 @@
+   m_comments=comments;
+   QString strDialFreq(QString::number(m_dialFreq,'f',6));
+ 
+-//Log this QSO to file &quot;wsjtx_log.adi&quot;
+-  QFile f2(&quot;wsjtx_log.adi&quot;);
+-  if(!f2.open(QIODevice::Text | QIODevice::Append)) {
+-    QMessageBox m;
+-    m.setText(&quot;Cannot open file \&quot;wsjtx_log.adi\&quot;.&quot;);
+-    m.exec();
+-  } else {
+-    QTextStream out(&amp;f2);
+-    if(f2.size()==0) out &lt;&lt; &quot;WSJT-X ADIF Export&lt;eoh&gt;&quot; &lt;&lt; endl;
+-
+-    QString t;
+-    t=&quot;&lt;call:&quot; + QString::number(hisCall.length()) + &quot;&gt;&quot; + hisCall;
+-    t+=&quot; &lt;gridsquare:&quot; + QString::number(hisGrid.length()) + &quot;&gt;&quot; + hisGrid;
+-    t+=&quot; &lt;mode:&quot; + QString::number(mode.length()) + &quot;&gt;&quot; + mode;
+-    t+=&quot; &lt;rst_sent:&quot; + QString::number(rptSent.length()) + &quot;&gt;&quot; + rptSent;
+-    t+=&quot; &lt;rst_rcvd:&quot; + QString::number(rptRcvd.length()) + &quot;&gt;&quot; + rptRcvd;
+-    t+=&quot; &lt;qso_date:8&gt;&quot; + date;
+-    t+=&quot; &lt;time_on:4&gt;&quot; + time;
+-    t+=&quot; &lt;band:&quot; + QString::number(band.length()) + &quot;&gt;&quot; + band;
+-    t+=&quot; &lt;freq:&quot; + QString::number(strDialFreq.length()) + &quot;&gt;&quot; + strDialFreq;
+-    t+=&quot; &lt;station_callsign:&quot; + QString::number(m_myCall.length()) + &quot;&gt;&quot; +
+-        m_myCall;
+-    t+=&quot; &lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; +
+-        m_myGrid;
+-    if(m_txPower!=&quot;&quot;) t+= &quot; &lt;tx_pwr:&quot; + QString::number(m_txPower.length()) +
+-        &quot;&gt;&quot; + m_txPower;
+-    if(comments!=&quot;&quot;) t+=&quot; &lt;comment:&quot; + QString::number(comments.length()) +
+-        &quot;&gt;&quot; + comments;
+-    if(name!=&quot;&quot;) t+=&quot; &lt;name:&quot; + QString::number(name.length()) +
+-        &quot;&gt;&quot; + name;
+-    t+=&quot; &lt;eor&gt;&quot;;
+-    out &lt;&lt; t &lt;&lt; endl;
+-    f2.close();
++  //Log this QSO to ADIF file &quot;wsjtx_log.adi&quot;
++  QString filename = &quot;wsjtx_log.adi&quot;;  // TODO allow user to set
++  ADIF adifile;
++  adifile.init(filename);
++  if (!adifile.addQSOToFile(hisCall,hisGrid,mode,rptSent,rptRcvd,date,time,band,comments,name,strDialFreq,m_myCall,m_myGrid,m_txPower))
++  {
++      QMessageBox m;
++      m.setText(&quot;Cannot open file \&quot;wsjtx_log.adi\&quot;.&quot;);
++      m.exec();
+   }
+ 
+ //Log this QSO to file &quot;wsjtx.log&quot;
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-09-04 18:56:34 UTC (rev 3568)
++++ branches/wsjtx/mainwindow.cpp	2013-09-06 05:00:28 UTC (rev 3569)
+@@ -2447,19 +2447,25 @@
+ 
+ void MainWindow::acceptQSO2(bool accepted)
+ {
+-  if(accepted) {
+-    m_logBook.addAsWorked(m_hisCall);
+-    if(m_clearCallGrid) {
+-      m_hisCall=&quot;&quot;;
+-      ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+-      m_hisGrid=&quot;&quot;;
+-      ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
+-      m_rptSent=&quot;&quot;;
+-      m_rptRcvd=&quot;&quot;;
+-      m_qsoStart=&quot;&quot;;
+-      m_qsoStop=&quot;&quot;;
++    if(accepted)
++    {
++        QString band = ADIF::bandFromFrequency(m_dialFreq+m_txFreq/1.0e6);
++        QString date = m_dateTimeQSO.toString(&quot;yyyy-MM-dd&quot;);
++        date=date.mid(0,4) + date.mid(5,2) + date.mid(8,2);
++        m_logBook.addAsWorked(m_hisCall,band,m_modeTx,date);
++
++        if (m_clearCallGrid)
++        {
++          m_hisCall=&quot;&quot;;
++          ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
++          m_hisGrid=&quot;&quot;;
++          ui-&gt;dxGridEntry-&gt;setText(&quot;&quot;);
++          m_rptSent=&quot;&quot;;
++          m_rptRcvd=&quot;&quot;;
++          m_qsoStart=&quot;&quot;;
++          m_qsoStop=&quot;&quot;;
++        }
+     }
+-  }
+ }
+ 
+ void MainWindow::on_actionJT9_1_triggered()
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003261.html">[WSJT-SVN] r3568 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003263.html">[WSJT-SVN] r3570 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3262">[ date ]</a>
+              <a href="thread.html#3262">[ thread ]</a>
+              <a href="subject.html#3262">[ subject ]</a>
+              <a href="author.html#3262">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

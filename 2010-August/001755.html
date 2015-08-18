@@ -1,0 +1,289 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2063 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2063%20-%20wsjt7a&In-Reply-To=%3C20100801190614.EED92480EC3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001754.html">
+   <LINK REL="Next"  HREF="001756.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2063 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2063%20-%20wsjt7a&In-Reply-To=%3C20100801190614.EED92480EC3%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2063 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug  1 21:06:14 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001754.html">[WSJT-SVN] r2062 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001756.html">[WSJT-SVN] r2064 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1755">[ date ]</a>
+              <a href="thread.html#1755">[ thread ]</a>
+              <a href="subject.html#1755">[ subject ]</a>
+              <a href="author.html#1755">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-01 21:06:14 +0200 (Sun, 01 Aug 2010)
+New Revision: 2063
+
+Modified:
+   wsjt7a/len441.f90
+   wsjt7a/new441.f90
+   wsjt7a/wsjt.py
+Log:
+Much improved search for message length for new441.
+
+
+Modified: wsjt7a/len441.f90
+===================================================================
+--- wsjt7a/len441.f90	2010-08-01 01:08:28 UTC (rev 2062)
++++ wsjt7a/len441.f90	2010-08-01 19:06:14 UTC (rev 2063)
+@@ -1,88 +1,65 @@
+-subroutine len441(r,npts,msglen)
++subroutine len441(cdat,npts,msglen,nacf)
+ 
+ ! Determine length of the user message in a JTMS ping.
+ 
+-  real r(60000)
+-  real rf(2250)
+-  integer nrf(2250)
++  complex cdat(npts)
+   real acf(2250)
+-  save acf                              !Why necessary?  (But don't remove!)
++  real acf2(2250)
++  real tmp(2250)
+ 
+   msglen=0                              !Use ACF to find msg length
+-  if(npts.ge.8*75) then
+-     r=r-sum(r(1:npts))/npts
+-     acfmax=0.
+-     acf0=dot_product(r(1:npts),r(1:npts))
+-     kz=min(npts/2,30*75)
+-     do k=8,kz
+-        fac=float(npts)/(npts-k)
+-        acf(k)=fac*dot_product(r(1:npts),r(1+k:npts+k))/acf0
++  acf=0.
++  acf2=0.
++  ja=151
++  jb=min(75*28,npts-225)
++  do j=ja,jb
++     z=0.
++     do i=1,npts-j
++        z=z + cdat(i)*conjg(cdat(i+j))
+      enddo
+-     call hipass(acf(8),kz-7,50)
++     acf(j)=abs(z)/(npts-j)
++  enddo
+ 
+-     do k=8,kz                          !Find acfmax, kpk
+-        if(acf(k).gt.acfmax) then
+-           acfmax=acf(k)
+-           kpk=k
+-        endif
+-     enddo
++!  rewind 52
++  jstep=50
++  smax=0.
++  do j=ja+jstep,jb-jstep
+ 
+-     sumsq=0.
+-     n=0
+-     do k=8,kz                          !Find rms, skipping around kpk
+-        if(abs(k-kpk).gt.10) then
+-           sumsq=sumsq+acf(k)**2
+-           n=n+1
+-        endif
+-     enddo
+-     rms=sqrt(sumsq/n)
+-     acf=acf/rms                        !Normalize the acf
++! Find local base level; update every 10 bins.
++     if(mod(j-ja-jstep,10).eq.0) then
++        call pctile(acf(j-jstep),tmp,2*jstep+1,45,base)
++     endif
++     acf2(j)=acf(j)/base - 1.0
++     if(acf2(j).gt.smax) then
++        smax=acf2(j)
++        jpk=j
++     endif
++!     write(52,5001) j,j/75.0,acf2(j)
++!5001 format(i8,2f12.3)
++  enddo
++!  call flush(52)
++  
++  np=nint(jpk/75.0)
++  chk=(jpk/75.0)/np
+ 
+-     rewind 55
+-     do k=8,kz                          !Find acfmax, kpk
+-        write(55,3001) k,k/75.0,acf(k)
+-3001    format(i8,2f12.4)
+-     enddo
+-
+-     sbest=0.
+-     npz=min(28,npts/150)
+-     do np=5,npz
+-        npp=75*np
+-        rf=0.
+-        nrf=0
+-        do i=1,npts
+-           j=mod(i-1,npp)+1
+-           rf(j)=rf(j) + r(i)
+-           nrf(j)=nrf(j)+1
++  smax2=0.
++  do m=4,2,-1
++     if(mod(np,m).eq.0) then
++        i0=nint(np*75.0/m)
++        smax2=0.
++        do i=-10,10
++           if(acf2(i0+i).gt.smax2) smax2=acf2(i0+i)
+         enddo
+-        smax=0.
+-        do j=1,npp
+-           rf(j)=rf(j)/nrf(j)
+-           if(rf(j).gt.smax) smax=rf(j)
+-        enddo
+-        if(smax.gt.sbest) then
+-           npbest=np
+-           sbest=smax
+-        endif
+-        print*,np,smax,npbest,sbest
+-     enddo
++        if(smax2/smax.gt.0.6) go to 10
++     endif
++  enddo
++  m=1
++10 msglen=np/m
++  nacf=smax-4.0
++  if(nacf.lt.0) nacf=0
++  if(nacf.gt.10) nacf=10
++  if(chk.lt.0.99 .or. chk.gt.1.01 .or. nacf.le.0) msglen=0
++!  print*,np,msglen,nacf,chk,smax,smax2
+ 
+-     call flush(55)
+-
+-     iz=min(28,kz/75)
+-     amax2=-1.e30
+-     do k=375,kz
+-        if(acf(k).lt.amax2 .and. k.ge.kpk+10) go to 100
+-        if(acf(k).gt.3.8) then  
+-           amax2=acf(k)                 !Save best value &gt;3.8 sigma
+-           kpk=k                        !Save message length
+-        endif
+-     enddo
+-  endif
+-
+-100 msglen=nint(kpk/75.0)
+-  chk=msglen*75.0/kpk
+-  if(chk.lt.0.992 .or. chk.gt.1.008) msglen=0
+-  
+   return
+ end subroutine len441
+
+Modified: wsjt7a/new441.f90
+===================================================================
+--- wsjt7a/new441.f90	2010-08-01 01:08:28 UTC (rev 2062)
++++ wsjt7a/new441.f90	2010-08-01 19:06:14 UTC (rev 2063)
+@@ -75,6 +75,8 @@
+ 
+   call analytic(dat(i0),npts,nfft1,s,cdat)    !Convert to analytic signal
+ 
++  call len441(cdat,npts,lenacf,nacf)
++
+   ia=dftolerance/df1
+   ccfmax=0.
+   do i=-ia,ia                                 !Find DF
+@@ -113,7 +115,8 @@
+         a=a + abs(cdat(j+i-1))
+         z=z + cdat(j+i-1)*cfrag(j)
+      enddo
+-     ss=abs(z)/a
++!     ss=abs(z)/a
++     ss=abs(z)
+      rr(i)=ss
+      if(ss.gt.sbest) then
+         sbest=ss
+@@ -125,8 +128,7 @@
+ 
+   if(sbest.lt.0.75) go to 800     !Skip if not decodable FSK441 data
+ 
+-  lenacf=0
+-  call len441(rr,npts-nsam,lenacf)
++!  call len441(cdat,npts,lenacf)
+ 
+ ! We know DF and DT; now demodulate and decode.
+   spec=0.
+@@ -207,7 +209,7 @@
+   ndf=nint(dfx)
+   call cs_lock('new441')
+   if(ncon.ne.0) write(*,1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
+-1008 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a40,5x,'@')
++1008 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a40,5x,'*')
+   if(nline.le.99) nline=nline+1
+   tping(nline)=t2
+   write(line(nline),1008) cfile6,t2,mswidth,npeak,nrpt,ndf,msg
+@@ -261,11 +263,12 @@
+      msg2=adjustl(msg2)
+ 
+      call cs_lock('new441')
+-     if(ncon.ne.0) write(*,1110) cfile6,tbest,mswidth,npeak,nrpt,ndf,msg2,n2
+-1110       format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,14x,i3,'*')
++     if(ncon.ne.0) write(*,1110) cfile6,tbest,mswidth,npeak,nrpt,ndf,msg2,   &amp;
++          nacf,n2
++1110       format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,10x,i4,i3,'*')
+         if(nline.le.99) nline=nline+1
+         tping(nline)=t2
+-        write(line(nline),1110) cfile6,t2,mswidth,npeak,nrpt,ndf,msg2,n2
++        write(line(nline),1110) cfile6,t2,mswidth,npeak,nrpt,ndf,msg2,nacf,n2
+      call cs_unlock
+   endif
+ 
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-01 01:08:28 UTC (rev 2062)
++++ wsjt7a/wsjt.py	2010-08-01 19:06:14 UTC (rev 2063)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001754.html">[WSJT-SVN] r2062 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001756.html">[WSJT-SVN] r2064 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1755">[ date ]</a>
+              <a href="thread.html#1755">[ thread ]</a>
+              <a href="subject.html#1755">[ subject ]</a>
+              <a href="author.html#1755">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

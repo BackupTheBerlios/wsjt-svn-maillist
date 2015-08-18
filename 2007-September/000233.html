@@ -1,0 +1,315 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r548 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r548%20-%20trunk&In-Reply-To=%3C200709251920.l8PJKsBm023767%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000232.html">
+   <LINK REL="Next"  HREF="000234.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r548 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r548%20-%20trunk&In-Reply-To=%3C200709251920.l8PJKsBm023767%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r548 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 25 21:20:54 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000232.html">[WSJT-SVN] r547 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000234.html">[WSJT-SVN] r549 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#233">[ date ]</a>
+              <a href="thread.html#233">[ thread ]</a>
+              <a href="subject.html#233">[ subject ]</a>
+              <a href="author.html#233">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-25 21:20:48 +0200 (Tue, 25 Sep 2007)
+New Revision: 548
+
+Modified:
+   trunk/decode24.f
+   trunk/gen24.f
+   trunk/sync24.f
+   trunk/wsjt.py
+   trunk/xcor24.f
+Log:
+Enabled plotting of green, red, and blue curves.  (Frequency and time
+calibrations are not yet correct, though.)
+Synchronization and decoding of JT4 modes is now enabled.
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-25 16:29:04 UTC (rev 547)
++++ trunk/decode24.f	2007-09-25 19:20:48 UTC (rev 548)
+@@ -11,7 +11,7 @@
+       character decoded*22,deepmsg*22
+       character mycall*12,hiscall*12,hisgrid*6
+       character*72 c72
+-      real*8 dt,df,phi,f0,dphi,twopi
++      real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+       complex c0,c1
+       integer*1 i1,symbol(207)
+       integer*1 data1(13)                   !Decoded data (8-bit bytes)
+@@ -22,7 +22,7 @@
+       integer fano
+       integer npr2(207)
+       logical first
+-      double complex cz
++      double complex cz,cz1
+       include 'avecom.h'
+       integer*1 sym0
+       common/tst99/ sym0(216)
+@@ -61,37 +61,79 @@
+       k=istart
+       fac=1.e-4
+       phi=0.d0
++      phi1=0.d0
+ 
+-      do j=1,nsym+1
+-         if(flip.gt.0.0) then
+-            f0=1270.46 + dfx + npr2(j)*df
+-         else
+-            f0=1270.46 + dfx + (1-npr2(j))*df
+-         endif
+-         dphi=twopi*dt*f0
+-         c1=0.
+-         phi=0.d0                          !### ??? ###  CHECK THIS ###
+-         do i=1,1260
+-            k=k+1
+-            phi=phi+dphi
+-            cz=dcmplx(cos(phi),-sin(phi))
+-            if(k.le.npts) c1=c1 + dat(k)*cz
++      if(mode.eq.6) then                   !JT2
++         do j=1,nsym+1
++            if(flip.gt.0.0) then
++               f0=1270.46 + dfx + npr2(j)*df
++            else
++               f0=1270.46 + dfx + (1-npr2(j))*df
++            endif
++            dphi=twopi*dt*f0
++            c1=0.
++            phi=0.d0                       !### ??? ###  CHECK THIS! ###
++            do i=1,1260
++               k=k+1
++               phi=phi+dphi
++               cz=dcmplx(cos(phi),-sin(phi))
++               if(k.le.npts) c1=c1 + dat(k)*cz
++            enddo
++            c1=fac*c1
++            rsym=amp*(real(c1)*real(c0) + aimag(c1)*aimag(c0))
++            c0=c1
++            r=rsym+128.
++            if(r.gt.255.0) r=255.0
++            if(r.lt.0.0) r=0.0
++            i4=nint(r)
++            if(j.ge.1) symbol(j)=i1
++            i4a=i4
++            i1=sym0(j)
++            write(41,3090) j,rsym,i4a,i4
++ 3090       format(i3,f9.1,2i6)
+          enddo
+-         c1=fac*c1
+-         rsym=amp*(real(c1)*real(c0) + aimag(c1)*aimag(c0))
+-         c0=c1
+-         r=rsym+128.
+-         if(r.gt.255.0) r=255.0
+-         if(r.lt.0.0) r=0.0
+-         i4=nint(r)
+-         if(j.ge.1) symbol(j)=i1
+-         i4a=i4
+-         i1=sym0(j)
+-         write(41,3090) j,rsym,i4a,i4
+- 3090    format(i3,f9.1,2i6)
+-      enddo
++      else                                    !JT4x 
++         do j=1,nsym+1
++            if(flip.gt.0.0) then
++               f0=1270.46 + dfx + npr2(j)*mode4*df
++               f1=1270.46 + dfx + (2+npr2(j))*mode4*df
++            else
++               f0=1270.46 + dfx + (1-npr2(j))*mode4*df
++               f1=1270.46 + dfx + (3-npr2(j))*mode4*df
++            endif
++            dphi=twopi*dt*f0
++            dphi1=twopi*dt*f1
++            c0=0.
++            c1=0.
++            phi=0.d0                       !### ??? ###  CHECK THIS! ###
++            phi1=0.d0                       !### ??? ###  CHECK THIS! ###
++            do i=1,1260
++               k=k+1
++               phi=phi+dphi
++               phi1=phi1+dphi1
++               cz=dcmplx(cos(phi),-sin(phi))
++               cz1=dcmplx(cos(phi1),-sin(phi1))
++               if(k.le.npts) then
++                  c0=c0 + dat(k)*cz
++                  c1=c1 + dat(k)*cz1
++               endif
++            enddo
++            c0=fac*c0
++            c1=fac*c1
++            rsym=amp*(real(c1)**2 + aimag(c1)**2 - 
++     +                real(c0)**2 - aimag(c0)**2)
++            r=rsym+128.
++            if(r.gt.255.0) r=255.0
++            if(r.lt.0.0) r=0.0
++            i4=nint(r)
++            if(j.ge.1) symbol(j)=i1
++            i4a=i4
++            i1=sym0(j)
++            write(41,3090) j,rsym,i4a,i4
++         enddo
++      endif
++
+       call flushqqq(41)
+-
+       nbits=72+31
+       delta=100
+       limit=100000
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-09-25 16:29:04 UTC (rev 547)
++++ trunk/gen24.f	2007-09-25 19:20:48 UTC (rev 548)
+@@ -53,7 +53,7 @@
+       j0=0
+       ndata=(nsym*11025.d0*samfac*tsymbol)/2
+       ndata=2*ndata
+-      if(mode(1:3).eq.'JT2') then
++      if(mode(1:3).eq.'JT2') then                 !JT2 mode
+          ss=1.0
+          s=0.0
+          u=0.04
+@@ -71,7 +71,7 @@
+             s=s + u*(ss-s)
+             iwave(i)=32767.0 * s * sin(phi)
+          enddo
+-      else
++      else                                        !JT4x mode
+          do i=1,ndata
+             t=t+dt
+             j=int(t/tsymbol) + 1                  !Symbol number, 1-207
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-09-25 16:29:04 UTC (rev 547)
++++ trunk/sync24.f	2007-09-25 19:20:48 UTC (rev 548)
+@@ -63,7 +63,7 @@
+ 
+       call zero(ccfred,745)
+       do i=ia,ib
+-         call xcor24(s2,i,nsteps,nsym,lag1,lag2,
++         call xcor24(s2,i,nsteps,nsym,lag1,lag2,mode,mode4,
+      +        ccfblue,ccf0,lagpk0,flip)
+          j=i-i0
+          if(j.ge.-372 .and. j.le.372) ccfred(j)=ccf0
+@@ -105,7 +105,7 @@
+       dfx=(ipk+dx-i0)*df
+ 
+ C  Peak up in time, at best whole-channel frequency
+-      call xcor24(s2,ipk,nsteps,nsym,lag1,lag2,
++      call xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode,mode4,
+      +  ccfblue,ccfmax,lagpk,flip)
+       xlag=lagpk
+       if(lagpk.gt.lag1 .and. lagpk.lt.lag2) then
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-09-25 16:29:04 UTC (rev 547)
++++ trunk/wsjt.py	2007-09-25 19:20:48 UTC (rev 548)
+@@ -1526,7 +1526,7 @@
+     if mode.get() != g.mode or first:
+         if mode.get()==&quot;FSK441&quot;:
+             msg2.configure(bg='yellow')
+-        elif mode.get()==&quot;JT65A&quot; or mode.get()==&quot;JT65B&quot; or mode.get()==&quot;JT65C&quot;:
++        elif mode.get()[:4]==&quot;JT65&quot;:
+             msg2.configure(bg='#00FFFF')
+         elif mode.get()==&quot;JT6M&quot;:
+             msg2.configure(bg='#FF00FF')
+@@ -1534,7 +1534,7 @@
+             msg2.configure(bg='#00FF00')
+         elif mode.get()==&quot;JT2&quot;:
+             msg2.configure(bg='#8888FF')
+-        elif mode.get()==&quot;JT4&quot;:
++        elif mode.get()[:3]==&quot;JT4&quot;:
+             msg2.configure(bg='#88FF88')
+ #        elif mode.get()==&quot;Echo&quot;:
+ #            msg2.configure(bg='#FF0000')
+@@ -1652,7 +1652,8 @@
+             im.putpalette(g.palette)
+             cmap0=g.cmap
+ 
+-        if mode.get()[:4]=='JT65':
++        if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
++                                     mode.get()[:3]=='JT4':
+             plot_large()
+         else:    
+             im.putdata(Audio.gcom2.b)
+
+Modified: trunk/xcor24.f
+===================================================================
+--- trunk/xcor24.f	2007-09-25 16:29:04 UTC (rev 547)
++++ trunk/xcor24.f	2007-09-25 19:20:48 UTC (rev 548)
+@@ -1,4 +1,4 @@
+-      subroutine xcor24(s2,ipk,nsteps,nsym,lag1,lag2,
++      subroutine xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode,mode4,
+      +  ccf,ccf0,lagpk,flip)
+ 
+ C  Computes ccf of a row of s2 and the pseudo-random array pr2.  Returns
+@@ -38,7 +38,15 @@
+       dtstep=0.5/df
+       fac=dtstep/(60.0*df)
+       do j=1,nsteps
+-         a(j)=s2(ipk+2,j) - s2(ipk,j)
++         if(mode.eq.6) then
++            a(j)=s2(ipk+2,j) - s2(ipk,j)             !JT2
++         else                                        !JT4
++            n=2*mode4
++!            a(j)=0.5*(s2(ipk+n,j) + s2(ipk+3*n,j) - 
++!     +                s2(ipk  ,j) - s2(ipk+2*n,j))
++            a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - 
++     +           max(s2(ipk  ,j),s2(ipk+2*n,j))
++         endif
+       enddo
+ 
+       ccfmax=0.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000232.html">[WSJT-SVN] r547 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000234.html">[WSJT-SVN] r549 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#233">[ date ]</a>
+              <a href="thread.html#233">[ thread ]</a>
+              <a href="subject.html#233">[ subject ]</a>
+              <a href="author.html#233">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

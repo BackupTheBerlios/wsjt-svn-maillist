@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3059 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3059%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130319172645.E1E2955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002750.html">
+   <LINK REL="Next"  HREF="002752.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3059 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3059%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130319172645.E1E2955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3059 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Mar 19 18:26:45 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002750.html">[WSJT-SVN] r3058 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002752.html">[WSJT-SVN] r3060 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2751">[ date ]</a>
+              <a href="thread.html#2751">[ thread ]</a>
+              <a href="subject.html#2751">[ subject ]</a>
+              <a href="author.html#2751">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-19 18:26:45 +0100 (Tue, 19 Mar 2013)
+New Revision: 3059
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/wsjtx.iss
+Log:
+Big improvement in decoding speed.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-03-19 14:47:52 UTC (rev 3058)
++++ branches/wsjtx/lib/decoder.f90	2013-03-19 17:26:45 UTC (rev 3059)
+@@ -11,6 +11,7 @@
+   character*80 fmt
+   character*20 datetime
+   real*4 ccfred(NSMAX)
++  logical ccfok(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+   integer ii(1)
+@@ -28,8 +29,15 @@
+   nsynced=0
+   ndecoded=0
+   limit=200
+-  if(ndepth.ge.2) limit=2000
+-  if(ndepth.ge.3) limit=20000
++  ccflim=20.0
++  if(ndepth.ge.2) then
++     limit=2000
++     ccflim=10.0
++  endif
++  if(ndepth.ge.3) then
++     limit=20000
++     ccflim=8.0
++  endif
+ 
+   nsps=0
+   if(ntrMinutes.eq.1) then
+@@ -62,18 +70,30 @@
+   call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  !Compute ccfred
+   call timer('sync9   ',1)
+ 
++  ccfok=.false.
++  do i=ia+9,ib-25
++     t1=ccfred(i)/max(ccfred(i-8),ccfred(i-7),ccfred(i-6))
++     t2=ccfred(i)/max(ccfred(i+23),ccfred(i+24),ccfred(i+25))
++     if(t1.ge.ccflim .and. t2.ge.ccflim) ccfok(i)=.true.
++  enddo
++
+   nRxLog=0
+   fgood=0.
+   nsps8=nsps/8
+   df8=1500.0/nsps8
+   sbest=-1.0
+   dblim=db(864.0/nsps8) - 26.2
++  i1=max(nint((nfqso-1000)/df3 - 10),ia)
++  i2=min(nint((nfqso-1000)/df3 + 10),ib)
++  ii=maxloc(ccfred(i1:i2))
++  i=ii(1) + i1 - 1
++  go to 12
+ 
+ 10 ii=maxloc(ccfred(ia:ib))
+   i=ii(1) + ia - 1
+-  f=(i-1)*df3
+-  if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. abs(f-fgood).gt.10.0*df8) then
+-
++12 f=(i-1)*df3
++  if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. abs(f-fgood).gt.10.0*df8 .and.    &amp;
++       ccfok(i)) then
+      call timer('decode9a',0)
+      fpk=1000.0 + df3*(i-1)
+      c1(1:npts8)=conjg(c0(1:npts8))
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-19 14:47:52 UTC (rev 3058)
++++ branches/wsjtx/mainwindow.cpp	2013-03-19 17:26:45 UTC (rev 3059)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2013-03-19 14:47:52 UTC (rev 3058)
++++ branches/wsjtx/wsjtx.iss	2013-03-19 17:26:45 UTC (rev 3059)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.6 r3047
++AppVerName=wsjtx Version 0.6 r3056
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002750.html">[WSJT-SVN] r3058 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002752.html">[WSJT-SVN] r3060 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2751">[ date ]</a>
+              <a href="thread.html#2751">[ thread ]</a>
+              <a href="subject.html#2751">[ subject ]</a>
+              <a href="author.html#2751">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

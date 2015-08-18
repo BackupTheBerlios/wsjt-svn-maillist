@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2642 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2642%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121003174755.E0F8B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002333.html">
+   <LINK REL="Next"  HREF="002335.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2642 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2642%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121003174755.E0F8B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2642 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct  3 19:47:55 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002333.html">[WSJT-SVN] r2641 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002335.html">[WSJT-SVN] r2643 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2334">[ date ]</a>
+              <a href="thread.html#2334">[ thread ]</a>
+              <a href="subject.html#2334">[ subject ]</a>
+              <a href="author.html#2334">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-03 19:47:55 +0200 (Wed, 03 Oct 2012)
+New Revision: 2642
+
+Added:
+   branches/wsjtx/lib/peakdf9.f90
+   branches/wsjtx/lib/peakdt9.f90
+Modified:
+   branches/wsjtx/lib/Makefile.MinGW
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Working on peakups for DF and DT.
+
+
+Modified: branches/wsjtx/lib/Makefile.MinGW
+===================================================================
+--- branches/wsjtx/lib/Makefile.MinGW	2012-10-03 16:42:48 UTC (rev 2641)
++++ branches/wsjtx/lib/Makefile.MinGW	2012-10-03 17:47:55 UTC (rev 2642)
+@@ -27,15 +27,16 @@
+ 	grid2k.o unpacktext.o getpfx2.o packmsg.o deg2grid.o \
+ 	packtext.o getpfx1.o packcall.o k2grid.o packgrid.o \
+ 	nchar.o four2a.o grid2deg.o pfxdump.o f77_wisdom.o \
+-	symspecx.o timf2x.o analytic.o db.o genjt9.o ptt.o \
++	symspec.o timf2.o analytic.o db.o genjt9.o ptt.o \
+ 	packbits.o unpackbits.o encode232.o interleave9.o \
+-	entail.o fano232.o gran.o spec9.o decode9.o
++	entail.o fano232.o gran.o spec9.o sync9.o decode9.o \
++	peakdt9.o peakdf9.o
+ 
+ libjt9.a: $(OBJS1)
+ 	ar cr libjt9.a $(OBJS1) 
+ 	ranlib libjt9.a
+ 
+-OBJS2 = jt9.o symspec.o timf2x.o sync9.o
++OBJS2 = jt9.o 
+ jt9.exe: $(OBJS2) libjt9.a
+ 	$(FC) -o jt9.exe $(OBJS2) libjt9.a ../libfftw3f_win.a 
+ 
+
+Added: branches/wsjtx/lib/peakdf9.f90
+===================================================================
+--- branches/wsjtx/lib/peakdf9.f90	                        (rev 0)
++++ branches/wsjtx/lib/peakdf9.f90	2012-10-03 17:47:55 UTC (rev 2642)
+@@ -0,0 +1,37 @@
++subroutine peakdf9(c0,npts8,nsps8,istart,foffset,xdf)
++
++  complex c0(0:npts8-1)
++  complex zsum
++  integer ii(16)                       !Locations of sync symbols
++  data ii/1,6,11,16,21,26,31,39,45,51,57,63,69,75,81,85/
++
++  twopi=8.0*atan(1.0)
++  df=1500.0/nsps8
++  smax=0.
++  do idf=-10,10
++     f0=foffset + 0.1*df*idf
++     dphi=twopi*f0/1500.0
++     sum=0.
++     do j=1,16
++        i1=(ii(j)-1)*nsps8 + istart
++        phi=0.
++        zsum=0.
++        do i=i1,i1+nsps8-1
++           if(i.lt.0) cycle
++           phi=phi + dphi
++           zsum=zsum + c0(i) * cmplx(cos(phi),-sin(phi))
++        enddo
++        sum=sum + real(zsum)**2 + aimag(zsum)**2
++     enddo
++     if(sum.gt.smax) then
++        idfpk=idf
++        fpk=f0
++        smax=sum
++     endif
++  enddo
++
++  write(*,3001) idfpk,fpk,smax
++3001 format('DF:'i5,f8.2,f12.3)
++
++  return
++end subroutine peakdf9
+
+Added: branches/wsjtx/lib/peakdt9.f90
+===================================================================
+--- branches/wsjtx/lib/peakdt9.f90	                        (rev 0)
++++ branches/wsjtx/lib/peakdt9.f90	2012-10-03 17:47:55 UTC (rev 2642)
+@@ -0,0 +1,38 @@
++subroutine peakdt9(c0,npts8,nsps8,istart,foffset,idt)
++
++  complex c0(0:npts8-1)
++  complex zsum
++  integer ii(16)                       !Locations of sync symbols
++  data ii/1,6,11,16,21,26,31,39,45,51,57,63,69,75,81,85/
++
++  twopi=8.0*atan(1.0)
++  smax=0.
++
++  f0=foffset
++  dphi=twopi*f0/1500.0
++  do idt=-10,10
++     i0=istart + 0.1*nsps8*idt
++    sum=0.
++     do j=1,16
++        i1=(ii(j)-1)*nsps8 + i0
++        phi=0.
++        zsum=0.
++        do i=i1,i1+nsps8-1
++           if(i.lt.0) cycle
++           phi=phi + dphi
++           zsum=zsum + c0(i) * cmplx(cos(phi),-sin(phi))
++        enddo
++        sum=sum + real(zsum)**2 + aimag(zsum)**2
++     enddo
++     if(sum.gt.smax) then
++        idtpk=idt
++        smax=sum
++     endif
++  enddo
++
++  tpk=idtpk/1500.0
++  write(*,3001) idtpk,tpk,smax
++3001 format('DT:'i5,f8.2,f12.3)
++
++  return
++end subroutine peakdt9
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-10-03 16:42:48 UTC (rev 2641)
++++ branches/wsjtx/lib/spec9.f90	2012-10-03 17:47:55 UTC (rev 2642)
+@@ -2,7 +2,6 @@
+ 
+   parameter (MAXFFT=31500)
+   complex c0(0:npts8-1)
+-  real s(0:MAXFFT-1)
+   real ssym(0:7,69)
+   complex c(0:MAXFFT-1)
+   integer*1 i1SoftSymbolsScrambled(207)
+@@ -21,17 +20,19 @@
+   save
+ 
+   nsps8=nsps/8
++  foffset=fpk-f0a
++  istart=1520
++  idt=0
++  xdf=0.
+ 
+-  idt=-400
+-  idf=0.
+-  fshift=fpk-f0a + 0.1*idf
++  call peakdf9(c0,npts8,nsps8,istart,foffset,xdf)
++  call peakdt9(c0,npts8,nsps8,istart,foffset,idt)
++
++  fshift=foffset + xdf
+   twopi=8.0*atan(1.0)
+   dphi=twopi*fshift/1500.0
+ 
+   nfft=nsps8
+-  s=0.
+-!  istart=lagpk*nsps8 + idt
+-  istart=1520
+   nsym=min((npts8-istart)/nsps8,85)
+ 
+   k=0
+@@ -52,7 +53,6 @@
+      do i=0,nfft-1
+         sx=real(c(i))**2 + aimag(c(i))**2
+         if(i.ge.1 .and. i.le.8) ssym(ig(i-1),k)=sx
+-        s(i)=s(i) + sx
+      enddo
+   enddo
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-03 16:42:48 UTC (rev 2641)
++++ branches/wsjtx/mainwindow.cpp	2012-10-03 17:47:55 UTC (rev 2642)
+@@ -12,7 +12,7 @@
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+ double outputLatency;                 //Latency in seconds
+-qint16 id[30*48000];
++//qint16 id[30*48000];
+ 
+ WideGraph* g_pWideGraph = NULL;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002333.html">[WSJT-SVN] r2641 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002335.html">[WSJT-SVN] r2643 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2334">[ date ]</a>
+              <a href="thread.html#2334">[ thread ]</a>
+              <a href="subject.html#2334">[ subject ]</a>
+              <a href="author.html#2334">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

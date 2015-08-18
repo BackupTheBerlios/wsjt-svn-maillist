@@ -1,0 +1,538 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3050 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3050%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130318161419.3ADE255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002741.html">
+   <LINK REL="Next"  HREF="002743.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3050 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3050%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130318161419.3ADE255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3050 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Mar 18 17:14:19 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002741.html">[WSJT-SVN] r3049 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002743.html">[WSJT-SVN] r3051 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2742">[ date ]</a>
+              <a href="thread.html#2742">[ thread ]</a>
+              <a href="subject.html#2742">[ subject ]</a>
+              <a href="author.html#2742">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-18 17:14:18 +0100 (Mon, 18 Mar 2013)
+New Revision: 3050
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9a.F90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/widegraph.cpp
+Log:
+Combining wsjtx_rx.log and wsjtx_tx.log into ALL.TXT.
+Implementing ADIF log.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/lib/decoder.f90	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -8,7 +8,7 @@
+   real ss(184,NSMAX)
+   character*22 msg
+   character*33 line
+-  character*80 fmt,fmt14
++  character*80 fmt
+   character*20 datetime
+   real*4 ccfred(NSMAX)
+   integer*1 i1SoftSymbols(207)
+@@ -36,27 +36,22 @@
+      nsps=6912
+      df3=1500.0/2048.0
+      fmt='(i4.4,i4,i5,f6.1,f8.0,i4,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.0,i4,3x,a22,i8,i3)'
+   else if(ntrMinutes.eq.2) then
+      nsps=15360
+      df3=1500.0/2048.0
+      fmt='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22,i8,i3)'
+   else if(ntrMinutes.eq.5) then
+      nsps=40960
+      df3=1500.0/6144.0
+      fmt='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22)' 
+-     fmt14='(i4.4,i4,i5,f6.1,f8.1,i4,3x,a22,i8,i3)'
+  else if(ntrMinutes.eq.10) then
+      nsps=82944
+      df3=1500.0/12288.0
+      fmt='(i4.4,i4,i5,f6.1,f8.2,i4,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.2,i4,3x,a22,i8,i3)'
+   else if(ntrMinutes.eq.30) then
+      nsps=252000
+      df3=1500.0/32768.0
+      fmt='(i4.4,i4,i5,f6.1,f8.2,i4,3x,a22)'
+-     fmt14='(i4.4,i4,i5,f6.1,f8.2,i4,3x,a22,i8,i3)'
+   endif
+   if(nsps.eq.0) stop 'Error: bad TRperiod'    !Better: return an error code###
+ 
+@@ -67,13 +62,6 @@
+   call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  !Compute ccfred
+   call timer('sync9   ',1)
+ 
+-!  open(13,file='decoded.txt',status='unknown')
+-!  rewind 13
+-  if(iand(nRxLog,2).ne.0) rewind 14
+-  if(iand(nRxLog,1).ne.0) then
+-! Write date and time to lu 14     
+-  endif
+-
+   nRxLog=0
+   fgood=0.
+   nsps8=nsps/8
+@@ -111,7 +99,6 @@
+ 
+      if(msg.ne.'                      ') then
+         write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+-        write(14,fmt14) nutc,nsync,nsnr,xdt,freq,ndrift,msg,nlim,ntrMinutes
+         fgood=f
+         nsynced=1
+         ndecoded=1
+@@ -123,7 +110,6 @@
+ 
+   if(fgood.eq.0.0) then
+      write(*,1020) line
+-     write(14,1020) line
+ 1020 format(a33)
+   endif
+ 
+@@ -132,7 +118,6 @@
+   flush(6)
+ 
+   call flush(6)
+-  call flush(14)
+ 
+   call timer('decoder ',1)
+   if(nstandalone.eq.0) call timer('decoder ',101)
+
+Modified: branches/wsjtx/lib/jt9a.F90
+===================================================================
+--- branches/wsjtx/lib/jt9a.F90	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/lib/jt9a.F90	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -18,9 +18,7 @@
+   common/tracer/limtrace,lu
+ 
+   call getcwd(cwd)
+-!  call ftninit(trim(cwd))
+   open(12,file='timer.out',status='unknown')
+-  open(14,file='wsjtx_rx.log',status='unknown',position='append')
+ 
+   limtrace=0
+   lu=12
+@@ -88,15 +86,6 @@
+   npatience=1
+ 
+   call flush(6)
+-
+-  if(iand(nrxlog,1).ne.0) then
+-     write(14,1000) datetime(:17)
+-1000 format(/'UTC Date: 'a17/78('-'))
+-     flush(14)
+-  endif
+-  if(iand(nrxlog,2).ne.0) rewind 14
+-!  if(iand(nrxlog,4).ne.0) rewind 26
+-
+   nstandalone=0
+   if(sum(nparams).ne.0) call decoder(ss,c0)
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/mainwindow.cpp	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -31,9 +31,6 @@
+ {
+   ui-&gt;setupUi(this);
+ 
+-#ifdef WIN32
+-  freopen(&quot;wsjtx.log&quot;,&quot;w&quot;,stderr);
+-#endif
+   on_EraseButton_clicked();
+   ui-&gt;labUTC-&gt;setStyleSheet( \
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+@@ -177,6 +174,8 @@
+   genStdMsgs(&quot;-30&quot;);
+   on_actionWide_Waterfall_triggered();                   //###
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
++  m_dialFreq=g_pWideGraph-&gt;dialFreq();
++
+   if(m_mode==&quot;JT9-1&quot;) on_actionJT9_1_triggered();
+   if(m_mode==&quot;JT9-2&quot;) on_actionJT9_2_triggered();
+   if(m_mode==&quot;JT9-5&quot;) on_actionJT9_5_triggered();
+@@ -1014,6 +1013,17 @@
+       m_startAnother=m_loopall;
+       return;
+     } else {
++
++      QFile f(&quot;ALL.TXT&quot;);
++      f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
++      QTextStream out(&amp;f);
++      if(m_RxLog &amp; 1) {
++        out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
++            &lt;&lt; endl;
++      }
++      out &lt;&lt; t &lt;&lt; endl;
++      f.close();
++
+       int n=t.length();
+       QString bg=&quot;white&quot;;
+       if(t.indexOf(&quot; CQ &quot;)&gt;0) bg=&quot;#66ff66&quot;;                //Light green
+@@ -1023,6 +1033,23 @@
+       ui-&gt;decodedTextBrowser-&gt;append(t);
+       QString msg=t.mid(34,22);
+       bool b=stdmsg_(msg.toAscii().constData());
++      QStringList w=msg.split(&quot; &quot;,QString::SkipEmptyParts);
++      if(b and w[1]==m_myCall) {
++        QString tt=w[2];
++        int i1;
++        bool ok;
++        i1=tt.toInt(&amp;ok);
++        if(ok and i1&gt;=-50 and i1&lt;50) {
++          m_rptRcvd=tt;
++        } else {
++          if(tt.mid(0,1)==&quot;R&quot;) {
++            i1=tt.mid(1).toInt(&amp;ok);
++            if(ok and i1&gt;=-50 and i1&lt;50) {
++              m_rptRcvd=tt.mid(1);
++            }
++          }
++        }
++      }
+       if(m_pskReporterInit and b and !m_diskData) {
+ //      if(m_pskReporterInit and b) {
+         int i1=msg.indexOf(&quot; &quot;);
+@@ -1147,7 +1174,7 @@
+     }
+   }
+ 
+-// Calculate Tx waveform when needed
++// Calculate Tx tones when needed
+   if((iptt==1 &amp;&amp; iptt0==0) || m_restart) {
+     QByteArray ba;
+     if(m_ntx == 1) ba=ui-&gt;tx1-&gt;text().toLocal8Bit();
+@@ -1164,16 +1191,36 @@
+     genjt9_(message,&amp;ichk,msgsent,itone,&amp;itext,len1,len1);
+     msgsent[22]=0;
+     lab5-&gt;setText(&quot;Last Tx:  &quot; + QString::fromAscii(msgsent));
++    QString t=QString::fromAscii(msgsent);
+     if(m_restart) {
+-      QFile f(&quot;wsjtx_tx.log&quot;);
++      QFile f(&quot;ALL.TXT&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+       QTextStream out(&amp;f);
+       out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+-          &lt;&lt; &quot;  Tx message:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
++          &lt;&lt; &quot;  Tx message:  &quot; &lt;&lt; t &lt;&lt; endl;
+       f.close();
+-
+     }
+-
++    QStringList w=t.split(&quot; &quot;,QString::SkipEmptyParts);
++    QString t2=QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;);
++    if(itext==0 and w[1]==m_myCall) {
++      t=w[2];
++      int i1;
++      bool ok;
++      i1=t.toInt(&amp;ok);
++      if(ok and i1&gt;=-50 and i1&lt;50) {
++        m_rptSent=t;
++        m_qsoStart=t2;
++      } else {
++        if(t.mid(0,1)==&quot;R&quot;) {
++          i1=t.mid(1).toInt(&amp;ok);
++          if(ok and i1&gt;=-50 and i1&lt;50) {
++            m_rptSent=t.mid(1);
++            m_qsoStart=t2;
++          }
++        }
++      }
++    }
++    if(itext==1 or w[2]==&quot;73&quot;) m_qsoStop=t2;
+     m_restart=false;
+   }
+ 
+@@ -1187,7 +1234,7 @@
+     btxok=true;
+     m_transmitting=true;
+ 
+-    QFile f(&quot;wsjtx_tx.log&quot;);
++    QFile f(&quot;ALL.TXT&quot;);
+     f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+     QTextStream out(&amp;f);
+     out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+@@ -1655,38 +1702,49 @@
+ {
+   double dialFreq=g_pWideGraph-&gt;dialFreq();
+   QDateTime t = QDateTime::currentDateTimeUtc();
+-  QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
+-      t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
+-      QString::number(dialFreq) + &quot;,&quot; + m_mode + &quot;\n&quot;;
+   QFile f(&quot;wsjtx.log&quot;);
+   if(!f.open(QFile::Append)) {
+     msgBox(&quot;Cannot open file \&quot;wsjtx.log\&quot;.&quot;);
+-    return;
++  } else {
++    QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
++        t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
++        QString::number(dialFreq) + &quot;,&quot; + m_mode + &quot;,&quot; +
++        m_rptSent + &quot;,&quot; + m_rptRcvd;   QTextStream out(&amp;f);
++//  out &lt;&lt; logEntry &lt;&lt; &quot;\r\n&quot;;
++    out &lt;&lt; logEntry &lt;&lt; endl;
++    f.close();
+   }
+-  QTextStream out(&amp;f);
+-  out &lt;&lt; logEntry &lt;&lt; &quot;\r\n&quot;;
+-  f.close();
+-}
+ 
+-void MainWindow::on_actionErase_wsjtx_rx_log_triggered()     //Erase Rx log
+-{
+-  int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
+-      &quot;Are you sure you want to erase file wsjtx_rx.log ?&quot;,
+-       QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+-  if(ret==QMessageBox::Yes) {
+-    m_RxLog |= 2;                      // Rewind wsjtx_rx.log
++  QFile f2(&quot;wsjtx_log.adi&quot;);
++  if(!f2.open(QFile::Append)) {
++    msgBox(&quot;Cannot open file \&quot;wsjtx_log.adi\&quot;.&quot;);
++  } else {
++
++    QTextStream out(&amp;f2);
++    if(f2.size()==0) out &lt;&lt; &quot;WSJT-X ADIF Export&lt;eoh&gt;&quot; &lt;&lt; endl;
++/*
++&lt;CALL:5&gt;K1ABC&lt;GRIDSQUARE:4&gt;FN42&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-15
++&lt;RST_SENT:3&gt;-17&lt;QSO_DATE:0&gt;&lt;TIME_ON:4&gt;1355&lt;TIME_OFF:4&gt;1357
++&lt;TX_PWR:1&gt;5&lt;COMMENT:3&gt;Jim&lt;STATION_CALLSIGN:4&gt;K1JT&lt;MY_GRIDSQUARE:4&gt;FN20&lt;eor&gt;
++*/
++    QString t;
++    t=&quot;&lt;call:&quot; + QString::number(m_hisCall.length()) + &quot;&gt;&quot; + m_hisCall;
++    t+=&quot;&lt;gridsquare:&quot; + QString::number(m_hisGrid.length()) + &quot;&gt;&quot; + m_hisGrid;
++    t+=&quot;&lt;mode:&quot; + QString::number(m_mode.length()) + &quot;&gt;&quot; + m_mode;
++    t+=&quot;&lt;rst_sent:&quot; + QString::number(m_rptSent.length()) + &quot;&gt;&quot; + m_rptSent;
++    t+=&quot;&lt;rst_rcvd:&quot; + QString::number(m_rptRcvd.length()) + &quot;&gt;&quot; + m_rptRcvd;
++    t+=&quot;&lt;qso_date:0&gt;&quot;;
++    t+=&quot;&lt;time_on:4&gt;&quot; + m_qsoStart;
++    t+=&quot;&lt;time_off:4&gt;&quot; + m_qsoStop;
++    t+=&quot;&lt;station_callsign:&quot; + QString::number(m_myCall.length()) + &quot;&gt;&quot; + m_myCall;
++    t+=&quot;&lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; + m_myGrid;
++//        t.date.toString(&quot;yyyymmdd&quot;);
++    out &lt;&lt; t &lt;&lt; endl;
++    f2.close();
+   }
+-}
+ 
+-void MainWindow::on_actionErase_wsjtx_tx_log_triggered()     //Erase Tx log
+-{
+-  int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
+-      &quot;Are you sure you want to erase file wsjtx_tx.log ?&quot;,
+-       QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+-  if(ret==QMessageBox::Yes) {
+-    QFile f(&quot;wsjtx_tx.log&quot;);
+-    f.remove();
+-  }
++  m_rptSent=&quot;&quot;;
++  m_rptRcvd=&quot;&quot;;
+ }
+ 
+ void MainWindow::on_actionJT9_1_triggered()
+@@ -1816,3 +1874,25 @@
+ {
+   m_monitorStartOFF=!m_monitorStartOFF;
+ }
++
++void MainWindow::on_actionErase_ALL_TXT_triggered()          //Erase ALL.TXT
++{
++  int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
++      &quot;Are you sure you want to erase file ALL.TXT ?&quot;,
++       QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
++  if(ret==QMessageBox::Yes) {
++    QFile f(&quot;ALL.TXT&quot;);
++    f.remove();
++  }
++}
++
++void MainWindow::on_actionErase_wsjtx_log_adi_triggered()
++{
++  int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
++      &quot;Are you sure you want to erase file wsjtx_log.adi ?&quot;,
++       QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
++  if(ret==QMessageBox::Yes) {
++    QFile f(&quot;wsjtx_log.adi&quot;);
++    f.remove();
++  }
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/mainwindow.h	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -88,8 +88,6 @@
+   void on_dxGridEntry_textChanged(const QString &amp;arg1);
+   void on_genStdMsgsPushButton_clicked();
+   void on_logQSOButton_clicked();
+-  void on_actionErase_wsjtx_rx_log_triggered();
+-  void on_actionErase_wsjtx_tx_log_triggered();
+   void on_actionAFMHot_triggered();
+   void on_actionBlue_triggered();
+   void on_actionJT9_2_triggered();
+@@ -111,6 +109,10 @@
+   void on_actionMonitor_OFF_at_startup_triggered();
+   void dialFreqChanged2(double f);
+ 
++  void on_actionErase_ALL_TXT_triggered();
++
++  void on_actionErase_wsjtx_log_adi_triggered();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -206,6 +208,10 @@
+     QString m_dateTime;
+     QString m_mode;
+     QString m_fname;
++    QString m_rptSent;
++    QString m_rptRcvd;
++    QString m_qsoStart;
++    QString m_qsoStop;
+ 
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/mainwindow.ui	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -1191,8 +1191,8 @@
+     &lt;addaction name=&quot;actionDecode_remaining_files_in_directory&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;actionDelete_all_wav_files_in_SaveDir&quot;/&gt;
+-    &lt;addaction name=&quot;actionErase_wsjtx_rx_log&quot;/&gt;
+-    &lt;addaction name=&quot;actionErase_wsjtx_tx_log&quot;/&gt;
++    &lt;addaction name=&quot;actionErase_ALL_TXT&quot;/&gt;
++    &lt;addaction name=&quot;actionErase_wsjtx_log_adi&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;actionExit&quot;/&gt;
+    &lt;/widget&gt;
+@@ -1352,11 +1352,6 @@
+     &lt;string&gt;Erase Band Map and Messages&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+-  &lt;action name=&quot;actionErase_wsjtx_rx_log&quot;&gt;
+-   &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Erase wsjtx_rx.log&lt;/string&gt;
+-   &lt;/property&gt;
+-  &lt;/action&gt;
+   &lt;action name=&quot;actionLinrad&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+@@ -1504,11 +1499,6 @@
+     &lt;string&gt;Available suffixes and add-on-prefixes&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+-  &lt;action name=&quot;actionErase_wsjtx_tx_log&quot;&gt;
+-   &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Erase wsjtx_tx.log&lt;/string&gt;
+-   &lt;/property&gt;
+-  &lt;/action&gt;
+   &lt;action name=&quot;actionJT65A&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+@@ -1667,6 +1657,16 @@
+     &lt;string&gt;Monitor OFF at startup&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionErase_ALL_TXT&quot;&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Erase ALL.TXT&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionErase_wsjtx_log_adi&quot;&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Erase wsjtx_log.adi&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-03-18 13:24:50 UTC (rev 3049)
++++ branches/wsjtx/widegraph.cpp	2013-03-18 16:14:18 UTC (rev 3050)
+@@ -52,18 +52,7 @@
+   m_qsoFreq=settings.value(&quot;QSOfreq&quot;,1010).toInt();
+   ui-&gt;widePlot-&gt;setFQSO(m_qsoFreq,true);
+   settings.endGroup();
+-
+-// Change the following to a slot in mainwindow; emit a corresponding
+-// signal here, instead.
+-  QFile f(&quot;wsjtx_qrg.txt&quot;);
+-  if(f.open(QFile::WriteOnly)) {
+-    QTextStream out(&amp;f);
+-    out &lt;&lt; m_dialFreq &lt;&lt; &quot;\r\n&quot;;
+-    f.close();
+-  } else {
+-//    msgBox(&quot;Cannot open file \&quot;wsjtx_qrg.txt\&quot;.&quot;);
+-    qDebug() &lt;&lt; &quot;Cannot open file \&quot;wsjtx_qrg.txt\&quot;.&quot;;
+-  }
++  emit dialFreqChanged(m_dialFreq);
+ }
+ 
+ WideGraph::~WideGraph()
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002741.html">[WSJT-SVN] r3049 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002743.html">[WSJT-SVN] r3051 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2742">[ date ]</a>
+              <a href="thread.html#2742">[ thread ]</a>
+              <a href="subject.html#2742">[ subject ]</a>
+              <a href="author.html#2742">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

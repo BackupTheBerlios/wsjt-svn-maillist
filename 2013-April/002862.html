@@ -1,0 +1,328 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3170 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3170%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415002828.0E27855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002861.html">
+   <LINK REL="Next"  HREF="002863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3170 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3170%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415002828.0E27855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3170 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Apr 15 02:28:27 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002861.html">[WSJT-SVN] r3169 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002863.html">[WSJT-SVN] r3171 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2862">[ date ]</a>
+              <a href="thread.html#2862">[ thread ]</a>
+              <a href="subject.html#2862">[ subject ]</a>
+              <a href="author.html#2862">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-15 02:28:27 +0200 (Mon, 15 Apr 2013)
+New Revision: 3170
+
+Added:
+   branches/wsjtx/lib/libhamlib.dll.a
+   branches/wsjtx/lib/rig_control.c
+   branches/wsjtx/lib/tstrig.c
+   branches/wsjtx/lib/tstrig.h
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Starting to implement direct calls to hamlib functions, rather than 
+using rigctl in a separate process.
+
+
+Added: branches/wsjtx/lib/libhamlib.dll.a
+===================================================================
+(Binary files differ)
+
+
+Property changes on: branches/wsjtx/lib/libhamlib.dll.a
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Added: branches/wsjtx/lib/rig_control.c
+===================================================================
+--- branches/wsjtx/lib/rig_control.c	                        (rev 0)
++++ branches/wsjtx/lib/rig_control.c	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -0,0 +1,98 @@
++#include &quot;config.h&quot;
++#include &lt;stdio.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &quot;tstrig.h&quot;
++
++RIG *my_rig;                                       // handle to rig
++
++int set_conf(RIG *my_rig, char *conf_parms);
++
++//------------------------------------------------------------------------
++int set_conf(RIG *my_rig, char *conf_parms)
++{
++  char *p, *q, *n;
++  int ret;
++
++  p = conf_parms;
++  while (p &amp;&amp; *p != '\0') {
++    /* FIXME: left hand value of = cannot be null */
++    q = strchr(p, '=');
++    if ( !q )
++      return -RIG_EINVAL;
++    *q++ = '\0';
++    n = strchr(q, ',');
++    if (n) *n++ = '\0';
++
++    printf(&quot;%s   %s\n&quot;,p,q);
++
++    ret = rig_set_conf(my_rig, rig_token_lookup(my_rig, p), q);
++    if (ret != RIG_OK)
++      return ret;
++    p = n;
++  }
++  return RIG_OK;
++}
++
++//------------------------------------------------------------------------
++int rigOpen(rig_model_t my_model, int verbose)
++{
++  int retcode;		/* generic return code from functions */
++  char *civaddr = NULL;	/* NULL means no need to set conf */
++  const char *rig_file;
++  const char *conf_parms2;
++  int serial_rate;
++
++  rig_set_debug(verbose);
++  my_rig=rig_init(my_model);
++  
++  if (!my_rig) {
++    fprintf(stderr, &quot;Unknown rig num %d, or initialization error.\n&quot;,my_model);
++    exit(2);
++  }
++  rig_file=&quot;COM1&quot;;
++  serial_rate=4800;
++  conf_parms2=&quot;data_bits=8,stop_bits=2,serial_handshake=Hardware&quot;;
++
++  retcode=set_conf(my_rig, conf_parms2);
++  if (retcode!=RIG_OK) {
++    fprintf(stderr, &quot;Config parameter error: %s\n&quot;, rigerror(retcode));
++    exit(2);
++  }
++
++  if (rig_file)
++    strncpy(my_rig-&gt;state.rigport.pathname, rig_file, FILPATHLEN - 1);
++
++  if (serial_rate!=0)
++    my_rig-&gt;state.rigport.parm.serial.rate = serial_rate;
++
++  if (civaddr)
++    rig_set_conf(my_rig, rig_token_lookup(my_rig, &quot;civaddr&quot;), civaddr);
++
++  retcode = rig_open(my_rig);
++  return 0;
++}
++
++int rigSetFreq(int fHz)
++{
++  return rig_set_freq(my_rig,RIG_VFO_CURR,fHz);
++}
++
++int rigFreq()
++{
++  int iret=0;
++  freq_t freq;
++  iret=rig_get_freq(my_rig, RIG_VFO_CURR, &amp;freq);
++  if (iret == RIG_OK ) {
++    printf(&quot;rig_get_freq: freq = %&quot;PRIfreq&quot;\n&quot;, freq);
++  } else {
++    printf(&quot;rig_get_freq: error =  %s \n&quot;, rigerror(iret));
++  }
++  return freq;
++}
++
++void rigClose()
++{
++  rig_close(my_rig);
++  rig_cleanup(my_rig);
++}
+
+Added: branches/wsjtx/lib/tstrig.c
+===================================================================
+--- branches/wsjtx/lib/tstrig.c	                        (rev 0)
++++ branches/wsjtx/lib/tstrig.c	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -0,0 +1,26 @@
++#include &quot;config.h&quot;
++#include &lt;stdio.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &quot;tstrig.h&quot;
++
++int set_conf(RIG *my_rig, char *conf_parms);
++
++int rig_control(rig_model_t my_model, int verbose);
++
++int main (int argc, char *argv[])
++{
++  rig_model_t my_model = RIG_MODEL_DUMMY;
++  int verbose=0;
++
++  my_model=214;
++  rig_control(my_model,verbose);
++  return 0;
++}
++
++/*
++gcc -c -Wall -I../include rig_control.c
++gcc -c -Wall -I../include tstrig.c
++gcc -o tstrig.exe -Wl,--enable-auto-import tstrig.o rig_control.o libhamlib.dll.a
++strip tstrig.exe
++*/
+
+Added: branches/wsjtx/lib/tstrig.h
+===================================================================
+--- branches/wsjtx/lib/tstrig.h	                        (rev 0)
++++ branches/wsjtx/lib/tstrig.h	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -0,0 +1,50 @@
++/*
++ * rigctl_parse.h - (C) Stephane Fillod 2000-2010
++ *
++ * This program test/control a radio using Hamlib.
++ * It takes commands in interactive mode as well as
++ * from command line options.
++ *
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License along
++ *   with this program; if not, write to the Free Software Foundation, Inc.,
++ *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ *
++ */
++
++#ifndef RIGCTL_PARSE_H
++#define RIGCTL_PARSE_H
++
++#include &lt;stdio.h&gt;
++#include &lt;hamlib/rig.h&gt;
++
++/*
++ * external prototype
++ */
++
++int dumpcaps (RIG *, FILE *);
++int dumpconf (RIG *, FILE *);
++
++/*
++ * Prototypes
++ */
++void usage_rig(FILE *);
++void version();
++void list_models();
++int dump_chan(FILE *, RIG*, channel_t*);
++int print_conf_list(const struct confparams *cfp, rig_ptr_t data);
++int set_conf(RIG *my_rig, char *conf_parms);
++
++int rigctl_parse(RIG *my_rig, FILE *fin, FILE *fout, char *argv[], int argc);
++
++#endif	/* RIGCTL_PARSE_H */
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-14 15:09:35 UTC (rev 3169)
++++ branches/wsjtx/mainwindow.cpp	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -2552,4 +2552,9 @@
+     ui-&gt;tuneButton-&gt;setStyleSheet(&quot;&quot;);
+     on_monitorButton_clicked();
+   }
++  /*
++  rigOpen(214,0);
++  rigSetFreq(10138700);
++  qDebug() &lt;&lt; &quot;Freq:&quot; &lt;&lt; rigFreq();
++  */
+ }
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-14 15:09:35 UTC (rev 3169)
++++ branches/wsjtx/mainwindow.h	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -362,6 +362,13 @@
+              int len1, int len2);
+ 
+ void morse_(char* msg, int* icw, int* ncw, int len);
++
++//void rig_control(int nrig, int verbose);
++
++void rigOpen(int nrig, int verbose);
++void rigSetFreq(int fHz);
++int rigFreq();
++
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-04-14 15:09:35 UTC (rev 3169)
++++ branches/wsjtx/wsjtx.pro	2013-04-15 00:28:27 UTC (rev 3170)
+@@ -66,6 +66,7 @@
+ win32 {
+ INCLUDEPATH += c:/qwt-6.0.1/include
+ LIBS += ../wsjtx/lib/libjt9.a
++LIBS += ../wsjtx/lib/libhamlib.dll.a
+ LIBS += ../wsjtx/libfftw3f_win.a
+ LIBS += ../wsjtx/libpskreporter.a
+ LIBS += ../QtSupport/palir-02.dll
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002861.html">[WSJT-SVN] r3169 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002863.html">[WSJT-SVN] r3171 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2862">[ date ]</a>
+              <a href="thread.html#2862">[ thread ]</a>
+              <a href="subject.html#2862">[ subject ]</a>
+              <a href="author.html#2862">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

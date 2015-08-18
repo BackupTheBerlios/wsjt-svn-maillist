@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3143 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3143%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130409205954.55CBE55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002834.html">
+   <LINK REL="Next"  HREF="002837.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3143 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3143%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130409205954.55CBE55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3143 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr  9 22:59:54 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002834.html">[WSJT-SVN] r3142 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002837.html">[WSJT-SVN] r3144 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2835">[ date ]</a>
+              <a href="thread.html#2835">[ thread ]</a>
+              <a href="subject.html#2835">[ subject ]</a>
+              <a href="author.html#2835">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-09 22:59:53 +0200 (Tue, 09 Apr 2013)
+New Revision: 3143
+
+Modified:
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/soundout.cpp
+Log:
+1. Fix end-of-transmission logic so that CW ID works again.
+2. Much better logic for choosing frequencies at which to attempt decodes.
+
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2013-04-09 17:52:44 UTC (rev 3142)
++++ branches/wsjtx/lib/decode9.f90	2013-04-09 20:59:53 UTC (rev 3143)
+@@ -71,7 +71,7 @@
+   call fano232(i1SoftSymbols,nbits+31,mettab,ndelta,limit,i1DecodedBytes,   &amp;
+        ncycles,metric,ierr)
+ 
+-  nlim=ncycles/nbits
++  nlim=ncycles/(nbits+31)
+   if(ncycles.lt.(nbits*limit)) then
+      nbytes=(nbits+7)/8
+      do i=1,nbytes
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-09 17:52:44 UTC (rev 3142)
++++ branches/wsjtx/lib/decoder.f90	2013-04-09 20:59:53 UTC (rev 3143)
+@@ -59,7 +59,6 @@
+   idf=ntol/df3 + 0.999
+ 
+   do nqd=1,0,-1
+-
+      limit=5000
+      ccflim=4.0
+      if(ndepth.ge.2) then
+@@ -110,7 +109,8 @@
+ 
+      do i=ia,ib
+         f=(i-1)*df3
+-        if(.not.ccfok(i)) cycle
++        if(.not.ccfok(i) .or. ccfred(i).lt.ccflim-1.0 .or.                &amp;
++             ccfred(i).lt.ccfred(i+1)) cycle
+         if(nqd.eq.1 .or.                                                  &amp;
+            (ccfred(i).ge.3.0 .and. abs(f-fgood).gt.10.0*df8)) then
+            call timer('decode9a',0)
+@@ -122,6 +122,8 @@
+ 
+            call timer('decode9 ',0)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
++!           write(69,3300) nqd,i,f+1000.0,ccflim,ccfred(i),limit,nlim,msg(1:18)
++!3300       format(i1,i6,f10.3,2f8.1,2i9,2x,a18)
+            call timer('decode9 ',1)
+  
+            sync=(syncpk+1)/4.0
+@@ -149,6 +151,7 @@
+ 1010 format('&lt;DecodeFinished&gt;',2i4)
+   call flush(6)
+   close(13)
++!  call flush(69)
+ 
+   call timer('decoder ',1)
+   if(nstandalone.eq.0) call timer('decoder ',101)
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-09 17:52:44 UTC (rev 3142)
++++ branches/wsjtx/mainwindow.cpp	2013-04-09 20:59:53 UTC (rev 3143)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-04-09 17:52:44 UTC (rev 3142)
++++ branches/wsjtx/soundout.cpp	2013-04-09 20:59:53 UTC (rev 3143)
+@@ -92,7 +92,10 @@
+     return paContinue;
+   }
+ 
+-  if(isym&gt;=85 and itone[0]&gt;=0) return paComplete;
++  if(isym&gt;=85 and icw[0]&gt;=0) {
++//    qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; isym &lt;&lt; icw[0];
++    return paComplete;
++  }
+   baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/48000.0;
+@@ -118,7 +121,10 @@
+ #endif
+     ic++;
+   }
+-  if(amp&lt;1.0 and itone[0]&gt;=0) return paComplete;
++  if(amp&lt;1.0 and icw[0]==0) {
++//    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; isym &lt;&lt; amp &lt;&lt; icw[0];
++    return paComplete;
++  }
+   return paContinue;
+ }
+ 
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002834.html">[WSJT-SVN] r3142 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002837.html">[WSJT-SVN] r3144 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2835">[ date ]</a>
+              <a href="thread.html#2835">[ thread ]</a>
+              <a href="subject.html#2835">[ subject ]</a>
+              <a href="author.html#2835">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

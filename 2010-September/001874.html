@@ -1,0 +1,428 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2182 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2182%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100927200548.727BC481073%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001873.html">
+   <LINK REL="Next"  HREF="001875.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2182 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2182%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100927200548.727BC481073%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2182 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 27 22:05:48 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001873.html">[WSJT-SVN] r2181 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001875.html">[WSJT-SVN] r2183 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1874">[ date ]</a>
+              <a href="thread.html#1874">[ thread ]</a>
+              <a href="subject.html#1874">[ subject ]</a>
+              <a href="author.html#1874">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-27 22:05:48 +0200 (Mon, 27 Sep 2010)
+New Revision: 2182
+
+Added:
+   branches/wspr/spec.f90
+Modified:
+   branches/wspr/WsprMod/smeter.py
+   branches/wspr/WsprMod/specjt.py
+   branches/wspr/acom1.f90
+   branches/wspr/chklevel.f90
+   branches/wspr/wspr2.f90
+Log:
+Starting to implement real-time waterfall.
+
+Modified: branches/wspr/WsprMod/smeter.py
+===================================================================
+--- branches/wspr/WsprMod/smeter.py	2010-09-27 15:35:00 UTC (rev 2181)
++++ branches/wspr/WsprMod/smeter.py	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -67,7 +67,7 @@
+ 	self.canvas.itemconfig(self.label, fill=self.labelColor)
+ 	# And update the label
+ 	if self.doLabel:
+-            dB=int((value-50.0)/2.5)
++            dB=int((value-50.0)/1.25)
+             t='%d dB'%dB
+             self.canvas.itemconfig(self.label, text=t)
+ 	self.canvas.update_idletasks()
+
+Modified: branches/wspr/WsprMod/specjt.py
+===================================================================
+--- branches/wspr/WsprMod/specjt.py	2010-09-27 15:35:00 UTC (rev 2181)
++++ branches/wspr/WsprMod/specjt.py	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -9,13 +9,12 @@
+ import string
+ import cPickle
+ import tkMessageBox
++import w
+ 
+ try:
+     from numpy.oldnumeric import zeros, multiarray
+-#    print &quot;specjt importing from numpy&quot;
+ except:
+     from Numeric import zeros, multiarray
+-#    print &quot;specjt importing from Numeric&quot;
+ import Image, ImageTk, ImageDraw
+ from palettes import colormapblue, colormapgray0, colormapHot, \
+      colormapAFMHot, colormapgray1, colormapLinrad, Colormap2Palette
+@@ -113,7 +112,6 @@
+ #--------------------------------------------------- tx_volume  ..extended for Vista
+ def tx_volume():
+     for path in string.split(os.environ[&quot;PATH&quot;], os.pathsep):
+-        print path
+         file = os.path.join(path, &quot;sndvol32&quot;) + &quot;.exe&quot;
+         if os.path.exists(file):
+             os.spawnv(os.P_NOWAIT, file, (file,))
+@@ -181,7 +179,6 @@
+         ltime.configure(text=t0)
+         root_geom=root.geometry()
+ #        g.rms=Audio.gcom1.rms
+-        print isec
+ 
+     if g.showspecjt==1:
+         showspecjt()
+@@ -192,14 +189,15 @@
+     g0=sc3.get()
+ 
+ # Don't calculate spectra for waterfall while transmitting
+-##    if Audio.gcom2.ndecoding==0 and \
+-##           (Audio.gcom2.monitoring or Audio.gcom2.ndiskdat):
+-##        Audio.spec(brightness,contrast,logm,g0,nspeed,a) #Call Fortran routine spec
+-##        newdat=Audio.gcom1.newdat                   #True if new data available
+-##    else:
+-##        newdat=0
++    if w.acom1.transmitting==0:
++        w.spec(brightness,contrast,logm,g0,nspeed,a) #Call Fortran routine spec
++        newdat=w.acom1.newdat                   #True if new data available
++    else:
++        newdat=0
+ 
+-#    sm.updateProgress(newValue=Audio.gcom1.level) #S-meter bar
++    xdb1=int(w.acom1.xdb1 - 41.0)
++    level=50.0 + 1.25*xdb1
++    sm.updateProgress(newValue=level) #S-meter bar
+     newdat=1
+     if newdat or brightness!=b0 or contrast!=c0 or logm!=logm0:
+         if brightness==b0 and contrast==c0 and logm==logm0:
+@@ -492,7 +490,7 @@
+ root.deiconify()
+ g.showspecjt=2
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSPR 2.10     by K1JT')
++root.title('  SpecJT')
+ ##if(__name__==&quot;__main__&quot;):
+ ##    Audio.gcom2.monitoring=1
+ root.mainloop()
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-09-27 15:35:00 UTC (rev 2181)
++++ branches/wspr/acom1.f90	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -12,7 +12,7 @@
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+        nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
+-       ntxdb,ntxbal,ntxpha,                                            &amp;
++       ntxdb,ntxbal,ntxpha,iwrite,newdat,                              &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+        pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+
+Modified: branches/wspr/chklevel.f90
+===================================================================
+--- branches/wspr/chklevel.f90	2010-09-27 15:35:00 UTC (rev 2181)
++++ branches/wspr/chklevel.f90	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -1,10 +1,14 @@
+-subroutine chklevel(kwave,iz,jz,nsec1,xdb1,xdb2)
++subroutine chklevel(kwave,iz,jz,nsec1,xdb1,xdb2,i4)
+ 
+ ! Called from wspr2 at ~5 Hz rate.
+ 
+   integer*2 kwave(iz,jz)
+   integer time
++  data nsec3z/-999/
++  save nsec3z
+ 
++  xdb1=-99.
++  xdb2=-99.
+   nsec3=time()
+   i2=48000*(nsec3-nsec1)
+   if(i2.gt.114*48000) i2=114*48000
+@@ -15,6 +19,9 @@
+ 
+ 10 i4=i
+   i3=max(1,i4-48000+1)
++  if(nsec3.eq.nsec3z) go to 900
++
++  nsec3z=nsec3
+   npts=i4-i3+1
+   s1=0.
+   s2=0.
+@@ -34,19 +41,22 @@
+         sq2=sq2 + x2*x2
+      endif
+   enddo
+-  xdb1=-99.
+   rms1=-99.
+   if(sq1.gt.0.0) then
+      rms1=sqrt(sq1/npts)
+      xdb1=20.0*log10(rms1)
+   endif
+ 
+-  xdb2=-99.
+   rms2=-99.
+   if(sq2.gt.0.0) then
+      rms2=sqrt(sq2/npts)
+      xdb2=20.0*log10(rms2)
+   endif
+ 
++!  write(*,3001) i4/48000.0,i1,i2,i3,i4
++!3001 format(f10.1,4i10)
++
++900 continue
++
+   return
+ end subroutine chklevel
+
+Added: branches/wspr/spec.f90
+===================================================================
+--- branches/wspr/spec.f90	                        (rev 0)
++++ branches/wspr/spec.f90	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -0,0 +1,165 @@
++subroutine spec(brightness,contrast,logmap,ngain,nspeed,a)
++!f2py threadsafe
++
++! Called by SpecJT in its TopLevel Python code.  
++! Probably should use the &quot;!f2py intent(...)&quot; structure here.
++
++! Input:
++  integer brightness,contrast   !Display parameters
++  integer ngain                 !Digital gain for input audio
++  integer nspeed                !Scrolling speed index
++! Output:
++  integer*2 a(225000)           !Pixel values for 750 x 300 array
++  integer*2 id2(2,120*48000)
++
++  real a0(225000)               !Save the last 300 spectra
++  integer nstep(5)
++  integer b0,c0
++  real x(4096)                  !Data for FFT
++  complex c(0:2048)             !Complex spectrum
++  real ss(2048)                 !Power spectrum
++  logical first
++  include 'acom1.f90'
++  equivalence (kwave,id2)
++  data jz/0/                    !Number of spectral lines available
++  data nstep/15,10,5,2,1/       !Integration limits
++  data first/.true./
++
++  equivalence (x,c)
++  save
++
++  call cs_lock('spec')
++  print*,iwrite
++
++  if(first) then
++     istep=2205
++     nfft=4096
++     nh=nfft/2
++     do i=1,nh
++        ss(i)=0.
++     enddo
++     df=11025.0/nfft
++     fac=2.0/10000.
++     nsum=0
++     iread=0
++     first=.false.
++     b0=-999
++     c0=-999
++     logmap0=-999
++     nspeed0=-999
++     nx=0
++     rms=0.
++  endif
++
++  nlines=0
++  newdat=0
++  npts=iwrite-iread
++  if(npts.lt.0) npts=npts+nmax
++  if(npts.lt.nfft) go to 900               !Not enough data available
++
++! Real-time data
++10  dgain=2.0*10.0**(0.005*ngain)
++  k=iread
++  do i=1,nfft
++     k=k+1
++     if(k.gt.nmax) k=k-nmax
++!     x(i)=0.5*dgain*y1(k)
++  enddo
++  iread=iread+istep                       !Update pointer
++  if(iread.gt.nmax) iread=iread-nmax
++
++  sum=0.                                     !Get ave, rms of data
++  do i=1,nfft
++     sum=sum+x(i)
++  enddo
++  ave=sum/nfft
++  sq=0.
++  do i=1,nfft
++     d=x(i)-ave
++     sq=sq+d*d
++     x(i)=fac*d
++  enddo
++  rms1=sqrt(sq/nfft)
++  if(rms.eq.0) rms=rms1
++  rms=0.25*rms1 + 0.75*rms
++  
++!  level=0                                    !Compute S-meter level
++!  if(rms.gt.0.0) then                        !Scale 0-100, steps = 0.4 dB
++!     dB=20.0*log10(rms/800.0)
++!     level=50 + 2.5*dB
++!     if(level.lt.0) level=0
++!     if(level.gt.100) level=100
++!  endif
++
++!  call xfft2(x,nfft)
++
++  do i=1,nh                               !Accumulate power spectrum
++     ss(i)=ss(i) + real(c(i))**2 + aimag(c(i))**2
++  enddo
++  nsum=nsum+1
++
++  if(nsum.ge.nstep(nspeed)) then      !Integrate for specified time
++     nlines=nlines+1
++     do i=225000,751,-1               !Move spectra up one row
++        a0(i)=a0(i-750)               ! (will be &quot;down&quot; on display)
++     enddo
++
++!     if(nflat.gt.0) call flat2(ss,nh,nsum)
++
++     ia=1
++     if(nfrange.eq.2000) then
++        i0=182 + nint((nfmid-1500)/df)
++        if(i0.lt.0) ia=1-i0
++     else if(nfrange.eq.4000) then
++        i0=nint(nfmid/df - 752.0)
++!        if(i0.lt.0) ia=1-i0/2
++        if(i0.lt.0) ia=2-i0/2
++     endif
++     do i=ia,750                       !Insert new data in top row
++        if(nfrange.eq.2000) then
++           a0(i)=5*ss(i+i0)/nsum
++        else if(nfrange.eq.4000) then
++           a0(i)=(5.0/nsum) * max(ss(2*i+i0),ss(2*i+i0-1))
++        endif
++     enddo
++     nsum=0
++     newdat=1                          !Flag for new spectrum available
++     do i=1,nh                         !Zero the accumulating array
++        ss(i)=0.
++     enddo
++     if(jz.lt.300) jz=jz+1
++  endif
++
++  npts=iwrite-iread
++  if(npts.lt.0) npts=npts+nmax
++
++  if(npts.ge.4096) go to 10
++
++!  Compute pixel values 
++  iz=750
++!  logmap=0
++  if(brightness.ne.b0 .or. contrast.ne.c0 .or. logmap.ne.logmap0 .or.    &amp;
++          nspeed.ne.nspeed0 .or. nlines.gt.1) then
++     iz=225000
++     gain=40*sqrt(nstep(nspeed)/5.0) * 5.0**(0.01*contrast)
++     gamma=1.3 + 0.01*contrast
++     offset=(brightness+64.0)/2
++     b0=brightness
++     c0=contrast
++     logmap0=logmap
++     nspeed0=nspeed
++  endif
++
++  do i=1,iz
++     n=0
++     if(a0(i).gt.0.0 .and. logmap.eq.1) n=gain*log10(0.001*a0(i)) + offset + 20
++     if(a0(i).gt.0.0 .and. logmap.eq.0) n=(0.01*a0(i))**gamma + offset
++     n=min(252,max(0,n))
++     a(i)=n
++  enddo
++
++900 continue
++  call cs_unlock
++
++  return
++end subroutine spec
+
+
+Property changes on: branches/wspr/spec.f90
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-09-27 15:35:00 UTC (rev 2181)
++++ branches/wspr/wspr2.f90	2010-09-27 20:05:48 UTC (rev 2182)
+@@ -16,7 +16,7 @@
+   common/acom2/ntune2,linetx
+   common/patience/npatience
+   data receiving/.false./,transmitting/.false./
+-  data ns1200/-999/,nrxnormal/0/
++  data nrxnormal/0/
+ 
+   call cs_init
+   dectxt=appdir(:nappdir)//'/decoded.txt'
+@@ -99,7 +99,7 @@
+ 
+   if(ns120.eq.0 .and. (.not.transmitting) .and. (.not.receiving) .and. &amp;
+        (idle.eq.0)) go to 30
+-  call chklevel(kwave,iqmode+1,NZ/2,nsec1,xdb1,xdb2)
++  call chklevel(kwave,iqmode+1,NZ/2,nsec1,xdb1,xdb2,iwrite)
+   call msleep(200)
+   go to 20
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001873.html">[WSJT-SVN] r2181 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001875.html">[WSJT-SVN] r2183 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1874">[ date ]</a>
+              <a href="thread.html#1874">[ thread ]</a>
+              <a href="subject.html#1874">[ subject ]</a>
+              <a href="author.html#1874">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

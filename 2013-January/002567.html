@@ -1,0 +1,595 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2875 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2875%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130101203604.7279B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002566.html">
+   <LINK REL="Next"  HREF="002568.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2875 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2875%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130101203604.7279B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2875 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan  1 21:36:04 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002566.html">[WSJT-SVN] r2874 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002568.html">[WSJT-SVN] r2876 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2567">[ date ]</a>
+              <a href="thread.html#2567">[ thread ]</a>
+              <a href="subject.html#2567">[ subject ]</a>
+              <a href="author.html#2567">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-01 21:36:03 +0100 (Tue, 01 Jan 2013)
+New Revision: 2875
+
+Modified:
+   branches/wsprx/lib/symspec.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/widegraph.cpp
+   branches/wsprx/widegraph.h
+Log:
+Various improvements to GUI.
+
+
+Modified: branches/wsprx/lib/symspec.f90
+===================================================================
+--- branches/wsprx/lib/symspec.f90	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/lib/symspec.f90	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -26,8 +26,6 @@
+   real*4 x0(NFFT1),x1(NFFT1)
+   real*4 x2(NFFT1+105)
+   real*4 ssum(NSMAX)
+-  real*4 red(NSMAX)
+-  real*4 ss(184,NSMAX)
+   complex cx(0:MAXFFT3-1)
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+@@ -36,7 +34,7 @@
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+ 
+-  nsps=15360              !Nothing magical about thios value, comes from JT9-2
++  nsps=15360              !Nothing magical about this value, comes from JT9-2
+   nfft3=2048
+   jstep=nsps/16
+   if(k.gt.NMAX) go to 999
+@@ -67,6 +65,7 @@
+   k0=k
+  
+   nzap=0
++  nbslider=0
+   sigmas=1.0*(10.0**(0.01*nbslider)) + 0.7
+   peaklimit=sigmas*max(10.0,rms)
+   px=0.
+@@ -93,7 +92,6 @@
+      k8=k8+kstep1/8
+   enddo
+ 
+-  npts8=k8
+   ja=ja+jstep                         !Index of first sample
+   nsum=nblks*kstep1 - nzap
+ 
+@@ -113,7 +111,6 @@
+   cx(0:nfft3-1)=w3(1:nfft3)*cx(0:nfft3-1)  !Apply window w3
+   call four2a(cx,nfft3,1,1,1)           !Third forward FFT (X)
+ 
+-  n=min(184,ihsym)
+   df3=1500.0/nfft3
+   i0=nint(-500.0/df3)
+   iz=min(NSMAX,nint(1000.0/df3))
+@@ -122,7 +119,6 @@
+      j=i0+i-1
+      if(j.lt.0) j=j+nfft3
+      sx=fac*(real(cx(j))**2 + aimag(cx(j))**2)
+-     ss(n,i)=sx
+      ssum(i)=ssum(i) + sx
+      s(i)=sx
+   enddo
+@@ -134,6 +130,7 @@
+   s(1:iz)=fac0*s(1:iz)
+   call pctile(ssum,iz,50,xmed1)
+   fac1=1.0/max(xmed1,0.006*ihsym)
++  savg(1:iz)=fac1*ssum(1:iz)
+ 
+   return
+ end subroutine symspec
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/mainwindow.cpp	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -119,7 +119,7 @@
+   m_RxLog=1;                     //Write Date and Time to RxLog
+   m_nutc0=9999;
+   m_mode=&quot;WSPR-2&quot;;
+-  m_TRperiod=120;
++  m_TRseconds=120;
+   m_inGain=0;
+   m_hopping=false;
+   m_rxdone=false;
+@@ -141,7 +141,6 @@
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+   if(m_mode==&quot;WSPR-2&quot;) on_actionWSPR_2_triggered();
+   if(m_mode==&quot;WSPR-10&quot;) on_actionWSPR_15_triggered();
+-  if(m_mode==&quot;WSPR-30&quot;) on_actionWSPR_30_triggered();
+   future1 = new QFuture&lt;void&gt;;
+   watcher1 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher1, SIGNAL(finished()),this,SLOT(diskDat()));
+@@ -214,6 +213,7 @@
+   settings.setValue(&quot;SaveAll&quot;,ui-&gt;actionSave_all-&gt;isChecked());
+   settings.setValue(&quot;NBslider&quot;,m_NBslider);
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
++  settings.setValue(&quot;DialFreq&quot;,m_dialFreq);
+   settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.endGroup();
+ }
+@@ -255,6 +255,10 @@
+   ui-&gt;actionSave_all-&gt;setChecked(settings.value(&quot;SaveAll&quot;,false).toBool());
+   m_NBslider=settings.value(&quot;NBslider&quot;,40).toInt();
+   m_txFreq=settings.value(&quot;TxFreq&quot;,1500).toInt();
++  m_dialFreq=settings.value(&quot;DialFreq&quot;,10.1387).toDouble();
++  QString t;
++  t.sprintf(&quot;%.6f &quot;,m_dialFreq);
++  ui-&gt;dialFreqLineEdit-&gt;setText(t);
+   soundOutThread.setTxFreq(m_txFreq);
+   m_saveDecoded=ui-&gt;actionSave_decoded-&gt;isChecked();
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+@@ -297,24 +301,26 @@
+   if(ihsym == m_hsymStop) {
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+-//    decode();                                                //Start decoder
++    QString t2;
++
+     if(!m_diskData) {                        //Always save; may delete later
+       int ihr=t.time().toString(&quot;hh&quot;).toInt();
+       int imin=t.time().toString(&quot;mm&quot;).toInt();
+-      imin=imin - (imin%(m_TRperiod/60));
+-      QString t2;
++      imin=imin - (imin%(m_TRseconds/60));
+       t2.sprintf(&quot;%2.2d%2.2d&quot;,ihr,imin);
+       m_fname=m_saveDir + &quot;/&quot; + t.date().toString(&quot;yyMMdd&quot;) + &quot;_&quot; +
+             t2 + &quot;.wav&quot;;
+-      *future2 = QtConcurrent::run(savewav, m_fname, m_TRperiod);
++      *future2 = QtConcurrent::run(savewav, m_fname, m_TRseconds);
+       watcher2-&gt;setFuture(*future2);
+     }
+-//    decode();                                                //Start decoder
++
+     m_decodedList.clear();
+-    QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wspr0 D 0.474200 &quot; + m_fname + '&quot;';
++    t2.sprintf(&quot;%.6f &quot;,m_dialFreq);
++    QString cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wspr0 D &quot; + t2 + m_fname + '&quot;';
+     lab3-&gt;setStyleSheet(&quot;QLabel{background-color:cyan}&quot;);
+     lab3-&gt;setText(&quot;Decoding&quot;);
+     m_rxdone=true;
++    loggit(&quot;Start Decoder&quot;);
+     proc_jt9.start(QDir::toNativeSeparators(cmnd));
+   }
+   soundInThread.m_dataSinkBusy=false;
+@@ -496,7 +502,7 @@
+     }
+ //    on_stopButton_clicked();
+     m_diskData=true;
+-    *future1 = QtConcurrent::run(getfile, fname, m_TRperiod);
++    *future1 = QtConcurrent::run(getfile, fname, m_TRseconds);
+     watcher1-&gt;setFuture(*future1);         // call diskDat() when done
+   }
+ }
+@@ -521,7 +527,7 @@
+         lab1-&gt;setText(&quot; &quot; + fname.mid(i,len) + &quot; &quot;);
+       }
+       m_diskData=true;
+-      *future1 = QtConcurrent::run(getfile, fname, m_TRperiod);
++      *future1 = QtConcurrent::run(getfile, fname, m_TRseconds);
+       watcher1-&gt;setFuture(*future1);
+       return;
+     }
+@@ -611,6 +617,7 @@
+   while(proc_jt9.canReadLine()) {
+     QString t(proc_jt9.readLine());
+     if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
++      loggit(&quot;Decoder Finished&quot;);
+       for(int i=0; i&lt;m_decodedList.size(); i++) {
+         t1=m_decodedList.at(i).toAscii();
+         QStringList s=t1.split(&quot; &quot;,QString::SkipEmptyParts);
+@@ -622,9 +629,11 @@
+         QString rcall=s.at(5).toAscii();
+         QString rgrid=s.at(6).toAscii();
+         int dbm=s.at(6).toInt();
+-//        qDebug() &lt;&lt; i &lt;&lt; iutc &lt;&lt; sig &lt;&lt; dt &lt;&lt; rqrg &lt;&lt; drift &lt;&lt; rcall
+-//                    &lt;&lt; rgrid &lt;&lt; dbm;
+-        // Upload to WSPRnet here ...
++        loggit(&quot;Upload to WSPRnet&quot;);
++        qDebug() &lt;&lt; i &lt;&lt; iutc &lt;&lt; sig &lt;&lt; dt &lt;&lt; rqrg &lt;&lt; drift &lt;&lt; rcall
++                 &lt;&lt; rgrid &lt;&lt; dbm;
++        // Upload to WSPRnet here ...  Use a &quot;future&quot; call, and don't
++        // forget to include a randomized wait period
+       }
+       m_decodedList.clear();
+ 
+@@ -657,13 +666,13 @@
+ void MainWindow::on_actionWSPR_2_triggered()
+ {
+   m_mode=&quot;WSPR-2&quot;;
+-  m_TRperiod=120;
++  m_TRseconds=120;
+   m_nsps=15360;
+   m_hsymStop=178;
+   m_nseqdone=115;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
+-  soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
++  soundInThread.setPeriod(m_TRseconds,m_nsps);
++  soundOutThread.setPeriod(m_TRseconds,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRseconds,m_nsps);
+   lab2-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab2-&gt;setText(&quot;WSPR-2&quot;);
+   ui-&gt;actionWSPR_2-&gt;setChecked(true);
+@@ -672,33 +681,18 @@
+ void MainWindow::on_actionWSPR_15_triggered()
+ {
+   m_mode=&quot;WSPR-15&quot;;
+-  m_TRperiod=900;
++  m_TRseconds=900;
+   m_nsps=82944;
+   m_hsymStop=171;
+   m_nseqdone=895;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
+-  soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
++  soundInThread.setPeriod(m_TRseconds,m_nsps);
++  soundOutThread.setPeriod(m_TRseconds,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRseconds,m_nsps);
+   lab2-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
+   lab2-&gt;setText(&quot;WSPR-15&quot;);
+   ui-&gt;actionWSPR_15-&gt;setChecked(true);
+ }
+ 
+-void MainWindow::on_actionWSPR_30_triggered()
+-{
+-  m_mode=&quot;WSPR-30&quot;;
+-  m_TRperiod=1800;
+-  m_nsps=252000;
+-  m_hsymStop=167;
+-  m_nseqdone=1795;
+-  soundInThread.setPeriod(m_TRperiod,m_nsps);
+-  soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+-  lab2-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
+-  lab2-&gt;setText(&quot;WSPR-30&quot;);
+-  ui-&gt;actionWSPR_30-&gt;setChecked(true);
+-}
+-
+ void MainWindow::on_inGain_valueChanged(int n)
+ {
+   m_inGain=n;
+@@ -754,19 +748,19 @@
+   int khsym=0;
+ 
+   double tx1=0.0;
+-//  double tx2=m_TRperiod;
++//  double tx2=m_TRseconds;
+   double tx2=1.0 + 85.0*m_nsps/12000.0;
+ 
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+-  double t2p=fmod(tsec,2*m_TRperiod);
++  double t2p=fmod(tsec,2*m_TRseconds);
+   bool bTxTime = (t2p &gt;= tx1) &amp;&amp; (t2p &lt; tx2);
+ 
+   if(m_auto) {
+ 
+     QFile f(&quot;txboth&quot;);
+-    if(f.exists() and fmod(tsec,m_TRperiod)&lt;1.0 + 85.0*m_nsps/12000.0)
++    if(f.exists() and fmod(tsec,m_TRseconds)&lt;1.0 + 85.0*m_nsps/12000.0)
+       bTxTime=true;
+ 
+     if(bTxTime and iptt==0 and !btxMute) {
+@@ -880,7 +874,6 @@
+ 
+ void MainWindow::oneSec() {
+   QDateTime t = QDateTime::currentDateTimeUtc();
+-
+   m_setftx=0;
+   QString utc = t.date().toString(&quot;yyyy MMM dd&quot;) + &quot; \n &quot; +
+           t.time().toString();
+@@ -895,7 +888,7 @@
+ void MainWindow::guiUpdate2()
+ {
+   int nsec=int(tsec());
+-  m_nseq = nsec % m_TRperiod;
++  m_nseq = nsec % m_TRseconds;
+   if(nsec != m_sec0) {
+     oneSec();
+     m_sec0=nsec;
+@@ -904,7 +897,7 @@
+   if(m_pctx&gt;0) m_rxavg=100.0/m_pctx - 1.0;
+ 
+   if(m_rxdone) {
+-    qDebug() &lt;&lt; &quot;RxDone&quot; &lt;&lt; nsec &lt;&lt; m_nseq;
++    loggit(&quot;Rx Done&quot;);
+     m_receiving=false;
+     soundInThread.setReceiving(m_receiving);
+     m_rxdone=false;
+@@ -917,7 +910,7 @@
+   }
+ 
+   if(m_txdone) {
+-    qDebug() &lt;&lt; &quot;TxDone&quot; &lt;&lt; nsec &lt;&lt; m_nseq;
++    loggit(&quot;TxDone&quot;);
+     m_transmitting=false;
+     m_txdone=false;
+     m_ntr=0;
+@@ -939,13 +932,14 @@
+   if(m_pctx&lt;1) m_ntune=0;
+ 
+   if(m_ntune!=0 and !m_transmitting and !m_receiving and m_pctx&gt;=1) {
+-    qDebug() &lt;&lt; &quot;Tune&quot; &lt;&lt; m_ntune &lt;&lt; m_pctx;
++    loggit(&quot;Tune&quot;);
+     //Make a test transmission of duration pctx.
+     //m_nsectx=nsec
+     m_transmitting=true;
+     //starttx()
+   }
+ 
++  /*
+   if(m_ncal==1 and !m_transmitting and !m_receiving) {
+     qDebug() &lt;&lt; &quot;Cal&quot;;
+     //Execute one Rx sequence (length??)
+@@ -956,6 +950,7 @@
+     m_diskData=0;
+     startRx();
+   }
++*/
+ 
+   if(m_nseq!=0 or m_transmitting or m_receiving or m_idle) {
+ //    qDebug() &lt;&lt; &quot;ChkLevel&quot;;
+@@ -972,7 +967,6 @@
+     if(m_pctx==0) m_nrx=1;
+   }
+ 
+-//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_pctx &lt;&lt; m_txnext &lt;&lt; m_nrx &lt;&lt; m_ntr;
+   if(m_TxOK and m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
+     m_transmitting=true;              //Start a normal Tx sequence
+     float x=(float)rand()/RAND_MAX;
+@@ -985,8 +979,7 @@
+ //    message=MyCall + MyGrid + &quot;ndbm&quot;;
+     //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
+     m_ntr=-1;
+-    qDebug() &lt;&lt; &quot;Start transmitting&quot; &lt;&lt; x &lt;&lt; m_rxavg &lt;&lt; m_nrx &lt;&lt; m_ntr;
+-    //m_nsectx=nsec
++    loggit(&quot;Start Tx&quot;);
+     m_txdone=false;
+     m_txnext=false;
+     startTx();
+@@ -996,8 +989,8 @@
+     //m_rxtime=hhmm
+     m_ntr=1;
+     m_rxnormal=true;
+-    qDebug() &lt;&lt; &quot;Start receiving&quot; &lt;&lt; m_ntr &lt;&lt; m_nrx;
+-    startRx();
++    loggit(&quot;Start Rx&quot;);
++//    startRx();
+     m_nrx=m_nrx-1;
+   }
+ }
+@@ -1013,10 +1006,12 @@
+   m_pctx=ui-&gt;sbPctTx-&gt;value();
+ }
+ 
++/*
+ void MainWindow::startRx()
+ {
+   qDebug() &lt;&lt; &quot;startRx&quot;;
+ }
++*/
+ 
+ void MainWindow::startTx()
+ {
+@@ -1030,18 +1025,18 @@
+ 
+   pttTimer-&gt;setSingleShot(true);
+   connect(pttTimer, SIGNAL(timeout()), this, SLOT(startTx2()));
+-  qDebug() &lt;&lt; &quot;startTx&quot;;
++  loggit(&quot;Start Tx&quot;);
+   pttTimer-&gt;start(200);                         //Sequencer delay
+ }
+ 
+ void MainWindow::startTx2()
+ {
+-  qDebug() &lt;&lt; &quot;startTx2&quot;;
++  loggit(&quot;Start Tx2&quot;);
+ }
+ 
+ void MainWindow::stopTx()
+ {
+-  qDebug() &lt;&lt; &quot;stopTx&quot;;
++  loggit(&quot;Stop Tx&quot;);
+ }
+ 
+ void MainWindow::on_cbIdle_toggled(bool b)
+@@ -1054,3 +1049,13 @@
+   m_TxOK=b;
+ }
+ 
++
++void MainWindow::on_dialFreqLineEdit_editingFinished()
++{
++  m_dialFreq=ui-&gt;dialFreqLineEdit-&gt;text().toDouble();
++}
++
++void MainWindow::loggit(QString t)
++{
++  qDebug() &lt;&lt; t &lt;&lt; m_nseq;
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/mainwindow.h	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -58,7 +58,6 @@
+   void on_actionAFMHot_triggered();
+   void on_actionBlue_triggered();
+   void on_actionWSPR_2_triggered();
+-  void on_actionWSPR_30_triggered();
+   void on_actionWSPR_15_triggered();
+   void on_actionSave_decoded_triggered();
+   void on_inGain_valueChanged(int n);
+@@ -68,11 +67,15 @@
+   void on_cbIdle_toggled(bool b);
+   void on_cbTxMute_toggled(bool b);
+   void startTx2();
++  void loggit(QString t);
+ 
++  void on_dialFreqLineEdit_editingFinished();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+-    float m_rxavg;
++    double  m_dialFreq;
++    float   m_rxavg;
+     qint32  m_nDevIn;
+     qint32  m_nDevOut;
+     qint32  m_idInt;
+@@ -88,7 +91,7 @@
+     qint32  m_paInDevice;
+     qint32  m_paOutDevice;
+     qint32  m_NBslider;
+-    qint32  m_TRperiod;
++    qint32  m_TRseconds;
+     qint32  m_nsps;
+     qint32  m_hsymStop;
+     qint32  m_inGain;
+@@ -166,7 +169,7 @@
+     void updateStatusBar();
+     void msgBox(QString t);
+     void oneSec();
+-    void startRx();
++//    void startRx();
+     void startTx();
+     void stopTx();
+     double tsec();
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/mainwindow.ui	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -397,7 +397,7 @@
+            &lt;/widget&gt;
+           &lt;/item&gt;
+           &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
+-           &lt;widget class=&quot;QLineEdit&quot; name=&quot;lineEdit&quot;&gt;
++           &lt;widget class=&quot;QLineEdit&quot; name=&quot;dialFreqLineEdit&quot;&gt;
+             &lt;property name=&quot;sizePolicy&quot;&gt;
+              &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+               &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -619,7 +619,6 @@
+     &lt;/property&gt;
+     &lt;addaction name=&quot;actionWSPR_2&quot;/&gt;
+     &lt;addaction name=&quot;actionWSPR_15&quot;/&gt;
+-    &lt;addaction name=&quot;actionWSPR_30&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuBand&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -976,7 +975,7 @@
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;enabled&quot;&gt;
+-    &lt;bool&gt;false&lt;/bool&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;WSPR-15&lt;/string&gt;
+
+Modified: branches/wsprx/widegraph.cpp
+===================================================================
+--- branches/wsprx/widegraph.cpp	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/widegraph.cpp	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -34,7 +34,6 @@
+   ui-&gt;widePlot-&gt;m_w=w;
+   m_waterfallAvg = settings.value(&quot;WaterfallAvg&quot;,5).toInt();
+   ui-&gt;waterfallAvgSpinBox-&gt;setValue(m_waterfallAvg);
+-  m_dialFreq=settings.value(&quot;DialFreqkHz&quot;,474.000).toDouble();
+   ui-&gt;widePlot-&gt;m_bCurrent=settings.value(&quot;Current&quot;,true).toBool();
+   ui-&gt;widePlot-&gt;m_bCumulative=settings.value(&quot;Cumulative&quot;,false).toBool();
+   ui-&gt;rbCurrent-&gt;setChecked(ui-&gt;widePlot-&gt;m_bCurrent);
+@@ -62,7 +61,6 @@
+   settings.setValue(&quot;PlotGain&quot;,ui-&gt;widePlot-&gt;m_plotGain);
+   settings.setValue(&quot;PlotWidth&quot;,ui-&gt;widePlot-&gt;plotWidth());
+   settings.setValue(&quot;WaterfallAvg&quot;,ui-&gt;waterfallAvgSpinBox-&gt;value());
+-  settings.setValue(&quot;DialFreqkHz&quot;,m_dialFreq);
+   settings.setValue(&quot;Current&quot;,ui-&gt;widePlot-&gt;m_bCurrent);
+   settings.setValue(&quot;Cumulative&quot;,ui-&gt;widePlot-&gt;m_bCumulative);
+   settings.setValue(&quot;QSOfreq&quot;,ui-&gt;widePlot-&gt;TxFreq());
+@@ -160,6 +158,11 @@
+   ui-&gt;widePlot-&gt;setPalette(palette);
+ }
+ 
++void WideGraph::setDialFreq(double f)
++{
++  m_dialFreq=f;
++}
++
+ double WideGraph::dialFreq()
+ {
+   return m_dialFreq;
+
+Modified: branches/wsprx/widegraph.h
+===================================================================
+--- branches/wsprx/widegraph.h	2013-01-01 14:04:14 UTC (rev 2874)
++++ branches/wsprx/widegraph.h	2013-01-01 20:36:03 UTC (rev 2875)
+@@ -20,6 +20,7 @@
+   void   setFsample(int n);
+   void   setPeriod(int ntrperiod, int nsps);
+   void   setTxFreq(int n);
++  void   setDialFreq(double f);
+   double dialFreq();
+ 
+   qint32 m_qsoFreq;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002566.html">[WSJT-SVN] r2874 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002568.html">[WSJT-SVN] r2876 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2567">[ date ]</a>
+              <a href="thread.html#2567">[ thread ]</a>
+              <a href="subject.html#2567">[ subject ]</a>
+              <a href="author.html#2567">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

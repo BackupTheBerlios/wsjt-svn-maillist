@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2644 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2644%20-%20branches/wsjtx&In-Reply-To=%3C20121003192549.727A655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002335.html">
+   <LINK REL="Next"  HREF="002337.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2644 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2644%20-%20branches/wsjtx&In-Reply-To=%3C20121003192549.727A655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2644 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct  3 21:25:49 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002335.html">[WSJT-SVN] r2643 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002337.html">[WSJT-SVN] r2645 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2336">[ date ]</a>
+              <a href="thread.html#2336">[ thread ]</a>
+              <a href="subject.html#2336">[ subject ]</a>
+              <a href="author.html#2336">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-03 21:25:49 +0200 (Wed, 03 Oct 2012)
+New Revision: 2644
+
+Removed:
+   branches/wsjtx/jtms3.txt
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+Correct frequency scale for nes FFT length.  (Still off by a bit??)
+
+
+Deleted: branches/wsjtx/jtms3.txt
+===================================================================
+--- branches/wsjtx/jtms3.txt	2012-10-03 18:39:37 UTC (rev 2643)
++++ branches/wsjtx/jtms3.txt	2012-10-03 19:25:49 UTC (rev 2644)
+@@ -1,50 +0,0 @@
+-	JTMS v3.0: Possible New Mode for Meteor Scatter
+-	-----------------------------------------------
+-
+-1. Transmitting
+-
+-Messages are sent character-by character, 6 bits plus even parity.
+-Message length can be one of {5 7 9 11 13 17 19 23 29}; messages are
+-padded with blanks up to the next available length.  
+-
+-Modulation is BPSK at 2000 baud.  The baseband waveform is built by
+-inserting a tapered sinc function for each bit, then multiplying by a
+-sine wave at frequency f0 = 10000.0/7 = 1428.57 Hz.  At fsample=48000
+-Hz there are 24 samples per PSK symbol and 7*24=168 samples per
+-character.  Carrier phase increment over one character is
+-f0*(168/48000) = 5 cycles, exactly.
+-
+-2. Receiving
+-
+-  a. Pings are detected (or mouse-picked data is selected) as in
+-     WSJT9.  Pings can also be detected from the squared analytic
+-     signal.  Experience may tell which is better.
+-
+-  b. Compute real-to-complex FFT.  Zap birdies, remove frequency 
+-     components outside the range 300 - 2700 Hz, and convert to analytic
+-     time-domain signal.  (analytic)
+-
+-  c. Square the complex signal, cx2=cx*cx, and compute FFT.  Look for
+-     carrier at frequency 3000 + 2*DF +/- 2*Tol.  (msdf)
+-
+-  d. If carrier is found, measure frequency f and phase phi.  Multiply
+-     cx by exp(-twopi*i*f*t - phi) to recover the real baseband signal
+-     x() to within a sign ambiguity.  (tweak1)
+-
+-  e. Apply matched filter for the Tx pulse shape to x().  This is
+-     essentially a rectangular BPF, -1000 to +1000 Hz ?  (Or convolve
+-     with the generated PSK pulse shape, the tapered sinc() function.)
+-
+-  f. Establish symbol and character sync by cross-correlating with
+-     conjg(cwb), where cwb is the baseband PSK waveform for the
+-     &lt;space&gt; character.
+-
+-  g. Find message length by computing ACF (of what?  cdat?  soft
+-     symbol values?)
+-
+-  h. Decode the message by cross-correlating character-length segments
+-     of cdat against complex waveforms for each possible character.
+-
+-  i. If msglen is established and long enough, try folding the data and
+-     determining best-fit characters as above.
+-
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-03 18:39:37 UTC (rev 2643)
++++ branches/wsjtx/mainwindow.cpp	2012-10-03 19:25:49 UTC (rev 2644)
+@@ -335,7 +335,7 @@
+   lab4-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);   //Update the thermometer
+   if(m_monitoring || m_diskData) {
+-    g_pWideGraph-&gt;dataSink2(s,ihsym,m_diskData,lstrong);
++    g_pWideGraph-&gt;dataSink2(s,df3,ihsym,m_diskData,lstrong);
+   }
+ 
+   //Average over specified number of spectra
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-03 18:39:37 UTC (rev 2643)
++++ branches/wsjtx/plotter.cpp	2012-10-03 19:25:49 UTC (rev 2644)
+@@ -152,8 +152,8 @@
+ {
+   int ihr,imin,isec;
+   if(jt9com_.ndiskdat != 0) {
+-    ihr=jt9com_.nutc/10000;
+-    imin=(jt9com_.nutc/100) % 100;
++    ihr=jt9com_.nutc/100;
++    imin=jt9com_.nutc % 100;
+   } else {
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     imin=ms/60000;
+@@ -241,7 +241,6 @@
+   painter0.setFont(Font);
+   painter0.setPen(Qt::black);
+ 
+-  m_fftBinWidth=12000.0/m_nsps;
+   if(m_binsPerPixel &lt; 1) m_binsPerPixel=1;
+   m_fSpan = w*df;
+   int n=m_fSpan/10;
+@@ -579,6 +578,11 @@
+ void CPlotter::setNsps(int n)                                  //setNSpan()
+ {
+   m_nsps=n;
++  m_fftBinWidth=1500.0/1024.0;
++  if(m_nsps==15360)  m_fftBinWidth=1500.0/2048.0;
++  if(m_nsps==40960)  m_fftBinWidth=1500.0/6144.0;
++  if(m_nsps==82944)  m_fftBinWidth=1500.0/12288.0;
++  if(m_nsps==252000) m_fftBinWidth=1500.0/32768.0;
+   DrawOverlay();                         //Redraw scales and ticks
+   update();                              //trigger a new paintEvent}
+ }
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-10-03 18:39:37 UTC (rev 2643)
++++ branches/wsjtx/widegraph.cpp	2012-10-03 19:25:49 UTC (rev 2644)
+@@ -65,19 +65,19 @@
+   settings.endGroup();
+ }
+ 
+-void WideGraph::dataSink2(float s[], int ihsym, int ndiskdata,
++void WideGraph::dataSink2(float s[], float df3, int ihsym, int ndiskdata,
+                           uchar lstrong[])
+ {
+   static float splot[NSMAX];
+   float swide[2048];
+   float smax;
+-  double df;
++//  double df;
+   int nbpp = ui-&gt;widePlot-&gt;binsPerPixel();
+   static int n=0;
+   static int nkhz0=-999;
+   static int ntr0=0;
+ 
+-  df = 12000.0/m_nsps;
++//  df = 12000.0/m_nsps;
+ 
+   //Average spectra over specified number, m_waterfallAvg
+   if (n==0) {
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-10-03 18:39:37 UTC (rev 2643)
++++ branches/wsjtx/widegraph.h	2012-10-03 19:25:49 UTC (rev 2644)
+@@ -16,7 +16,7 @@
+ 
+   double m_dialFreq;
+ 
+-  void   dataSink2(float s[], int ihsym, int ndiskdata,
++  void   dataSink2(float s[], float df3, int ihsym, int ndiskdata,
+                    uchar lstrong[]);
+   int    QSOfreq();
+   int    nSpan();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002335.html">[WSJT-SVN] r2643 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002337.html">[WSJT-SVN] r2645 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2336">[ date ]</a>
+              <a href="thread.html#2336">[ thread ]</a>
+              <a href="subject.html#2336">[ subject ]</a>
+              <a href="author.html#2336">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2427 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r791 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r791%20-%20branches/wspr&In-Reply-To=%3C200805221817.m4MIHi4u003725%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000478.html">
+   <LINK REL="Next"  HREF="000480.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r791 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r791%20-%20branches/wspr&In-Reply-To=%3C200805221817.m4MIHi4u003725%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r791 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu May 22 20:17:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000478.html">[WSJT-SVN] r790 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000480.html">[WSJT-SVN] r792 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#479">[ date ]</a>
+              <a href="thread.html#479">[ thread ]</a>
+              <a href="subject.html#479">[ subject ]</a>
+              <a href="author.html#479">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-22 20:17:39 +0200 (Thu, 22 May 2008)
+New Revision: 791
+
+Modified:
+   branches/wspr/afc2.f90
+   branches/wspr/decode162.f
+   branches/wspr/mept162.f
+   branches/wspr/rxtest.f90
+   branches/wspr/wspr.py
+Log:
+Testing various changes in decoder.
+
+
+Modified: branches/wspr/afc2.f90
+===================================================================
+--- branches/wspr/afc2.f90	2008-05-22 00:12:12 UTC (rev 790)
++++ branches/wspr/afc2.f90	2008-05-22 18:17:39 UTC (rev 791)
+@@ -4,12 +4,17 @@
+   complex c5(45000)
+   complex c6(45000)
+   complex c(0:4095)
+-  complex*16 w,ws
++  complex cc(-16:48,0:163)
++  complex ct
++  complex wshift(-16:48)
++  complex*16 w,ws,wt
+   real fpk(162),spk(162)
+   real f2(162),s2(162)
+   real ww(-5:5)
++  real sqn(-16:16,0:7)
+   real*8 dt,f,dphi,twopi
+   integer npr3(162)
++  common/ccom/rr(162)
+   data npr3/                                   &amp;
+       1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
+       0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
+@@ -42,10 +47,90 @@
+         c5(k)=w*c4(k)
+      enddo
+   enddo
+-  kz=k
+-! Now c5 has only the data modulation, with 2-FSK frequency steps of
+-! 2*dftone = 2.9296875 Hz.
++  kz=k 
++! At this point c5 has only data modulation, with 2-FSK frequency steps 
++! of size 2*dftone = 2.9296875 Hz.
+ 
++! Compute oversampled complex spectra of each symbol at frequencies 
++! from about -1.5 to +4.5 Hz.
++  nft=2048
++  df1=375.0/nft
++  ia=-dftone/df1
++  ib=-3*ia
++  do j=1,nsym
++     do i=ia,ib
++        w=1.0
++        dphi=i*twopi/nft
++        ws=dcmplx(cos(dphi),-sin(dphi))
++        m=(j-1)*nsps
++        ct=0.
++        do k=1,nsps
++           m=m+1
++           ct=ct + w*c5(m)
++           w=w*ws
++        enddo
++        wshift(i)=w
++        cc(i,j)=ct
++     enddo
++        do i=ia,ib
++           sq=real(cc(i,j))**2 + aimag(cc(i,j))**2
++           pha=atan2(aimag(wshift(i)),real(wshift(i)))
++!           write(51,3002) i*df1,sq,pha
++!3002       format(3f10.3)
++        enddo
++  enddo
++
++! Combine the complex coeffs to produce coherent spectra over groups
++! of three successive symbols.  Loop over all 8 possible tone combinations
++! to find the best-fit value for the central symbol.
++
++  cc(ia:ib,0)=0.
++  cc(ia:ib,163)=0.
++  do j=1,nsym
++     smax=0.
++     do n=0,7
++        i1=0
++        if(n.eq.2 .or. n.eq.3  .or. n.eq.6  .or. n.eq.7) i1=16
++        i2=0
++        if(n.ge.4) i2=16
++        i3=0
++        if(mod(n,2).eq.1) i3=16
++        do i=ia/2,-ia/2
++           ct=conjg(wshift(i1+i))*cc(i1+i,j-1) + cc(i2+i,j) + &amp;
++                wshift(i3+i)*cc(i3+i,j+1)
++           sq=real(ct)**2 + aimag(ct)**2
++           sqn(i,n)=sq
++           if(sq.gt.smax) then
++              smax=sq
++              nmax=n
++              ipk=i
++           endif
++        enddo
++     enddo
++     if(nmax.lt.4) rsym=sqn(ipk,nmax+4)-smax
++     if(nmax.ge.4) rsym=smax-sqn(ipk,nmax-4)
++!     rr(j)=0.004*rsym
++
++     smax=0.
++!     do i=ia/2,-ia/2
++     do i=-3,3
++        do n=1,3
++           sqn(i,0)=sqn(i,0)+sqn(i,n)
++           sqn(i,4)=sqn(i,4)+sqn(i,n+4)
++        enddo
++        sq=abs(sqn(i,4)-sqn(i,0))
++        if(sq.gt.abs(smax)) then
++           smax=sqn(i,4)-sqn(i,0)
++           ipk=i
++        endif
++     enddo
++     rr(j)=0.002*smax
++
++     write(52,3001) j,rr(j)
++3001 format(i3,f12.3)
++
++  enddo
++
+ ! Do coherent FFTs over several symbols.  Find peak freq and subtract 
+ ! 2*dftone if it was the upper one of two.  Save fpk and smax centered 
+ ! on each symbol.  (May want to play with nd and nfft.)
+@@ -53,14 +138,13 @@
+   nd=3
+   ndat=nd*nsps
+   nfft=1024
+-  nh=nfft/2
+   df=375.0/nfft
+   ia=2*dftone/df
+   noff=nint(0.5*nd*nsps)
+   c6(1:noff)=0.
+   c6(noff+1:noff+kz)=c5(1:kz)
++
+   k=1-nsps
+-
+   do j=1,nsym
+      k=k+nsps
+      c(0:ndat-1)=c6(k:k+ndat)
+@@ -102,24 +186,24 @@
+      f2(j)=sum/sumw
+   enddo
+ 
+-  do j=1,nsym
+-     write(54,3201) j,fpk(j),0.000015*spk(j),f2(j)
+-3201 format(i3,3f10.3)
+-  enddo
+-  write(54,3201) 163,-4.0,0.0,0.0
+-  write(54,3201)   0,-4.0,0.0,0.0
++!  do j=1,nsym
++!     write(54,3201) j,fpk(j),0.000015*spk(j),f2(j)
++!3201 format(i3,3f10.3)
++!  enddo
++!  write(54,3201) 163,-4.0,0.0,0.0
++!  write(54,3201)   0,-4.0,0.0,0.0
+ 
+-  k=0
+-  w=1.0
+-  do j=1,nsym
+-     dphi=twopi*dt*f2(j)
+-     ws=dcmplx(cos(dphi),-sin(dphi))
+-     do i=1,nsps
+-        w=w*ws
+-        k=k+1
+-        c4(k)=w*c4(k)
+-     enddo
+-  enddo
++!  k=0
++!  w=1.0
++!  do j=1,nsym
++!     dphi=twopi*dt*f2(j)
++!     ws=dcmplx(cos(dphi),-sin(dphi))
++!     do i=1,nsps
++!        w=w*ws
++!        k=k+1
++!        c4(k)=w*c4(k)
++!     enddo
++!  enddo
+ 
+   return
+ end subroutine afc2
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-05-22 00:12:12 UTC (rev 790)
++++ branches/wspr/decode162.f	2008-05-22 18:17:39 UTC (rev 791)
+@@ -15,6 +15,7 @@
+       equivalence (i1,i4)
+       data first/.true./
+       integer npr3(162)
++      common/ccom/rr(162)
+       data npr3/
+      + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+      + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
+@@ -117,6 +118,10 @@
+          sq0=fac2*(real(c0)**2 + aimag(c0)**2)
+          sq1=fac2*(real(c1)**2 + aimag(c1)**2)
+          rsym=amp*(sq1-sq0)
++!         write(55,3003) j,rsym,rr(j)
++! 3003    format(i5,3f10.3)
++!         rsym=rr(j)
++
+          r=rsym+128.
+          if(r.gt.255.0) r=255.0
+          if(r.lt.0.0) r=0.0
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-05-22 00:12:12 UTC (rev 790)
++++ branches/wspr/mept162.f	2008-05-22 18:17:39 UTC (rev 791)
+@@ -48,7 +48,7 @@
+ 
+             dt=1.0/375
+             do idt=0,128
+-               ii=(idt+1)/1
++               ii=(idt+1)/2
+                if(mod(idt,2).eq.1) ii=-ii
+                i1=nint((dtx+2.0)/dt) + ii !Start index for synced symbols
+                if(i1.ge.1) then
+
+Modified: branches/wspr/rxtest.f90
+===================================================================
+--- branches/wspr/rxtest.f90	2008-05-22 00:12:12 UTC (rev 790)
++++ branches/wspr/rxtest.f90	2008-05-22 18:17:39 UTC (rev 791)
+@@ -38,7 +38,7 @@
+            c4(-i1:)=c3(:i2)
+         endif
+ !        if(idt.eq.0) call afc2(c4)
+-        call afc2(c4)
++!        call afc2(c4)
+         call decode162(c4,jz,message,ncycles,metric,nerr)
+         if(message(1:6).ne.'      ') then
+            write(*,1012) ifile,nsnrx,dtx,freq,nf1,message,ii
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-05-22 00:12:12 UTC (rev 790)
++++ branches/wspr/wspr.py	2008-05-22 18:17:39 UTC (rev 791)
+@@ -1,1059 +1,1059 @@
+-#---------------------------------------------------------------------- WSPR
+-# $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+-#
+-from Tkinter import *
+-from tkFileDialog import *
+-from tkMessageBox import showwarning
+-import os,time,sys
+-from WsprMod import g,Pmw
+-from WsprMod import palettes
+-from math import log10
+-try:
+-    from numpy.oldnumeric import zeros
+-except: 
+-    from Numeric import zeros
+-import array
+-import dircache
+-import Image, ImageTk, ImageDraw
+-from WsprMod.palettes import colormapblue, colormapgray0, colormapHot, \
+-     colormapAFMHot, colormapgray1, colormapLinrad, Colormap2Palette
+-from types import *
+-import array
+-import random
+-import math
+-import string
+-from WsprMod import w
+-import socket
+-import urllib
+-import thread
+-
+-root = Tk()
+-Version=&quot;0.8_r&quot; + &quot;$Rev$&quot;[6:-1]
+-print &quot;******************************************************************&quot;
+-print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+-##print &quot;Revision date: &quot; + \
+-##      &quot;$Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $&quot;[7:-1]
+-print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
+-
+-#See if we are running in Windows
+-g.Win32=0
+-if sys.platform==&quot;win32&quot;:
+-    g.Win32=1
+-    try:
+-        root.option_readfile('wsprrc.win')
+-    except:
+-        pass
+-else:
+-    try:
+-        root.option_readfile('wsprrc')
+-    except:
+-        pass
+-root_geom=&quot;&quot;
+-from WsprMod import options
+-
+-
+-#------------------------------------------------------ Global variables
+-appdir=os.getcwd()
+-bandmap=[]
+-bm={}
+-f0=DoubleVar()
+-ftx=DoubleVar()
+-ft=[]
+-fileopened=&quot;&quot;
+-fmid=0.0
+-fmid0=0.0
+-font1='Helvetica'
+-idsec=0
+-ipctx=IntVar()
+-isec0=0
+-isync=1
+-loopall=0
+-modpixmap0=0
+-mrudir=os.getcwd()
+-nbestdx=IntVar()
+-ndbm0=-999
+-ncall=0
+-ndebug=IntVar()
+-newdat=1
+-newspec=1
+-npal=IntVar()
+-npal.set(2)
+-nqso=IntVar()
+-nsave=IntVar()
+-nscroll=0
+-nsec0=0
+-nspeed0=IntVar()
+-ntr0=0
+-ntest=IntVar()
+-ntxfirst=IntVar()
+-NX=500
+-NY=160
+-param20=&quot;&quot;
+-pctx=[-1,0,20,25,33,100]
+-sftx=StringVar()
+-txmsg=StringVar()
+-
+-a=array.array('h')
+-im=Image.new('P',(NX,NY))
+-draw=ImageDraw.Draw(im)
+-im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+-pim=ImageTk.PhotoImage(im)
+-receiving=0
+-scale0=1.0
+-offset0=0.0
+-s0=0.0
+-c0=0.0
+-slabel=&quot;MinSync  &quot;
+-transmitting=0
+-tw=[]
+-upload=IntVar()
+-
+-g.appdir=appdir
+-g.cmap=&quot;Linrad&quot;
+-g.cmap0=&quot;Linrad&quot;
+-g.ndevin=IntVar()
+-g.ndevout=IntVar()
+-g.DevinName=StringVar()
+-g.DevoutName=StringVar()
+-
+-pwrlist=(0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
+-
+-socktimeout = 10
+-socket.setdefaulttimeout(socktimeout)
+-
+-def pal_gray0():
+-    g.cmap=&quot;gray0&quot;
+-    im.putpalette(Colormap2Palette(colormapgray0),&quot;RGB&quot;)
+-def pal_gray1():
+-    g.cmap=&quot;gray1&quot;
+-    im.putpalette(Colormap2Palette(colormapgray1),&quot;RGB&quot;)
+-def pal_linrad():
+-    g.cmap=&quot;Linrad&quot;
+-    im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+-def pal_blue():
+-    g.cmap=&quot;blue&quot;
+-    im.putpalette(Colormap2Palette(colormapblue),&quot;RGB&quot;)
+-def pal_Hot():
+-    g.cmap=&quot;Hot&quot;
+-    im.putpalette(Colormap2Palette(colormapHot),&quot;RGB&quot;)
+-def pal_AFMHot():
+-    g.cmap=&quot;AFMHot&quot;
+-    im.putpalette(Colormap2Palette(colormapAFMHot),&quot;RGB&quot;)
+-
+-#------------------------------------------------------ quit
+-def quit(event=NONE):
+-    root.destroy()
+-
+-#------------------------------------------------------ openfile
+-def openfile(event=NONE):
+-    global mrudir,fileopened,nopen,tw
+-    nopen=1                         #Work-around for &quot;click feedthrough&quot; bug
+-    upload.set(0)
+-    try:
+-        os.chdir(mrudir)
+-    except:
+-        pass
+-    fname=askopenfilename(filetypes=[(&quot;Wave files&quot;,&quot;*.wav *.WAV&quot;)])
+-    if fname:
+-        w.getfile(fname,len(fname))
+-        mrudir=os.path.dirname(fname)
+-        fileopened=os.path.basename(fname)
+-        i1=fileopened.find('.')
+-        t=fileopened[i1-4:i1]
+-        t=t[0:2] + ':' + t[2:4]
+-        n=len(tw)
+-        if n&gt;12: tw=tw[:n-1]
+-        tw=[t,] + tw
+-    os.chdir(appdir)
+-    ipctx.set(0)
+-
+-#------------------------------------------------------ stop_loopall
+-def stop_loopall(event=NONE):
+-    global loopall
+-    loopall=0
+-    
+-#------------------------------------------------------ opennext
+-def opennext(event=NONE):
+-    global ncall,fileopened,loopall,mrudir,tw
+-    if fileopened==&quot;&quot; and ncall==0:
+-        openfile()
+-        ncall=1
+-    else:
+-# Make a list of *.wav files in mrudir
+-        la=os.listdir(mrudir)
+-        la.sort()
+-        lb=[]
+-        for i in range(len(la)):
+-            j=la[i].find(&quot;.wav&quot;) + la[i].find(&quot;.WAV&quot;)
+-            if j&gt;0: lb.append(la[i])
+-        for i in range(len(lb)):
+-            if lb[i]==fileopened:
+-                break
+-        if i&lt;len(lb)-1:
+-            fname=mrudir+&quot;/&quot;+lb[i+1]
+-            w.getfile(fname,len(fname))
+-            mrudir=os.path.dirname(fname)
+-            fileopened=os.path.basename(fname)
+-            i1=fileopened.find('.')
+-            t=fileopened[i1-4:i1]
+-            t=t[0:2] + ':' + t[2:4]
+-            n=len(tw)
+-            if n&gt;12: tw=tw[:n-1]
+-            tw=[t,] + tw
+-        else:
+-            t=&quot;No more *.wav files in this directory.&quot;
+-            msg=Pmw.MessageDialog(root,buttons=('OK',),message_text=t)
+-            msg.geometry(msgpos())
+-#            if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
+-            msg.focus_set()
+-            ncall=0
+-            loopall=0
+-            
+-#------------------------------------------------------ decodeall
+-def decodeall(event=NONE):
+-    global loopall
+-    loopall=1
+-    opennext()
+-
+-#------------------------------------------------------ options1
+-def options1(event=NONE):
+-    options.options2(root_geom[root_geom.index(&quot;+&quot;):])
+-
+-#------------------------------------------------------ stub
+-def stub(event=NONE):
+-    MsgBox(&quot;Sorry, this function is not yet implemented.&quot;)
+-
+-#------------------------------------------------------ MsgBox
+-def MsgBox(t):
+-    msg=Pmw.MessageDialog(root,buttons=('OK',),message_text=t)
+-    result=msg.activate()
+-    msg.focus_set()
+-
+-#------------------------------------------------------ msgpos
+-def msgpos():
+-    g=root_geom[root_geom.index(&quot;+&quot;):]
+-    t=g[1:]
+-    x=int(t[:t.index(&quot;+&quot;)])          # + 70
+-    y=int(t[t.index(&quot;+&quot;)+1:])        # + 70
+-    return &quot;+%d+%d&quot; % (x,y)    
+-
+-#------------------------------------------------------ about
+-def about(event=NONE):
+-    global Version
+-    about=Toplevel(root)
+-    about.geometry(msgpos())
+-    if g.Win32: about.iconbitmap(&quot;wsjt.ico&quot;)
+-    t=&quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+-    Label(about,text=t,font=(font1,16)).pack(padx=20,pady=5)
+-    t=&quot;&quot;&quot;
+-WSPR is pronounced &quot;whisper&quot; and stands for &quot;Weak Signal
+-Propagation Reporter&quot;.  The program transmits and receives
+-the digital soundcard mode &quot;MEPT_JT&quot;, which stands for
+-&quot;Manned Experimental Propagation Tests, by K1JT&quot;.
+-
+-Copyright (c) 2008 by Joseph H. Taylor, Jr., K1JT.
+-&quot;&quot;&quot;
+-    Label(about,text=t,justify=LEFT).pack(padx=20)
+-    t=&quot;Revision date: &quot; + \
+-      &quot;$Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $&quot;[7:-1]
+-    Label(about,text=t,justify=LEFT).pack(padx=20)
+-    about.focus_set()
+-
+-#------------------------------------------------------ 
+-def help(event=NONE):
+-    about=Toplevel(root)
+-    about.geometry(msgpos())
+-    if g.Win32: about.iconbitmap(&quot;wsjt.ico&quot;)
+-    t=&quot;Basic Operating Instructions&quot;
+-    Label(about,text=t,font=(font1,14)).pack(padx=20,pady=5)
+-    t=&quot;&quot;&quot;
+-1. Open the Setup | Options page and enter your callsign,
+-   grid locator, COM port number (for PTT control), and Tx
+-   power in dBm.  If you do not wish to use the system's
+-   default sound card, enter suitable device numbers for
+-   Audio In and Audio Out (see console window).
+-
+-2. On the main screen, enter your dial frequency (USB) and
+-    Tx frequency in MHz.  Click on 'Rx' to receive only,
+-    'Tx' to transmit only, or the desired average percentage
+-    of transmission cycles.
+-
+-3. Be sure that your computer clock is correct to +/- 1 s. If
+-   necessary you can make small adjustments by left- or right-
+-   clicking on the 'Dsec' label.
+-
+-4. The program will begin a Tx or Rx sequence at the start of
+-    each even minute.  The waterfall will update near the end
+-    of each Rx sequence.
+-&quot;&quot;&quot;
+-    Label(about,text=t,justify=LEFT).pack(padx=20)
+-    about.focus_set()
+-
+-#------------------------------------------------------ incdsec
+-def incdsec(event):
+-    global idsec
+-    idsec=idsec+5
+-    bg='red'
+-    if idsec==0: bg='white'
+-    ldsec.configure(text='Dsec  '+str(0.1*idsec),bg=bg)
+-
+-#------------------------------------------------------ decdsec
+-def decdsec(event):
+-    global idsec
+-    idsec=idsec-5
+-    bg='red'
+-    if idsec==0: bg='white'
+-    ldsec.configure(text='Dsec  '+str(0.1*idsec),bg=bg)
+-
+-#------------------------------------------------------ erase
+-def erase(event=NONE):
+-    global bandmap,bm
+-    text.configure(state=NORMAL)
+-    text.delete('1.0',END)
+-    text.configure(state=DISABLED)
+-    text1.configure(state=NORMAL)
+-    text1.delete('1.0',END)
+-    text1.configure(state=DISABLED)
+-    bandmap=[]
+-    bm={}
+-
+-#----------------------------------------------------- df_readout
+-# Readout of graphical cursor location
+-def df_readout(event):
+-    global fmid
+-    nhz=1000000*fmid + (80.0-event.y) * 12000/8192.0
+-    nhz=int(nhz%1000)
+-    t=&quot;%3d Hz&quot; % nhz
+-    lab02.configure(text=t,bg='red')
+-
+-#----------------------------------------------------- set_tx_freq
+-def set_tx_freq(event):
+-    global fmid
+-    nftx=int(1000000.0*fmid + (80.0-event.y) * 12000/8192.0)
+-    fmhz=0.000001*nftx
+-    t=&quot;Please confirm setting Tx frequency to &quot; + &quot;%.06f MHz&quot; % fmhz
+-    msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t)
+-    msg.geometry(msgpos())
+-    if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
+-    msg.focus_set()
+-    result=msg.activate()
+-    if result == 'Yes':
+-        ftx.set(0.000001*nftx)
+-        sftx.set('%.06f' % ftx.get())
+-
+-#-------------------------------------------------------- draw_axis
+-def draw_axis():
+-    global fmid
+-    c.delete(ALL)
+-    df=12000.0/8192.0
+-    nfmid=int(1.0e6*fmid)%1000
+-# Draw and label tick marks
+-    for iy in range(-120,120,10):
+-        j=80 - iy/df
+-        i1=7
+-        if (iy%50)==0:
+-            i1=12
+-            if (iy%100)==0: i1=15
+-            n=nfmid+iy
+-            if n&lt;0: n=n+1000
+-            c.create_text(27,j,text=str(n))
+-        c.create_line(0,j,i1,j,fill='black')
+-
+-#------------------------------------------------------ del_all
+-def del_all():
+-    fname=appdir+'/ALL_MEPT.TXT'
+-    try:
+-        os.remove(fname)
+-    except:
+-        pass
+-
+-#------------------------------------------------------ delwav
+-def delwav():
+-    t=&quot;Are you sure you want to delete\nall *.WAV files in the Save directory?&quot;
+-    msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t)
+-    msg.geometry(msgpos())
+-    if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
+-    msg.focus_set()
+-    result=msg.activate()
+-    if result == 'Yes':
+-# Make a list of *.wav files in Save
+-        la=dircache.listdir(appdir+'/Save')
+-        lb=[]
+-        for i in range(len(la)):
+-            j=la[i].find(&quot;.wav&quot;) + la[i].find(&quot;.WAV&quot;)
+-            if j&gt;0: lb.append(la[i])
+-# Now delete them all.
+-        for i in range(len(lb)):
+-            fname=appdir+'/Save/'+lb[i]
+-            os.remove(fname)
+-
+-#--------------------------------------------------- rx_volume
+-def rx_volume():
+-    for path in string.split(os.environ[&quot;PATH&quot;], os.pathsep):
+-        file = os.path.join(path, &quot;sndvol32&quot;) + &quot;.exe&quot;
+-        try:
+-            return os.spawnv(os.P_NOWAIT, file, (file,) + (&quot; -r&quot;,))
+-        except os.error:
+-            pass
+-    raise os.error, &quot;Cannot find &quot;+file
+-
+-#--------------------------------------------------- tx_volume
+-def tx_volume():
+-    for path in string.split(os.environ[&quot;PATH&quot;], os.pathsep):
+-        file = os.path.join(path, &quot;sndvol32&quot;) + &quot;.exe&quot;
+-        try:
+-            return os.spawnv(os.P_NOWAIT, file, (file,))
+-        except os.error:
+-            pass
+-    raise os.error, &quot;Cannot find &quot;+file
+-
+-#------------------------------------------------------ get_decoded
+-def get_decoded():
+-    global bandmap,bm,newdat,loopall
+-    
+-# Get lines from decoded.txt
+-    try:
+-        f=open(appdir+'/decoded.txt',mode='r')
+-        lines=f.readlines()
+-        f.close()
+-        if lines[0][:4]==&quot;$EOF&quot;: lines=&quot;&quot;
+-    except:
+-        lines=&quot;&quot;
+-        
+-    if upload.get():
+-        #Dispatch autologger thread.
+-        thread.start_new_thread(autolog, (lines,f0),)
+-
+-    if len(lines)&gt;0:
+-#  Write data to text box and insert freqs and calls into bandmap.
+-        text.configure(state=NORMAL)
+-        nseq=0
+-        nfmid=int(1.0e6*fmid)%1000
+-        for i in range(len(lines)):
+-            if len(lines[i])&lt;6: break                    #Skip $EOF
+-            text.insert(END,lines[i][:51]+&quot;\n&quot;)
+-            callsign=lines[i][29:36]
+-            if callsign[:1] != ' ':
+-                i1=callsign.find(' ')
+-                callsign=callsign[:i1]
+-                try:
+-                    nseq=60*int(lines[i][0:2]) + int(lines[i][2:4])
+-                    ndf=int(lines[i][21:24])
+-                    bm[callsign]=(ndf,nseq)
+-                except:
+-                    pass
+-        text.configure(state=DISABLED)
+-        text.see(END)
+-
+-#  Remove any &quot;too old&quot; information from bandmap.
+-        bandmap=[]
+-        for callsign,ft in bm.iteritems():
+-            ndf,tdecoded=ft
+-            if nseq-tdecoded &lt; 60:                        #60 minutes 
+-                bandmap.append((ndf,callsign,tdecoded))
+-
+-        iz=len(bandmap)
+-        bm={}
+-        for i in range(iz):
+-            bm[bandmap[i][1]]=(bandmap[i][0],bandmap[i][2])
+-
+-#  Sort bandmap in reverse frequency order
+-        bandmap.sort()
+-        bandmap.reverse()
+-        text1.configure(state=NORMAL)
+-        text1.delete('1.0',END)
+-        for i in range(iz):
+-            t=&quot;%4d&quot; % (bandmap[i][0],) + &quot; &quot; + bandmap[i][1]
+-            nage=int((nseq - bandmap[i][2])/15)
+-            attr='age0'
+-            if nage==1: attr='age1'
+-            if nage==2: attr='age2'
+-            if nage&gt;=3: attr='age3'
+-            text1.insert(END,t+&quot;\n&quot;,attr)
+-        text1.configure(state=DISABLED)
+-        text1.see(END)
+-
+-    if loopall: opennext()
+-
+-#------------------------------------------------------ autologger
+-def autolog(lines,f0):
+-    # Random delay of up to 15 seconds to spread load out on server --W1BW
+-    time.sleep(random.random() * 15.0)
+-
+-    try:
+-        # This code originally by W6CQZ ... modified by W1BW
+-        # TODO:  Cache entries for later uploading if net is down.
+-        # TODO:  (Maybe??) Allow for stations wishing to collect spot data but
+-        #       only upload in batch form vs real-time.
+-        # Any spots to upload?
+-        if len(lines) &gt; 0:
+-            for i in range(len(lines)):
+-                if len(lines[i])&lt;6: break                    #Skip $EOF            
+-                acallsign=lines[i][42:49]
+-                if acallsign[:1] != ' ':
+-                    foo = lines[i].split()
+-                    # foo now contains a list as follows
+-                    #  date,     time, signal,  dt,     freq,     drift, width   call,  grid,   dBm,  (extra params ...)
+-                    #    0         1      2      3        4         5      6       7      8      9         10       11
+-                    # example:
+-                    #['080322', '1834', '-14', '0.1', '10.140141', '-1', 'K7EK', 'CN87', '33', '11.1', '10051757', '40']
+-                    # now to format as a string to use for autologger upload using urlencode
+-                    # so we get a string formatted for http get/put operations:
+-                    reportparams = urllib.urlencode({'function': 'wspr',
+-                                                     'dt': str(foo[3]), \
+-                                                     'rcall': options.MyCall.get(), \
+-                                                     'rgrid': options.MyGrid.get(), 'rqrg': str(f0), \
+-                                                     'date': str(foo[0]), 'time': str(foo[1]), \
+-                                                     'sig': str(foo[2]), 'tqrg': str(foo[4]), \
+-                                                     'drift': str(foo[5]), 'width': str(foo[6]), \
+-                                                     'tcall': str(foo[7]), 'tgrid': str(foo[8]), \
+-                                                     'dbm': str(foo[9]), 'version': Version})
+-                    # reportparams now contains a properly formed http request string for
+-                    # the agreed upon format between W6CQZ and N8FQ.
+-                    # any other data collection point can be added as desired if it conforms
+-                    # to the 'standard format' defined above.
+-                    # The following opens a url and passes the reception report to the database
+-                    # insertion handler for W6CQZ:
+-                    #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
+-                    # The following opens a url and passes the reception report to the
+-                    # database insertion handler from W1BW:
+-                    urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
+-                                      % reportparams)
+-                    reply = urlf.readlines()
+-                    #for r in reply:
+-                    #    print r
+-                    urlf.close()
+-        else:
+-            # No spots to report, so upload status message instead. --W1BW
+-            reportparams = urllib.urlencode({'function': 'wsprstat',
+-                                             'rcall': options.MyCall.get(),
+-                                             'rgrid': options.MyGrid.get(),
+-                                             'rqrg': str(fmid),
+-                                             'tpct': str(pctx[ipctx.get()]), 
+-                                             'tqrg': sftx.get(),
+-                                             'dbm': str(options.dBm.get()),
+-                                             'version': Version})
+-            urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
+-                                  % reportparams)
+-            reply = urlf.readlines()
+-            #for r in reply:
+-            #    print r
+-            urlf.close()
+-    # The proper way to handle url posting will be to define the url as a
+-    # configuration parameter so data sinks could be added/removed as necessary.
+-    # It is not strictly necessary to post reports to W6CQZ, but, since I
+-    # happen to be W6CQZ I can better debug things from the server side by
+-    # sending to my system during the active development phase of this code.
+-    except:
+-        print &quot;Socket error, non-fatal.&quot;
+-
+-#------------------------------------------------------ put_params
+-def put_params(param3=NONE):
+-    global idsec,param20
+-
+-    try:
+-        w.acom1.f0=f0.get()
+-        w.acom1.ftx=ftx.get()
+-    except:
+-        pass
+-    w.acom1.callsign=(options.MyCall.get().strip().upper()+'      ')[:6]
+-    w.acom1.grid=(options.MyGrid.get().strip().upper()+'    ')[:4]
+-    w.acom1.ctxmsg=(txmsg.get().strip().upper()+'                      ')[:22]
+-
+-    # numeric port ==&gt; COM%d, else string of device.  --W1BW
+-    port = options.PttPort.get()
+-    if port.isdigit():
+-        w.acom1.nport = int(port)
+-        port = &quot;COM%d&quot; % (int(port))
+-    else:
+-        w.acom1.nport = 0
+-    w.acom1.pttport = (port + 80*' ')[:80]
+-
+-    for i in range(len(pwrlist)):
+-        try:
+-            if pwrlist[i]==options.dBm.get():
+-                w.acom1.ndbm=pwrlist[i]
+-                break
+-        except:
+-            pass
+-    w.acom1.pctx=pctx[ipctx.get()]
+-    w.acom1.idsec=idsec
+-    w.acom1.ntest=ntest.get()
+-    w.acom1.ntxfirst=ntxfirst.get()
+-    w.acom1.nqso=nqso.get()
+-    w.acom1.nsave=nsave.get()
+-    try:
+-        g.ndevin.set(options.DevinName.get())
+-        w.acom1.ndevin=g.ndevin.get()
+-    except:
+-        g.ndevin.set(0)
+-        w.acom1.ndevin=0
+-    try:
+-        g.ndevout.set(options.DevoutName.get())
+-        w.acom1.ndevout=g.ndevout.get()
+-    except:
+-        g.ndevout.set(0)
+-        w.acom1.ndevout=0
+-
+-#------------------------------------------------------ update
+-def update():
+-    global root_geom,isec0,im,pim,ndbm0,nsec0,a, \
+-        receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+-        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0,txmsg
+-
+-    tsec=time.time() + 0.1*idsec
+-    utc=time.gmtime(tsec)
+-    nsec=int(tsec)
+-    nsec0=nsec
+-    ns120=nsec % 120
+-    try:
+-        ftx.set(float(sftx.get()))
+-    except:
+-        pass
+-    isec=utc[5]
+-    if isec != isec0:                           #Do once per second
+-        isec0=isec
+-        t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+-        ldate.configure(text=t)
+-        root_geom=root.geometry()
+-        utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
+-        try:
+-            if options.dBm.get()!=ndbm0:
+-                ndbm0=options.dBm.get()
+-                options.dbm_balloon()
+-        except:
+-            pass
+-        put_params()
+-
+-# If T/R status has changed, get new info
+-    ntr=int(w.acom1.ntr)
+-    if ntr!=ntr0:
+-        ntr0=ntr
+-        if ntr==-1:
+-            transmitting=1
+-            receiving=0
+-        elif ntr==0:
+-            transmitting=0
+-            receiving=0
+-        else:
+-            transmitting=0
+-            receiving=1
+-            n=len(tw)
+-            if n&gt;12: tw=tw[:n-1]
+-            rxtime=g.ftnstr(w.acom1.rxtime)
+-            rxtime=rxtime[:2] + ':' + rxtime[2:]
+-            tw=[rxtime,] + tw
+-
+-    bgcolor='gray85'
+-    t=''
+-    if transmitting:
+-##        t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
+-##           options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
+-        t='Txing: '+g.ftnstr(w.acom1.ctxmsg)
+-        bgcolor='yellow'
+-    if receiving:
+-        bgcolor='green'
+-        t='Receiving'
+-    msg6.configure(text=t,bg=bgcolor)
+-
+-# If new decoded text has appeared, display it.
+-    if w.acom1.ndecdone:
+-        get_decoded()
+-        w.acom1.ndecdone=0
+-
+-# Display the waterfall
+-    try:
+-        modpixmap=os.stat('pixmap.dat')[8]
+-        if modpixmap!=modpixmap0:
+-            f=open('pixmap.dat','rb')
+-            a=array.array('h')
+-            a.fromfile(f,NX*NY)
+-            f.close()
+-            newdat=1
+-            modpixmap0=modpixmap
+-    except:
+-        newdat=0
+-    scale=math.pow(10.0,0.003*sc1.get())
+-    offset=0.3*sc2.get()
+-    if newdat or scale!= scale0 or offset!=offset0 or g.cmap!=g.cmap0:
+-        im.putdata(a,scale,offset)              #Compute whole new image
+-        if newdat:
+-            n=len(tw)
+-            for i in range(n-1,-1,-1):
+-                x=465-39*i
+-                draw.text((x,148),tw[i],fill=253)   #Insert time label
+-        pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
+-        graph1.delete(ALL)
+-        graph1.create_image(0,0+2,anchor='nw',image=pim)
+-        g.ndecphase=2
+-        newMinute=0
+-        scale0=scale
+-        offset0=offset
+-        g.cmap0=g.cmap
+-        newdat=0
+-
+-    s0=sc1.get()
+-    c0=sc2.get()
+-    try:
+-        fmid=f0.get() + 0.001500
+-    except:
+-        pass
+-    if fmid!=fmid0:
+-        draw_axis()
+-
+-    w.acom1.ndebug=ndebug.get()
+-    w.acom1.nreply=nbestdx.get()
+-    ldate.after(200,update)
+-    
+-#------------------------------------------------------ Top level frame
+-frame = Frame(root)
+-
+-#------------------------------------------------------ Menu Bar
+-mbar = Frame(frame)
+-mbar.pack(fill = X)
+-
+-#------------------------------------------------------ File Menu
+-filebutton = Menubutton(mbar, text = 'File')
+-filebutton.pack(side = LEFT)
+-filemenu = Menu(filebutton, tearoff=0)
+-filebutton['menu'] = filemenu
+-filemenu.add('command', label = 'Open', command = openfile, \
+-             accelerator='Ctrl+O')
+-filemenu.add('command', label = 'Open next in directory', command = opennext, \
+-             accelerator='F6')
+-filemenu.add('command', label = 'Decode remaining files in directory', \
+-             command = decodeall, accelerator='Shift+F6')
+-filemenu.add_separator()
+-filemenu.add('command', label = 'Delete all *.WAV files in Save', \
+-             command = delwav)
+-filemenu.add_separator()
+-filemenu.add('command', label = 'Erase ALL_MEPT.TXT', command = del_all)
+-filemenu.add_separator()
+-filemenu.add('command', label = 'Exit', command = quit, accelerator='Alt+F4')
+-
+-#------------------------------------------------------ Setup menu
+-setupbutton = Menubutton(mbar, text = 'Setup')
+-setupbutton.pack(side = LEFT)
+-setupmenu = Menu(setupbutton, tearoff=0)
+-setupbutton['menu'] = setupmenu
+-setupmenu.add('command', label = 'Options', command = options1,
+-              accelerator='F2')
+-setupmenu.add_separator()
+-setupmenu.add('command', label = 'Rx volume control', command = rx_volume)
+-setupmenu.add('command', label = 'Tx volume control', command = tx_volume)
+-setupmenu.add_separator()
+-setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
+-
+-#--------------------------------------------------------- View menu
+-setupbutton = Menubutton(mbar, text = 'View', )
+-setupbutton.pack(side = LEFT)
+-setupmenu = Menu(setupbutton, tearoff=1)
+-setupbutton['menu'] = setupmenu
+-setupmenu.palettes=Menu(setupmenu,tearoff=0)
+-setupmenu.palettes.add_radiobutton(label='Gray0',command=pal_gray0,
+-            value=0,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Gray1',command=pal_gray1,
+-            value=1,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Linrad',command=pal_linrad,
+-            value=2,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Blue',command=pal_blue,
+-            value=3,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='Hot',command=pal_Hot,
+-            value=4,variable=npal)
+-setupmenu.palettes.add_radiobutton(label='AFMHot',command=pal_AFMHot,
+-            value=5,variable=npal)
+-setupmenu.add_cascade(label = 'Palette',menu=setupmenu.palettes)
+-
+-#------------------------------------------------------ Save menu
+-savebutton = Menubutton(mbar, text = 'Save')
+-savebutton.pack(side = LEFT)
+-savemenu = Menu(savebutton, tearoff=1)
+-savebutton['menu'] = savemenu
+-savemenu.add_radiobutton(label = 'None', variable=nsave,value=0)
+-#savemenu.add_radiobutton(label = 'Save decoded', variable=nsave,value=1)
+-savemenu.add_radiobutton(label = 'Save all', variable=nsave,value=2)
+-nsave.set(0)
+-
+-#------------------------------------------------------  Help menu
+-helpbutton = Menubutton(mbar, text = 'Help')
+-helpbutton.pack(side = LEFT)
+-helpmenu = Menu(helpbutton, tearoff=0)
+-helpbutton['menu'] = helpmenu
+-helpmenu.add('command', label = 'Help', command = help, accelerator='F1')
+-helpmenu.add('command', label = 'About WSPR', command = about)
+-
+-root.bind_all('&lt;Escape&gt;', stop_loopall)
+-root.bind_all('&lt;F1&gt;', help)
+-root.bind_all('&lt;F2&gt;', options1)
+-root.bind_all('&lt;Alt-F4&gt;', quit)
+-root.bind_all('&lt;F6&gt;', opennext)
+-root.bind_all('&lt;Shift-F6&gt;', decodeall)
+-root.bind_all('&lt;Control-o&gt;',openfile)
+-root.bind_all('&lt;Control-O&gt;',openfile)
+-
+-#------------------------------------------------------ Graphics area
+-iframe1 = Frame(frame, bd=1, relief=SUNKEN)
+-
+-graph1=Canvas(iframe1, bg='black', width=NX, height=NY,cursor='crosshair')
+-Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,df_readout)
+-Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,set_tx_freq)
+-graph1.pack(side=LEFT)
+-c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+-c.pack(side=LEFT)
+-
+-text1=Text(iframe1, height=10, width=12, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+-text1.pack(side=LEFT, padx=1)
+-text1.tag_configure('age0',foreground='red')
+-text1.tag_configure('age1',foreground='yellow')
+-text1.tag_configure('age2',foreground='gray75')
+-text1.tag_configure('age3',foreground='gray50')
+-text1.insert(END,'132 ZL1BPU')
+-sb = Scrollbar(iframe1, orient=VERTICAL, command=text1.yview)
+-sb.pack(side=RIGHT, fill=Y)
+-text1.configure(yscrollcommand=sb.set)
+-iframe1.pack(expand=1, fill=X, padx=4)
+-
+-iframe2 = Frame(frame, bd=1, relief=FLAT)
+-sc1=Scale(iframe2,from_=-100.0,to_=100.0,orient='horizontal',
+-    showvalue=0,sliderlength=5)
+-sc1.pack(side=LEFT)
+-sc2=Scale(iframe2,from_=-100.0,to_=100.0,orient='horizontal',
+-    showvalue=0,sliderlength=5)
+-sc2.pack(side=LEFT)
+-bupload=Checkbutton(iframe2,text='Upload spots',justify=RIGHT,variable=upload)
+-bupload.place(x=360,y=12, anchor='e')
+-#bupload.pack(side=LEFT)
+-bbestdx=Checkbutton(iframe2,text='Tx Best DX',justify=RIGHT,variable=nbestdx)
+-bbestdx.place(x=460,y=12, anchor='e')
+-lab02=Label(iframe2, text='')
+-lab02.place(x=500,y=10, anchor='e')
+-lab00=Label(iframe2, text='Band Map').place(x=623,y=10, anchor='e')
+-iframe2.pack(expand=1, fill=X, padx=4)
+-
+-#------------------------------------------------------ Labels under graphics
+-iframe2a = Frame(frame, bd=1, relief=FLAT)
+-g1=Pmw.Group(iframe2a,tag_text=&quot;Frequencies (MHz)&quot;)
+-lf0=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Dial freq:',
+-        value=10.1387,entry_textvariable=f0,entry_width=12)
+-lftx=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Tx freq:',
+-        entry_textvariable=sftx,entry_width=12)
+-widgets = (lf0, lftx)
+-for widget in widgets:
+-    widget.pack(side=LEFT,padx=5,pady=2)
+-g1.pack(side=LEFT,fill=BOTH,expand=0,padx=6,pady=6)
+-lab01=Label(iframe2a, text='').pack(side=LEFT,padx=1)
+-g2=Pmw.Group(iframe2a,tag_text=&quot;T/R cycle&quot;)
+-#------------------------------------------------------ T/R Cycle Select
+-for i in range(6):
+-    t=&quot;Idle&quot;
+-    if i==1:
+-        t=&quot;Rx&quot;
+-    elif i==2:
+-        t=&quot;20%&quot;
+-    elif i==3:
+-        t=&quot;25%&quot;
+-    elif i==4:
+-        t=&quot;33%&quot;
+-    elif i==5:
+-        t=&quot;Tx&quot;
+-    Radiobutton(g2.interior(),text=t,value=i,
+-                variable=ipctx).pack(side=LEFT,padx=4)
+-ipctx.set(0)
+-g2.pack(side=LEFT,fill=BOTH,expand=0,padx=6,pady=6)
+-iframe2a.pack(expand=1, fill=X, padx=1)
+-
+-iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+-lab2=Label(iframe2, text='UTC        dB        DT             Freq             Drift')
+-lab2.place(x=150,y=6, anchor='w')
+-iframe2.pack(expand=1, fill=X, padx=4)
+-
+-#-------------------------------------------------------- Buttons, UTC, etc
+-iframe4 = Frame(frame, bd=1, relief=SUNKEN)
+-f4a=Frame(iframe4,height=170,bd=2,relief=FLAT)
+-
+-berase=Button(f4a, text='Erase',underline=0,command=erase,padx=1,pady=1)
+-berase.pack(side=TOP,padx=0,pady=15)
+-
+-ldate=Label(f4a, bg='black', fg='yellow', width=11, bd=4,
+-        text='2005 Apr 22\n01:23:45', relief=RIDGE,
+-        justify=CENTER, font=(font1,14))
+-ldate.pack(side=TOP,padx=2,pady=5)
+-
+-ldsec=Label(f4a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+-ldsec.pack(side=TOP,ipadx=3,padx=2,pady=10)
+-Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+-Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
+-
+-f4a.pack(side=LEFT,expand=0,fill=Y)
+-
+-#--------------------------------------------------------- Decoded text box
+-f4b=Frame(iframe4,height=170,bd=2,relief=FLAT)
+-text=Text(f4b, height=11, width=63)
+-sb = Scrollbar(f4b, orient=VERTICAL, command=text.yview)
+-sb.pack(side=RIGHT, fill=Y)
+-text.pack(side=RIGHT, fill=X, padx=1)
+-text.insert(END,'1054   4 -25   1.1  10.140140  K1JT FN20 25')
+-text.configure(yscrollcommand=sb.set)
+-f4b.pack(side=LEFT,expand=0,fill=Y)
+-iframe4.pack(expand=1, fill=X, padx=4)
+-
+-
+-#------------------------------------------------------------ Status Bar
+-iframe6 = Frame(frame, bd=1, relief=SUNKEN)
+-btest=Checkbutton(iframe6,text='Test mode',justify=LEFT,variable=ntest)
+-btest.pack(side=LEFT, fill=X, padx=5)
+-bqso=Checkbutton(iframe6,text='QSO Mode',justify=LEFT,variable=nqso)
+-bqso.pack(side=LEFT, fill=X, padx=5)
+-btxfirst=Checkbutton(iframe6,text='Tx First',justify=LEFT,variable=ntxfirst)
+-btxfirst.pack(side=LEFT, fill=X, padx=5)
+-TxMsg=Pmw.EntryField(iframe6,labelpos=W,label_text='Tx msg:',
+-        value='CQ K1JT FN20',entry_textvariable=txmsg,entry_width=22)
+-TxMsg.pack(side=LEFT, fill=X, padx=5)
+-
+-##msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg1.pack(side=LEFT, fill=X, padx=1)
+-##msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg2.pack(side=LEFT, fill=X, padx=1)
+-##msg3=Message(iframe6, text='      ',width=300,relief=SUNKEN)
+-##msg3.pack(side=LEFT, fill=X, padx=1)
+-##msg4=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg4.pack(side=LEFT, fill=X, padx=1)
+-##msg5=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg5.pack(side=LEFT, fill=X, padx=1)
+-msg6=Message(iframe6, text='      ', width=400,relief=SUNKEN)
+-msg6.pack(side=RIGHT, fill=X, padx=1)
+-iframe6.pack(expand=1, fill=X, padx=4)
+-frame.pack()
+-
+-isync=1
+-
+-#---------------------------------------------------------- Process INI file
+-try:
+-    f=open(appdir+'/WSPR.INI',mode='r')
+-    params=f.readlines()
+-except:
+-    params=&quot;&quot;
+-    if g.Win32:
+-        options.PttPort.set(&quot;0&quot;)
+-        pass
+-    else:
+-        options.PttPort.set(&quot;/dev/ttyS0&quot;)
+-        pass
+-
+-try:
+-    for i in range(len(params)):
+-        key,value=params[i].split()
+-        if   key == 'WSPRGeometry': root.geometry(value)
+-        elif key == 'MyCall': options.MyCall.set(value)
+-        elif key == 'MyGrid': options.MyGrid.set(value)
+-        elif key == 'dBm': options.dBm.set(value)
+-        elif key == 'PctTx': ipctx.set(value)
+-#        elif key == 'IDinterval': options.IDinterval.set(value)
+-        elif key == 'PttPort':
+-            try:
+-                options.PttPort.set(value)
+-            except:
+-                if g.Win32:
+-                    options.PttPort.set(&quot;0&quot;)
+-                else:
+-                    options.PttPort.set(&quot;/dev/ttyS0&quot;)
+-                pass
+-            pass
+-        elif key == 'AudioIn':
+-            try:
+-                g.ndevin.set(value)
+-            except:
+-                g.ndevin.set(0)
+-            g.DevinName.set(value)
+-            options.DevinName.set(value)
+-#            w.acom1.devin_name=(options.DevinName.get()+'            ')[:12]
+-        elif key == 'AudioOut':
+-            try:
+-                g.ndevout.set(value)
+-            except:
+-                g.ndevout.set(0)
+-            g.DevoutName.set(value)
+-            options.DevoutName.set(value)
+-#            w.acom1.devout_name=(options.DevoutName.get()+'            ')[:12]
+-        elif key == 'Nsave': nsave.set(value)
+-        elif key == 'Upload': upload.set(value)
+-        elif key == 'BestDX': nbestdx.set(value)
+-        elif key == 'Debug': ndebug.set(value)
+-        elif key == 'WatScale': sc1.set(value)
+-        elif key == 'WatOffset': sc2.set(value)
+-        elif key == 'f0': f0.set(value)
+-        elif key == 'ftx': ftx.set(value)
+-        elif key == 'MRUDir': mrudir=value.replace(&quot;#&quot;,&quot; &quot;)
+-except:
+-    print 'Error reading WSPR.INI, continuing with defaults.'
+-    print key,value
+-
+-#------------------------------------------------------  Select palette
+-if g.cmap == &quot;gray0&quot;:
+-    pal_gray0()
+-    npal.set(0)
+-if g.cmap == &quot;gray1&quot;:
+-    pal_gray1()
+-    npal.set(1)
+-if g.cmap == &quot;Linrad&quot;:
+-    pal_linrad()
+-    npal.set(2)
+-if g.cmap == &quot;blue&quot;:
+-    pal_blue()
+-    npal.set(3)
+-if g.cmap == &quot;Hot&quot;:
+-    pal_Hot()
+-    npal.set(4)
+-if g.cmap == &quot;AFMHot&quot;:
+-    pal_AFMHot()
+-    npal.set(5)
+-
+-
+-##lsync.configure(text=slabel+str(isync))
+-options.dbm_balloon()
+-fmid=f0.get() + 0.001500
+-sftx.set('%.06f' % ftx.get())
+-draw_axis()
+-erase()
+-if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSPR 0.8     by K1JT')
+-
+-put_params()
+-try:
+-    os.remove('decoded.txt')
+-except:
+-    pass
+-try:
+-    os.remove('pixmap.dat')
+-except:
+-    pass
+-
+-w.wspr1()
+-graph1.focus_set()
+-ldate.after(100,update)
+-root.mainloop()
+-
+-# Clean up and save user options before terminating
+-f=open(appdir+'/WSPR.INI',mode='w')
+-root_geom=root_geom[root_geom.index(&quot;+&quot;):]
+-f.write(&quot;WSPRGeometry &quot; + root_geom + &quot;\n&quot;)
+-f.write(&quot;MyCall &quot; + options.MyCall.get() + &quot;\n&quot;)
+-f.write(&quot;MyGrid &quot; + options.MyGrid.get() + &quot;\n&quot;)
+-f.write(&quot;dBm &quot; + str(options.dBm.get()) + &quot;\n&quot;)
+-#f.write(&quot;IDinterval &quot; + str(options.IDinterval.get()) + &quot;\n&quot;)
+-f.write(&quot;PttPort &quot; + str(options.PttPort.get()) + &quot;\n&quot;)
+-f.write(&quot;AudioIn &quot; + options.DevinName.get() + &quot;\n&quot;)
+-f.write(&quot;AudioOut &quot; + options.DevoutName.get() + &quot;\n&quot;)
+-f.write(&quot;Nsave &quot; + str(nsave.get()) + &quot;\n&quot;)
+-f.write(&quot;PctTx &quot; + str(ipctx.get()) + &quot;\n&quot;)
+-f.write(&quot;Upload &quot; + str(upload.get()) + &quot;\n&quot;)
+-f.write(&quot;BestDX &quot; + str(nbestdx.get()) + &quot;\n&quot;)
+-mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+-f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+-f.write(&quot;WatScale &quot; + str(s0)+ &quot;\n&quot;)
+-f.write(&quot;f0 &quot; + str(f0.get()) + &quot;\n&quot;)
+-f.write(&quot;ftx &quot; + str(ftx.get()) + &quot;\n&quot;)
+-f.close()
+-
+-#Terminate PortAudio
+-w.paterminate()
++#-------------------------------------------------------------------- WSPR
++# $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
++#
++from Tkinter import *
++from tkFileDialog import *
++from tkMessageBox import showwarning
++import os,time,sys
++from Wspr import g,Pmw
++from Wspr import palettes
++from math import log10
++try:
++    from numpy.oldnumeric import zeros
++except: 
++    from Numeric import zeros
++import array
++import dircache
++import Image, ImageTk, ImageDraw
++from Wspr.palettes import colormapblue, colormapgray0, colormapHot, \
++     colormapAFMHot, colormapgray1, colormapLinrad, Colormap2Palette
++from types import *
++import array
++import random
++import math
++import string
++from Wspr import w
++import socket
++import urllib
++import thread
++
++root = Tk()
++Version=&quot;0.8_r&quot; + &quot;$Rev$&quot;[6:-1]
++print &quot;******************************************************************&quot;
++print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
++##print &quot;Revision date: &quot; + \
++##      &quot;$Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $&quot;[7:-1]
++print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
++
++#See if we are running in Windows
++g.Win32=0
++if sys.platform==&quot;win32&quot;:
++    g.Win32=1
++    try:
++        root.option_readfile('wsprrc.win')
++    except:
++        pass
++else:
++    try:
++        root.option_readfile('wsprrc')
++    except:
++        pass
++root_geom=&quot;&quot;
++from Wspr import options
++
++
++#------------------------------------------------------ Global variables
++appdir=os.getcwd()
++bandmap=[]
++bm={}
++f0=DoubleVar()
++ftx=DoubleVar()
++ft=[]
++fileopened=&quot;&quot;
++fmid=0.0
++fmid0=0.0
++font1='Helvetica'
++idsec=0
++ipctx=IntVar()
++isec0=0
++isync=1
++loopall=0
++modpixmap0=0
++mrudir=os.getcwd()
++nbestdx=IntVar()
++ndbm0=-999
++ncall=0
++ndebug=IntVar()
++newdat=1
++newspec=1
++npal=IntVar()
++npal.set(2)
++nqso=IntVar()
++nsave=IntVar()
++nscroll=0
++nsec0=0
++nspeed0=IntVar()
++ntr0=0
++ntest=IntVar()
++ntxfirst=IntVar()
++NX=500
++NY=160
++param20=&quot;&quot;
++pctx=[-1,0,20,25,33,100]
++sftx=StringVar()
++txmsg=StringVar()
++
++a=array.array('h')
++im=Image.new('P',(NX,NY))
++draw=ImageDraw.Draw(im)
++im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
++pim=ImageTk.PhotoImage(im)
++receiving=0
++scale0=1.0
++offset0=0.0
++s0=0.0
++c0=0.0
++slabel=&quot;MinSync  &quot;
++transmitting=0
++tw=[]
++upload=IntVar()
++
++g.appdir=appdir
++g.cmap=&quot;Linrad&quot;
++g.cmap0=&quot;Linrad&quot;
++g.ndevin=IntVar()
++g.ndevout=IntVar()
++g.DevinName=StringVar()
++g.DevoutName=StringVar()
++
++pwrlist=(0,3,7,10,13,17,20,23,27,30,33,37,40,43,47,50,53,57,60)
++
++socktimeout = 10
++socket.setdefaulttimeout(socktimeout)
++
++def pal_gray0():
++    g.cmap=&quot;gray0&quot;
++    im.putpalette(Colormap2Palette(colormapgray0),&quot;RGB&quot;)
++def pal_gray1():
++    g.cmap=&quot;gray1&quot;
++    im.putpalette(Colormap2Palette(colormapgray1),&quot;RGB&quot;)
++def pal_linrad():
++    g.cmap=&quot;Linrad&quot;
++    im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
++def pal_blue():
++    g.cmap=&quot;blue&quot;
++    im.putpalette(Colormap2Palette(colormapblue),&quot;RGB&quot;)
++def pal_Hot():
++    g.cmap=&quot;Hot&quot;
++    im.putpalette(Colormap2Palette(colormapHot),&quot;RGB&quot;)
++def pal_AFMHot():
++    g.cmap=&quot;AFMHot&quot;
++    im.putpalette(Colormap2Palette(colormapAFMHot),&quot;RGB&quot;)
++
++#------------------------------------------------------ quit
++def quit(event=NONE):
++    root.destroy()
++
++#------------------------------------------------------ openfile
++def openfile(event=NONE):
++    global mrudir,fileopened,nopen,tw
++    nopen=1                         #Work-around for &quot;click feedthrough&quot; bug
++    upload.set(0)
++    try:
++        os.chdir(mrudir)
++    except:
++        pass
++    fname=askopenfilename(filetypes=[(&quot;Wave files&quot;,&quot;*.wav *.WAV&quot;)])
++    if fname:
++        w.getfile(fname,len(fname))
++        mrudir=os.path.dirname(fname)
++        fileopened=os.path.basename(fname)
++        i1=fileopened.find('.')
++        t=fileopened[i1-4:i1]
++        t=t[0:2] + ':' + t[2:4]
++        n=len(tw)
++        if n&gt;12: tw=tw[:n-1]
++        tw=[t,] + tw
++    os.chdir(appdir)
++    ipctx.set(0)
++
++#------------------------------------------------------ stop_loopall
++def stop_loopall(event=NONE):
++    global loopall
++    loopall=0
++    
++#------------------------------------------------------ opennext
++def opennext(event=NONE):
++    global ncall,fileopened,loopall,mrudir,tw
++    if fileopened==&quot;&quot; and ncall==0:
++        openfile()
++        ncall=1
++    else:
++# Make a list of *.wav files in mrudir
++        la=os.listdir(mrudir)
++        la.sort()
++        lb=[]
++        for i in range(len(la)):
++            j=la[i].find(&quot;.wav&quot;) + la[i].find(&quot;.WAV&quot;)
++            if j&gt;0: lb.append(la[i])
++        for i in range(len(lb)):
++            if lb[i]==fileopened:
++                break
++        if i&lt;len(lb)-1:
++            fname=mrudir+&quot;/&quot;+lb[i+1]
++            w.getfile(fname,len(fname))
++            mrudir=os.path.dirname(fname)
++            fileopened=os.path.basename(fname)
++            i1=fileopened.find('.')
++            t=fileopened[i1-4:i1]
++            t=t[0:2] + ':' + t[2:4]
++            n=len(tw)
++            if n&gt;12: tw=tw[:n-1]
++            tw=[t,] + tw
++        else:
++            t=&quot;No more *.wav files in this directory.&quot;
++            msg=Pmw.MessageDialog(root,buttons=('OK',),message_text=t)
++            msg.geometry(msgpos())
++#            if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
++            msg.focus_set()
++            ncall=0
++            loopall=0
++            
++#------------------------------------------------------ decodeall
++def decodeall(event=NONE):
++    global loopall
++    loopall=1
++    opennext()
++
++#------------------------------------------------------ options1
++def options1(event=NONE):
++    options.options2(root_geom[root_geom.index(&quot;+&quot;):])
++
++#------------------------------------------------------ stub
++def stub(event=NONE):
++    MsgBox(&quot;Sorry, this function is not yet implemented.&quot;)
++
++#------------------------------------------------------ MsgBox
++def MsgBox(t):
++    msg=Pmw.MessageDialog(root,buttons=('OK',),message_text=t)
++    result=msg.activate()
++    msg.focus_set()
++
++#------------------------------------------------------ msgpos
++def msgpos():
++    g=root_geom[root_geom.index(&quot;+&quot;):]
++    t=g[1:]
++    x=int(t[:t.index(&quot;+&quot;)])          # + 70
++    y=int(t[t.index(&quot;+&quot;)+1:])        # + 70
++    return &quot;+%d+%d&quot; % (x,y)    
++
++#------------------------------------------------------ about
++def about(event=NONE):
++    global Version
++    about=Toplevel(root)
++    about.geometry(msgpos())
++    if g.Win32: about.iconbitmap(&quot;wsjt.ico&quot;)
++    t=&quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
++    Label(about,text=t,font=(font1,16)).pack(padx=20,pady=5)
++    t=&quot;&quot;&quot;
++WSPR is pronounced &quot;whisper&quot; and stands for &quot;Weak Signal
++Propagation Reporter&quot;.  The program transmits and receives
++the digital soundcard mode &quot;MEPT_JT&quot;, which stands for
++&quot;Manned Experimental Propagation Tests, by K1JT&quot;.
++
++Copyright (c) 2008 by Joseph H. Taylor, Jr., K1JT.
++&quot;&quot;&quot;
++    Label(about,text=t,justify=LEFT).pack(padx=20)
++    t=&quot;Revision date: &quot; + \
++      &quot;$Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $&quot;[7:-1]
++    Label(about,text=t,justify=LEFT).pack(padx=20)
++    about.focus_set()
++
++#------------------------------------------------------ 
++def help(event=NONE):
++    about=Toplevel(root)
++    about.geometry(msgpos())
++    if g.Win32: about.iconbitmap(&quot;wsjt.ico&quot;)
++    t=&quot;Basic Operating Instructions&quot;
++    Label(about,text=t,font=(font1,14)).pack(padx=20,pady=5)
++    t=&quot;&quot;&quot;
++1. Open the Setup | Options page and enter your callsign,
++   grid locator, COM port number (for PTT control), and Tx
++   power in dBm.  If you do not wish to use the system's
++   default sound card, enter suitable device numbers for
++   Audio In and Audio Out (see console window).
++
++2. On the main screen, enter your dial frequency (USB) and
++    Tx frequency in MHz.  Click on 'Rx' to receive only,
++    'Tx' to transmit only, or the desired average percentage
++    of transmission cycles.
++
++3. Be sure that your computer clock is correct to +/- 1 s. If
++   necessary you can make small adjustments by left- or right-
++   clicking on the 'Dsec' label.
++
++4. The program will begin a Tx or Rx sequence at the start of
++    each even minute.  The waterfall will update near the end
++    of each Rx sequence.
++&quot;&quot;&quot;
++    Label(about,text=t,justify=LEFT).pack(padx=20)
++    about.focus_set()
++
++#------------------------------------------------------ incdsec
++def incdsec(event):
++    global idsec
++    idsec=idsec+5
++    bg='red'
++    if idsec==0: bg='white'
++    ldsec.configure(text='Dsec  '+str(0.1*idsec),bg=bg)
++
++#------------------------------------------------------ decdsec
++def decdsec(event):
++    global idsec
++    idsec=idsec-5
++    bg='red'
++    if idsec==0: bg='white'
++    ldsec.configure(text='Dsec  '+str(0.1*idsec),bg=bg)
++
++#------------------------------------------------------ erase
++def erase(event=NONE):
++    global bandmap,bm
++    text.configure(state=NORMAL)
++    text.delete('1.0',END)
++    text.configure(state=DISABLED)
++    text1.configure(state=NORMAL)
++    text1.delete('1.0',END)
++    text1.configure(state=DISABLED)
++    bandmap=[]
++    bm={}
++
++#----------------------------------------------------- df_readout
++# Readout of graphical cursor location
++def df_readout(event):
++    global fmid
++    nhz=1000000*fmid + (80.0-event.y) * 12000/8192.0
++    nhz=int(nhz%1000)
++    t=&quot;%3d Hz&quot; % nhz
++    lab02.configure(text=t,bg='red')
++
++#----------------------------------------------------- set_tx_freq
++def set_tx_freq(event):
++    global fmid
++    nftx=int(1000000.0*fmid + (80.0-event.y) * 12000/8192.0)
++    fmhz=0.000001*nftx
++    t=&quot;Please confirm setting Tx frequency to &quot; + &quot;%.06f MHz&quot; % fmhz
++    msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t)
++    msg.geometry(msgpos())
++    if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
++    msg.focus_set()
++    result=msg.activate()
++    if result == 'Yes':
++        ftx.set(0.000001*nftx)
++        sftx.set('%.06f' % ftx.get())
++
++#-------------------------------------------------------- draw_axis
++def draw_axis():
++    global fmid
++    c.delete(ALL)
++    df=12000.0/8192.0
++    nfmid=int(1.0e6*fmid)%1000
++# Draw and label tick marks
++    for iy in range(-120,120,10):
++        j=80 - iy/df
++        i1=7
++        if (iy%50)==0:
++            i1=12
++            if (iy%100)==0: i1=15
++            n=nfmid+iy
++            if n&lt;0: n=n+1000
++            c.create_text(27,j,text=str(n))
++        c.create_line(0,j,i1,j,fill='black')
++
++#------------------------------------------------------ del_all
++def del_all():
++    fname=appdir+'/ALL_MEPT.TXT'
++    try:
++        os.remove(fname)
++    except:
++        pass
++
++#------------------------------------------------------ delwav
++def delwav():
++    t=&quot;Are you sure you want to delete\nall *.WAV files in the Save directory?&quot;
++    msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t)
++    msg.geometry(msgpos())
++    if g.Win32: msg.iconbitmap(&quot;wsjt.ico&quot;)
++    msg.focus_set()
++    result=msg.activate()
++    if result == 'Yes':
++# Make a list of *.wav files in Save
++        la=dircache.listdir(appdir+'/Save')
++        lb=[]
++        for i in range(len(la)):
++            j=la[i].find(&quot;.wav&quot;) + la[i].find(&quot;.WAV&quot;)
++            if j&gt;0: lb.append(la[i])
++# Now delete them all.
++        for i in range(len(lb)):
++            fname=appdir+'/Save/'+lb[i]
++            os.remove(fname)
++
++#--------------------------------------------------- rx_volume
++def rx_volume():
++    for path in string.split(os.environ[&quot;PATH&quot;], os.pathsep):
++        file = os.path.join(path, &quot;sndvol32&quot;) + &quot;.exe&quot;
++        try:
++            return os.spawnv(os.P_NOWAIT, file, (file,) + (&quot; -r&quot;,))
++        except os.error:
++            pass
++    raise os.error, &quot;Cannot find &quot;+file
++
++#--------------------------------------------------- tx_volume
++def tx_volume():
++    for path in string.split(os.environ[&quot;PATH&quot;], os.pathsep):
++        file = os.path.join(path, &quot;sndvol32&quot;) + &quot;.exe&quot;
++        try:
++            return os.spawnv(os.P_NOWAIT, file, (file,))
++        except os.error:
++            pass
++    raise os.error, &quot;Cannot find &quot;+file
++
++#------------------------------------------------------ get_decoded
++def get_decoded():
++    global bandmap,bm,newdat,loopall
++    
++# Get lines from decoded.txt
++    try:
++        f=open(appdir+'/decoded.txt',mode='r')
++        lines=f.readlines()
++        f.close()
++        if lines[0][:4]==&quot;$EOF&quot;: lines=&quot;&quot;
++    except:
++        lines=&quot;&quot;
++        
++    if upload.get():
++        #Dispatch autologger thread.
++        thread.start_new_thread(autolog, (lines,f0),)
++
++    if len(lines)&gt;0:
++#  Write data to text box and insert freqs and calls into bandmap.
++        text.configure(state=NORMAL)
++        nseq=0
++        nfmid=int(1.0e6*fmid)%1000
++        for i in range(len(lines)):
++            if len(lines[i])&lt;6: break                    #Skip $EOF
++            text.insert(END,lines[i][:51]+&quot;\n&quot;)
++            callsign=lines[i][29:36]
++            if callsign[:1] != ' ':
++                i1=callsign.find(' ')
++                callsign=callsign[:i1]
++                try:
++                    nseq=60*int(lines[i][0:2]) + int(lines[i][2:4])
++                    ndf=int(lines[i][21:24])
++                    bm[callsign]=(ndf,nseq)
++                except:
++                    pass
++        text.configure(state=DISABLED)
++        text.see(END)
++
++#  Remove any &quot;too old&quot; information from bandmap.
++        bandmap=[]
++        for callsign,ft in bm.iteritems():
++            ndf,tdecoded=ft
++            if nseq-tdecoded &lt; 60:                        #60 minutes 
++                bandmap.append((ndf,callsign,tdecoded))
++
++        iz=len(bandmap)
++        bm={}
++        for i in range(iz):
++            bm[bandmap[i][1]]=(bandmap[i][0],bandmap[i][2])
++
++#  Sort bandmap in reverse frequency order
++        bandmap.sort()
++        bandmap.reverse()
++        text1.configure(state=NORMAL)
++        text1.delete('1.0',END)
++        for i in range(iz):
++            t=&quot;%4d&quot; % (bandmap[i][0],) + &quot; &quot; + bandmap[i][1]
++            nage=int((nseq - bandmap[i][2])/15)
++            attr='age0'
++            if nage==1: attr='age1'
++            if nage==2: attr='age2'
++            if nage&gt;=3: attr='age3'
++            text1.insert(END,t+&quot;\n&quot;,attr)
++        text1.configure(state=DISABLED)
++        text1.see(END)
++
++    if loopall: opennext()
++
++#------------------------------------------------------ autologger
++def autolog(lines,f0):
++    # Random delay of up to 15 seconds to spread load out on server --W1BW
++    time.sleep(random.random() * 15.0)
++
++    try:
++        # This code originally by W6CQZ ... modified by W1BW
++        # TODO:  Cache entries for later uploading if net is down.
++        # TODO:  (Maybe??) Allow for stations wishing to collect spot data but
++        #       only upload in batch form vs real-time.
++        # Any spots to upload?
++        if len(lines) &gt; 0:
++            for i in range(len(lines)):
++                if len(lines[i])&lt;6: break                    #Skip $EOF            
++                acallsign=lines[i][42:49]
++                if acallsign[:1] != ' ':
++                    foo = lines[i].split()
++                    # foo now contains a list as follows
++                    #  date,     time, signal,  dt,     freq,     drift, width   call,  grid,   dBm,  (extra params ...)
++                    #    0         1      2      3        4         5      6       7      8      9         10       11
++                    # example:
++                    #['080322', '1834', '-14', '0.1', '10.140141', '-1', 'K7EK', 'CN87', '33', '11.1', '10051757', '40']
++                    # now to format as a string to use for autologger upload using urlencode
++                    # so we get a string formatted for http get/put operations:
++                    reportparams = urllib.urlencode({'function': 'wspr',
++                                                     'dt': str(foo[3]), \
++                                                     'rcall': options.MyCall.get(), \
++                                                     'rgrid': options.MyGrid.get(), 'rqrg': str(f0), \
++                                                     'date': str(foo[0]), 'time': str(foo[1]), \
++                                                     'sig': str(foo[2]), 'tqrg': str(foo[4]), \
++                                                     'drift': str(foo[5]), 'width': str(foo[6]), \
++                                                     'tcall': str(foo[7]), 'tgrid': str(foo[8]), \
++                                                     'dbm': str(foo[9]), 'version': Version})
++                    # reportparams now contains a properly formed http request string for
++                    # the agreed upon format between W6CQZ and N8FQ.
++                    # any other data collection point can be added as desired if it conforms
++                    # to the 'standard format' defined above.
++                    # The following opens a url and passes the reception report to the database
++                    # insertion handler for W6CQZ:
++                    #                urlf = urllib.urlopen(&quot;<A HREF="http://jt65.w6cqz.org/rbc.php?%s">http://jt65.w6cqz.org/rbc.php?%s</A>&quot; % reportparams)
++                    # The following opens a url and passes the reception report to the
++                    # database insertion handler from W1BW:
++                    urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
++                                      % reportparams)
++                    reply = urlf.readlines()
++                    #for r in reply:
++                    #    print r
++                    urlf.close()
++        else:
++            # No spots to report, so upload status message instead. --W1BW
++            reportparams = urllib.urlencode({'function': 'wsprstat',
++                                             'rcall': options.MyCall.get(),
++                                             'rgrid': options.MyGrid.get(),
++                                             'rqrg': str(fmid),
++                                             'tpct': str(pctx[ipctx.get()]), 
++                                             'tqrg': sftx.get(),
++                                             'dbm': str(options.dBm.get()),
++                                             'version': Version})
++            urlf = urllib.urlopen(&quot;<A HREF="http://wsprnet.org/meptspots.php?%s">http://wsprnet.org/meptspots.php?%s</A>&quot; \
++                                  % reportparams)
++            reply = urlf.readlines()
++            #for r in reply:
++            #    print r
++            urlf.close()
++    # The proper way to handle url posting will be to define the url as a
++    # configuration parameter so data sinks could be added/removed as necessary.
++    # It is not strictly necessary to post reports to W6CQZ, but, since I
++    # happen to be W6CQZ I can better debug things from the server side by
++    # sending to my system during the active development phase of this code.
++    except:
++        print &quot;Socket error, non-fatal.&quot;
++
++#------------------------------------------------------ put_params
++def put_params(param3=NONE):
++    global idsec,param20
++
++    try:
++        w.acom1.f0=f0.get()
++        w.acom1.ftx=ftx.get()
++    except:
++        pass
++    w.acom1.callsign=(options.MyCall.get().strip().upper()+'      ')[:6]
++    w.acom1.grid=(options.MyGrid.get().strip().upper()+'    ')[:4]
++    w.acom1.ctxmsg=(txmsg.get().strip().upper()+'                      ')[:22]
++
++    # numeric port ==&gt; COM%d, else string of device.  --W1BW
++    port = options.PttPort.get()
++    if port.isdigit():
++        w.acom1.nport = int(port)
++        port = &quot;COM%d&quot; % (int(port))
++    else:
++        w.acom1.nport = 0
++    w.acom1.pttport = (port + 80*' ')[:80]
++
++    for i in range(len(pwrlist)):
++        try:
++            if pwrlist[i]==options.dBm.get():
++                w.acom1.ndbm=pwrlist[i]
++                break
++        except:
++            pass
++    w.acom1.pctx=pctx[ipctx.get()]
++    w.acom1.idsec=idsec
++    w.acom1.ntest=ntest.get()
++    w.acom1.ntxfirst=ntxfirst.get()
++    w.acom1.nqso=nqso.get()
++    w.acom1.nsave=nsave.get()
++    try:
++        g.ndevin.set(options.DevinName.get())
++        w.acom1.ndevin=g.ndevin.get()
++    except:
++        g.ndevin.set(0)
++        w.acom1.ndevin=0
++    try:
++        g.ndevout.set(options.DevoutName.get())
++        w.acom1.ndevout=g.ndevout.get()
++    except:
++        g.ndevout.set(0)
++        w.acom1.ndevout=0
++
++#------------------------------------------------------ update
++def update():
++    global root_geom,isec0,im,pim,ndbm0,nsec0,a, \
++        receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
++        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0,txmsg
++
++    tsec=time.time() + 0.1*idsec
++    utc=time.gmtime(tsec)
++    nsec=int(tsec)
++    nsec0=nsec
++    ns120=nsec % 120
++    try:
++        ftx.set(float(sftx.get()))
++    except:
++        pass
++    isec=utc[5]
++    if isec != isec0:                           #Do once per second
++        isec0=isec
++        t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
++        ldate.configure(text=t)
++        root_geom=root.geometry()
++        utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
++        try:
++            if options.dBm.get()!=ndbm0:
++                ndbm0=options.dBm.get()
++                options.dbm_balloon()
++        except:
++            pass
++        put_params()
++
++# If T/R status has changed, get new info
++    ntr=int(w.acom1.ntr)
++    if ntr!=ntr0:
++        ntr0=ntr
++        if ntr==-1:
++            transmitting=1
++            receiving=0
++        elif ntr==0:
++            transmitting=0
++            receiving=0
++        else:
++            transmitting=0
++            receiving=1
++            n=len(tw)
++            if n&gt;12: tw=tw[:n-1]
++            rxtime=g.ftnstr(w.acom1.rxtime)
++            rxtime=rxtime[:2] + ':' + rxtime[2:]
++            tw=[rxtime,] + tw
++
++    bgcolor='gray85'
++    t=''
++    if transmitting:
++##        t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
++##           options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
++        t='Txing: '+g.ftnstr(w.acom1.ctxmsg)
++        bgcolor='yellow'
++    if receiving:
++        bgcolor='green'
++        t='Receiving'
++    msg6.configure(text=t,bg=bgcolor)
++
++# If new decoded text has appeared, display it.
++    if w.acom1.ndecdone:
++        get_decoded()
++        w.acom1.ndecdone=0
++
++# Display the waterfall
++    try:
++        modpixmap=os.stat('pixmap.dat')[8]
++        if modpixmap!=modpixmap0:
++            f=open('pixmap.dat','rb')
++            a=array.array('h')
++            a.fromfile(f,NX*NY)
++            f.close()
++            newdat=1
++            modpixmap0=modpixmap
++    except:
++        newdat=0
++    scale=math.pow(10.0,0.003*sc1.get())
++    offset=0.3*sc2.get()
++    if newdat or scale!= scale0 or offset!=offset0 or g.cmap!=g.cmap0:
++        im.putdata(a,scale,offset)              #Compute whole new image
++        if newdat:
++            n=len(tw)
++            for i in range(n-1,-1,-1):
++                x=465-39*i
++                draw.text((x,148),tw[i],fill=253)   #Insert time label
++        pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
++        graph1.delete(ALL)
++        graph1.create_image(0,0+2,anchor='nw',image=pim)
++        g.ndecphase=2
++        newMinute=0
++        scale0=scale
++        offset0=offset
++        g.cmap0=g.cmap
++        newdat=0
++
++    s0=sc1.get()
++    c0=sc2.get()
++    try:
++        fmid=f0.get() + 0.001500
++    except:
++        pass
++    if fmid!=fmid0:
++        draw_axis()
++
++    w.acom1.ndebug=ndebug.get()
++    w.acom1.nreply=nbestdx.get()
++    ldate.after(200,update)
++    
++#------------------------------------------------------ Top level frame
++frame = Frame(root)
++
++#------------------------------------------------------ Menu Bar
++mbar = Frame(frame)
++mbar.pack(fill = X)
++
++#------------------------------------------------------ File Menu
++filebutton = Menubutton(mbar, text = 'File')
++filebutton.pack(side = LEFT)
++filemenu = Menu(filebutton, tearoff=0)
++filebutton['menu'] = filemenu
++filemenu.add('command', label = 'Open', command = openfile, \
++             accelerator='Ctrl+O')
++filemenu.add('command', label = 'Open next in directory', command = opennext, \
++             accelerator='F6')
++filemenu.add('command', label = 'Decode remaining files in directory', \
++             command = decodeall, accelerator='Shift+F6')
++filemenu.add_separator()
++filemenu.add('command', label = 'Delete all *.WAV files in Save', \
++             command = delwav)
++filemenu.add_separator()
++filemenu.add('command', label = 'Erase ALL_MEPT.TXT', command = del_all)
++filemenu.add_separator()
++filemenu.add('command', label = 'Exit', command = quit, accelerator='Alt+F4')
++
++#------------------------------------------------------ Setup menu
++setupbutton = Menubutton(mbar, text = 'Setup')
++setupbutton.pack(side = LEFT)
++setupmenu = Menu(setupbutton, tearoff=0)
++setupbutton['menu'] = setupmenu
++setupmenu.add('command', label = 'Options', command = options1,
++              accelerator='F2')
++setupmenu.add_separator()
++setupmenu.add('command', label = 'Rx volume control', command = rx_volume)
++setupmenu.add('command', label = 'Tx volume control', command = tx_volume)
++setupmenu.add_separator()
++setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
++
++#--------------------------------------------------------- View menu
++setupbutton = Menubutton(mbar, text = 'View', )
++setupbutton.pack(side = LEFT)
++setupmenu = Menu(setupbutton, tearoff=1)
++setupbutton['menu'] = setupmenu
++setupmenu.palettes=Menu(setupmenu,tearoff=0)
++setupmenu.palettes.add_radiobutton(label='Gray0',command=pal_gray0,
++            value=0,variable=npal)
++setupmenu.palettes.add_radiobutton(label='Gray1',command=pal_gray1,
++            value=1,variable=npal)
++setupmenu.palettes.add_radiobutton(label='Linrad',command=pal_linrad,
++            value=2,variable=npal)
++setupmenu.palettes.add_radiobutton(label='Blue',command=pal_blue,
++            value=3,variable=npal)
++setupmenu.palettes.add_radiobutton(label='Hot',command=pal_Hot,
++            value=4,variable=npal)
++setupmenu.palettes.add_radiobutton(label='AFMHot',command=pal_AFMHot,
++            value=5,variable=npal)
++setupmenu.add_cascade(label = 'Palette',menu=setupmenu.palettes)
++
++#------------------------------------------------------ Save menu
++savebutton = Menubutton(mbar, text = 'Save')
++savebutton.pack(side = LEFT)
++savemenu = Menu(savebutton, tearoff=1)
++savebutton['menu'] = savemenu
++savemenu.add_radiobutton(label = 'None', variable=nsave,value=0)
++#savemenu.add_radiobutton(label = 'Save decoded', variable=nsave,value=1)
++savemenu.add_radiobutton(label = 'Save all', variable=nsave,value=2)
++nsave.set(0)
++
++#------------------------------------------------------  Help menu
++helpbutton = Menubutton(mbar, text = 'Help')
++helpbutton.pack(side = LEFT)
++helpmenu = Menu(helpbutton, tearoff=0)
++helpbutton['menu'] = helpmenu
++helpmenu.add('command', label = 'Help', command = help, accelerator='F1')
++helpmenu.add('command', label = 'About WSPR', command = about)
++
++root.bind_all('&lt;Escape&gt;', stop_loopall)
++root.bind_all('&lt;F1&gt;', help)
++root.bind_all('&lt;F2&gt;', options1)
++root.bind_all('&lt;Alt-F4&gt;', quit)
++root.bind_all('&lt;F6&gt;', opennext)
++root.bind_all('&lt;Shift-F6&gt;', decodeall)
++root.bind_all('&lt;Control-o&gt;',openfile)
++root.bind_all('&lt;Control-O&gt;',openfile)
++
++#------------------------------------------------------ Graphics area
++iframe1 = Frame(frame, bd=1, relief=SUNKEN)
++
++graph1=Canvas(iframe1, bg='black', width=NX, height=NY,cursor='crosshair')
++Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,df_readout)
++Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,set_tx_freq)
++graph1.pack(side=LEFT)
++c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
++c.pack(side=LEFT)
++
++text1=Text(iframe1, height=10, width=12, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
++text1.pack(side=LEFT, padx=1)
++text1.tag_configure('age0',foreground='red')
++text1.tag_configure('age1',foreground='yellow')
++text1.tag_configure('age2',foreground='gray75')
++text1.tag_configure('age3',foreground='gray50')
++text1.insert(END,'132 ZL1BPU')
++sb = Scrollbar(iframe1, orient=VERTICAL, command=text1.yview)
++sb.pack(side=RIGHT, fill=Y)
++text1.configure(yscrollcommand=sb.set)
++iframe1.pack(expand=1, fill=X, padx=4)
++
++iframe2 = Frame(frame, bd=1, relief=FLAT)
++sc1=Scale(iframe2,from_=-100.0,to_=100.0,orient='horizontal',
++    showvalue=0,sliderlength=5)
++sc1.pack(side=LEFT)
++sc2=Scale(iframe2,from_=-100.0,to_=100.0,orient='horizontal',
++    showvalue=0,sliderlength=5)
++sc2.pack(side=LEFT)
++bupload=Checkbutton(iframe2,text='Upload spots',justify=RIGHT,variable=upload)
++bupload.place(x=360,y=12, anchor='e')
++#bupload.pack(side=LEFT)
++bbestdx=Checkbutton(iframe2,text='Tx Best DX',justify=RIGHT,variable=nbestdx)
++bbestdx.place(x=460,y=12, anchor='e')
++lab02=Label(iframe2, text='')
++lab02.place(x=500,y=10, anchor='e')
++lab00=Label(iframe2, text='Band Map').place(x=623,y=10, anchor='e')
++iframe2.pack(expand=1, fill=X, padx=4)
++
++#------------------------------------------------------ Labels under graphics
++iframe2a = Frame(frame, bd=1, relief=FLAT)
++g1=Pmw.Group(iframe2a,tag_text=&quot;Frequencies (MHz)&quot;)
++lf0=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Dial freq:',
++        value=10.1387,entry_textvariable=f0,entry_width=12)
++lftx=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Tx freq:',
++        entry_textvariable=sftx,entry_width=12)
++widgets = (lf0, lftx)
++for widget in widgets:
++    widget.pack(side=LEFT,padx=5,pady=2)
++g1.pack(side=LEFT,fill=BOTH,expand=0,padx=6,pady=6)
++lab01=Label(iframe2a, text='').pack(side=LEFT,padx=1)
++g2=Pmw.Group(iframe2a,tag_text=&quot;T/R cycle&quot;)
++#------------------------------------------------------ T/R Cycle Select
++for i in range(6):
++    t=&quot;Idle&quot;
++    if i==1:
++        t=&quot;Rx&quot;
++    elif i==2:
++        t=&quot;20%&quot;
++    elif i==3:
++        t=&quot;25%&quot;
++    elif i==4:
++        t=&quot;33%&quot;
++    elif i==5:
++        t=&quot;Tx&quot;
++    Radiobutton(g2.interior(),text=t,value=i,
++                variable=ipctx).pack(side=LEFT,padx=4)
++ipctx.set(0)
++g2.pack(side=LEFT,fill=BOTH,expand=0,padx=6,pady=6)
++iframe2a.pack(expand=1, fill=X, padx=1)
++
++iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
++lab2=Label(iframe2, text='UTC        dB        DT             Freq             Drift')
++lab2.place(x=150,y=6, anchor='w')
++iframe2.pack(expand=1, fill=X, padx=4)
++
++#-------------------------------------------------------- Buttons, UTC, etc
++iframe4 = Frame(frame, bd=1, relief=SUNKEN)
++f4a=Frame(iframe4,height=170,bd=2,relief=FLAT)
++
++berase=Button(f4a, text='Erase',underline=0,command=erase,padx=1,pady=1)
++berase.pack(side=TOP,padx=0,pady=15)
++
++ldate=Label(f4a, bg='black', fg='yellow', width=11, bd=4,
++        text='2005 Apr 22\n01:23:45', relief=RIDGE,
++        justify=CENTER, font=(font1,14))
++ldate.pack(side=TOP,padx=2,pady=5)
++
++ldsec=Label(f4a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
++ldsec.pack(side=TOP,ipadx=3,padx=2,pady=10)
++Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
++Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
++
++f4a.pack(side=LEFT,expand=0,fill=Y)
++
++#--------------------------------------------------------- Decoded text box
++f4b=Frame(iframe4,height=170,bd=2,relief=FLAT)
++text=Text(f4b, height=11, width=63)
++sb = Scrollbar(f4b, orient=VERTICAL, command=text.yview)
++sb.pack(side=RIGHT, fill=Y)
++text.pack(side=RIGHT, fill=X, padx=1)
++text.insert(END,'1054   4 -25   1.1  10.140140  K1JT FN20 25')
++text.configure(yscrollcommand=sb.set)
++f4b.pack(side=LEFT,expand=0,fill=Y)
++iframe4.pack(expand=1, fill=X, padx=4)
++
++
++#------------------------------------------------------------ Status Bar
++iframe6 = Frame(frame, bd=1, relief=SUNKEN)
++btest=Checkbutton(iframe6,text='Test mode',justify=LEFT,variable=ntest)
++btest.pack(side=LEFT, fill=X, padx=5)
++bqso=Checkbutton(iframe6,text='QSO Mode',justify=LEFT,variable=nqso)
++bqso.pack(side=LEFT, fill=X, padx=5)
++btxfirst=Checkbutton(iframe6,text='Tx First',justify=LEFT,variable=ntxfirst)
++btxfirst.pack(side=LEFT, fill=X, padx=5)
++TxMsg=Pmw.EntryField(iframe6,labelpos=W,label_text='Tx msg:',
++        value='CQ K1JT FN20',entry_textvariable=txmsg,entry_width=22)
++TxMsg.pack(side=LEFT, fill=X, padx=5)
++
++##msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
++##msg1.pack(side=LEFT, fill=X, padx=1)
++##msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
++##msg2.pack(side=LEFT, fill=X, padx=1)
++##msg3=Message(iframe6, text='      ',width=300,relief=SUNKEN)
++##msg3.pack(side=LEFT, fill=X, padx=1)
++##msg4=Message(iframe6, text='      ', width=300,relief=SUNKEN)
++##msg4.pack(side=LEFT, fill=X, padx=1)
++##msg5=Message(iframe6, text='      ', width=300,relief=SUNKEN)
++##msg5.pack(side=LEFT, fill=X, padx=1)
++msg6=Message(iframe6, text='      ', width=400,relief=SUNKEN)
++msg6.pack(side=RIGHT, fill=X, padx=1)
++iframe6.pack(expand=1, fill=X, padx=4)
++frame.pack()
++
++isync=1
++
++#---------------------------------------------------------- Process INI file
++try:
++    f=open(appdir+'/WSPR.INI',mode='r')
++    params=f.readlines()
++except:
++    params=&quot;&quot;
++    if g.Win32:
++        options.PttPort.set(&quot;0&quot;)
++        pass
++    else:
++        options.PttPort.set(&quot;/dev/ttyS0&quot;)
++        pass
++
++try:
++    for i in range(len(params)):
++        key,value=params[i].split()
++        if   key == 'WSPRGeometry': root.geometry(value)
++        elif key == 'MyCall': options.MyCall.set(value)
++        elif key == 'MyGrid': options.MyGrid.set(value)
++        elif key == 'dBm': options.dBm.set(value)
++        elif key == 'PctTx': ipctx.set(value)
++#        elif key == 'IDinterval': options.IDinterval.set(value)
++        elif key == 'PttPort':
++            try:
++                options.PttPort.set(value)
++            except:
++                if g.Win32:
++                    options.PttPort.set(&quot;0&quot;)
++                else:
++                    options.PttPort.set(&quot;/dev/ttyS0&quot;)
++                pass
++            pass
++        elif key == 'AudioIn':
++            try:
++                g.ndevin.set(value)
++            except:
++                g.ndevin.set(0)
++            g.DevinName.set(value)
++            options.DevinName.set(value)
++#            w.acom1.devin_name=(options.DevinName.get()+'            ')[:12]
++        elif key == 'AudioOut':
++            try:
++                g.ndevout.set(value)
++            except:
++                g.ndevout.set(0)
++            g.DevoutName.set(value)
++            options.DevoutName.set(value)
++#            w.acom1.devout_name=(options.DevoutName.get()+'            ')[:12]
++        elif key == 'Nsave': nsave.set(value)
++        elif key == 'Upload': upload.set(value)
++        elif key == 'BestDX': nbestdx.set(value)
++        elif key == 'Debug': ndebug.set(value)
++        elif key == 'WatScale': sc1.set(value)
++        elif key == 'WatOffset': sc2.set(value)
++        elif key == 'f0': f0.set(value)
++        elif key == 'ftx': ftx.set(value)
++        elif key == 'MRUDir': mrudir=value.replace(&quot;#&quot;,&quot; &quot;)
++except:
++    print 'Error reading WSPR.INI, continuing with defaults.'
++    print key,value
++
++#------------------------------------------------------  Select palette
++if g.cmap == &quot;gray0&quot;:
++    pal_gray0()
++    npal.set(0)
++if g.cmap == &quot;gray1&quot;:
++    pal_gray1()
++    npal.set(1)
++if g.cmap == &quot;Linrad&quot;:
++    pal_linrad()
++    npal.set(2)
++if g.cmap == &quot;blue&quot;:
++    pal_blue()
++    npal.set(3)
++if g.cmap == &quot;Hot&quot;:
++    pal_Hot()
++    npal.set(4)
++if g.cmap == &quot;AFMHot&quot;:
++    pal_AFMHot()
++    npal.set(5)
++
++
++##lsync.configure(text=slabel+str(isync))
++options.dbm_balloon()
++fmid=f0.get() + 0.001500
++sftx.set('%.06f' % ftx.get())
++draw_axis()
++erase()
++if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
++root.title('  WSPR 0.8     by K1JT')
++
++put_params()
++try:
++    os.remove('decoded.txt')
++except:
++    pass
++try:
++    os.remove('pixmap.dat')
++except:
++    pass
++
++w.wspr1()
++graph1.focus_set()
++ldate.after(100,update)
++root.mainloop()
++
++# Clean up and save user options before terminating
++f=open(appdir+'/WSPR.INI',mode='w')
++root_geom=root_geom[root_geom.index(&quot;+&quot;):]
++f.write(&quot;WSPRGeometry &quot; + root_geom + &quot;\n&quot;)
++f.write(&quot;MyCall &quot; + options.MyCall.get() + &quot;\n&quot;)
++f.write(&quot;MyGrid &quot; + options.MyGrid.get() + &quot;\n&quot;)
++f.write(&quot;dBm &quot; + str(options.dBm.get()) + &quot;\n&quot;)
++#f.write(&quot;IDinterval &quot; + str(options.IDinterval.get()) + &quot;\n&quot;)
++f.write(&quot;PttPort &quot; + str(options.PttPort.get()) + &quot;\n&quot;)
++f.write(&quot;AudioIn &quot; + options.DevinName.get() + &quot;\n&quot;)
++f.write(&quot;AudioOut &quot; + options.DevoutName.get() + &quot;\n&quot;)
++f.write(&quot;Nsave &quot; + str(nsave.get()) + &quot;\n&quot;)
++f.write(&quot;PctTx &quot; + str(ipctx.get()) + &quot;\n&quot;)
++f.write(&quot;Upload &quot; + str(upload.get()) + &quot;\n&quot;)
++f.write(&quot;BestDX &quot; + str(nbestdx.get()) + &quot;\n&quot;)
++mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
++f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
++f.write(&quot;WatScale &quot; + str(s0)+ &quot;\n&quot;)
++f.write(&quot;f0 &quot; + str(f0.get()) + &quot;\n&quot;)
++f.write(&quot;ftx &quot; + str(ftx.get()) + &quot;\n&quot;)
++f.close()
++
++#Terminate PortAudio
++w.paterminate()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000478.html">[WSJT-SVN] r790 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000480.html">[WSJT-SVN] r792 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#479">[ date ]</a>
+              <a href="thread.html#479">[ thread ]</a>
+              <a href="subject.html#479">[ subject ]</a>
+              <a href="author.html#479">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

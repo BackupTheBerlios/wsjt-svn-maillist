@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2011 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2011%20-%20wsjt7a&In-Reply-To=%3C20100719150355.1117C480A40%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001702.html">
+   <LINK REL="Next"  HREF="001704.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2011 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2011%20-%20wsjt7a&In-Reply-To=%3C20100719150355.1117C480A40%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2011 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 19 17:03:54 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001702.html">[WSJT-SVN] r2010 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001704.html">[WSJT-SVN] r2012 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1703">[ date ]</a>
+              <a href="thread.html#1703">[ thread ]</a>
+              <a href="subject.html#1703">[ subject ]</a>
+              <a href="author.html#1703">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-19 17:03:54 +0200 (Mon, 19 Jul 2010)
+New Revision: 2011
+
+Modified:
+   wsjt7a/genms.f90
+   wsjt7a/wsjt.py
+Log:
+New coding in genms.
+
+
+Modified: wsjt7a/genms.f90
+===================================================================
+--- wsjt7a/genms.f90	2010-07-19 13:13:13 UTC (rev 2010)
++++ wsjt7a/genms.f90	2010-07-19 15:03:54 UTC (rev 2011)
+@@ -5,33 +5,43 @@
+   parameter (NMAX=30*11025)     !Max length of wave file
+   character*28 msg              !Message to be generated
+   character cc*64
+-  integer sent(168)
+-  real*8 dt,phi,f,f0,dfgen,dphi,twopi
++  integer sent(196)
++  real*8 dt,phi,f,f0,dfgen,dphi,twopi,foffset
+   integer*2 iwave(NMAX)         !Generated wave file
+   complex cw
+   common/mscom/cw(48,0:63)
+   data idum/-1/
+-!           1234567890123456789012345678901234567890123456789012345678901234
+-  data cc/' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ./?-                      @'/
++!                   1         2         3         4         5         6
++!          0123456789012345678901234567890123456789012345678901234567890123
++  data cc/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ./?-                 _     @'/
+   save idum
+ 
+   do i=28,1,-1                                 !Find user's message length
+      if(msg(i:i).ne.' ') go to 1
+   enddo
+-1 msglen=i
++1 msglen=i+1                                   !Add one for space at EOM
++  if(msglen.gt.28) msglen=28
+ 
+-! Convert message to a bit sequence, 6 bits per character
+-! Start with two blank characters (all 0's)
+-  k=12
++! Convert message to a bit sequence, 7 bits per character (6 + even parity)
+   sent=0
++  k=0
+   do j=1,msglen
+-     do i=1,64
+-        if(msg(j:j).eq.cc(i:i)) go to 5
+-     enddo
+-5    do n=5,0,-1                            !Each character gets 6 bits
++     if(msg(j:j).eq.' ') then
++        i=58
++        go to 5
++     else
++        do i=1,64
++           if(msg(j:j).eq.cc(i:i)) go to 5
++        enddo
++     endif
++5    m=0
++     do n=5,0,-1                            !Each character gets 6 bits
+         k=k+1
+         sent(k)=iand(1,ishft(i-1,-n))
++        m=m+sent(k)
+      enddo
++     k=k+1
++     sent(k)=iand(m,1)                      !Insert parity bit
+   enddo
+   nsym=k
+ 
+@@ -40,21 +50,19 @@
+   nsps=8
+   dt=1.d0/11025.d0
+   f0=11025.d0/nsps                               ! 1575.0 Hz
+-  dfgen=11025.d0/(2*nsps)                        !  787.5 Hz
++  dfgen=0.5d0*f0                                 !  787.5 Hz
++  foffset=1500.d0 - f0
+   t=0.d0
+   k=0
+   phi=0.d0
+   nrpt=NMAX/(nsym*nsps)
+ 
+-!  write(*,3001) (sent(k),k=1,nsym)
+-!3001 format(10(1x,6i1))
+-
+   do irpt=1,nrpt
+      do j=1,nsym
+         if(sent(j).eq.1) then
+-           f=f0 + 0.5d0*dfgen
++           f=f0 + 0.5d0*dfgen + foffset
+         else
+-           f=f0 - 0.5d0*dfgen
++           f=f0 - 0.5d0*dfgen + foffset
+         endif
+         dphi=twopi*f*dt
+         do i=1,nsps
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-19 13:13:13 UTC (rev 2010)
++++ wsjt7a/wsjt.py	2010-07-19 15:03:54 UTC (rev 2011)
+@@ -1933,7 +1933,7 @@
+ modemenu.add_radiobutton(label = 'JT4F', variable=mode, command = ModeJT4F)
+ modemenu.add_radiobutton(label = 'JT4G', variable=mode, command = ModeJT4G)
+ modemenu.add_radiobutton(label = 'ISCAT_2', variable=mode, command = ModeISCAT)
+-#modemenu.add_radiobutton(label = 'JTMS_2', variable=mode, command = ModeJTMS)
++modemenu.add_radiobutton(label = 'JTMS_2', variable=mode, command = ModeJTMS)
+ #modemenu.add_radiobutton(label = 'Echo', variable=mode, command = ModeEcho,
+ #                         state=DISABLED)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001702.html">[WSJT-SVN] r2010 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001704.html">[WSJT-SVN] r2012 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1703">[ date ]</a>
+              <a href="thread.html#1703">[ thread ]</a>
+              <a href="subject.html#1703">[ subject ]</a>
+              <a href="author.html#1703">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

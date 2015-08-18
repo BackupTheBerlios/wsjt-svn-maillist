@@ -1,0 +1,502 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2659 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2659%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121011183350.DF53155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002350.html">
+   <LINK REL="Next"  HREF="002352.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2659 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2659%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121011183350.DF53155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2659 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Oct 11 20:33:50 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002350.html">[WSJT-SVN] r2658 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002352.html">[WSJT-SVN] r2660 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2351">[ date ]</a>
+              <a href="thread.html#2351">[ thread ]</a>
+              <a href="subject.html#2351">[ subject ]</a>
+              <a href="author.html#2351">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-11 20:33:50 +0200 (Thu, 11 Oct 2012)
+New Revision: 2659
+
+Added:
+   branches/wsjtx/lib/pctile.f90
+Removed:
+   branches/wsjtx/lib/genjt8.f90
+   branches/wsjtx/lib/pctile.f
+Modified:
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/timf2.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+Log:
+Normalize the current and cumulative plots automatically.
+
+
+Deleted: branches/wsjtx/lib/genjt8.f90
+===================================================================
+--- branches/wsjtx/lib/genjt8.f90	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/lib/genjt8.f90	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -1,96 +0,0 @@
+-subroutine genjt8(message,iwave,nwave,nbit,msgsent)
+-
+-! Generate a JT8 wavefile.
+-
+-  parameter (NMAX=60*12000)     !Max length of wave file
+-  character*24 message          !Message to be generated
+-  character*24 msgsent          !Message as it will be received
+-  character cmode*5
+-  real*8 t,dt,phi,f,f0,dfgen,dphi,twopi,tsymbol
+-  integer*2 iwave(NMAX)         !Generated wave file
+-  integer iu(3)
+-  integer gsym(372)             !372 is needed for JT8 mode
+-  integer sent(144)
+-  integer ic8(8)
+-  data ic8/3,6,2,4,5,0,7,1/
+-  data nsps/4096/
+-  data twopi/6.283185307d0/
+-  save
+-
+-  cmode='JT8'                                   !### temp ? ###
+-  call srcenc(cmode,message,nbit,iu)
+-! In JT8 mode, message length is always nbit=78
+-  if(nbit.ne.78) then
+-     print*,'genjt8, nbit=',nbit
+-     stop
+-  endif
+-
+-! Apply FEC and do the channel encoding
+-  call chenc(cmode,nbit,iu,gsym)
+-
+-! Remove source encoding, recover the human-readable message.
+-  call srcdec(cmode,nbit,iu,msgsent)
+-
+-! Insert 8x8 Costas array at beginning and end of array sent().
+-  sent(1:8)=ic8
+-  sent(135:142)=ic8
+-! Insert two symbols after each Costas array to specify message length.
+-  if(nbit.eq.30) then
+-     sent(9)=2
+-     sent(10)=2
+-     sent(143)=2
+-     sent(144)=2
+-  else if(nbit.eq.48) then
+-     sent(9)=3
+-     sent(10)=3
+-     sent(143)=3
+-     sent(144)=3
+-  else
+-     sent(9)=6
+-     sent(10)=6
+-     sent(143)=6
+-     sent(144)=6
+-  endif
+-
+-! Insert the 3-bit data symbols
+-  sent(11:134)=gsym(1:124)
+-
+-! Use the four free symbols in 30-bit mode
+-  if(nbit.eq.30) then
+-     sent(121)=sent(20)
+-     sent(122)=sent(45)
+-     sent(123)=sent(70)
+-     sent(124)=sent(95)
+-  endif
+-
+-! Set up necessary constants
+-  nsym=144
+-  tsymbol=nsps/12000.d0
+-  dt=1.d0/12000.d0
+-  f0=1270.46d0
+-  dfgen=12000.d0/nsps
+-  t=0.d0
+-  phi=0.d0
+-  k=0
+-  j0=0
+-  ndata=(nsym*12000.d0*tsymbol)/2
+-  ndata=2*ndata
+-  do i=1,ndata
+-     t=t+dt
+-     j=int(t/tsymbol) + 1                    !Symbol number, 1-nsym
+-     if(j.ne.j0) then
+-        f=f0
+-        k=k+1
+-        if(k.le.144) f=f0+(sent(k))*dfgen         !### Fix need for this ###
+-        dphi=twopi*dt*f
+-        j0=j
+-     endif
+-     phi=phi+dphi
+-     iwave(i)=32767.0*sin(phi)
+-  enddo
+-
+-  iwave(ndata+1:)=0
+-  nwave=ndata+6000                          !0.5 s buffer before CW ID
+-
+-  return
+-end subroutine genjt8
+
+Deleted: branches/wsjtx/lib/pctile.f
+===================================================================
+--- branches/wsjtx/lib/pctile.f	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/lib/pctile.f	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -1,13 +0,0 @@
+-      subroutine pctile(x,tmp,nmax,npct,xpct)
+-      real x(nmax),tmp(nmax)
+-
+-      do i=1,nmax
+-         tmp(i)=x(i)
+-      enddo
+-      call sort(nmax,tmp)
+-      j=nint(nmax*0.01*npct)
+-      if(j.lt.1) j=1
+-      xpct=tmp(j)
+-
+-      return
+-      end
+
+Copied: branches/wsjtx/lib/pctile.f90 (from rev 2656, branches/wsjtx/lib/pctile.f)
+===================================================================
+--- branches/wsjtx/lib/pctile.f90	                        (rev 0)
++++ branches/wsjtx/lib/pctile.f90	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -0,0 +1,25 @@
++subroutine pctile(x,npts,npct,xmedian)
++
++  real x(npts)
++  integer hist(0:1000)
++
++  ave=sum(x)/npts
++  hist=0
++  do i=1,npts
++     j=nint(100.0*x(i)/ave)
++     if(j.lt.0) j=0
++     if(j.gt.1000) j=1000
++     hist(j)=hist(j)+1
++  enddo
++
++  nsum=0
++  ntest=nint(npts*float(npct)/100.0)
++  do j=0,1000
++     nsum=nsum+hist(j)
++     if(nsum.ge.ntest) exit
++  enddo
++
++  xmedian=j*ave/100.0
++
++  return
++end subroutine pctile
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/lib/symspec.f90	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -24,10 +24,10 @@
+   parameter (NFFT2=1024,NFFT2A=NFFT2/8)
+   parameter (MAXFFT3=32768)
+   real*4 s(NSMAX),w(NFFT1),w3(MAXFFT3)
+-  real*4 stmp(NFFT2/2)
+   real*4 x0(NFFT1),x1(NFFT1)
+   real*4 x2(NFFT1+105)
+   real*4 xx(NMAX)
++  real*4 ssum(NSMAX)
+   complex cx(0:MAXFFT3-1)
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+@@ -54,13 +54,12 @@
+      do i=1,nfft3
+         w3(i)=2.0*(sin(i*pi/nfft3))**2             !Window for nfft3
+      enddo
+-     stmp=0.
+      nfft3z=nfft3
+   endif
+ 
+   if(k.lt.k0) then
+      ja=-3*jstep
+-     savg=0.
++     ssum=0.
+      ihsym=0
+      k1=0
+      k8=0
+@@ -131,15 +130,24 @@
+         if(j.lt.0) j=j+nfft3
+         sx=fac*(real(cx(j))**2 + aimag(cx(j))**2)
+         ss(n,i)=sx
+-        savg(i)=savg(i) + sx
++        ssum(i)=ssum(i) + sx
+         s(i)=sx
+      enddo
+   endif
+ 
+ 999 continue
+-!  write(71,3003) k,nsps,ihsym,nfft3,pxdb,df3,s(250)
+-!3003 format(4i9,3f11.3)
+-!   flush(71)
+ 
++
++  call pctile(s,iz,50,xmed0)
++  s(1:iz)=s(1:iz)/xmed0
++  call pctile(ssum,iz,50,xmed1)
++  savg(1:iz)=ssum(1:iz)/xmed1
++
++!  if(ihsym.ge.1) then
++!     write(71,3003) ihsym,ave0,xmed0,smax0,ave1,xmed1,smax1
++!3003 format(i3,6f12.6)
++!     flush(71)
++!  endif
++
+   return
+ end subroutine symspec
+
+Modified: branches/wsjtx/lib/timf2.f90
+===================================================================
+--- branches/wsjtx/lib/timf2.f90	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/lib/timf2.f90	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -77,7 +77,7 @@
+ 
+ !  ntot=ntot+1
+ !  if(mod(ntot,128).eq.5) then
+-!     call pctile(s,stmp,nh,50,xmedian)
++!     call pctile(s,nh,50,xmedian)
+ !     slimit=faclim*xmedian
+ !  endif
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/mainwindow.cpp	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -330,7 +330,6 @@
+   trmin=m_TRperiod/60;
+   symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;px, s,
+            &amp;f0a, &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong);
+-//  qDebug() &lt;&lt; &quot;a&quot; &lt;&lt; k &lt;&lt; m_nsps &lt;&lt; ihsym &lt;&lt; px &lt;&lt; df3 &lt;&lt; s[250];
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap/178.3;
+@@ -367,7 +366,7 @@
+     ntr0=ntr;
+     n=0;
+   }
+-  if(ihsym == 179) {
++  if(ihsym == m_hsymStop) {
+     jt9com_.newdat=1;
+     jt9com_.nagain=0;
+     QDateTime t = QDateTime::currentDateTimeUtc();
+@@ -722,10 +721,10 @@
+ {
+   int kstep=m_nsps/2;
+   m_diskData=true;
+-  for(int n=1; n&lt;=184; n++) {              // Do the half-symbol FFTs
++  for(int n=1; n&lt;=m_hsymStop; n++) {              // Do the half-symbol FFTs
+     int k=(n+1)*kstep;
+     dataSink(k);
+-    if(n%10 == 0) qApp-&gt;processEvents();   //Keep the GUI responsive
++    if(n%10 == 1 or n == m_hsymStop) qApp-&gt;processEvents();   //Keep GUI responsive
+   }
+ }
+ 
+@@ -1317,6 +1316,7 @@
+   m_mode=&quot;JT9-1&quot;;
+   m_TRperiod=60;
+   m_nsps=6912;
++  m_hsymStop=181;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1330,6 +1330,7 @@
+   m_mode=&quot;JT9-2&quot;;
+   m_TRperiod=120;
+   m_nsps=15360;
++  m_hsymStop=178;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1343,6 +1344,7 @@
+   m_mode=&quot;JT9-5&quot;;
+   m_TRperiod=300;
+   m_nsps=40960;
++  m_hsymStop=172;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1356,6 +1358,7 @@
+   m_mode=&quot;JT9-10&quot;;
+   m_TRperiod=600;
+   m_nsps=82944;
++  m_hsymStop=171;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+@@ -1369,6 +1372,7 @@
+   m_mode=&quot;JT9-30&quot;;
+   m_TRperiod=1800;
+   m_nsps=252000;
++  m_hsymStop=167;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/mainwindow.h	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -134,6 +134,7 @@
+     qint32  m_NBslider;
+     qint32  m_TRperiod;
+     qint32  m_nsps;
++    qint32  m_hsymStop;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/mainwindow.ui	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -7,7 +7,7 @@
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+     &lt;width&gt;602&lt;/width&gt;
+-    &lt;height&gt;502&lt;/height&gt;
++    &lt;height&gt;480&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -19,7 +19,7 @@
+   &lt;property name=&quot;minimumSize&quot;&gt;
+    &lt;size&gt;
+     &lt;width&gt;0&lt;/width&gt;
+-    &lt;height&gt;500&lt;/height&gt;
++    &lt;height&gt;475&lt;/height&gt;
+    &lt;/size&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+@@ -35,13 +35,13 @@
+    &lt;string notr=&quot;true&quot;/&gt;
+   &lt;/property&gt;
+   &lt;widget class=&quot;QWidget&quot; name=&quot;centralWidget&quot;&gt;
+-   &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
++   &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
+     &lt;property name=&quot;geometry&quot;&gt;
+      &lt;rect&gt;
+-      &lt;x&gt;10&lt;/x&gt;
+-      &lt;y&gt;-10&lt;/y&gt;
++      &lt;x&gt;11&lt;/x&gt;
++      &lt;y&gt;2&lt;/y&gt;
+       &lt;width&gt;565&lt;/width&gt;
+-      &lt;height&gt;467&lt;/height&gt;
++      &lt;height&gt;423&lt;/height&gt;
+      &lt;/rect&gt;
+     &lt;/property&gt;
+     &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_7&quot;&gt;
+@@ -62,7 +62,7 @@
+        &lt;property name=&quot;maximumSize&quot;&gt;
+         &lt;size&gt;
+          &lt;width&gt;620&lt;/width&gt;
+-         &lt;height&gt;200&lt;/height&gt;
++         &lt;height&gt;300&lt;/height&gt;
+         &lt;/size&gt;
+        &lt;/property&gt;
+        &lt;property name=&quot;title&quot;&gt;
+@@ -86,7 +86,7 @@
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;610&lt;/width&gt;
+-            &lt;height&gt;180&lt;/height&gt;
++            &lt;height&gt;280&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;font&quot;&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-11 16:06:31 UTC (rev 2658)
++++ branches/wsjtx/plotter.cpp	2012-10-11 18:33:50 UTC (rev 2659)
+@@ -67,8 +67,6 @@
+     m_2DPixmap.fill(Qt::black);
+     m_ScalePixmap = QPixmap(m_w,30);
+     m_ScalePixmap.fill(Qt::white);
+-
+-    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_h &lt;&lt; m_h1 &lt;&lt; m_h2 ;
+   }
+   DrawOverlay();
+ }
+@@ -119,18 +117,19 @@
+       swide[i]=-swide[i];
+     }
+     y = 10.0*log10(swide[i]);
+-    int y1 = 5.0*gain*(y + 37 - m_plotZero);
++    int y1 = 5.0*gain*y + 10*m_plotZero;
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+     if (swide[i]&gt;1.e29) y1=255;
+     m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+-    int y2 = 0.7*gain*(y + 54 - m_plotZero);
+-    if(!m_bCurrent) y2=10.0*jt9com_.savg[i];
++    int y2 = gain*y + 30;
++    if(!m_bCurrent) y2=5.0*gain*jt9com_.savg[i] + 20;
+     if (y2&lt;0) y2=0;
+     if (y2&gt;254) y2=254;
+     if (swide[i]&gt;1.e29) y2=255;
++
+     if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+       j=0;
+@@ -139,7 +138,8 @@
+       if(!strong0) painter2D.setPen(Qt::green);
+     }
+     LineBuf[j].setX(i);
+-    LineBuf[j].setY(m_h-y2-320);
++    LineBuf[j].setY(m_h-(y2+180));
++//    if(m_line==10) qDebug() &lt;&lt; i &lt;&lt; FreqfromX(i) &lt;&lt; m_h &lt;&lt; y2 &lt;&lt; m_h-y2;
+     j++;
+   }
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002350.html">[WSJT-SVN] r2658 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002352.html">[WSJT-SVN] r2660 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2351">[ date ]</a>
+              <a href="thread.html#2351">[ thread ]</a>
+              <a href="subject.html#2351">[ subject ]</a>
+              <a href="author.html#2351">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

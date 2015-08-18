@@ -1,0 +1,257 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1996 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1996%20-%20wsjt7a&In-Reply-To=%3C20100715185958.238E6480CA9%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001687.html">
+   <LINK REL="Next"  HREF="001689.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1996 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1996%20-%20wsjt7a&In-Reply-To=%3C20100715185958.238E6480CA9%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1996 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 15 20:59:58 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001687.html">[WSJT-SVN] r1995 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001689.html">[WSJT-SVN] r1997 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1688">[ date ]</a>
+              <a href="thread.html#1688">[ thread ]</a>
+              <a href="subject.html#1688">[ subject ]</a>
+              <a href="author.html#1688">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-15 20:59:57 +0200 (Thu, 15 Jul 2010)
+New Revision: 1996
+
+Modified:
+   wsjt7a/Makefile.MinGW
+   wsjt7a/genms.f90
+   wsjt7a/wsjt.py
+   wsjt7a/wsjtgen.f90
+Log:
+IMplemented JTMS_2 for transmitting (I think).
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-07-15 18:10:42 UTC (rev 1995)
++++ wsjt7a/Makefile.MinGW	2010-07-15 18:59:57 UTC (rev 1996)
+@@ -51,7 +51,7 @@
+ 	ftn_quit.f90 get_fname.f90 getfile.F90 horizspec.f90 hscroll.f90 \
+ 	pix2d.f90 pix2d65.f90 rfile.f90 savedata.f90 spec.f90 \
+ 	wsjtgen.f90 fivehz.f90 chkt0.f90 deep65.f90 \
+-	packpfx.f90 unpackpfx.f90 \
++	packpfx.f90 unpackpfx.f90 genms.f90 decodems.f90 gran.f90 \
+ 	thnix.f90 enc441.f90 pp441.f90 tweak1.f90 smo.f90 analytic.f90 \
+ 	gen441.f90 dec441.f90 token.f90 msgtrim.f90 geniscat.f90 iscat.f90
+ 
+
+Modified: wsjt7a/genms.f90
+===================================================================
+--- wsjt7a/genms.f90	2010-07-15 18:10:42 UTC (rev 1995)
++++ wsjt7a/genms.f90	2010-07-15 18:59:57 UTC (rev 1996)
+@@ -1,4 +1,4 @@
+-subroutine genms(msg,snr,iwave,nwave,jwave,imsg,msglen)
++subroutine genms(msg,txsnrdb,iwave,nwave)
+ 
+ ! Generate a JTMS_2 wave file
+ 
+@@ -10,7 +10,7 @@
+   integer*2 jwave(NZ)
+   integer icw(0:63)
+   logical first
+-  real*8 t
++  real*8 txsnrdb,t
+   complex cw
+   common/mscom/cw(63,0:63)
+   data idum/-1/,first/.true./
+@@ -54,7 +54,7 @@
+      first=.false.
+   endif
+ 
+-  sig=sqrt(10.0**(0.1*snr))
++  sig=sqrt(10.0**(0.1*txsnrdb))
+   do i=28,1,-1                                 !Find user's message length
+      if(msg(i:i).ne.' ') go to 1
+   enddo
+@@ -93,30 +93,27 @@
+   enddo
+   nwave=k
+ 
+-  print*,msg,msglen,nchar,nwave,snr,sig
+-
+-  if(snr.lt.40.0) then
++  if(txsnrdb.lt.40.0) then
+ ! ###  Make some pings (for tests only) ###
+-     fac=1.0
+-     amp=1.0
+      do i=1,nwave
+-!        iping=i/(3*12000)
+-!        if(iping.ne.iping0) then
+-!           ip=mod(iping,3)
+-!           w=0.05*(ip+1)
+-!           ig=(iping-1)/3
+-!           amp=sqrt((3.0-ig)/3.0)
+-!           t0=dt*(iping+0.5)*(3*12000)
+-!           iping0=iping
+-!        endif
+-!        t=(i*dt-t0)/w
+-!        if(t.lt.0.d0 .and. t.lt.10.d0) then
+-!           fac=0.
+-!        else
+-!           fac=2.718*t*dexp(-t)
+-!        endif
+-        x=sig*fac*amp*iwave(i)/32767.0 + gran(idum)
+-        jwave(i)=nint(1000.0*x)
++        iping=i/(3*12000)
++        if(iping.ne.iping0) then
++           ip=mod(iping,3)
++           w=0.05*(ip+1)
++           ig=(iping-1)/3
++           amp=sqrt((3.0-ig)/3.0)
++           t0=dt*(iping+0.5)*(3*12000)
++           iping0=iping
++        endif
++        t=(i*dt-t0)/w
++        if(t.lt.0.d0 .and. t.lt.10.d0) then
++           fac=0.
++        else
++           fac=2.718*t*dexp(-t)
++        endif
++!        x=sig*fac*amp*iwave(i)/32767.0 + gran(idum)
++!        jwave(i)=nint(1000.0*x)
++        iwave(i)=nint(fac*amp*iwave(i))
+      enddo
+   endif
+ 
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-15 18:10:42 UTC (rev 1995)
++++ wsjt7a/wsjt.py	2010-07-15 18:59:57 UTC (rev 1996)
+@@ -631,6 +631,13 @@
+         mode.set(&quot;JT65C&quot;)
+         ModeJT65()
+ 
++#------------------------------------------------------ ModeMTMS
++def ModeJTMS(event=NONE):
++    if g.mode != &quot;JTMS&quot;:
++        if lauto: toggleauto()
++    ModeFSK441()
++    mode.set(&quot;JTMS&quot;)
++    
+ #------------------------------------------------------ ModeISCAT
+ def ModeISCAT(event=NONE):
+     global isync,isync_iscat
+@@ -777,7 +784,8 @@
+   3. JT65   - for HF, EME, and troposcatter
+   4. CW     - 15 WPM Morse code, messages structured for EME
+   5. JT4    - for HF and EME
+-  6. ISCAT   - for meteor and ionospheric scatter on 50 MHz
++  6. ISCAT  - for meteor and ionospheric scatter on 50 MHz
++  7. JTMS   - fast mode for meteor scatter
+ 
+ Copyright (c) 2001-2010 by Joseph H. Taylor, Jr., K1JT, with
+ contributions from additional authors.  WSJT is Open Source 
+@@ -1230,7 +1238,8 @@
+     Audio.gcom2.hiscall=(ToRadio.get()+(' '*12))[:12]
+     for m in (tx1, tx2, tx3, tx4, tx5, tx6):
+         m.delete(0,99)
+-    if mode.get()==&quot;FSK441&quot; or mode.get()==&quot;JT6M&quot; or mode.get()==&quot;ISCAT&quot;:
++    if mode.get()==&quot;FSK441&quot; or mode.get()==&quot;JT6M&quot; or \
++       mode.get()==&quot;ISCAT&quot; or mode.get()=='JTMS':
+         r=report.get()
+         tx1.insert(0,setmsg(options.tx1.get(),r))
+         tx2.insert(0,setmsg(options.tx2.get(),r))
+@@ -1591,6 +1600,8 @@
+             msg2.configure(bg='#00FF00')
+         elif mode.get()[:5]==&quot;ISCAT&quot;:
+             msg2.configure(bg='#CCFFFF')
++        elif mode.get()[:4]==&quot;JTMS&quot;:
++            msg2.configure(bg='#CC4444')
+         elif mode.get()[:3]==&quot;JT4&quot;:
+             msg2.configure(bg='#88FF88')
+ #        elif mode.get()==&quot;Echo&quot;:
+@@ -1618,6 +1629,7 @@
+     msg1.configure(text=&quot;%6.4f %6.4f&quot; % (samfac_in,samfac_out))
+     t=mode.get()
+     if t=='ISCAT': t='ISCAT_2'
++    elif t=='JTMS': t='JTMS_2'
+     msg2.configure(text=t)
+     t=&quot;Freeze DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+     if abs(int(Audio.gcom2.mousedf))&gt;600:
+@@ -1920,6 +1932,7 @@
+ modemenu.add_radiobutton(label = 'JT4F', variable=mode, command = ModeJT4F)
+ modemenu.add_radiobutton(label = 'JT4G', variable=mode, command = ModeJT4G)
+ modemenu.add_radiobutton(label = 'ISCAT_2', variable=mode, command = ModeISCAT)
++modemenu.add_radiobutton(label = 'JTMS_2', variable=mode, command = ModeJTMS)
+ #modemenu.add_radiobutton(label = 'Echo', variable=mode, command = ModeEcho,
+ #                         state=DISABLED)
+ 
+
+Modified: wsjt7a/wsjtgen.f90
+===================================================================
+--- wsjt7a/wsjtgen.f90	2010-07-15 18:10:42 UTC (rev 1995)
++++ wsjt7a/wsjtgen.f90	2010-07-15 18:59:57 UTC (rev 1996)
+@@ -107,8 +107,7 @@
+   LTone=2
+ 
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT4' .or.                &amp;
+-       mode(1:5).eq. 'ISCAT') then
+-
++       mode(1:5).eq. 'ISCAT' .or. mode(1:4).eq.'JTMS') then
+      if(mode(1:4).eq.'JT65') then
+ !  We're in JT65 mode.
+         if(mode(5:5).eq.'A') mode65=1
+@@ -118,6 +117,10 @@
+              msgsent,nmsg0)
+      else if(mode(1:5).eq.'ISCAT') then
+         call geniscat(msg,nmsg,shok,iwave,nwave,sendingsh,msgsent)
++     else if(mode(1:4).eq.'JTMS') then
++        call genms(msg,txsnrdb,iwave,nwave)
++        sendingsh=0
++        msgsent=msg
+      else if(mode(1:3).eq.'JT4' ) then
+         call gen24(msg,mode,mode4,samfacout,ntxdf,ndebug,iwave,nwave,      &amp;
+              sendingsh,msgsent,nmsg0)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001687.html">[WSJT-SVN] r1995 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001689.html">[WSJT-SVN] r1997 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1688">[ date ]</a>
+              <a href="thread.html#1688">[ thread ]</a>
+              <a href="subject.html#1688">[ subject ]</a>
+              <a href="author.html#1688">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

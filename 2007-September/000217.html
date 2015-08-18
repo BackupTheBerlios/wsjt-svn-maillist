@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r532 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r532%20-%20trunk&In-Reply-To=%3C200709190109.l8J19RmL004045%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000216.html">
+   <LINK REL="Next"  HREF="000218.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r532 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r532%20-%20trunk&In-Reply-To=%3C200709190109.l8J19RmL004045%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r532 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 19 03:09:27 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000216.html">[WSJT-SVN] r531 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000218.html">[WSJT-SVN] r533 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#217">[ date ]</a>
+              <a href="thread.html#217">[ thread ]</a>
+              <a href="subject.html#217">[ subject ]</a>
+              <a href="author.html#217">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-19 03:09:22 +0200 (Wed, 19 Sep 2007)
+New Revision: 532
+
+Modified:
+   trunk/decode24.f
+   trunk/fano.c
+   trunk/gen24.f
+   trunk/sync24.f
+   trunk/wsjt24.f
+Log:
+JT2 decoding is close to working ...
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-18 18:13:09 UTC (rev 531)
++++ trunk/decode24.f	2007-09-19 01:09:22 UTC (rev 532)
+@@ -13,11 +13,16 @@
+       real*8 dt,df,phi,f0,dphi,twopi
+       complex c0,c1
+       integer*1 i1,symbol(207)
+-      integer amp
++      integer*1 data1(13)                !Decoded data
++      integer amp,delta,scale
++      integer mettab(0:255,0:1)             !Metric table
++      integer fano
+       integer npr2(207)
++      logical first
+       double complex cz
+       include 'avecom.h'
+       equivalence (i1,i4)
++      data first/.true./
+       data npr2/
+      +  0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,
+      +  0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,
+@@ -28,20 +33,28 @@
+      +  1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
+       save
+ 
+-      twopi=8*atan(1.d0)
+-      dt=2.d0/11025                    !Sample interval (2x downsampled data)
+-      df=11025.d0/2520.d0
++      rewind 41
++      rewind 42
++
++      if(first) then
++         call genmet(mode,mettab)
++         twopi=8*atan(1.d0)
++         dt=2.d0/11025          !Sample interval (2x downsampled data)
++         df=11025.d0/2520.d0
++         nsym=206
++         amp=1
++         first=.false.
++      endif
++
+       istart=nint(dtx/dt)              !Start index for synced FFTs
+-      nsym=206
+-      amp=10
+ 
++C  Shoule amp be adjusted according to signal strength?
++
+ C  Compute soft symbols using differential BPSK demodulation
+-      c0=0.
++      c0=0.                                !### C0=1 ???
+       k=istart
+       fac=1.e-4
+ 
+-      print*,dtx,dfx,df,flip,ndepth
+-
+       do j=1,nsym
+          f0=1270.46 + dfx + npr2(j)*df
+          dphi=twopi*dt*f0
+@@ -71,7 +84,6 @@
+          i4=nint(r)
+          if(j.ge.1) symbol(j)=i1
+       enddo
+-      print*,npts,k,istart
+ 
+       do i=1,nsym
+          j=0
+@@ -82,12 +94,22 @@
+  3091    format(3i6)
+       enddo      
+ 
++      nbits=72                                        !103 ???
++      delta=15
++      limit=10000
++      ncycles=0
++      iret=fano(metric,ncycles,data1,symbol,nbits,mettab,
++     +     delta,limit)
++      decoded='                      '
++      print*,'iret:',iret,ncycles
++      write(*,3001) data1
++ 3001 format(13i4)
++
+ !      call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+-      if(ndepth.ge.1) call deep65(s3,mode65,neme,nchallenge,
+-     +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
++!      if(ndepth.ge.1) call deep65(s3,mode65,neme,nchallenge,
++!     +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
+-      if(ncount.lt.0) decoded='                      '
+ 
+ C  Save symbol spectra for possible decoding of average.
+ !      do j=1,63
+
+Modified: trunk/fano.c
+===================================================================
+--- trunk/fano.c	2007-09-18 18:13:09 UTC (rev 531)
++++ trunk/fano.c	2007-09-19 01:09:22 UTC (rev 532)
+@@ -132,7 +132,6 @@
+ 	long ngamma;
+ 	unsigned int lsym;
+ 	unsigned long i;
+-
+ 	unsigned int nbits;
+ 	int delta;
+ 	unsigned long maxcycles;
+@@ -140,7 +139,6 @@
+ 	nbits=*nbits0;
+ 	delta=*delta0;
+ 	maxcycles=*maxcycles0;
+-
+ 	if((nodes = (struct node *)malloc(nbits*sizeof(struct node))) == NULL){
+ 		printf(&quot;alloc failed\n&quot;);
+ 		return 0;
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-09-18 18:13:09 UTC (rev 531)
++++ trunk/gen24.f	2007-09-19 01:09:22 UTC (rev 532)
+@@ -32,8 +32,10 @@
+       call chkmsg(message,cok,nspecial,flip)
+       call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
+       call entail(dgen,data0)
++      write(*,3001) data0
++ 3001 format(13i4)
+       nbytes=(72+31+7)/8
+-      call encode(dgen,nbytes,symbol(2))     !Convolutional encoding
++      call encode(data0,nbytes,symbol(2))     !Convolutional encoding
+       symbol(1)=0                            !Reference phase
+ 
+       sendingsh=0
+@@ -85,6 +87,7 @@
+       enddo
+       nwave=i
+       call unpackmsg(dgen,msgsent)
++      print*,msgsent
+       if(flip.lt.0.0) then
+          do i=22,1,-1
+             if(msgsent(i:i).ne.' ') goto 10
+@@ -96,8 +99,8 @@
+       enddo
+  20   nmsg=i
+ 
+-      write(*,3001) (symbol(i),i=1,207)
+- 3001 format(70i1)
++      write(*,3002) (symbol(i),i=1,207)
++ 3002 format(70i1)
+ 
+       return
+       end
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-09-18 18:13:09 UTC (rev 531)
++++ trunk/sync24.f	2007-09-19 01:09:22 UTC (rev 532)
+@@ -128,7 +128,7 @@
+       snrsync=abs(ccfblue(lagpk))/rms - 1.1    !Empirical
+ 
+       dt=2.0/11025.0
+-      istart=xlag*nh
++      istart=xlag*nq
+       dtx=istart*dt
+       snrx=-99.0
+ !      ppmax=psavg(ipk)/base-1.0
+@@ -167,17 +167,6 @@
+          ccfred1(i)=ccfred(i)
+       enddo
+ 
+-!      print*,dtx,dfx,snrx,snrsync,flip,width
+-!      do i=ia-i0,ib-i0
+-!         write(41,3001) i*df,ccfred(i)
+-! 3001    format(2f10.3)
+-!      enddo
+-!      dtlag=dt*nq
+-!      do lag=lag1,lag2
+-!         write(42,3002) lag,dtlag*lag,ccfblue(lag)
+-! 3002    format(i5,2f10.3)
+-!      enddo
+-
+       return
+       end
+ 
+
+Modified: trunk/wsjt24.f
+===================================================================
+--- trunk/wsjt24.f	2007-09-18 18:13:09 UTC (rev 531)
++++ trunk/wsjt24.f	2007-09-19 01:09:22 UTC (rev 532)
+@@ -18,7 +18,6 @@
+       character*12 hiscall
+       character*6 hisgrid
+       real ccfblue(-5:540),ccfred(-224:224)
+-      integer mettab(0:255,0:1)             !Metric table
+       include 'avecom.h'
+       data first/.true./,ns10/0/,ns20/0/
+       save
+@@ -26,7 +25,6 @@
+       mode65=2
+ 
+       if(first) then
+-      call genmet(mode,mettab)
+          nsave=0
+          first=.false.
+          ave1=' '
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000216.html">[WSJT-SVN] r531 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000218.html">[WSJT-SVN] r533 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#217">[ date ]</a>
+              <a href="thread.html#217">[ thread ]</a>
+              <a href="subject.html#217">[ subject ]</a>
+              <a href="author.html#217">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

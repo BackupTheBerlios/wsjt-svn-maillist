@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1341 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1341%20-%20branches/wsjt8a&In-Reply-To=%3C200909120214.n8C2EbZe024078%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001032.html">
+   <LINK REL="Next"  HREF="001034.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1341 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1341%20-%20branches/wsjt8a&In-Reply-To=%3C200909120214.n8C2EbZe024078%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1341 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 04:14:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001032.html">[WSJT-SVN] r1340 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001034.html">[WSJT-SVN] r1342 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1033">[ date ]</a>
+              <a href="thread.html#1033">[ thread ]</a>
+              <a href="subject.html#1033">[ subject ]</a>
+              <a href="author.html#1033">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-09-12 04:14:35 +0200 (Sat, 12 Sep 2009)
+New Revision: 1341
+
+Modified:
+   branches/wsjt8a/srcdec.f90
+   branches/wsjt8a/srcenc.f90
+Log:
+JT8 has only 78-bit messages.
+
+
+Modified: branches/wsjt8a/srcdec.f90
+===================================================================
+--- branches/wsjt8a/srcdec.f90	2009-09-12 01:53:28 UTC (rev 1340)
++++ branches/wsjt8a/srcdec.f90	2009-09-12 02:14:35 UTC (rev 1341)
+@@ -144,6 +144,7 @@
+         call unpackpfx(ng,c12)
+         msg='DE '//c12//' RRR'
+      endif
++
+   else if(nbit.eq.78) then
+      nc1=ishft(iu(1),-4)
+      nc2=ishft(iand(iu(1),15),24) + ishft(iu(2),-8)
+@@ -206,14 +207,12 @@
+ 
+ 100 call msgtrim(msg,nmsg)
+ 
+-  i1=index(msg,' OOO ')
+-  if(cmode.eq.'JTMS' .and. i1.ge.4) then
+-     msg=msg(:i1)//'26'//msg(i1+4:)
++  if(cmode.eq.'JTMS') then
++     i1=index(msg,' OOO ')
++     if(i1.ge.4) msg=msg(:i1)//'26'//msg(i1+4:)
++     i1=index(msg,' RO ')
++     if(i1.ge.4) msg=msg(:i1)//'R26'//msg(i1+4:)
+   endif
+-  i1=index(msg,' RO ')
+-  if(cmode.eq.'JTMS' .and. i1.ge.4) then
+-     msg=msg(:i1)//'R26'//msg(i1+4:)
+-  endif
+ 
+   return
+ end subroutine srcdec
+
+Modified: branches/wsjt8a/srcenc.f90
+===================================================================
+--- branches/wsjt8a/srcenc.f90	2009-09-12 01:53:28 UTC (rev 1340)
++++ branches/wsjt8a/srcenc.f90	2009-09-12 02:14:35 UTC (rev 1341)
+@@ -53,17 +53,16 @@
+   sfx=' '
+   iu=0
+ 
+-  i1=index(msg,' 26 ')
+-  if(cmode.eq.'JTMS' .and. i1.ge.4) then
+-     msg=msg(:i1)//'OOO'//msg(i1+3:)
++  if(cmode.eq.'JTMS') then
++     i1=index(msg,' 26 ')
++     if(i1.ge.4) msg=msg(:i1)//'OOO'//msg(i1+3:)
++     i1=index(msg,' R26 ')
++     if(i1.ge.4) msg=msg(:i1)//'RO'//msg(i1+4:)
+   endif
+-  i1=index(msg,' R26 ')
+-  if(cmode.eq.'JTMS' .and. i1.ge.4) then
+-     msg=msg(:i1)//'RO'//msg(i1+4:)
+-  endif
+ 
+   call parse(msg,msglen,w,nw,lenw,nt1,pfx,sfx)
+   if(nw.lt.1) go to 10                 !Error return, blank message
++  if(cmode.eq.'JT8') go to 5
+ 
+ ! Shorthand messages
+   if(nw.eq.1) then
+@@ -95,7 +94,7 @@
+      go to 10
+   endif
+ 
+-  nbit=78
++5 nbit=78
+   call pk78(msg,w,nw,nt1,nc1,nc2,ngph,n2,n5,iu)
+   if(iand(n5,1).eq.0) then
+      iu(1)=ishft(nc1,4) + iand(ishft(nc2,-24),15)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001032.html">[WSJT-SVN] r1340 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001034.html">[WSJT-SVN] r1342 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1033">[ date ]</a>
+              <a href="thread.html#1033">[ thread ]</a>
+              <a href="subject.html#1033">[ subject ]</a>
+              <a href="author.html#1033">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

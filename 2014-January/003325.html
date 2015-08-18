@@ -1,0 +1,466 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3632 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3632%20-%20branches/map65&In-Reply-To=%3C20140110201131.11E9555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003324.html">
+   <LINK REL="Next"  HREF="003326.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3632 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3632%20-%20branches/map65&In-Reply-To=%3C20140110201131.11E9555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3632 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan 10 21:11:30 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003324.html">[WSJT-SVN] r3631 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003326.html">[WSJT-SVN] WSJT r3619 - Asterix's ?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3325">[ date ]</a>
+              <a href="thread.html#3325">[ thread ]</a>
+              <a href="subject.html#3325">[ subject ]</a>
+              <a href="author.html#3325">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-10 21:11:30 +0100 (Fri, 10 Jan 2014)
+New Revision: 3632
+
+Modified:
+   branches/map65/mainwindow.cpp
+   branches/map65/mainwindow.h
+   branches/map65/map65.iss
+   branches/map65/soundout.cpp
+   branches/map65/txtune.cpp
+   branches/map65/txtune.h
+   branches/map65/txtune.ui
+Log:
+More work toward changes for IQ+ Tx: in particular, code for the txTune 
+window.  Still need to implement actions in soundout for Tx image rejection,
+and action of the Tune button.
+
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/mainwindow.cpp	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -17,6 +17,7 @@
+ short int iwave[2*60*11025];          //Wave file for Tx audio
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
++bool bTune;
+ double outputLatency;                 //Latency in seconds
+ double txPower;
+ double iqAmp;
+@@ -150,6 +151,7 @@
+   m_colors=&quot;000066ff0000ffff00969696646464&quot;;
+   m_nfast=1;
+   m_nsave=0;
++  bTune=false;
+   txPower=1.0;
+   iqAmp=1.0;
+   iqPhase=0.0;
+@@ -337,8 +339,8 @@
+   settings.setValue(&quot;Editor&quot;,m_editorCommand);
+   settings.setValue(&quot;DXCCpfx&quot;,m_dxccPfx);
+   settings.setValue(&quot;Timeout&quot;,m_timeout);
+-  settings.setValue(&quot;IQamp&quot;,m_IQamp);
+-  settings.setValue(&quot;IQphase&quot;,m_IQphase);
++  settings.setValue(&quot;IQamp&quot;,iqAmp);
++  settings.setValue(&quot;IQphase&quot;,iqPhase);
+   settings.setValue(&quot;ApplyIQcal&quot;,m_applyIQcal);
+   settings.setValue(&quot;dPhi&quot;,m_dPhi);
+   settings.setValue(&quot;Fcal&quot;,m_fCal);
+@@ -414,8 +416,8 @@
+   m_editorCommand=settings.value(&quot;Editor&quot;,&quot;notepad&quot;).toString();
+   m_dxccPfx=settings.value(&quot;DXCCpfx&quot;,&quot;&quot;).toString();
+   m_timeout=settings.value(&quot;Timeout&quot;,20).toInt();
+-  m_IQamp=settings.value(&quot;IQamp&quot;,1.0000).toDouble();
+-  m_IQphase=settings.value(&quot;IQphase&quot;,0.0).toDouble();
++  iqAmp=settings.value(&quot;IQamp&quot;,1.0000).toDouble();
++  iqPhase=settings.value(&quot;IQphase&quot;,0.0).toDouble();
+   m_applyIQcal=settings.value(&quot;ApplyIQcal&quot;,0).toInt();
+   ui-&gt;actionApply_IQ_Calibration-&gt;setChecked(m_applyIQcal!=0);
+   m_dPhi=settings.value(&quot;dPhi&quot;,0).toInt();
+@@ -2114,13 +2116,8 @@
+ {
+   if(g_pTxTune==NULL) {
+     g_pTxTune = new TxTune(0);
+-    /*
+-    g_pTxTune-&gt;setWindowTitle(&quot;Astronomical Data&quot;);
+-    Qt::WindowFlags flags = Qt::Dialog | Qt::WindowCloseButtonHint |
+-        Qt::WindowMinimizeButtonHint;
+-    g_pTxTune-&gt;setWindowFlags(flags);
+-    g_pTxTune-&gt;setGeometry(m_astroGeom);
+-    */
+   }
++  g_pTxTune-&gt;set_iqAmp(iqAmp);
++  g_pTxTune-&gt;set_iqPhase(iqPhase);
+   g_pTxTune-&gt;show();
+ }
+
+Modified: branches/map65/mainwindow.h
+===================================================================
+--- branches/map65/mainwindow.h	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/mainwindow.h	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -164,8 +164,8 @@
+     qint32  m_TRperiod;
+ 
+     double  m_fAdd;
+-    double  m_IQamp;
+-    double  m_IQphase;
++//    double  m_IQamp;
++//    double  m_IQphase;
+     double  m_cal570;
+ 
+     bool    m_monitoring;
+
+Modified: branches/map65/map65.iss
+===================================================================
+--- branches/map65/map65.iss	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/map65.iss	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=MAP65
+-AppVerName=MAP65 Version 2.5 r3597
++AppVerName=MAP65 Version 2.5 r3603
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\MAP65
+ DefaultGroupName=MAP65
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/soundout.cpp	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -11,6 +11,7 @@
+ extern short int iwave[2*60*11025];   //Wave file for Tx audio
+ extern int nwave;
+ extern bool btxok;
++extern bool bTune;
+ extern double outputLatency;
+ extern double txPower;
+ extern double iqAmp;
+@@ -39,12 +40,18 @@
+   int nsec;
+   int nTRperiod=udata-&gt;nTRperiod;
+ 
+-//  qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase;
++
+   // Get System time
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   tsec = 0.001*ms;
+   nsec = ms/1000;
+ 
++  static int nsec0=0;
++  if(nsec!=nsec0) {
++    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase &lt;&lt; bTune;
++    nsec0=nsec;
++  }
++
+   if(btxok and !btxok0) {       //Start (or re-start) a transmission
+     n=nsec/nTRperiod;
+     tstart=tsec - n*nTRperiod - 1.0;
+
+Modified: branches/map65/txtune.cpp
+===================================================================
+--- branches/map65/txtune.cpp	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/txtune.cpp	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -5,6 +5,7 @@
+ extern double txPower;
+ extern double iqAmp;
+ extern double iqPhase;
++extern bool bTune;
+ 
+ TxTune::TxTune(QWidget *parent) :
+     QDialog(parent),
+@@ -26,9 +27,56 @@
+ void TxTune::on_ampSlider_valueChanged(int n)
+ {
+   iqAmp=1.0 + 0.001*n;
++  ui-&gt;ampSpinBox-&gt;setValue(iqAmp);
+ }
+ 
+ void TxTune::on_phaSlider_valueChanged(int n)
+ {
+   iqPhase=0.1*n;
++  ui-&gt;phaSpinBox-&gt;setValue(iqPhase);
+ }
++
++void TxTune::on_ampSpinBox_valueChanged(double d)
++{
++  iqAmp=d;
++  int n=1000.0*(iqAmp-1.0);
++  ui-&gt;ampSlider-&gt;setValue(n);
++}
++
++void TxTune::on_phaSpinBox_valueChanged(double d)
++{
++  iqPhase=d;
++  int n=10.0*iqPhase;
++  ui-&gt;phaSlider-&gt;setValue(n);
++}
++
++void TxTune::set_iqAmp(double d)
++{
++  ui-&gt;ampSpinBox-&gt;setValue(d);
++}
++
++void TxTune::set_iqPhase(double d)
++{
++  ui-&gt;phaSpinBox-&gt;setValue(d);
++}
++
++void TxTune::on_cbTxImage_toggled(bool b)
++{
++  ui-&gt;ampSlider-&gt;setEnabled(b);
++  ui-&gt;ampSpinBox-&gt;setEnabled(b);
++  ui-&gt;labAmp-&gt;setEnabled(b);
++  ui-&gt;phaSlider-&gt;setEnabled(b);
++  ui-&gt;phaSpinBox-&gt;setEnabled(b);
++  ui-&gt;labPha-&gt;setEnabled(b);
++}
++
++void TxTune::on_pbTune_clicked()
++{
++  bTune = !bTune;
++  if(bTune) {
++    QString style=&quot;QPushButton{background-color: red;}&quot;;
++    ui-&gt;pbTune-&gt;setStyleSheet(style);
++  } else {
++    ui-&gt;pbTune-&gt;setStyleSheet(&quot;&quot;);
++  }
++}
+
+Modified: branches/map65/txtune.h
+===================================================================
+--- branches/map65/txtune.h	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/txtune.h	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -19,7 +19,15 @@
+   void on_pwrSlider_valueChanged(int n);
+   void on_ampSlider_valueChanged(int n);
+   void on_phaSlider_valueChanged(int n);
++  void on_ampSpinBox_valueChanged(double d);
++  void on_phaSpinBox_valueChanged(double d);
++  void on_cbTxImage_toggled(bool b);
++  void on_pbTune_clicked();
+ 
++public:
++  void set_iqAmp(double d);
++  void set_iqPhase(double d);
++
+ private:
+     Ui::TxTune *ui;
+ };
+
+Modified: branches/map65/txtune.ui
+===================================================================
+--- branches/map65/txtune.ui	2014-01-09 18:14:58 UTC (rev 3631)
++++ branches/map65/txtune.ui	2014-01-10 20:11:30 UTC (rev 3632)
+@@ -35,9 +35,9 @@
+   &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
+    &lt;property name=&quot;geometry&quot;&gt;
+     &lt;rect&gt;
+-     &lt;x&gt;20&lt;/x&gt;
+-     &lt;y&gt;40&lt;/y&gt;
+-     &lt;width&gt;331&lt;/width&gt;
++     &lt;x&gt;12&lt;/x&gt;
++     &lt;y&gt;64&lt;/y&gt;
++     &lt;width&gt;371&lt;/width&gt;
+      &lt;height&gt;141&lt;/height&gt;
+     &lt;/rect&gt;
+    &lt;/property&gt;
+@@ -55,8 +55,44 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;1&quot; column=&quot;0&quot;&gt;
+-     &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
++    &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
++     &lt;widget class=&quot;QSlider&quot; name=&quot;pwrSlider&quot;&gt;
++      &lt;property name=&quot;maximum&quot;&gt;
++       &lt;number&gt;100&lt;/number&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;value&quot;&gt;
++       &lt;number&gt;100&lt;/number&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;orientation&quot;&gt;
++       &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;tickPosition&quot;&gt;
++       &lt;enum&gt;QSlider::TicksBelow&lt;/enum&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;tickInterval&quot;&gt;
++       &lt;number&gt;10&lt;/number&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
++    &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
++     &lt;widget class=&quot;QPushButton&quot; name=&quot;pbTune&quot;&gt;
++      &lt;property name=&quot;text&quot;&gt;
++       &lt;string&gt;Tune&lt;/string&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
++    &lt;item row=&quot;1&quot; column=&quot;0&quot; colspan=&quot;3&quot;&gt;
++     &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxImage&quot;&gt;
++      &lt;property name=&quot;text&quot;&gt;
++       &lt;string&gt;Enable Tx Image Adjustment&lt;/string&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
++    &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
++     &lt;widget class=&quot;QLabel&quot; name=&quot;labAmp&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;minimumSize&quot;&gt;
+        &lt;size&gt;
+         &lt;width&gt;70&lt;/width&gt;
+@@ -68,24 +104,33 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
+-     &lt;widget class=&quot;QSlider&quot; name=&quot;ampSlider&quot;&gt;
++    &lt;item row=&quot;2&quot; column=&quot;2&quot;&gt;
++     &lt;widget class=&quot;QDoubleSpinBox&quot; name=&quot;ampSpinBox&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;decimals&quot;&gt;
++       &lt;number&gt;3&lt;/number&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;minimum&quot;&gt;
+-       &lt;number&gt;-100&lt;/number&gt;
++       &lt;double&gt;0.950000000000000&lt;/double&gt;
+       &lt;/property&gt;
+       &lt;property name=&quot;maximum&quot;&gt;
+-       &lt;number&gt;100&lt;/number&gt;
++       &lt;double&gt;1.050000000000000&lt;/double&gt;
+       &lt;/property&gt;
+-      &lt;property name=&quot;orientation&quot;&gt;
+-       &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++      &lt;property name=&quot;singleStep&quot;&gt;
++       &lt;double&gt;0.001000000000000&lt;/double&gt;
+       &lt;/property&gt;
+-      &lt;property name=&quot;tickPosition&quot;&gt;
+-       &lt;enum&gt;QSlider::TicksBelow&lt;/enum&gt;
++      &lt;property name=&quot;value&quot;&gt;
++       &lt;double&gt;1.000000000000000&lt;/double&gt;
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;2&quot; column=&quot;0&quot;&gt;
+-     &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
++    &lt;item row=&quot;3&quot; column=&quot;0&quot;&gt;
++     &lt;widget class=&quot;QLabel&quot; name=&quot;labPha&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;minimumSize&quot;&gt;
+        &lt;size&gt;
+         &lt;width&gt;70&lt;/width&gt;
+@@ -97,8 +142,11 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
++    &lt;item row=&quot;3&quot; column=&quot;1&quot;&gt;
+      &lt;widget class=&quot;QSlider&quot; name=&quot;phaSlider&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;minimum&quot;&gt;
+        &lt;number&gt;-100&lt;/number&gt;
+       &lt;/property&gt;
+@@ -116,13 +164,38 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
+-     &lt;widget class=&quot;QSlider&quot; name=&quot;pwrSlider&quot;&gt;
++    &lt;item row=&quot;3&quot; column=&quot;2&quot;&gt;
++     &lt;widget class=&quot;QDoubleSpinBox&quot; name=&quot;phaSpinBox&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;decimals&quot;&gt;
++       &lt;number&gt;1&lt;/number&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;minimum&quot;&gt;
++       &lt;double&gt;-10.000000000000000&lt;/double&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;maximum&quot;&gt;
+-       &lt;number&gt;100&lt;/number&gt;
++       &lt;double&gt;10.000000000000000&lt;/double&gt;
+       &lt;/property&gt;
++      &lt;property name=&quot;singleStep&quot;&gt;
++       &lt;double&gt;0.100000000000000&lt;/double&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
++    &lt;item row=&quot;2&quot; column=&quot;1&quot;&gt;
++     &lt;widget class=&quot;QSlider&quot; name=&quot;ampSlider&quot;&gt;
++      &lt;property name=&quot;enabled&quot;&gt;
++       &lt;bool&gt;false&lt;/bool&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;minimum&quot;&gt;
++       &lt;number&gt;-50&lt;/number&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;maximum&quot;&gt;
++       &lt;number&gt;50&lt;/number&gt;
++      &lt;/property&gt;
+       &lt;property name=&quot;value&quot;&gt;
+-       &lt;number&gt;100&lt;/number&gt;
++       &lt;number&gt;0&lt;/number&gt;
+       &lt;/property&gt;
+       &lt;property name=&quot;orientation&quot;&gt;
+        &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+@@ -130,9 +203,6 @@
+       &lt;property name=&quot;tickPosition&quot;&gt;
+        &lt;enum&gt;QSlider::TicksBelow&lt;/enum&gt;
+       &lt;/property&gt;
+-      &lt;property name=&quot;tickInterval&quot;&gt;
+-       &lt;number&gt;10&lt;/number&gt;
+-      &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+    &lt;/layout&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003324.html">[WSJT-SVN] r3631 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003326.html">[WSJT-SVN] WSJT r3619 - Asterix's ?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3325">[ date ]</a>
+              <a href="thread.html#3325">[ thread ]</a>
+              <a href="subject.html#3325">[ subject ]</a>
+              <a href="author.html#3325">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

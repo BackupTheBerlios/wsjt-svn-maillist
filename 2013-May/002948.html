@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3256 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3256%20-%20branches/wsjtx&In-Reply-To=%3C20130504001227.D3A4055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002947.html">
+   <LINK REL="Next"  HREF="002949.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3256 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3256%20-%20branches/wsjtx&In-Reply-To=%3C20130504001227.D3A4055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3256 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat May  4 02:12:27 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002947.html">[WSJT-SVN] r3255 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002949.html">[WSJT-SVN] r3257 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2948">[ date ]</a>
+              <a href="thread.html#2948">[ thread ]</a>
+              <a href="subject.html#2948">[ subject ]</a>
+              <a href="author.html#2948">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-04 02:12:27 +0200 (Sat, 04 May 2013)
+New Revision: 3256
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+Red/Orange indicator between &quot;Band&quot; spinner and Dial Frequency readout
+is now a button.  It is enabled only when Orange, which means CAT
+control is essentially Program to Radio only.  Clicking the button
+causes a one-time read of the radio's dial frequency.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-03 23:28:39 UTC (rev 3255)
++++ branches/wsjtx/mainwindow.cpp	2013-05-04 00:12:27 UTC (rev 3256)
+@@ -180,6 +180,7 @@
+   m_secBandChanged=0;
+   m_bMultipleOK=false;
+   m_dontReadFreq=false;
++  ui-&gt;readFreq-&gt;setEnabled(false);
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -642,7 +643,8 @@
+ 
+   if(m_bRigOpen) {
+     rig-&gt;close();
+-    ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;&quot;);
++    ui-&gt;readFreq-&gt;setStyleSheet(&quot;&quot;);
++    ui-&gt;readFreq-&gt;setEnabled(false);
+     delete rig;
+     m_bRigOpen=false;
+     m_catEnabled=false;
+@@ -1720,7 +1722,6 @@
+           msgBox(rt);
+           m_catEnabled=false;
+         }
+-
+         int ndiff=1000000.0*(fMHz-m_dialFreq);
+         if(ndiff!=0) dialFreqChanged2(fMHz);
+       }
+@@ -2783,16 +2784,18 @@
+   ret=rig-&gt;open();
+   if(ret==RIG_OK) {
+     m_bRigOpen=true;
++    if(m_poll==0) ui-&gt;readFreq-&gt;setEnabled(true);
+   } else {
+     t=&quot;Open rig failed&quot;;
+     msgBox(t);
+   }
+ 
+   if(m_poll&gt;0) {
+-    ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;QLabel{background-color: red}&quot;);
+-    ui-&gt;readFreq-&gt;setStyleSheet(&quot;QPushButton{background-color: #00ff00}&quot;);
++    ui-&gt;readFreq-&gt;setStyleSheet(&quot;QPushButton{background-color: red; \
++    border-width: 0px; border-radius: 5px;}&quot;);
+   } else {
+-    ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;QLabel{background-color: orange}&quot;);
++    ui-&gt;readFreq-&gt;setStyleSheet(&quot;QPushButton{background-color: orange; \
++    border-width: 0px; border-radius: 5px;}&quot;);
+   }
+ }
+ 
+@@ -2812,3 +2815,22 @@
+   g_pWideGraph-&gt;setQSOfreq(m_txFreq);
+ }
+ 
++
++void MainWindow::on_readFreq_clicked()
++{
++  if(m_dontReadFreq) {
++    m_dontReadFreq=false;
++  } else {
++    double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
++    if(fMHz&lt;0.0) {
++      QString rt;
++      rt.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
++                int(1000000.0*fMHz));
++      msgBox(rt);
++      m_catEnabled=false;
++    }
++    int ndiff=1000000.0*(fMHz-m_dialFreq);
++    if(ndiff!=0) dialFreqChanged2(fMHz);
++    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; fMHz &lt;&lt; ndiff;
++}
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-05-03 23:28:39 UTC (rev 3255)
++++ branches/wsjtx/mainwindow.h	2013-05-04 00:12:27 UTC (rev 3256)
+@@ -155,6 +155,8 @@
+   void acceptQSO2(bool accepted);
+   void on_bandComboBox_activated(int index);
+ 
++  void on_readFreq_clicked();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-05-03 23:28:39 UTC (rev 3255)
++++ branches/wsjtx/mainwindow.ui	2013-05-04 00:12:27 UTC (rev 3256)
+@@ -2020,31 +2020,6 @@
+           &lt;/layout&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
+-         &lt;widget class=&quot;QLabel&quot; name=&quot;labRigOpen&quot;&gt;
+-          &lt;property name=&quot;sizePolicy&quot;&gt;
+-           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-            &lt;horstretch&gt;20&lt;/horstretch&gt;
+-            &lt;verstretch&gt;20&lt;/verstretch&gt;
+-           &lt;/sizepolicy&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;minimumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;10&lt;/width&gt;
+-            &lt;height&gt;10&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;maximumSize&quot;&gt;
+-           &lt;size&gt;
+-            &lt;width&gt;10&lt;/width&gt;
+-            &lt;height&gt;10&lt;/height&gt;
+-           &lt;/size&gt;
+-          &lt;/property&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string/&gt;
+-          &lt;/property&gt;
+-         &lt;/widget&gt;
+-        &lt;/item&gt;
+         &lt;item row=&quot;1&quot; column=&quot;4&quot;&gt;
+          &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
+           &lt;property name=&quot;sizePolicy&quot;&gt;
+@@ -2209,7 +2184,7 @@
+           &lt;/property&gt;
+          &lt;/spacer&gt;
+         &lt;/item&gt;
+-        &lt;item row=&quot;0&quot; column=&quot;3&quot;&gt;
++        &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
+          &lt;widget class=&quot;QPushButton&quot; name=&quot;readFreq&quot;&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002947.html">[WSJT-SVN] r3255 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002949.html">[WSJT-SVN] r3257 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2948">[ date ]</a>
+              <a href="thread.html#2948">[ thread ]</a>
+              <a href="subject.html#2948">[ subject ]</a>
+              <a href="author.html#2948">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

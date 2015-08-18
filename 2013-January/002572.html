@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2880 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2880%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130102203210.4FCCB55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002571.html">
+   <LINK REL="Next"  HREF="002573.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2880 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2880%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130102203210.4FCCB55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2880 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 21:32:10 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002571.html">[WSJT-SVN] r2879 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002573.html">[WSJT-SVN] r2881 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2572">[ date ]</a>
+              <a href="thread.html#2572">[ thread ]</a>
+              <a href="subject.html#2572">[ subject ]</a>
+              <a href="author.html#2572">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-02 21:32:09 +0100 (Wed, 02 Jan 2013)
+New Revision: 2880
+
+Modified:
+   branches/wsprx/lib/symspec.f90
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/plotter.cpp
+   branches/wsprx/soundin.cpp
+Log:
+Some code cleanup; send nsps from GUI to symspec.
+
+
+Modified: branches/wsprx/lib/symspec.f90
+===================================================================
+--- branches/wsprx/lib/symspec.f90	2013-01-02 19:40:29 UTC (rev 2879)
++++ branches/wsprx/lib/symspec.f90	2013-01-02 20:32:09 UTC (rev 2880)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,ingain,pxdb,s,df3,ihsym)
++subroutine symspec(k,nsps,ingain,pxdb,s,df3,ihsym)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -34,7 +34,6 @@
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+ 
+-  nsps=15360              !Nothing magical about this value, comes from JT9-2
+   nfft3=2048
+   jstep=nsps/16
+   if(k.gt.NMAX) go to 999
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-02 19:40:29 UTC (rev 2879)
++++ branches/wsprx/mainwindow.cpp	2013-01-02 20:32:09 UTC (rev 2880)
+@@ -303,7 +303,7 @@
+   }
+ 
+ // Get power, spectrum, and ihsym
+-  symspec_(&amp;k, &amp;m_inGain, &amp;px, s, &amp;df3, &amp;ihsym);
++  symspec_(&amp;k, &amp;m_nsps, &amp;m_inGain, &amp;px, s, &amp;df3, &amp;ihsym);
+   if(ihsym &lt;=0) return;
+   QString t;
+   t.sprintf(&quot; Receiving: %5.1f dB &quot;,px);
+@@ -313,6 +313,7 @@
+     g_pWideGraph-&gt;dataSink2(s,df3,ihsym,m_diskData);
+   }
+ 
++  qDebug() &lt;&lt; m_nsps &lt;&lt; m_hsymStop &lt;&lt; ihsym;
+   if(ihsym == m_hsymStop) {
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-02 19:40:29 UTC (rev 2879)
++++ branches/wsprx/mainwindow.h	2013-01-02 20:32:09 UTC (rev 2880)
+@@ -198,8 +198,8 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* ingain, float* px, float s[], float* df3,
+-              int* nhsym);
++void symspec_(int* k, int* nsps, int* ingain, float* px, float s[],
++              float* df3, int* nhsym);
+ /*
+ void genjt9_(char* msg, int* ichk, char* msgsent, int itone[],
+              int* itext, int len1, int len2);
+
+Modified: branches/wsprx/plotter.cpp
+===================================================================
+--- branches/wsprx/plotter.cpp	2013-01-02 19:40:29 UTC (rev 2879)
++++ branches/wsprx/plotter.cpp	2013-01-02 20:32:09 UTC (rev 2880)
+@@ -29,7 +29,7 @@
+   m_TxFreq = 1500;
+   m_line = 0;
+   m_fSample = 12000;
+-  m_nsps=6912;
++  m_nsps=15360;
+   m_dBStepSize=10;
+   m_Percent2DScreen = 30;	//percent of screen used for 2D display
+   m_txFreq=0;
+@@ -453,9 +453,7 @@
+   m_nsps=nsps;
+   m_fftBinWidth=1500.0/2048.0;
+   if(m_nsps==15360)  m_fftBinWidth=1500.0/2048.0;
+-  if(m_nsps==40960)  m_fftBinWidth=1500.0/6144.0;
+   if(m_nsps==82944)  m_fftBinWidth=1500.0/12288.0;
+-  if(m_nsps==252000) m_fftBinWidth=1500.0/32768.0;
+   DrawOverlay();                         //Redraw scales and ticks
+   update();                              //trigger a new paintEvent}
+ }
+
+Modified: branches/wsprx/soundin.cpp
+===================================================================
+--- branches/wsprx/soundin.cpp	2013-01-02 19:40:29 UTC (rev 2879)
++++ branches/wsprx/soundin.cpp	2013-01-02 20:32:09 UTC (rev 2880)
+@@ -133,14 +133,11 @@
+     k=udata.kin;
+     if(m_receiving) {
+       int kstep=m_nsps/2;
+-//      m_step=k/kstep;
+       m_step=(k-1)/kstep;
+       if(m_step != nstep0) {
+         if(m_dataSinkBusy) {
+           nBusy++;
+         } else {
+-//          m_dataSinkBusy=true;
+-//          emit readyForFFT(k);         //Signal to compute new FFTs
+           emit readyForFFT(k-1);         //Signal to compute new FFTs
+         }
+         nstep0=m_step;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002571.html">[WSJT-SVN] r2879 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002573.html">[WSJT-SVN] r2881 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2572">[ date ]</a>
+              <a href="thread.html#2572">[ thread ]</a>
+              <a href="subject.html#2572">[ subject ]</a>
+              <a href="author.html#2572">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

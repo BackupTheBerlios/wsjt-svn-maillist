@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1626 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1626%20-%20branches/wspr&In-Reply-To=%3C200911041911.nA4JBUZP018752%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001316.html">
+   <LINK REL="Next"  HREF="001318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1626 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1626%20-%20branches/wspr&In-Reply-To=%3C200911041911.nA4JBUZP018752%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1626 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov  4 20:11:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001316.html">[WSJT-SVN] r1625 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001318.html">[WSJT-SVN] r1627 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1317">[ date ]</a>
+              <a href="thread.html#1317">[ thread ]</a>
+              <a href="subject.html#1317">[ subject ]</a>
+              <a href="author.html#1317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-04 20:11:25 +0100 (Wed, 04 Nov 2009)
+New Revision: 1626
+
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/Makefile.in
+   branches/wspr/fthread.c
+   branches/wspr/packgrid.f
+   branches/wspr/thnix.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr1.F90
+   branches/wspr/wspr2.F90
+Log:
+Critical sections now appear to be working in Linux.
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/Makefile.MinGW	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -39,7 +39,7 @@
+ 	encode232.f nchar.f grid2deg.f gencwid.f morse.f \
+ 	fchisq.f ccf2.f twkfreq.f azdist.f geodist.f
+ 
+-SRCS2C = ptt.c start_threads.c padevsub.c
++SRCS2C = ptt.c start_threads.c padevsub.c fthread.c
+ 
+ WSPR.EXE: WsprMod/w.pyd wspr.spec
+ 	c:/python25/python c:/python25/pyinstaller-1.3/Build.py wspr.spec
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/Makefile.in	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -69,7 +69,8 @@
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+-SRCS2C = padevsub.c start_threads.c sound.c gmtime2.c ptt_unix.c nhash.c
++SRCS2C = padevsub.c start_threads.c sound.c gmtime2.c ptt_unix.c \
++	nhash.c fthread.c
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+ WsprMod/w.so:	${OBJS2C} $(SRCS2F90) $(SRCS2F77) acom1.f90
+
+Modified: branches/wspr/fthread.c
+===================================================================
+--- branches/wspr/fthread.c	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/fthread.c	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -7,6 +7,7 @@
+ */
+ #include &lt;stdio.h&gt;
+ #include &lt;pthread.h&gt;
++#include &lt;stdlib.h&gt;
+ 
+ // Create a new fortran thread through a subroutine.
+ void fthread_create_(void *(*thread_func)(void *), pthread_t *theThread) 
+@@ -14,11 +15,13 @@
+   pthread_create(theThread, NULL, thread_func, NULL);
+ } 
+ 
++/*
+ // Yield control to other threads
+ void fthread_yield_() 
+ {
+   pthread_yield();
+-} 
++}
++*/
+ 
+ // Return my own thread ID
+ pthread_t fthread_self_() 
+@@ -27,11 +30,16 @@
+ } 
+ 
+ // Lock the execution of all threads until we have the mutex
+-void fthread_mutex_lock_(pthread_mutex_t **theMutex) 
++int fthread_mutex_lock_(pthread_mutex_t **theMutex) 
+ {
+-  pthread_mutex_lock(*theMutex);
++  return(pthread_mutex_lock(*theMutex));
+ }
+ 
++int fthread_mutex_trylock_(pthread_mutex_t **theMutex) 
++{
++  return(pthread_mutex_trylock(*theMutex));
++}
++
+ // Unlock the execution of all threads that were stopped by this mutex
+ void fthread_mutex_unlock_(pthread_mutex_t **theMutex) 
+ {
+
+Modified: branches/wspr/packgrid.f
+===================================================================
+--- branches/wspr/packgrid.f	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/packgrid.f	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -10,11 +10,11 @@
+ C  Test for numerical signal report, etc.
+       if(grid(1:1).eq.'-') then
+          n=10*(ichar(grid(2:2))-48) + ichar(grid(3:3)) - 48
+- 1       ng=NGBASE+1+n
++         ng=NGBASE+1+n
+          go to 100
+       else if(grid(1:2).eq.'R-') then
+          n=10*(ichar(grid(3:3))-48) + ichar(grid(4:4)) - 48
+- 2       if(n.eq.0) go to 90
++         if(n.eq.0) go to 90
+          ng=NGBASE+31+n
+          go to 100
+       else if(grid(1:2).eq.'RO') then
+
+Modified: branches/wspr/thnix.f90
+===================================================================
+--- branches/wspr/thnix.f90	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/thnix.f90	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -1,54 +1,54 @@
+-subroutine cs_init
+-  character*12 csub0
+-  common/mtxcom/ltrace,mtx,mtxstate,csub0
+-  ltrace=0
+-  mtxstate=0
+-  csub0='**unlocked**'
+-  call fthread_mutex_init(mtx)
+-  return
+-end subroutine cs_init
+-
+-subroutine cs_destroy
+-  character*12 csub0
+-  common/mtxcom/ltrace,mtx,mtxstate,csub0
+-  call fthread_mutex_destroy(mtx)
+-  return
+-end subroutine cs_destroy
+-
+-subroutine th_create(sub)
+-  call fthread_create(sub,id)
+-  return
+-end subroutine th_create
+-
+-subroutine th_exit
+-  call fthread_exit
+-  return
+-end subroutine th_exit
+-
+-subroutine cs_lock(csub)
+-  character*(*) csub
+-  character*12 csub0
+-  integer fthread_mutex_lock,fthread_mutex_trylock
+-  common/mtxcom/ltrace,mtx,mtxstate,csub0
+-  n=fthread_mutex_trylock(mtx)
+-  if(n.ne.0) then
+-! Another thread has already locked the mutex
+-     n=fthread_mutex_lock(mtx)
+-     iz=index(csub0,' ')
+-     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested mutex when &quot;',   &amp;
+-          csub0(:iz-1),'&quot; owned it.'
+-  endif
+-  mtxstate=1
+-  csub0=csub
+-  if(ltrace.ge.3) print*,'Mutex locked by ',csub
+-  return
+-end subroutine cs_lock
+-
+-subroutine cs_unlock
+-  character*12 csub0
+-  common/mtxcom/ltrace,mtx,mtxstate,csub0
+-  if(ltrace.ge.3) print*,'Mutex unlocked,',ltrace,mtx,mtxstate,csub0
+-  mtxstate=0
+-  call fthread_mutex_unlock(mtx)
+-  return
+-end subroutine cs_unlock
++subroutine cs_init
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  ltrace=0
++  mtxstate=0
++  csub0='**unlocked**'
++  call fthread_mutex_init(mtx)
++  return
++end subroutine cs_init
++
++subroutine cs_destroy
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  call fthread_mutex_destroy(mtx)
++  return
++end subroutine cs_destroy
++
++subroutine th_create(sub)
++  call fthread_create(sub,id)
++  return
++end subroutine th_create
++
++subroutine th_exit
++  call fthread_exit
++  return
++end subroutine th_exit
++
++subroutine cs_lock(csub)
++  character*(*) csub
++  character*12 csub0
++  integer fthread_mutex_lock,fthread_mutex_trylock
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  n=fthread_mutex_trylock(mtx)
++  if(n.ne.0) then
++! Another thread has already locked the mutex
++     n=fthread_mutex_lock(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested mutex when &quot;',   &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
++  return
++end subroutine cs_lock
++
++subroutine cs_unlock
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  if(ltrace.ge.3) print*,'Mutex unlocked,',ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++  call fthread_mutex_unlock(mtx)
++  return
++end subroutine cs_unlock
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/wspr.py	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -1,4 +1,4 @@
+-#----------------------------------------------------------------------- WSPR
++#------------------------------------------------------------------------ WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wspr/wspr1.F90
+===================================================================
+--- branches/wspr/wspr1.F90	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/wspr1.F90	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -25,8 +25,6 @@
+ !     THREAD_PRIORITY_HIGHEST            2
+ !     THREAD_PRIORITY_TIME_CRITICAL     15
+ 
+-  call cs_init
+-
+   nrxdone=0
+   fcal=1.d0
+   m0=SetPriorityClass(GetCurrentProcess(),NORMAL_PRIORITY_CLASS)
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-04 18:26:09 UTC (rev 1625)
++++ branches/wspr/wspr2.F90	2009-11-04 19:11:25 UTC (rev 1626)
+@@ -21,6 +21,7 @@
+   data receiving/.false./,transmitting/.false./
+   data decoding/.false./,ns1200/-999/
+ 
++  call cs_init
+   call cs_lock('wspr2')
+ #ifdef CVF
+   open(14,file='decoded.txt',status='unknown',share='denynone')
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001316.html">[WSJT-SVN] r1625 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001318.html">[WSJT-SVN] r1627 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1317">[ date ]</a>
+              <a href="thread.html#1317">[ thread ]</a>
+              <a href="subject.html#1317">[ subject ]</a>
+              <a href="author.html#1317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

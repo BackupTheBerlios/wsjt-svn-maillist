@@ -1,0 +1,271 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2502 - in branches/jtms3: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2502%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120709160008.9574655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002193.html">
+   <LINK REL="Next"  HREF="002195.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2502 - in branches/jtms3: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2502%20-%20in%20branches/jtms3%3A%20.%20libm65&In-Reply-To=%3C20120709160008.9574655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2502 - in branches/jtms3: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jul  9 18:00:08 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002193.html">[WSJT-SVN] r2501 - branches/jtms3
+</A></li>
+        <LI>Next message: <A HREF="002195.html">[WSJT-SVN] r2503 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2194">[ date ]</a>
+              <a href="thread.html#2194">[ thread ]</a>
+              <a href="subject.html#2194">[ subject ]</a>
+              <a href="author.html#2194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-09 18:00:08 +0200 (Mon, 09 Jul 2012)
+New Revision: 2502
+
+Added:
+   branches/jtms3/libm65/specjtms.f90
+Removed:
+   branches/jtms3/kvasd2.exe
+   branches/jtms3/libm65/kvasd.exe
+Modified:
+   branches/jtms3/libm65/ms3.f90
+Log:
+Working on stand-alone decoder, ms3.
+
+
+Deleted: branches/jtms3/kvasd2.exe
+===================================================================
+(Binary files differ)
+
+Deleted: branches/jtms3/libm65/kvasd.exe
+===================================================================
+(Binary files differ)
+
+Modified: branches/jtms3/libm65/ms3.f90
+===================================================================
+--- branches/jtms3/libm65/ms3.f90	2012-07-07 18:10:39 UTC (rev 2501)
++++ branches/jtms3/libm65/ms3.f90	2012-07-09 16:00:08 UTC (rev 2502)
+@@ -3,13 +3,9 @@
+ ! Starting code for a JTMS3 decoder.
+ 
+   character*80 infile
+-  parameter (NSMAX=30*48000)
+-  parameter (NFFT=8192,NH=NFFT/2)
+   integer hdr(11)
+-  integer*2 id(NSMAX)
+-  real x(NFFT)
+-  complex cx(NFFT),cx2(NFFT)
+-  real s(NH)
++  integer*2 id
++  common/mscom/id(1440000),s1(215,703),s2(215,703)
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+@@ -18,9 +14,9 @@
+      go to 999
+   endif
+ 
+-  npts=NSMAX
+-  kstep=1024
+-  nsteps=npts/kstep
++  npts=30*48000
++  kstep=4096
++
+   do ifile=1,nargs
+      call getarg(ifile,infile)
+      open(10,file=infile,access='stream',status='old',err=998)
+@@ -28,48 +24,11 @@
+      read(10) id
+      close(10)
+ 
+-     k=hdr(1)
+-     k=0
+-     do j=1,nsteps
+-        sq=0.
+-        do i=1,kstep
+-           k=k+1
+-           sq=sq + (0.001*id(k))**2
+-        enddo
+-        t=j*kstep/48000.0
+-        pdb=db(sq)
+-        write(13,1010) t,sq,pdb
+-1010    format(3f12.3)
++     do k=kstep,npts,kstep
++        call specjtms(k)
+      enddo
+   enddo
+ 
+-  iz=29.5*48000.0
+-  df=48000.0/nfft
+-  ja=nint(2600.0)/df
+-  jb=nint(3400.0)/df
+-  do i=1,iz,nh
+-     x(1:nfft)=0.001*id(i:i+nfft-1)
+-     call analytic(x,nfft,nfft,s,cx)
+-     t=i/48000.0
+-     sq=dot_product(x,x) 
+-     write(14,1010) t,sq,db(sq)
+-     cx2=cx*cx
+-     call four2a(cx2,nfft,1,-1,1)               !Forward c2c FFT
+-     smax=0.
+-     do j=ja,jb
+-        sq=1.e-6*(real(cx2(j))**2 + aimag(cx2(j))**2)
+-        f=(j-1)*df
+-        if(sq.gt.smax) then
+-           smax=sq
+-           xdf=0.5*(f-3000.0)
+-        endif
+-        write(15,1020) (j-1)*df,sq
+-1020    format(f10.3,f12.3)
+-     enddo
+-     write(16,1030) t,smax,xdf
+-1030 format(3f12.3)
+-  enddo
+-
+   go to 999
+ 
+ 998 print*,'Cannot open file:'
+
+Added: branches/jtms3/libm65/specjtms.f90
+===================================================================
+--- branches/jtms3/libm65/specjtms.f90	                        (rev 0)
++++ branches/jtms3/libm65/specjtms.f90	2012-07-09 16:00:08 UTC (rev 2502)
+@@ -0,0 +1,96 @@
++subroutine specjtms(k)
++
++! Starting code for a JTMS3 decoder.
++
++  parameter (NSMAX=30*48000)
++  parameter (NFFT=8192,NH=NFFT/2)
++  integer*2 id
++  real x(NFFT),w(NFFT)
++  complex cx(NFFT),cx2(NFFT)
++  complex covx(NH)
++  real s1a(NH),s2a(580)
++  logical first,window
++  common/mscom/id(1440000),s1(215,703),s2(215,703)
++  data first/.true./
++  save
++
++  if(first) then
++     pi=4.0*atan(1.0)
++     do i=1,nfft
++        w(i)=(sin(i*pi/nfft))**2
++     enddo
++     df=48000.0/nfft
++     ja=nint(2600.0)/df
++     jb=nint(3400.0)/df
++     iz=3000.0/df
++     covx=0.
++     window=.false.
++     first=.false.
++  endif
++
++  ib=k
++  ia=k-4095
++  i0=ib-8191
++  sq=0.
++  do i=ia,ib
++     sq=sq + (0.001*id(i))**2
++  enddo
++  write(13,1010) t,sq,db(sq)
++1010 format(3f12.3)
++  if(k.lt.8192) return
++
++  x(1:nfft)=0.001*id(i0:ib)
++!  call analytic(x,nfft,nfft,s,cx)
++
++  fac=2.0/nfft
++  cx=fac*x
++  if(window) cx=w*cx
++  call four2a(cx,nfft,1,-1,1)                    !Forward c2c FFT
++
++  do i=1,iz                                      !Save spectrum for plot
++     s1a(i)=real(cx(i+1))**2 + aimag(cx(i+1))**2
++  enddo
++
++  cx(1)=0.5*cx(1)
++  cx(nh+2:nfft)=0.
++  call four2a(cx,nfft,1,1,1)                     !Inverse c2c FFT
++  if(window) then
++     cx(1:nh)=cx(1:nh)+covx(1:nh)               !Add previous segment's 2nd half
++     covx(1:nh)=cx(nh+1:nfft)                    !Save 2nd half
++  endif
++
++  t=k/48000.0
++  cx2=cx*cx
++  call four2a(cx2,nfft,1,-1,1)                   !Forward c2c FFT of cx2
++
++  spk0=0.
++  do j=ja,jb
++     sq=1.e-6*(real(cx2(j))**2 + aimag(cx2(j))**2)
++     s2a(j)=sq
++     f=(j-1)*df
++     if(sq.gt.spk0) then
++        spk0=sq
++        f0=0.5*(f-3000.0)
++        phi0=atan2(aimag(cx2(j)),real(cx2(j)))
++     endif
++     write(15,1020) (j-1)*df,sq
++1020 format(f10.3,f12.3)
++  enddo
++
++  slimit=1.5
++  if(spk0.gt.slimit) then
++     write(*,1030) t,f0,phi0,spk0
++1030 format('t:',f6.2,'   f0:',f7.1,'   phi0:',f6.2,'   spk0:',f8.1)
++     do i=1,iz
++        write(16,1040) i*df,s1a(i),db(s1a(i))
++1040    format(3f12.3)
++     enddo
++     do j=ja,jb
++        f=(j-1)*df
++        f0a=0.5*(f-3000.0)
++        write(17,1050) f0a,s2a(j)
++1050    format(2f12.3)
++     enddo
++  endif
++
++end subroutine specjtms
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002193.html">[WSJT-SVN] r2501 - branches/jtms3
+</A></li>
+	<LI>Next message: <A HREF="002195.html">[WSJT-SVN] r2503 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2194">[ date ]</a>
+              <a href="thread.html#2194">[ thread ]</a>
+              <a href="subject.html#2194">[ subject ]</a>
+              <a href="author.html#2194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

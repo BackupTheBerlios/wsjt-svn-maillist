@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1024 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1024%20-%20branches/map65&In-Reply-To=%3C200809181343.m8IDhNvc005842%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000714.html">
+   <LINK REL="Next"  HREF="000716.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1024 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1024%20-%20branches/map65&In-Reply-To=%3C200809181343.m8IDhNvc005842%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1024 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 18 15:43:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000714.html">[WSJT-SVN] r1023 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000716.html">[WSJT-SVN] r1025 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#715">[ date ]</a>
+              <a href="thread.html#715">[ thread ]</a>
+              <a href="subject.html#715">[ subject ]</a>
+              <a href="author.html#715">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-09-18 15:43:20 +0200 (Thu, 18 Sep 2008)
+New Revision: 1024
+
+Removed:
+   branches/map65/ftpeak65.f
+   branches/map65/spec2d65.f
+Modified:
+   branches/map65/map65.py
+Log:
+Removed two unused routines.
+
+
+Deleted: branches/map65/ftpeak65.f
+===================================================================
+--- branches/map65/ftpeak65.f	2008-09-17 15:41:41 UTC (rev 1023)
++++ branches/map65/ftpeak65.f	2008-09-18 13:43:20 UTC (rev 1024)
+@@ -1,161 +0,0 @@
+-      subroutine ftpeak65(dat,jz,istart,f0,flip,pr,nafc,ftrack)
+-
+-C  Do the the JT65 &quot;peakup&quot; procedure in frequency and time; then 
+-C  compute ftrack.
+-
+-      parameter (NMAX=30*11025)
+-      parameter (NS=1024)
+-      real dat(jz)
+-      real pr(126)
+-      real ftrack(126)
+-      complex c2(NMAX/2)
+-      complex c3(NMAX/4)
+-      complex c4(NMAX/16)
+-      complex c5(NMAX/64)
+-      complex c6(NMAX/64)
+-      complex z
+-      real s(NMAX/64)
+-      real ccf(-128:128)
+-      real c(-50:50,8)
+-      real*8 pha,dpha,twopi,dt,fsyncset
+-
+-      twopi=8*datan(1.d0)
+-      fsyncset=-300.d0
+-      dt=2.d0/11025.d0               !Input dt (WSJT has downsampled by 2)
+-      n2 = NMAX/2
+-      call fil651(dat,jz,c2,n2)      !Filter and complex mix; rate 1/2
+-      dt=2.d0*dt                     !We're now downsampled by 4
+-
+-      dpha=twopi*dt*(f0-fsyncset)    !Put sync tone at fsyncset
+-      pha=0.
+-      do i=1,n2
+-         pha=pha+dpha
+-         c2(i)=c2(i) * cmplx(cos(pha),-sin(pha))
+-      enddo
+-
+-      n3 = NMAX/4
+-      call fil652(c2,n2,c3,n3)       !Low-pass at +/- 500 Hz; rate 1/2
+-      dt=2.d0*dt                     !Down by 8
+-
+-      dpha=twopi*dt*fsyncset         !Mix sync tone to f=0
+-      pha=0.
+-      do i=1,n3
+-         pha=pha+dpha
+-         c3(i)=c3(i) * cmplx(cos(pha),-sin(pha))
+-      enddo
+-
+-      n4 = NMAX/16
+-      call fil653(c3,n3,c4,n4)       !Low-pass at +/- 100 Hz; rate 1/4
+-      dt=4.d0*dt                     !Down by 32
+-
+-      n5 = NMAX/64
+-      call fil653(c4,n4,c5,n5)       !Low-pass at +/- 25 Hz; rate 1/4
+-      dt=4.d0*dt                     !Down by 128
+-
+-C  Use f0 and istart (as found by sync65) and do CCFs against the 
+-C  pr(126) array to get improved symbol synchronization.
+-C  NB: if istart is increased by 64, kpk will decrease by 1.
+-
+-      k0=nint(istart/64.0 - 7.0)
+-      call symsync65(c5,n5,k0,s,flip,pr,16,kpk,ccf,smax)
+-
+-C  Fix up the value of istart.  (The -1 is empirical.)
+-      istart=istart + 64.0*(kpk-1.0)
+-
+-C  OK, we have symbol synchronization.  Now find peak ccf value as a 
+-C  function of DF, for each group of 16 symbols.
+-
+-C      What about using filter fil657?
+-
+-      df=0.25*11025.0/4096.0             !Oversample to get accurate peak
+-      idfmax=50
+-      iz=n5-31
+-      do idf=-idfmax,idfmax
+-         dpha=twopi*idf*df*dt
+-         pha=0.
+-         do i=1,iz
+-            pha=pha+dpha
+-            c6(i)=c5(i) * cmplx(cos(pha),-sin(pha))
+-         enddo
+-
+-         z=0.
+-         do i=1,32
+-            z=z + c6(i)
+-         enddo
+-         s(1)=real(z)*real(z) + aimag(z)*aimag(z)
+-         do i=33,n5
+-            z=z + c6(i) - c6(i-32)
+-            s(i-31)=real(z)*real(z) + aimag(z)*aimag(z)
+-         enddo
+-
+-         do n=1,8
+-            ia=nint((n-1)*126.0/8.0 + 1.0)
+-            ib=ia+15
+-            sum=0.
+-            do i=ia,ib
+-               j=32*(i-1) + k0 + kpk
+-               if(j.ge.1 .and. j.le.iz) sum=sum + flip*pr(i)*s(j)
+-            enddo
+-            c(idf,n)=sum/smax
+-         enddo
+-      enddo
+-
+-C  Get drift rate and compute ftrack.
+-!      call getfdot(c,nafc,ftrack)
+-
+-      jmax=0
+-      if(nafc.eq.1) jmax=25
+-      ssmax=0.
+-      do j=-jmax,jmax
+-         do i=-25,25
+-            ss=0.
+-            xj=j/7.0
+-            do n=1,8
+-               k=nint(i+(n-4.5)*xj)
+-               ss=ss + c(k,n)
+-            enddo
+-            if(ss.gt.ssmax) then
+-               ssmax=ss
+-               ipk=i
+-               jpk=j
+-            endif
+-         enddo
+-      enddo
+-
+-      df=0.25*11025.0/4096.0
+-      dfreq=ipk*df
+-      fdot=jpk*df*60.0/(0.875*46.8)
+-
+-      do i=1,126
+-         ftrack(i)=dfreq + fdot*(46.8/60.0)*(i-63.5)/126.0
+-      enddo
+-
+-      pha=0.
+-      i0=k0 + kpk + 2000
+-      do i=1,iz
+-         k=nint(63.5 + (i-i0)/32.0)
+-         if(k.lt.1) k=1
+-         if(k.gt.126) k=126
+-         dpha=twopi*dt*ftrack(k)
+-         pha=pha+dpha
+-         c6(i)=c5(i) * cmplx(cos(pha),-sin(pha))
+-      enddo
+-
+-      z=0.
+-      do i=1,32
+-         z=z + c6(i)
+-      enddo
+-      s(1)=real(z)*real(z) + aimag(z)*aimag(z)
+-      do i=33,n5
+-         z=z + c6(i) - c6(i-32)
+-         s(i-31)=real(z)*real(z) + aimag(z)*aimag(z)
+-      enddo
+-
+-      sum=0.
+-      do i=1,126
+-         j=32*(i-1)+k0+kpk
+-         if(j.ge.1 .and. j.le.iz) sum=sum + flip*pr(i)*s(j)
+-      enddo
+-
+-      return
+-      end
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2008-09-17 15:41:41 UTC (rev 1023)
++++ branches/map65/map65.py	2008-09-18 13:43:20 UTC (rev 1024)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- MAP65
++#-------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Deleted: branches/map65/spec2d65.f
+===================================================================
+--- branches/map65/spec2d65.f	2008-09-17 15:41:41 UTC (rev 1023)
++++ branches/map65/spec2d65.f	2008-09-18 13:43:20 UTC (rev 1024)
+@@ -1,90 +0,0 @@
+-      subroutine spec2d65(dat,jz,nsym,flip,istart,f0,
+-     +  ftrack,nafc,mode65,s2)
+-
+-C  Computes the spectrum for each of 126 symbols.
+-C  NB: At this point, istart, f0, and ftrack are supposedly known.
+-C  The JT65 signal has Sync bin + 2 guard bins + 64 data bins = 67 bins.
+-C  We add 5 extra bins at top and bottom for drift, making 77 bins in all.
+-
+-      parameter (NMAX=2048)                !Max length of FFTs
+-      real dat(jz)                         !Raw data
+-      real s2(77,126)                      !Spectra of all symbols
+-      real s(77)
+-      real ref(77)
+-      real ps(77)
+-      real x(NMAX)
+-      real ftrack(126)
+-      real*8 pha,dpha,twopi
+-      complex cx(NMAX)
+-c      complex work(NMAX)
+-      include 'prcom.h'
+-      equivalence (x,cx)
+-      data twopi/6.28318530718d0/
+-      save
+-
+-C  Peak up in frequency and time, and compute ftrack.
+-      call ftpeak65(dat,jz,istart,f0,flip,pr,nafc,ftrack)
+-
+-      nfft=2048/mode65                     !Size of FFTs
+-      dt=2.0/11025.0
+-      df=0.5*11025.0/nfft
+-      call zero(ps,77)
+-      k=istart-nfft
+-
+-C  NB: this could be done starting with array c3, in ftpeak65, instead
+-C  of the dat() array.  Would save some time this way ...
+-
+-      do j=1,nsym
+-         call zero(s,77)
+-         do m=1,mode65
+-            k=k+nfft
+-            if(k.ge.1 .and. k.le.(jz-nfft)) then
+-C  Mix sync tone down to f=5*df (==&gt; bin 6 of array cx, after FFT)
+-               dpha=twopi*dt*(f0 + ftrack(j) - 5.0*df)
+-               pha=0.0
+-               do i=1,nfft         
+-                  pha=pha+dpha
+-                  cx(i)=dat(k-1+i)*cmplx(cos(pha),-sin(pha))
+-               enddo
+-
+-               call four2a(cx,nfft,1,-1,1)
+-               do i=1,77
+-                  s(i)=s(i) + real(cx(i))**2 + aimag(cx(i))**2
+-               enddo
+-
+-            else
+-               call zero(s,77)
+-            endif
+-         enddo
+-         call move(s,s2(1,j),77)
+-         call add(ps,s,ps,77)
+-      enddo
+-
+-C  Flatten the spectra by dividing through by the average of the 
+-C  &quot;sync on&quot; spectra, with the sync tone explicitly deleted.
+-      nref=nsym/2
+-      do i=1,77
+-C  First we sum all the sync-on spectra:
+-         ref(i)=0.
+-         do j=1,nsym
+-            if(flip*pr(j).gt.0.0) ref(i)=ref(i)+s2(i,j)
+-         enddo
+-         ref(i)=ref(i)/nref                 !Normalize
+-      enddo
+-C  Remove the sync tone itself:
+-      base=0.25*(ref(1)+ref(2)+ref(10)+ref(11))
+-      do i=3,9
+-         ref(i)=base
+-      enddo
+-
+-C  Now flatten the spectra for all the data symbols:
+-      do i=1,77
+-         fac=1.0/ref(i)
+-         do j=1,nsym
+-            s2(i,j)=fac*s2(i,j)
+-            if(s2(i,j).eq.0.0) s2(i,j)=1.0   !### To fix problem in mfskprob
+-         enddo
+-      enddo
+-
+-      return
+-      end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000714.html">[WSJT-SVN] r1023 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000716.html">[WSJT-SVN] r1025 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#715">[ date ]</a>
+              <a href="thread.html#715">[ thread ]</a>
+              <a href="subject.html#715">[ subject ]</a>
+              <a href="author.html#715">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,711 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r771 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r771%20-%20branches/wspr&In-Reply-To=%3C200805192002.m4JK2B0c030823%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000457.html">
+   <LINK REL="Next"  HREF="000459.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r771 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r771%20-%20branches/wspr&In-Reply-To=%3C200805192002.m4JK2B0c030823%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r771 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon May 19 22:02:11 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000457.html">[WSJT-SVN] r770 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000459.html">[WSJT-SVN] r772 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#458">[ date ]</a>
+              <a href="thread.html#458">[ thread ]</a>
+              <a href="subject.html#458">[ subject ]</a>
+              <a href="author.html#458">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-19 22:02:05 +0200 (Mon, 19 May 2008)
+New Revision: 771
+
+Added:
+   branches/wspr/geodist.f
+Removed:
+   branches/wspr/GeoDist.f
+Modified:
+   branches/wspr/decode162.f
+   branches/wspr/fchisq.f
+   branches/wspr/mept162.f
+   branches/wspr/rect.f90
+   branches/wspr/sync162.f
+   branches/wspr/twkfreq.f
+   branches/wspr/wspr.py
+Log:
+Renamed GeoDist.f to geodist.f
+Many tweaks to the decoder.  (Improved decoding of VK7MO EME signal
+from 17/24 to 22/24.)
+
+
+Deleted: branches/wspr/GeoDist.f
+===================================================================
+--- branches/wspr/GeoDist.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/GeoDist.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -1,102 +0,0 @@
+-	subroutine geodist(Eplat, Eplon, Stlat, Stlon,
+-     +	  Az, Baz, Dist)
+-	implicit none
+-	real eplat, eplon, stlat, stlon, az, baz, dist
+-
+-C JHT: In actual fact, I use the first two arguments for &quot;My Location&quot;,
+-C      the second two for &quot;His location&quot;; West longitude is positive.
+-
+-c
+-c
+-c	Taken directly from:
+-c	Thomas, P.D., 1970, Spheroidal geodesics, reference systems,
+-c	&amp; local geometry, U.S. Naval Oceanographic Office SP-138,
+-c	165 pp.
+-c
+-c	assumes North Latitude and East Longitude are positive
+-c
+-c	EpLat, EpLon = End point Lat/Long
+-c	Stlat, Stlon = Start point lat/long
+-c	Az, BAz = direct &amp; reverse azimuith
+-c	Dist = Dist (km); Deg = central angle, discarded
+-c
+-
+-	real BOA, F, P1R, P2R, L1R, L2R, DLR, T1R, T2R, TM,
+-     +    DTM, STM, CTM, SDTM,CDTM, KL, KK, SDLMR, L,
+-     +    CD, DL, SD, T, U, V, D, X, E, Y, A, FF64, TDLPM,
+-     +    HAPBR, HAMBR, A1M2, A2M1
+-
+-	real AL,BL,D2R,Pi2
+-
+-	data AL/6378206.4/		! Clarke 1866 ellipsoid
+-	data BL/6356583.8/
+-c	real pi /3.14159265359/
+-	data D2R/0.01745329251994/	! degrees to radians conversion factor
+-	data Pi2/6.28318530718/
+-
+-        BOA = BL/AL
+-        F = 1.0 - BOA
+-c convert st/end pts to radians
+-        P1R = Eplat * D2R
+-        P2R = Stlat * D2R
+-        L1R = Eplon * D2R
+-        L2R = StLon * D2R
+-        DLR = L2R - L1R			! DLR = Delta Long in Rads
+-        T1R = ATan(BOA * Tan(P1R))
+-        T2R = ATan(BOA * Tan(P2R))
+-        TM = (T1R + T2R) / 2.0
+-        DTM = (T2R - T1R) / 2.0
+-        STM = Sin(TM)
+-        CTM = Cos(TM)
+-        SDTM = Sin(DTM)
+-        CDTM = Cos(DTM)
+-        KL = STM * CDTM
+-        KK = SDTM * CTM
+-        SDLMR = Sin(DLR/2.0)
+-        L = SDTM * SDTM + SDLMR * SDLMR * (CDTM * CDTM - STM * STM)
+-        CD = 1.0 - 2.0 * L
+-        DL = ACos(CD)
+-        SD = Sin(DL)
+-        T = DL/SD
+-        U = 2.0 * KL * KL / (1.0 - L)
+-        V = 2.0 * KK * KK / L
+-        D = 4.0 * T * T
+-        X = U + V
+-        E = -2.0 * CD
+-        Y = U - V
+-        A = -D * E
+-        FF64 = F * F / 64.0
+-        Dist = AL*SD*(T -(F/4.0)*(T*X-Y)+FF64*(X*(A+(T-(A+E)
+-     +    /2.0)*X)+Y*(-2.0*D+E*Y)+D*X*Y))/1000.0
+-        TDLPM = Tan((DLR+(-((E*(4.0-X)+2.0*Y)*((F/2.0)*T+FF64*
+-     +    (32.0*T+(A-20.0*T)*X-2.0*(D+2.0)*Y))/4.0)*Tan(DLR)))/2.0)
+-        HAPBR = ATan2(SDTM,(CTM*TDLPM))
+-        HAMBR = Atan2(CDTM,(STM*TDLPM))
+-        A1M2 = Pi2 + HAMBR - HAPBR
+-        A2M1 = Pi2 - HAMBR - HAPBR
+-
+-1	If ((A1M2 .ge. 0.0) .AND. (A1M2 .lt. Pi2)) GOTO 5
+- 	If (A1M2 .lt. Pi2) GOTO 4
+- 	A1M2 = A1M2 - Pi2
+-        GOTO 1
+-4	A1M2 = A1M2 + Pi2
+-        GOTO 1
+-c
+-c all of this gens the proper az, baz (forward and back azimuth)
+-c
+-
+-5	If ((A2M1 .ge. 0.0) .AND. (A2M1 .lt. Pi2)) GOTO 9
+- 	If (A2M1 .lt. Pi2) GOTO 8
+-	A2M1 = A2M1 - Pi2
+-        GOTO 5
+-8	A2M1 = A2M1 + Pi2
+-        GOTO 5
+-
+-9	Az = A1M2 / D2R
+-	BAZ = A2M1 / D2R
+-c
+-c Fix the mirrored coords here.
+-c
+-	az = 360.0 - az
+-	baz = 360.0 - baz
+-	end
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/decode162.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -1,4 +1,4 @@
+-      subroutine decode162(c2,npts,dtx,dfx,message,ncycles,metric,nerr)
++      subroutine decode162(c2,npts,message,ncycles,metric,nerr)
+ 
+ C  Decode MEPT_JT data, assuming that DT and DF have already been determined.
+ 
+@@ -91,90 +91,62 @@
+          dt=1.d0/375.d0                        !Sample interval
+          df=375.d0/256.d0
+          nsym=162
+-         amp=32                                !### ??? ###
++         amp=20                                !### 32 ??? ###
+          first=.false.
+       endif
+ 
+-      istart=nint((dtx+2.0)/dt)              !Start index for synced FFTs
+-      if(istart.lt.0) istart=0
+-
+ C  Should amp be adjusted according to signal strength?
+ C  Compute soft symbols
+       c0=0.
+-      k=istart
++      k=0
+       fac=1.e-4
+       phi=0.d0
+       phi1=0.d0
+-      nspchip=256
+-      nchips=1
++      nsps=256
+       fac2=0.001
++      phi=0.d0
++      phi1=0.d0
+       do j=1,nsym
+-         f0=dfx + (npr3(j)-1.5)*df
+-         f1=dfx + (2+npr3(j)-1.5)*df
++         f0=(npr3(j)-1.5)*df
++         f1=(2+npr3(j)-1.5)*df
+          dphi=twopi*dt*f0
+          dphi1=twopi*dt*f1
+-         sq0=0.
+-         sq1=0.
+-         do nc=1,nchips
+-            phi=0.d0
+-            phi1=0.d0
+-            c0=0.
+-            c1=0.
+-            do i=1,nspchip
+-               k=k+1
+-               phi=phi+dphi
+-               phi1=phi1+dphi1
+-               cz=dcmplx(cos(phi),-sin(phi))
+-               cz1=dcmplx(cos(phi1),-sin(phi1))
+-               if(k.le.npts) then
+-                  c0=c0 + c2(k)*cz                      !c2 was dat
+-                  c1=c1 + c2(k)*cz1                     !c2 was dat
+-               endif
+-            enddo
+-            sq0=sq0 + real(c0)**2 + aimag(c0)**2
+-            sq1=sq1 + real(c1)**2 + aimag(c1)**2
++         c0=0.
++         c1=0.
++         do i=1,nsps
++            k=k+1
++            phi=phi+dphi
++            phi1=phi1+dphi1
++            if(phi.gt.twopi) phi=phi-twopi
++            if(phi1.gt.twopi) phi1=phi1-twopi
++            cz=dcmplx(cos(phi),-sin(phi))
++            cz1=dcmplx(cos(phi1),-sin(phi1))
++            if(k.le.npts) then
++               c0=c0 + c2(k)*cz
++               c1=c1 + c2(k)*cz1
++            endif
+          enddo
+-         sq0=fac2*sq0
+-         sq1=fac2*sq1
++
++         sq0=fac2*(real(c0)**2 + aimag(c0)**2)
++         sq1=fac2*(real(c1)**2 + aimag(c1)**2)
+          rsym=amp*(sq1-sq0)
+          r=rsym+128.
+          if(r.gt.255.0) r=255.0
+          if(r.lt.0.0) r=0.0
+          i4=nint(r)
+          symbol(j)=i1
+-         i4a=i4
+       enddo
+ 
+ !      ndelta=100
+       ndelta=50
+ !      limit=100000
+-      limit=40000
++      limit=20000
+       nbits=50+31
+       call inter_mept(symbol,-1)                      !Remove interleaving
+       call fano232(symbol,nbits,mettab,ndelta,limit,
+      +     data1,ncycles,metric,nerr)
+       message='                      '
+       if(nerr.ge.0) call wqdecode(data1,message,ntype2)
+-!      npwr=-1
+-!      if(nerr.ge.0) then
+-!         call unpack50(data1,n1,n2)
+-!         if(n1+n2.eq.0) go to 900
+-!         call unpackcall(n1,callsign)
+-!         call unpackgrid(n2/128,grid)
+-!         ntype=iand(n2,127) - 64
+-!         i1=index(callsign,' ')
+-!         if(ntype.ge.10 .and. ntype.le.28) then
+-!            npwr=ipwr(ntype-9)
+-!            write(cpwr,'(i3)') npwr
+-!            if(cpwr(1:2).eq.'  ') cpwr=cpwr(2:)
+-!            message=callsign(:i1)//grid//cpwr
+-!         else if(ntype.eq.0) then
+-!            message=grid//' DE '//callsign(:i1)
+-!         else
+-!            message=callsign(:i1)//grid
+-!            message(14:22)='*MType?*'
+-!         endif
+-!      endif
+ 
+  900  return
+       end
+
+Modified: branches/wspr/fchisq.f
+===================================================================
+--- branches/wspr/fchisq.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/fchisq.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -3,19 +3,22 @@
+       parameter (NMAX=120*375)
+       complex cx(npts)
+       real a(5)
+-      complex w1,ws1
+-      complex w2,ws2
+-      complex w3,ws3
+-      complex w4,ws4
+-      complex cs1(0:NMAX)
+-      complex cs2(0:NMAX)
+-      complex cs3(0:NMAX)
+-      complex cs4(0:NMAX)
++      complex*16 w1,ws1
++      complex*16 w2,ws2
++      complex*16 w3,ws3
++      complex*16 w4,ws4
++      complex*16 cs1(0:NMAX)
++      complex*16 cs2(0:NMAX)
++      complex*16 cs3(0:NMAX)
++      complex*16 cs4(0:NMAX)
+       complex z1,z2,z3,z4
+-      real ss(2812)
++      real*8 twopi
++!      real ss(2812)
++      real ss(5624)
+       data twopi/6.283185307/a1,a2,a3/99.,99.,99./
+       save
+ 
++      twopi=8.d0*atan(1.d0)
+       baud=12000.0/8192
+       a1=a(1)
+       a2=a(2)
+@@ -65,6 +68,7 @@
+       dtstep=1.0/(ndiv*baud)                   !Time per output step
+       fac=1.e-5
+ 
++      ss=0.
+       do i=1,nout
+          j=i*nsps/ndiv
+          k=j - nsps
+@@ -80,7 +84,8 @@
+             p3=real(z3)**2 + aimag(z3)**2
+             p4=real(z4)**2 + aimag(z4)**2
+ 
+-            ss(i)=fac*(max(p2,p4) - max(p1,p3))
++!            ss(i)=fac*(max(p2,p4) - max(p1,p3))
++            ss(i)=fac*((p2+p4) - (p1+p3))
+          endif
+       enddo
+ 
+
+Added: branches/wspr/geodist.f
+===================================================================
+--- branches/wspr/geodist.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/geodist.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -0,0 +1,102 @@
++	subroutine geodist(Eplat, Eplon, Stlat, Stlon,
++     +	  Az, Baz, Dist)
++	implicit none
++	real eplat, eplon, stlat, stlon, az, baz, dist
++
++C JHT: In actual fact, I use the first two arguments for &quot;My Location&quot;,
++C      the second two for &quot;His location&quot;; West longitude is positive.
++
++c
++c
++c	Taken directly from:
++c	Thomas, P.D., 1970, Spheroidal geodesics, reference systems,
++c	&amp; local geometry, U.S. Naval Oceanographic Office SP-138,
++c	165 pp.
++c
++c	assumes North Latitude and East Longitude are positive
++c
++c	EpLat, EpLon = End point Lat/Long
++c	Stlat, Stlon = Start point lat/long
++c	Az, BAz = direct &amp; reverse azimuith
++c	Dist = Dist (km); Deg = central angle, discarded
++c
++
++	real BOA, F, P1R, P2R, L1R, L2R, DLR, T1R, T2R, TM,
++     +    DTM, STM, CTM, SDTM,CDTM, KL, KK, SDLMR, L,
++     +    CD, DL, SD, T, U, V, D, X, E, Y, A, FF64, TDLPM,
++     +    HAPBR, HAMBR, A1M2, A2M1
++
++	real AL,BL,D2R,Pi2
++
++	data AL/6378206.4/		! Clarke 1866 ellipsoid
++	data BL/6356583.8/
++c	real pi /3.14159265359/
++	data D2R/0.01745329251994/	! degrees to radians conversion factor
++	data Pi2/6.28318530718/
++
++        BOA = BL/AL
++        F = 1.0 - BOA
++c convert st/end pts to radians
++        P1R = Eplat * D2R
++        P2R = Stlat * D2R
++        L1R = Eplon * D2R
++        L2R = StLon * D2R
++        DLR = L2R - L1R			! DLR = Delta Long in Rads
++        T1R = ATan(BOA * Tan(P1R))
++        T2R = ATan(BOA * Tan(P2R))
++        TM = (T1R + T2R) / 2.0
++        DTM = (T2R - T1R) / 2.0
++        STM = Sin(TM)
++        CTM = Cos(TM)
++        SDTM = Sin(DTM)
++        CDTM = Cos(DTM)
++        KL = STM * CDTM
++        KK = SDTM * CTM
++        SDLMR = Sin(DLR/2.0)
++        L = SDTM * SDTM + SDLMR * SDLMR * (CDTM * CDTM - STM * STM)
++        CD = 1.0 - 2.0 * L
++        DL = ACos(CD)
++        SD = Sin(DL)
++        T = DL/SD
++        U = 2.0 * KL * KL / (1.0 - L)
++        V = 2.0 * KK * KK / L
++        D = 4.0 * T * T
++        X = U + V
++        E = -2.0 * CD
++        Y = U - V
++        A = -D * E
++        FF64 = F * F / 64.0
++        Dist = AL*SD*(T -(F/4.0)*(T*X-Y)+FF64*(X*(A+(T-(A+E)
++     +    /2.0)*X)+Y*(-2.0*D+E*Y)+D*X*Y))/1000.0
++        TDLPM = Tan((DLR+(-((E*(4.0-X)+2.0*Y)*((F/2.0)*T+FF64*
++     +    (32.0*T+(A-20.0*T)*X-2.0*(D+2.0)*Y))/4.0)*Tan(DLR)))/2.0)
++        HAPBR = ATan2(SDTM,(CTM*TDLPM))
++        HAMBR = Atan2(CDTM,(STM*TDLPM))
++        A1M2 = Pi2 + HAMBR - HAPBR
++        A2M1 = Pi2 - HAMBR - HAPBR
++
++1	If ((A1M2 .ge. 0.0) .AND. (A1M2 .lt. Pi2)) GOTO 5
++ 	If (A1M2 .lt. Pi2) GOTO 4
++ 	A1M2 = A1M2 - Pi2
++        GOTO 1
++4	A1M2 = A1M2 + Pi2
++        GOTO 1
++c
++c all of this gens the proper az, baz (forward and back azimuth)
++c
++
++5	If ((A2M1 .ge. 0.0) .AND. (A2M1 .lt. Pi2)) GOTO 9
++ 	If (A2M1 .lt. Pi2) GOTO 8
++	A2M1 = A2M1 - Pi2
++        GOTO 5
++8	A2M1 = A2M1 + Pi2
++        GOTO 5
++
++9	Az = A1M2 / D2R
++	BAZ = A2M1 / D2R
++c
++c Fix the mirrored coords here.
++c
++	az = 360.0 - az
++	baz = 360.0 - baz
++	end
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/mept162.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -12,7 +12,8 @@
+       real ps(-256:256)
+       real sstf(5,275)
+       real a(5)
+-      complex c2(65536),c3(65536)
++      complex c2(65536)
++      complex c3(45000),c4(45000)
+       data first/.true./
+       save
+ 
+@@ -31,7 +32,7 @@
+          dtx=sstf(3,k)
+          dfx=sstf(4,k)
+          drift=sstf(5,k)
+-         a(1)=0.
++         a(1)=-dfx
+          a(2)=-0.5*drift
+          a(3)=0.
+          call twkfreq(c2,c3,jz,a)                    !Remove drift
+@@ -44,11 +45,31 @@
+          freq=f0 + 1.d-6*(dfx+1500.0)
+          message='                      '
+          if(nsync.ge.minsync .and. nsnrx.ge.-33) then      !### -31 dB limit?
+-            call decode162(c3,jz,dtx,dfx,message,ncycles,metric,nerr)
+-            if(message(1:6).eq.'      ') go to 24
+-            width=0.
+-!            call rect(c3,dtx,dfx,message,dfx2,width,pmax)
+-!            write(51)(c3(j),j=1,45000),dtx,dfx,ncycles/81,metric,message
++
++!            write(71) dtx,c3
++            dt=1.0/375
++            do idt=0,128
++               ii=(idt+1)/1
++               if(mod(idt,2).eq.1) ii=-ii
++               i1=nint((dtx+2.0)/dt) + ii !Start index for synced symbols
++               if(i1.ge.1) then
++                  i2=i1 + jz - 1
++                  c4(1:jz)=c3(i1:i2)
++               else if(i1.eq.0) then
++                  c4(1)=0.
++                  c4(2:jz)=c3(jz-1)
++               else
++                  c4(:-i1+1)=0
++                  i2=jz+i1
++                  c4(-i1:)=c3(:i2)
++               endif
++
++               call decode162(c4,jz,message,ncycles,metric,nerr)
++               if(message(1:6).ne.'      ') go to 23
++            enddo
++            go to 24
++ 23         width=0.
++!            call rect(c3,dtx,0.0,message,dfx2,width,pmax)
+             i2=index(outfile,'.')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+@@ -62,11 +83,11 @@
+      +                position='append')
+ #endif
+             write(13,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
+-     +           ncycles/81,metric
++     +           ncycles/81,ii
+             close(13)
+- 1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5,2f5.1)
+-            write(14,1012) datetime,nsnrx,dtx,freq,nf1,width,message
+- 1012       format(a11,i4,f5.1,f11.6,i3,f5.1,2x,a22)
++ 1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
++            write(14,1012) datetime(8:11),nsnrx,dtx,freq,nf1,message
++ 1012       format(a4,i4,f5.1,f11.6,i3,2x,a22)
+             i1=index(message,' ')
+             call bestdx(datetime,message(i1+1:i1+4))
+          endif
+
+Modified: branches/wspr/rect.f90
+===================================================================
+--- branches/wspr/rect.f90	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/rect.f90	2008-05-19 20:02:05 UTC (rev 771)
+@@ -10,7 +10,7 @@
+   complex cr(45000)
+   complex c(0:65535)
+   complex w
+-  complex c0
++  complex c0,c1
+   real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+   real ps(-511:512)
+   logical lbad1,lbad2
+@@ -28,6 +28,9 @@
+       0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1, &amp;
+       0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0, &amp;
+       0,0/
++
++!  rewind 51
++!  rewind 53
+   dt=1.0/375
+   nsps=256
+   nsym=162
+@@ -76,7 +79,7 @@
+   c(0:nz-1)=cr
+   c(nz:)=0.
+   call four2a(c,NFFT1,1,-1,1)
+-  nadd=64
++  nadd=32
+   nh2=NFFT1/(2*nadd)
+   k=nh2*nadd - 1
+   df2=nadd*375.0/NFFT1
+@@ -108,25 +111,30 @@
+      endif
+      if(abs(i).le.3) sum=sum+ps(i)
+      freq=i*df2
+-!     write(53,1010) freq,ps(i)
+-!1010 format(2f12.3)
++!     write(53,1011) freq,ps(i)
++!1011 format(2f12.3)
+   enddo
+   width=df2*sum/pmax
+   dfx2=df2*ipk
+   pmax=db(pmax)
+ 
+-  c0=0.
+-  k=0
+-  do i=1,nsym
+-     do n=1,nsps
+-        k=k+1
+-        c0=c0 + cr(k)
+-     enddo
++!  c0=0.
++!  c1=cr(k)
++!  u=0.001
++!  k=0
++!  do i=1,nsym
++!     do n=1,nsps
++!        k=k+1
++!        c0=c0 + cr(k)
++!        c1=(1-u)*c1 + u*cr(k)
++!     enddo
+ !     amp0=sqrt(real(c0)**2 + aimag(c0)**2)
+-     pha0=atan2(aimag(c0),real(c0))
+-!     write(51,1010) i,pha0
+-!1010 format(i3,f10.3)
+-  enddo
++!     pha0=atan2(aimag(c0),real(c0))
++!     amp1=sqrt(real(c1)**2 + aimag(c1)**2)
++!     pha1=atan2(aimag(c1),real(c1))
++!     write(51,1010) i,amp0,pha0,amp1,pha1
++!1010 format(i3,4f10.3)
++!  enddo
+ 
+ 900  return
+ end subroutine rect
+
+Modified: branches/wspr/sync162.f
+===================================================================
+--- branches/wspr/sync162.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/sync162.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -180,7 +180,7 @@
+       kz=k
+ 
+       do k=1,kz
+-         a(1)=-freq(k) + 1.46   !### Why is this offset necessary? ###
++         a(1)=-freq(k) + 1.4648   !### Why is this offset necessary? ###
+          a(2)=-0.5*drift(k)
+          a(3)=0.
+          lagpk=nint((dtx(k)+2)/(128*dt))
+
+Modified: branches/wspr/twkfreq.f
+===================================================================
+--- branches/wspr/twkfreq.f	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/twkfreq.f	2008-05-19 20:02:05 UTC (rev 771)
+@@ -4,15 +4,18 @@
+ 
+       complex ca(jz),cb(jz)
+       real a(5)
+-      complex w,wstep
+-      data twopi/6.283185307/
++      real*8 twopi
++      complex*16 w,wstep
++      data twopi/0.d0/
++      save twopi
+ 
+-      w=1.0
++      if(twopi.eq.0.d0) twopi=8.d0*atan(1.d0)
++      w=1.d0
+       x0=0.5*(jz+1)
+       s=2.0/jz
+       do i=1,jz
+          x=s*(i-x0)
+-         if(mod(i,1000).eq.1) then
++         if(mod(i,100).eq.1) then
+             p2=1.5*x*x - 0.5
+ !            p3=2.5*(x**3) - 1.5*x
+ !            p4=4.375*(x**4) - 3.75*(x**2) + 0.375
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-05-15 18:16:39 UTC (rev 770)
++++ branches/wspr/wspr.py	2008-05-19 20:02:05 UTC (rev 771)
+@@ -430,15 +430,14 @@
+         nfmid=int(1.0e6*fmid)%1000
+         for i in range(len(lines)):
+             if len(lines[i])&lt;6: break                    #Skip $EOF
+-            text.insert(END,lines[i][:63]+&quot;\n&quot;)
+-            callsign=lines[i][41:48]
++            text.insert(END,lines[i][:51]+&quot;\n&quot;)
++            callsign=lines[i][29:36]
+             if callsign[:1] != ' ':
+                 i1=callsign.find(' ')
+                 callsign=callsign[:i1]
+                 try:
+-                    nseq=1440*int(lines[i][4:6]) + 60*int(lines[i][7:9]) + \
+-                          int(lines[i][9:11])
+-                    ndf=int(lines[i][28:31])
++                    nseq=60*int(lines[i][0:2]) + int(lines[i][2:4])
++                    ndf=int(lines[i][21:24])
+                     bm[callsign]=(ndf,nseq)
+                 except:
+                     pass
+@@ -863,7 +862,7 @@
+ iframe2a.pack(expand=1, fill=X, padx=1)
+ 
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+-lab2=Label(iframe2, text='DATE         UTC         dB        DT             Freq             Drift      W')
++lab2=Label(iframe2, text='UTC        dB        DT             Freq             Drift')
+ lab2.place(x=150,y=6, anchor='w')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000457.html">[WSJT-SVN] r770 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000459.html">[WSJT-SVN] r772 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#458">[ date ]</a>
+              <a href="thread.html#458">[ thread ]</a>
+              <a href="subject.html#458">[ subject ]</a>
+              <a href="author.html#458">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

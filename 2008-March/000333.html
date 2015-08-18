@@ -1,0 +1,361 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r646 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r646%20-%20branches/wspr&In-Reply-To=%3C200803201746.m2KHkD0t003125%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000332.html">
+   <LINK REL="Next"  HREF="000334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r646 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r646%20-%20branches/wspr&In-Reply-To=%3C200803201746.m2KHkD0t003125%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r646 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 20 18:46:13 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000332.html">[WSJT-SVN] r645 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000334.html">[WSJT-SVN] r647 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-03-20 18:46:10 +0100 (Thu, 20 Mar 2008)
+New Revision: 646
+
+Modified:
+   branches/wspr/mept162.f
+   branches/wspr/wspr.py
+   branches/wspr/wspr_rx.f90
+   branches/wspr/wspr_tx.f90
+Log:
+&quot;Transmitting&quot; message to ALL_MEPT.TXT.
+Power-conversion balloon.
+Correct axis on waterfall.
+Full YYMMDD_HHMM.WAV name for saved wavefiles.
+Implemented minimum sync control.
+
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-03-20 16:15:54 UTC (rev 645)
++++ branches/wspr/mept162.f	2008-03-20 17:46:10 UTC (rev 646)
+@@ -1,4 +1,4 @@
+-      subroutine mept162(cfile6,f0,id,npts,rms,nsec)
++      subroutine mept162(cfile6,f0,minsync,id,npts,rms,nsec)
+ 
+ C  Orchestrates the process of decoding MEPT_JT messages.
+ 
+@@ -36,7 +36,7 @@
+          if(nsnrx.lt.-33) nsnrx=-33
+          freq=f0 + 1.d-6*(dfx+1500.0)
+          message='                      '
+-         if(nsync.ge.1) then
++         if(nsync.ge.minsync) then
+            call decode162(c2,jz,dtx,dfx,message,ncycles,metric,nerr)
+            write(13,1010) cfile6(1:4),nsync,nsnrx,dtx,freq,message
+            write(14,1010) cfile6(1:4),nsync,nsnrx,dtx,freq,message,
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-03-20 16:15:54 UTC (rev 645)
++++ branches/wspr/wspr.py	2008-03-20 17:46:10 UTC (rev 646)
+@@ -17,6 +17,7 @@
+ import array
+ import thread
+ import random
++import math
+ 
+ root = Tk()
+ #Version=&quot;0.4 r&quot; + &quot;$Rev: 638 $&quot;[6:-1]
+@@ -45,6 +46,7 @@
+ 
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
++balloon=Pmw.Balloon(root)
+ bandmap=[]
+ bandmap2=[]
+ font1='Helvetica'
+@@ -55,6 +57,7 @@
+ cmap0=&quot;Linrad&quot;
+ dBm=IntVar()
+ mrudir=os.getcwd()
++ndbm0=-999
+ nsave=IntVar()
+ nsec0=0
+ nspeed0=IntVar()
+@@ -64,7 +67,7 @@
+ im.putpalette(Colormap2Palette(colormapLinrad),&quot;RGB&quot;)
+ pim=ImageTk.PhotoImage(im)
+ receiving=0
+-slabel=&quot;Sync   &quot;
++slabel=&quot;MinSync  &quot;
+ transmitting=0
+ 
+ g.ndevin=IntVar()
+@@ -76,6 +79,15 @@
+ def quit():
+     root.destroy()
+ 
++#------------------------------------------------------ dbm_balloon
++def dbm_balloon():
++    mW=int(round(math.pow(10.0,0.1*dBm.get())))
++    if(mW&lt;1000):
++        t=&quot;%.1f mW&quot; % (mW,)
++    else:
++        t=&quot;%.1f W&quot; % (0.001*mW,)
++    balloon.bind(ldBm,t)
++
+ #------------------------------------------------------ all_hdr
+ def all_hdr():
+     lines=&quot;\n &quot; + time.asctime(time.gmtime()) + &quot; UTC\n&quot; + \
+@@ -191,15 +203,17 @@
+ def draw_axis():
+     xmid=10.1386 + 0.001500
+     c.delete(ALL)
+-    df=12000.0/4096.0
++    df=12000.0/8192.0
+ # Draw tick marks
+-    for iy in range(0,350,20):
+-        j=iy/df
+-        i1=10
+-        if (iy%100)==0 :
++    for iy in range(-120,120,10):
++        j=80 - iy/df
++        i1=7
++        if (iy%50)==0:
++            i1=12
++            c.create_text(27,j,text=str(iy))
++        if (iy%100)==0:
+             i1=15
+-        y=8
+-#        c.create_text(x,y,text=str(iy))
++            c.create_text(27,j,text=str(iy))
+         c.create_line(0,j,i1,j,fill='black')
+ 
+ #------------------------------------------------------ delwav
+@@ -233,9 +247,13 @@
+ #------------------------------------------------------ start_rx
+ def start_rx(f0,nsec):
+     global receiving,transmitting,bandmap,bandmap2
++
++    utc=time.gmtime(time.time()+0.1*idsec)
++    t=&quot;%02d%02d%02d_%02d%02d&quot; % (utc[0]-2000,utc[1],utc[2],utc[3],utc[4])
++    savefile=t+&quot;.WAV&quot;
+     cmd=&quot;wspr_rx.exe&quot;
+     args=str(f0) + &quot; &quot; + str(nsec) + &quot; &quot; + str(isync) + &quot; &quot; + \
+-        str(nsave.get()) + &quot; &quot; + options.DevinName.get()
++        str(nsave.get()) + &quot; &quot; + options.DevinName.get() + &quot; &quot; + savefile
+     receiving=1
+     try:
+         os.spawnv(os.P_WAIT,cmd,(cmd,) + (args,))
+@@ -309,7 +327,7 @@
+ 
+ #------------------------------------------------------ update
+ def update():
+-    global root_geom,isec0,im,pim,cmap0,lauto,nsec0, \
++    global root_geom,isec0,im,pim,cmap0,lauto,ndbm0,nsec0, \
+         receiving,transmitting
+     tsec=time.time()
+     nsec=int(tsec)
+@@ -335,6 +353,12 @@
+         ldate.configure(text=t)
+         root_geom=root.geometry()
+         utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
++        try:
++            if dBm.get()!=ndbm0:
++                ndbm0=dBm.get()
++                dbm_balloon()
++        except:
++            pass
+ 
+     bgcolor='gray85'
+     t=''
+@@ -439,9 +463,9 @@
+ g2=Pmw.Group(iframe2a,tag_text=&quot;Tx message&quot;)
+ MyCall=StringVar()
+ MyGrid=StringVar()
+-lcall=Pmw.EntryField(g2.interior(),labelpos=W,label_text='MyCall:',
++lcall=Pmw.EntryField(g2.interior(),labelpos=W,label_text='Call:',
+         value='K1JT',entry_textvariable=MyCall,entry_width=8)
+-lgrid=Pmw.EntryField(g2.interior(),labelpos=W,label_text='MyGrid:',
++lgrid=Pmw.EntryField(g2.interior(),labelpos=W,label_text='Grid:',
+         value='FN20',entry_textvariable=MyGrid,entry_width=5)
+ ldBm=Pmw.EntryField(g2.interior(),labelpos=W,label_text='Power (dBm):',
+         value=30,entry_textvariable=dBm,entry_width=4)
+@@ -455,35 +479,35 @@
+ iframe2a.pack(expand=1, fill=X, padx=1)
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+ lab2=Label(iframe2, text='UTC      Sync   dB        DT           Freq')
+-lab2.place(x=3,y=6, anchor='w')
++lab2.place(x=170,y=6, anchor='w')
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+-#-------------------------------------------------------- 
++#-------------------------------------------------------- Buttons, UTC, etc
+ iframe4 = Frame(frame, bd=1, relief=SUNKEN)
+ f4a=Frame(iframe4,height=170,bd=2,relief=FLAT)
+ 
+-#------------------------------------------------------ Date and Time
+-ldate=Label(f4a, bg='black', fg='yellow', width=11, bd=4,
+-        text='2005 Apr 22\n01:23:45', relief=RIDGE,
+-        justify=CENTER, font=(font1,16))
+-ldate.pack(side=TOP,padx=2,pady=2)
+-ldsec=Label(f4a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
+-ldsec.pack(side=TOP,ipadx=3,padx=2,pady=5)
+-Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
+-Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
+-
+ berase=Button(f4a, text='Erase',underline=0,command=erase,padx=1,pady=1)
+ berase.pack(side=TOP,expand=1,fill=BOTH)
+ auto=Button(f4a,text='Enable Tx',underline=0,command=toggleauto,
+             padx=1,pady=1)
+ auto.pack(side=TOP,expand=1,fill=BOTH)
+-f4a.pack(side=LEFT,expand=0,fill=Y)
+ 
+ lsync=Label(f4a, bg='white', fg='black', text='Sync   1', width=8, relief=RIDGE)
+ lsync.pack(side=TOP,ipadx=3,padx=2,pady=5)
+ Widget.bind(lsync,'&lt;Button-1&gt;',incsync)
+ Widget.bind(lsync,'&lt;Button-3&gt;',decsync)
+ 
++ldsec=Label(f4a, bg='white', fg='black', text='Dsec  0.0', width=8, relief=RIDGE)
++ldsec.pack(side=TOP,ipadx=3,padx=2,pady=5)
++Widget.bind(ldsec,'&lt;Button-1&gt;',incdsec)
++Widget.bind(ldsec,'&lt;Button-3&gt;',decdsec)
++
++ldate=Label(f4a, bg='black', fg='yellow', width=11, bd=4,
++        text='2005 Apr 22\n01:23:45', relief=RIDGE,
++        justify=CENTER, font=(font1,16))
++ldate.pack(side=TOP,padx=2,pady=2)
++f4a.pack(side=LEFT,expand=0,fill=Y)
++
+ f4b=Frame(iframe4,height=170,bd=2,relief=FLAT)
+ text=Text(f4b, height=11, width=68)
+ text.pack(side=RIGHT, fill=X, padx=1)
+@@ -572,6 +596,7 @@
+     print key,value
+ 
+ lsync.configure(text=slabel+str(isync))
++dbm_balloon()
+ draw_axis()
+ erase()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+
+Modified: branches/wspr/wspr_rx.f90
+===================================================================
+--- branches/wspr/wspr_rx.f90	2008-03-20 16:15:54 UTC (rev 645)
++++ branches/wspr/wspr_rx.f90	2008-03-20 17:46:10 UTC (rev 646)
+@@ -93,8 +93,8 @@
+   save
+ 
+   nargs=iargc()
+-  if(nargs.ne.5) then
+-     print*,'Usage: wspr_rx f0 nsec minsync nsave devin'
++  if(nargs.ne.6) then
++     print*,'Usage: wspr_rx f0 nsec minsync nsave devin outfile'
+      go to 999
+   endif
+ 
+@@ -109,7 +109,9 @@
+   call getarg(5,devin)
+   ndevin=0
+   read(devin,*,err=1) ndevin
+-1  nsym=162                  !Symbols per transmission
++1 call getarg(6,outfile)
++
++  nsym=162                  !Symbols per transmission
+   do i=1,nsym
+      pr3(i)=2*npr3(i)-1
+   enddo
+@@ -127,9 +129,9 @@
+   ierr=getsound(ndevin,iwave)
+   npts=114*12000
+   call getrms(iwave,npts,ave,rms)
+-  call mept162(cfile6,f0,iwave,NMAX,rms,nsec)
++  call mept162(cfile6,f0,minsync,iwave,NMAX,rms,nsec)
+   if(nsave.gt.0) then
+-     outfile='save/'//cfile6(1:4)//'.wav'
++     outfile='save/'//outfile
+      call wfile5(iwave,npts,12000,outfile)
+   endif
+ 
+
+Modified: branches/wspr/wspr_tx.f90
+===================================================================
+--- branches/wspr/wspr_tx.f90	2008-03-20 16:15:54 UTC (rev 645)
++++ branches/wspr/wspr_tx.f90	2008-03-20 17:46:10 UTC (rev 646)
+@@ -5,6 +5,7 @@
+ #ifdef CVF
+   use dfport
+ #else
++  integer time
+   integer unlink
+ #endif
+ 
+@@ -36,7 +37,24 @@
+   call getarg(6,devout)
+   ndevout=0
+   read(devout,*,err=1) ndevout
+-1  write(cdbm,'(i3)'),ndbm
++1 continue
++
++  nsec=time()
++  isec=mod(nsec,86400)
++  ih=isec/3600
++  im=(isec-ih*3600)/60
++  is=mod(isec,60)
++  if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
++  do i=22,1,-1
++     if(message(i:i).ne.' ') go to 10
++  enddo
++10 iz=i
++  open(13,file='ALL_MEPT.TXT',status='unknown',access='append')
++  write(13,1010) ih,im,ftx,message(1:iz)
++1010 format(2i2.2,14x,f11.6,'  Transmitting &quot;',a,'&quot;')
++  close(13)
++
++  write(cdbm,'(i3)'),ndbm
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   message=call1(1:i1)//grid//' '//cdbm
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000332.html">[WSJT-SVN] r645 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000334.html">[WSJT-SVN] r647 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

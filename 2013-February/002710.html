@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3018 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3018%20-%20trunk&In-Reply-To=%3C20130226202440.03DB355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002709.html">
+   <LINK REL="Next"  HREF="002711.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3018 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3018%20-%20trunk&In-Reply-To=%3C20130226202440.03DB355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3018 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Feb 26 21:24:39 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002709.html">[WSJT-SVN] r3017 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002711.html">[WSJT-SVN] r3019 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2710">[ date ]</a>
+              <a href="thread.html#2710">[ thread ]</a>
+              <a href="subject.html#2710">[ subject ]</a>
+              <a href="author.html#2710">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-26 21:24:39 +0100 (Tue, 26 Feb 2013)
+New Revision: 3018
+
+Modified:
+   trunk/getmet4.f90
+   trunk/sync4.f90
+   trunk/wsjt.py
+Log:
+Optional yellow plot of JT4 avg spectrum.
+
+
+Modified: trunk/getmet4.f90
+===================================================================
+--- trunk/getmet4.f90	2013-02-26 19:27:51 UTC (rev 3017)
++++ trunk/getmet4.f90	2013-02-26 20:24:39 UTC (rev 3018)
+@@ -40,7 +40,7 @@
+        -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
+   save
+ 
+-  bias=0.375                                  !Nominally 0.5
++  bias=0.5
+   scale=10.0
+   do i=0,255
+      mettab(i,0)=nint(scale*(xx0(i)-bias))
+
+Modified: trunk/sync4.f90
+===================================================================
+--- trunk/sync4.f90	2013-02-26 19:27:51 UTC (rev 3017)
++++ trunk/sync4.f90	2013-02-26 20:24:39 UTC (rev 3018)
+@@ -40,7 +40,7 @@
+   call flat1(psavg,nsmo,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten spectra
+ 
+   if(mode4.ge.9) call smo(psavg,nh,tmp,mode4/4)
+-  i0=60
++  i0=132
+   do i=1,450
+      ps0(i)=5.0*(psavg(i0+2*i) + psavg(i0+2*i+1) - 2.0)
+   enddo
+@@ -144,7 +144,7 @@
+   snrx=-99.0
+   ppmax=psavg(ipk)-1.0
+ 
+-  if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 10.5        !Empirical
++  if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 16.5        !Empirical
+   if(snrx.lt.-33.0) snrx=-33.0
+ 
+   ccfred1=0.
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-02-26 19:27:51 UTC (rev 3017)
++++ trunk/wsjt.py	2013-02-26 20:24:39 UTC (rev 3018)
+@@ -75,6 +75,7 @@
+ hiscall=&quot;&quot;
+ hisgrid=&quot;&quot;
+ isec0=-99
++jt4avg=IntVar()
+ jtol=IntVar()
+ k2txb=IntVar()
+ kb8rq=IntVar()
+@@ -1261,12 +1262,13 @@
+                  (event.y&lt;95 and Audio.gcom2.nspecial&gt;0):
+          
+             idf=Audio.gcom2.idf
+-            t=&quot;%d&quot; % int(idf+1200.0*event.x/500.0-600.0,)
+-            if mode.get()[:3]=='JT4' and event.y&lt;67:
++            if mode.get()[:3]=='JT4' and event.y&lt;67 and jt4avg.get():
+                 lab1.configure(text='DF (Hz)',bg='yellow')
++                t=&quot;%d&quot; % int(idf+2400.0*event.x/500.0-1200.0,)
+                 lab6.configure(text=t,bg=&quot;yellow&quot;)
+             else:
+                 lab1.configure(text='DF (Hz)',bg='red')
++                t=&quot;%d&quot; % int(idf+1200.0*event.x/500.0-600.0,)
+                 lab6.configure(text=t,bg=&quot;red&quot;)
+         else:
+             lab1.configure(text='Time (s)',bg='green')
+@@ -1592,8 +1594,7 @@
+             if Audio.gcom2.nspecial==4: t=&quot;73&quot;
+             graph1.create_text(x2+3,93,anchor=W,text=t,fill=&quot;yellow&quot;)
+ 
+-
+-        if mode.get()[:3]=='JT4':
++        if mode.get()[:3]=='JT4' and jt4avg.get():
+             y=[]
+             for i in range(446):                #Find ymax for yellow curve
+                 ps0=Audio.gcom2.ps0[i+1]
+@@ -2156,6 +2157,7 @@
+ setupmenu.add_separator()
+ setupmenu.add_checkbutton(label = 'Monitor ON at startup',variable=nmonitor)
+ setupmenu.add_checkbutton(label = 'Low-Duty Beacon Mode',variable=nlowbeacon)
++setupmenu.add_checkbutton(label = 'Plot average JT4 spectrum',variable=jt4avg)
+ setupmenu.add_separator()
+ setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
+ if (sys.platform == 'darwin'):
+@@ -2843,6 +2845,7 @@
+         elif key == 'NDepth': ndepth.set(value)
+         elif key == 'Debug': ndebug.set(value)
+         elif key == 'LowBeacon': nlowbeacon.set(value)
++        elif key == 'JT4avg': jt4avg.set(value)
+         elif key == 'Monitor': nmonitor.set(value)
+         elif key == 'HisCall':
+             Audio.gcom2.hiscall=(value+' '*12)[:12]
+@@ -2960,6 +2963,7 @@
+ f.write(&quot;NDepth &quot; + str(ndepth.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+ f.write(&quot;LowBeacon &quot; + str(nlowbeacon.get()) + &quot;\n&quot;)
++f.write(&quot;JT4avg &quot; + str(jt4avg.get()) + &quot;\n&quot;)
+ f.write(&quot;Monitor &quot; + str(nmonitor.get()) + &quot;\n&quot;)
+ #f.write(&quot;TRPeriod &quot; + str(Audio.gcom1.trperiod) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002709.html">[WSJT-SVN] r3017 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002711.html">[WSJT-SVN] r3019 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2710">[ date ]</a>
+              <a href="thread.html#2710">[ thread ]</a>
+              <a href="subject.html#2710">[ subject ]</a>
+              <a href="author.html#2710">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

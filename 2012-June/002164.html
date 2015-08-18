@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2472 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2472%20-%20trunk&In-Reply-To=%3C20120621140039.41AA055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002163.html">
+   <LINK REL="Next"  HREF="002165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2472 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2472%20-%20trunk&In-Reply-To=%3C20120621140039.41AA055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2472 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jun 21 16:00:38 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002163.html">[WSJT-SVN] r2471 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="002165.html">[WSJT-SVN] r2473 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2164">[ date ]</a>
+              <a href="thread.html#2164">[ thread ]</a>
+              <a href="subject.html#2164">[ subject ]</a>
+              <a href="author.html#2164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-06-21 16:00:38 +0200 (Thu, 21 Jun 2012)
+New Revision: 2472
+
+Modified:
+   trunk/abc441.f90
+   trunk/chk441.f90
+   trunk/gen441.f90
+   trunk/wsjt.py
+Log:
+Minor tweaks and cleanups in FSK441 code.
+
+
+Modified: trunk/abc441.f90
+===================================================================
+--- trunk/abc441.f90	2012-06-14 15:57:39 UTC (rev 2471)
++++ trunk/abc441.f90	2012-06-21 14:00:38 UTC (rev 2472)
+@@ -4,6 +4,8 @@
+   integer itone(84)
+   integer lookup(0:91)
+   character cc*43
++!                   1         2         3         4
++!          1234567890123456789012345678901234567890123
+   data cc/' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.,?/#$'/
+   data lookup/13, 15, 17, 46, 47, 45, 44, 12, 11, 14, &amp;
+                1,  2,  3,  4,  5,  6,  7,  8,  9, 10, &amp;
+
+Modified: trunk/chk441.f90
+===================================================================
+--- trunk/chk441.f90	2012-06-14 15:57:39 UTC (rev 2471)
++++ trunk/chk441.f90	2012-06-21 14:00:38 UTC (rev 2472)
+@@ -15,19 +15,15 @@
+   real s(NMAX)
+   real ccf(-6000:6000)
+   integer dftolerance
++  logical first
++  data first/.true./
+   common/scratch/work(NMAX)
+-  save frag0,cfrag,ndits
++  save
+ 
+-  frag=' '
+-  if(frag.ne.frag0) then
+-     do i=28,1,-1                          !Get length of message fragment
+-        if(frag(i:i).ne.' ') go to 10
+-     enddo
+-10   nfrag=i
+-     if(nfrag.eq.0) nfrag=1
+-     call abc441(frag,nfrag,itone,ndits)
+-     call gen441(itone,ndits,cfrag)        !Generate complex waveform
+-     frag0=frag
++  if(first) then
++     call abc441(' ',1,itone,ndits)         !Generate waveform for &lt;space&gt;
++     call gen441(itone,ndits,cfrag)
++     first=.true.
+   endif
+ 
+   ccf0=3.0
+@@ -37,7 +33,6 @@
+      sb0=0.60
+   endif
+ 
+-
+   nsps=25                                  !Initialize variables
+   nsam=nsps*ndits
+   dt=1.0/11025.0
+@@ -93,12 +88,13 @@
+      a=0.
+      do j=1,nsam
+         a=a + abs(cdat(j+i-1))
+-        z=z + cdat(j+i-1)*cfrag(j)
++        z=z + cdat(j+i-1)*conjg(cfrag(j))
+      enddo
+      ss=abs(z)/a
+-!     ss=abs(z)
+      if(ss.gt.sbest) then
+         sbest=ss
++        ipk=i
++        amp=a/nsam
+      endif
+   enddo
+   if(sbest.lt.sb0) go to 800            !Skip if not decodable FSK441 data
+
+Modified: trunk/gen441.f90
+===================================================================
+--- trunk/gen441.f90	2012-06-14 15:57:39 UTC (rev 2471)
++++ trunk/gen441.f90	2012-06-21 14:00:38 UTC (rev 2472)
+@@ -16,7 +16,7 @@
+      do i=1,NSPD
+         k=k+1
+         pha=pha+dpha
+-        cfrag(k)=cmplx(cos(pha),-sin(pha))
++        cfrag(k)=cmplx(sin(pha),-cos(pha))
+      enddo
+   enddo
+ 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2012-06-14 15:57:39 UTC (rev 2471)
++++ trunk/wsjt.py	2012-06-21 14:00:38 UTC (rev 2472)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002163.html">[WSJT-SVN] r2471 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="002165.html">[WSJT-SVN] r2473 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2164">[ date ]</a>
+              <a href="thread.html#2164">[ thread ]</a>
+              <a href="subject.html#2164">[ subject ]</a>
+              <a href="author.html#2164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

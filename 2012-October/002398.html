@@ -1,0 +1,499 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2706 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2706%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121030164925.4FF1F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002397.html">
+   <LINK REL="Next"  HREF="002399.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2706 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2706%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121030164925.4FF1F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2706 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Oct 30 17:49:25 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002397.html">[WSJT-SVN] r2705 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002399.html">[WSJT-SVN] r2707 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2398">[ date ]</a>
+              <a href="thread.html#2398">[ thread ]</a>
+              <a href="subject.html#2398">[ subject ]</a>
+              <a href="author.html#2398">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-30 17:49:24 +0100 (Tue, 30 Oct 2012)
+New Revision: 2706
+
+Modified:
+   branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+   branches/wsjtx/commons.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Remove m_DF and associated code.
+Disable some presently un-implemented controls.
+Begin implemnting &quot;Save Synced&quot; and &quot;Save Decoded&quot;.
+Set compilation to CONSOLE mode.
+
+
+Modified: branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/commons.h	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -19,6 +19,8 @@
+   int nfb;                          //High decode limit (kHz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+   int kin;
++  int nsynced;
++  int ndecoded;
+ } jt9com_;
+ 
+ }
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/devsetup.ui	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -23,7 +23,7 @@
+       &lt;attribute name=&quot;title&quot;&gt;
+        &lt;string&gt;Station&lt;/string&gt;
+       &lt;/attribute&gt;
+-      &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++      &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+        &lt;property name=&quot;geometry&quot;&gt;
+         &lt;rect&gt;
+          &lt;x&gt;10&lt;/x&gt;
+@@ -121,6 +121,9 @@
+             &lt;/item&gt;
+             &lt;item&gt;
+              &lt;widget class=&quot;QSpinBox&quot; name=&quot;idIntSpinBox&quot;&gt;
++              &lt;property name=&quot;enabled&quot;&gt;
++               &lt;bool&gt;false&lt;/bool&gt;
++              &lt;/property&gt;
+               &lt;property name=&quot;maximumSize&quot;&gt;
+                &lt;size&gt;
+                 &lt;width&gt;60&lt;/width&gt;
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/lib/decoder.f90	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -15,13 +15,15 @@
+   integer*2 id2
+   complex c0(NDMAX)
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
+-       ntr,nfqso,nagain,newdat,npts8,nfb,ntol,kin
++       ntr,nfqso,nagain,newdat,npts8,nfb,ntol,kin,nsynced,ndecoded
+   logical first
+   data first/.true./
+   save
+ 
+   ntrMinutes=ntrSeconds/60
+   newdat=1
++  nsynced=0
++  ndecoded=0
+ 
+   nsps=0
+   if(ntrMinutes.eq.1) then
+@@ -79,6 +81,7 @@
+         if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
+            sbest=ccfred(i)
+            write(line,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width
++           if(nsync.gt.0) nsynced=1
+         endif
+ 
+         if(msg.ne.'                      ') then
+@@ -86,6 +89,8 @@
+ 1010       format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+            write(14,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
+            fgood=f
++           nsynced=1
++           ndecoded=1
+         endif
+      endif
+   enddo
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/mainwindow.cpp	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -49,8 +49,10 @@
+   ui-&gt;actionJT9_30-&gt;setActionGroup(modeGroup);
+ 
+   QActionGroup* saveGroup = new QActionGroup(this);
++  ui-&gt;actionNone-&gt;setActionGroup(saveGroup);
++  ui-&gt;actionSave_synced-&gt;setActionGroup(saveGroup);
++  ui-&gt;actionSave_decoded-&gt;setActionGroup(saveGroup);
+   ui-&gt;actionSave_all-&gt;setActionGroup(saveGroup);
+-  ui-&gt;actionNone-&gt;setActionGroup(saveGroup);
+ 
+   QActionGroup* DepthGroup = new QActionGroup(this);
+   ui-&gt;actionNo_Deep_Search-&gt;setActionGroup(DepthGroup);
+@@ -101,6 +103,8 @@
+   m_setftx=0;
+   m_loopall=false;
+   m_startAnother=false;
++  m_saveSynced=false;
++  m_saveDecoded=false;
+   m_saveAll=false;
+   m_sec0=-1;
+   m_palette=&quot;CuteSDR&quot;;
+@@ -231,6 +235,8 @@
+   settings.setValue(&quot;PaletteBlue&quot;,ui-&gt;actionBlue-&gt;isChecked());
+   settings.setValue(&quot;Mode&quot;,m_mode);
+   settings.setValue(&quot;SaveNone&quot;,ui-&gt;actionNone-&gt;isChecked());
++  settings.setValue(&quot;SaveSynced&quot;,ui-&gt;actionSave_synced-&gt;isChecked());
++  settings.setValue(&quot;SaveDecoded&quot;,ui-&gt;actionSave_decoded-&gt;isChecked());
+   settings.setValue(&quot;SaveAll&quot;,ui-&gt;actionSave_all-&gt;isChecked());
+   settings.setValue(&quot;NDepth&quot;,m_ndepth);
+   settings.setValue(&quot;KB8RQ&quot;,m_kb8rq);
+@@ -277,6 +283,10 @@
+                                  &quot;PaletteBlue&quot;,false).toBool());
+   m_mode=settings.value(&quot;Mode&quot;,&quot;JT9-1&quot;).toString();
+   ui-&gt;actionNone-&gt;setChecked(settings.value(&quot;SaveNone&quot;,true).toBool());
++  ui-&gt;actionSave_synced-&gt;setChecked(settings.value(
++                                        &quot;SaveSynced&quot;,false).toBool());
++  ui-&gt;actionSave_decoded-&gt;setChecked(settings.value(
++                                         &quot;SaveDecoded&quot;,false).toBool());
+   ui-&gt;actionSave_all-&gt;setChecked(settings.value(&quot;SaveAll&quot;,false).toBool());
+   m_NB=settings.value(&quot;NB&quot;,false).toBool();
+   ui-&gt;NBcheckBox-&gt;setChecked(m_NB);
+@@ -285,6 +295,8 @@
+   m_txFreq=settings.value(&quot;TxFreq&quot;,1500).toInt();
+   ui-&gt;TxFreqSpinBox-&gt;setValue(m_txFreq);
+   soundOutThread.setTxFreq(m_txFreq);
++  m_saveSynced=ui-&gt;actionSave_synced-&gt;isChecked();
++  m_saveDecoded=ui-&gt;actionSave_decoded-&gt;isChecked();
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,0).toInt();
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
+@@ -377,7 +389,9 @@
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+     decode();                                           //Start the decoder
+-    if(m_saveAll and !m_diskData) {
++    if(!m_diskData and
++       (m_saveAll or (m_saveSynced and (jt9com_.nsynced==1))
++                  or (m_saveDecoded and (jt9com_.ndecoded==1)))) {
+       int ihr=t.time().toString(&quot;hh&quot;).toInt();
+       int imin=t.time().toString(&quot;mm&quot;).toInt();
+       imin=imin - (imin%(m_TRperiod/60));
+@@ -539,22 +553,6 @@
+   }
+ }
+ 
+-void MainWindow::bumpDF(int n)                                  //bumpDF()
+-{
+-  if(n==11) {
+-    int n0=g_pWideGraph-&gt;DF();
+-    int n=(n0 + 10000) % 5;
+-    if(n==0) n=5;
+-    g_pWideGraph-&gt;setDF(n0-n);
+-  }
+-  if(n==12) {
+-    int n0=g_pWideGraph-&gt;DF();
+-    int n=(n0 + 10000) % 5;
+-    if(n==0) n=5;
+-    g_pWideGraph-&gt;setDF(n0+n);
+-  }
+-}
+-
+ bool MainWindow::eventFilter(QObject *object, QEvent *event)  //eventFilter()
+ {
+   if (event-&gt;type() == QEvent::KeyPress) {
+@@ -654,8 +652,6 @@
+     g_pWideGraph-&gt;setWindowFlags(flags);
+     connect(g_pWideGraph, SIGNAL(freezeDecode2(int)),this,
+             SLOT(freezeDecode(int)));
+-    connect(g_pWideGraph, SIGNAL(f11f12(int)),this,
+-            SLOT(bumpDF(int)));
+   }
+   g_pWideGraph-&gt;show();
+ }
+@@ -801,12 +797,34 @@
+ 
+ void MainWindow::on_actionNone_triggered()                    //Save None
+ {
++  m_saveSynced=false;
++  m_saveDecoded=false;
+   m_saveAll=false;
++  ui-&gt;actionNone-&gt;setChecked(true);
+ }
+ 
++void MainWindow::on_actionSave_synced_triggered()
++{
++  m_saveSynced=true;
++  m_saveDecoded=false;
++  m_saveAll=false;
++  ui-&gt;actionSave_synced-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionSave_decoded_triggered()
++{
++  m_saveSynced=false;
++  m_saveDecoded=true;
++  m_saveAll=false;
++  ui-&gt;actionSave_decoded-&gt;setChecked(true);
++}
++
+ void MainWindow::on_actionSave_all_triggered()                //Save All
+ {
++  m_saveSynced=false;
++  m_saveDecoded=false;
+   m_saveAll=true;
++  ui-&gt;actionSave_all-&gt;setChecked(true);
+ }
+ 
+ void MainWindow::on_actionKeyboard_shortcuts_triggered()
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/mainwindow.h	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -94,7 +94,6 @@
+   void on_dxGridEntry_textChanged(const QString &amp;arg1);
+   void selectCall2(bool ctrl);
+   void on_genStdMsgsPushButton_clicked();
+-  void bumpDF(int n);
+   void on_logQSOButton_clicked();
+   void on_actionErase_wsjtx_rx_log_triggered();
+   void on_actionErase_wsjtx_tx_log_triggered();
+@@ -110,13 +109,16 @@
+   void on_TxFreqSpinBox_valueChanged(int arg1);
+   void on_pbTxFreq_clicked();
+ 
++  void on_actionSave_synced_triggered();
++
++  void on_actionSave_decoded_triggered();
++
+ private:
+     Ui::MainWindow *ui;
+     qint32  m_nDevIn;
+     qint32  m_nDevOut;
+     qint32  m_idInt;
+     qint32  m_waterfallAvg;
+-    qint32  m_DF;
+     qint32  m_tol;
+     qint32  m_QSOfreq0;
+     qint32  m_ntx;
+@@ -149,6 +151,8 @@
+     bool    m_restart;
+     bool    m_killAll;
+     bool    m_startAnother;
++    bool    m_saveSynced;
++    bool    m_saveDecoded;
+     bool    m_saveAll;
+     bool    m_widebandDecode;
+     bool    m_kb8rq;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/mainwindow.ui	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -1186,6 +1186,8 @@
+      &lt;string&gt;Save&lt;/string&gt;
+     &lt;/property&gt;
+     &lt;addaction name=&quot;actionNone&quot;/&gt;
++    &lt;addaction name=&quot;actionSave_synced&quot;/&gt;
++    &lt;addaction name=&quot;actionSave_decoded&quot;/&gt;
+     &lt;addaction name=&quot;actionSave_all&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuHelp&quot;&gt;
+@@ -1582,6 +1584,28 @@
+     &lt;string&gt;JT9-30&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionSave_synced&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Save synced&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionSave_decoded&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;enabled&quot;&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Save decoded&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/plotter.cpp	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -416,8 +416,6 @@
+ 
+ int CPlotter::fQSO() {return m_fQSO;}                          //get fQSO
+ 
+-int CPlotter::DF() {return m_DF;}                              // get DF
+-
+ void CPlotter::mousePressEvent(QMouseEvent *event)       //mousePressEvent
+ {
+   int x=event-&gt;x();
+@@ -429,7 +427,6 @@
+ //  int h = (m_Size.height()-60)/2;
+   int x=event-&gt;x();
+   int y=event-&gt;y();
+-  m_DF=0;
+   setFQSO(x,false);
+   emit freezeDecode1(2);                  //### ???
+ }
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/plotter.h	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -35,7 +35,6 @@
+   qint32  m_nSpan;
+   qint32  m_binsPerPixel;
+   qint32  m_fQSO;
+-  qint32  m_DF;
+   qint32  m_tol;
+   qint32  m_fCal;
+   qint32  m_w;
+@@ -59,7 +58,6 @@
+   void setFcal(int n);
+   void DrawOverlay();
+   int  fQSO();
+-  int  DF();
+   int  autoZero();
+   void setPalette(QString palette);
+   void setFsample(int n);
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/soundin.cpp	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -20,6 +20,8 @@
+   int nfb;                          //High decode limit (kHz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+   int kin;
++  int nsynced;
++  int ndecoded;
+ } jt9com_;
+ }
+ 
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/widegraph.cpp	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -224,25 +224,12 @@
+   return ui-&gt;widePlot-&gt;m_tol;
+ }
+ 
+-void WideGraph::setDF(int n)
+-{
+-  ui-&gt;widePlot-&gt;m_DF=n;
+-  ui-&gt;widePlot-&gt;DrawOverlay();
+-  ui-&gt;widePlot-&gt;update();
+-}
+-
+ void WideGraph::setFcal(int n)
+ {
+   m_fCal=n;
+   ui-&gt;widePlot-&gt;setFcal(n);
+ }
+ 
+-
+-int WideGraph::DF()
+-{
+-  return ui-&gt;widePlot-&gt;m_DF;
+-}
+-
+ void WideGraph::on_autoZeroPushButton_clicked()
+ {
+    int nzero=ui-&gt;widePlot-&gt;autoZero();
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/widegraph.h	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -24,8 +24,6 @@
+   int    nStartFreq();
+   float  fSpan();
+   void   saveSettings();
+-  void   setDF(int n);
+-  int    DF();
+   int    Tol();
+   void   setTol(int n);
+   void   setFcal(int n);
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-10-30 15:03:15 UTC (rev 2705)
++++ branches/wsjtx/wsjtx.pro	2012-10-30 16:49:24 UTC (rev 2706)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-#CONFIG   += console
++CONFIG   += console
+ 
+ TARGET = wsjtx
+ VERSION = 0.2
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002397.html">[WSJT-SVN] r2705 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002399.html">[WSJT-SVN] r2707 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2398">[ date ]</a>
+              <a href="thread.html#2398">[ thread ]</a>
+              <a href="subject.html#2398">[ subject ]</a>
+              <a href="author.html#2398">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

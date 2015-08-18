@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r368 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r368%20-%20trunk&In-Reply-To=%3C200704251354.l3PDsX5i002397%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000052.html">
+   <LINK REL="Next"  HREF="000054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r368 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r368%20-%20trunk&In-Reply-To=%3C200704251354.l3PDsX5i002397%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r368 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 25 15:54:33 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000052.html">[WSJT-SVN] r367 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000054.html">[WSJT-SVN] r369 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-04-25 15:54:29 +0200 (Wed, 25 Apr 2007)
+New Revision: 368
+
+Modified:
+   trunk/decode3.F90
+   trunk/gen65.f
+   trunk/wsjt.py
+   trunk/wsjtgen.F90
+Log:
+Shift-Ctrl-D to force decode with no shorthands.
+Fix display of Tx message with &quot;-6&quot; in place of &quot;-06&quot;.
+Fix double-right-click on someone calling CQ.
+
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2007-04-24 18:09:44 UTC (rev 367)
++++ trunk/decode3.F90	2007-04-25 13:54:29 UTC (rev 368)
+@@ -64,6 +64,7 @@
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,        &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+   nforce=0
++  ntx2=0
+   close(23)
+   if(basevb.le.-98.0) go to 999
+ 
+
+Modified: trunk/gen65.f
+===================================================================
+--- trunk/gen65.f	2007-04-24 18:09:44 UTC (rev 367)
++++ trunk/gen65.f	2007-04-25 13:54:29 UTC (rev 368)
+@@ -1,5 +1,5 @@
+       subroutine gen65(message,mode65,samfac,iwave,nwave,sendingsh,
+-     +  msgsent)
++     +  msgsent,nmsg)
+ 
+ C  Encodes a JT65 message into a wavefile.
+ 
+@@ -76,6 +76,10 @@
+          enddo
+  10      msgsent=msgsent(1:i)//' OOO'
+       endif
++      do i=22,1,-1
++         if(msgsent(i:i).ne.' ') goto 20
++      enddo
++ 20   nmsg=i
+ 
+       return
+       end
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-04-24 18:09:44 UTC (rev 367)
++++ trunk/wsjt.py	2007-04-25 13:54:29 UTC (rev 368)
+@@ -240,7 +240,6 @@
+ #------------------------------------------------------ dbl_click_call
+ def dbl_click_call(t,t1,rpt,event):
+     global hiscall
+-#    print rpt
+     i=len(t1)                       #Length to mouse pointer
+     i1=t1.rfind(' ')+1              #index of preceding space
+     i2=i1+t[i1:].find(' ')          #index of next space
+@@ -258,15 +257,15 @@
+         GenStdMsgs()
+         if rpt &lt;&gt; &quot;OOO&quot;:
+             n=tx1.get().rfind(&quot; &quot;)
+-            t=tx1.get()[0:n+1]
++            t2=tx1.get()[0:n+1]
+             tx2.delete(0,END)
+-            tx2.insert(0,t+rpt)
++            tx2.insert(0,t2+rpt)
+             tx3.delete(0,END)
+-            tx3.insert(0,t+&quot;R&quot;+rpt)
++            tx3.insert(0,t2+&quot;R&quot;+rpt)
+             tx4.delete(0,END)
+-            tx4.insert(0,t+&quot;RRR&quot;)
++            tx4.insert(0,t2+&quot;RRR&quot;)
+             tx5.delete(0,END)
+-            tx5.insert(0,t+&quot;73&quot;)
++            tx5.insert(0,t2+&quot;73&quot;)
+         i3=t[:i1].strip().rfind(' ')+1
+         if t[i3:i1].strip() == 'CQ':
+             ntx.set(1)
+@@ -281,10 +280,11 @@
+ 
+ #------------------------------------------------------ force_decode
+ def force_decode(event=NONE):
+-#    print event.keysym
+     Audio.gcom2.nforce=1
++    if event.keysym == 'd': Audio.gcom2.ntx2=0
++    if event.keysym == 'D': Audio.gcom2.ntx2=1
+     decode()
+-    
++
+ #------------------------------------------------------ decode
+ def decode(event=NONE):
+     if Audio.gcom2.ndecoding==0:        #If already busy, ignore request
+@@ -1358,6 +1358,9 @@
+                 g.ndop=g.ndop00
+                 g.dfdt=g.dfdt0
+ 
++            Audio.gcom2.ntx2=0
++            if ntx.get()==1 and noshjt65.get()==1: Audio.gcom2.ntx2=1
++
+         if mode.get()[:4]=='JT65' or mode.get()[:2]=='CW' :
+             graph2.delete(ALL)
+             graph2.create_text(80,13,anchor=CENTER,text=&quot;Moon&quot;,font=g2font)
+@@ -1573,10 +1576,8 @@
+         Audio.gcom2.idinterval=options.IDinterval.get()
+     except:
+         Audio.gcom2.idinterval=0
+-    Audio.gcom2.ntx2=0
+ #    Audio.gcom1.rxdelay=float('0'+options.RxDelay.get())
+ #    Audio.gcom1.txdelay=float('0'+options.TxDelay.get())
+-    if ntx.get()==1 and noshjt65.get()==1: Audio.gcom2.ntx2=1
+     Audio.gcom2.nslim2=isync-4
+     if nosh441.get()==1 and mode.get()=='FSK441': Audio.gcom2.nslim2=99
+     try:
+
+Modified: trunk/wsjtgen.F90
+===================================================================
+--- trunk/wsjtgen.F90	2007-04-24 18:09:44 UTC (rev 367)
++++ trunk/wsjtgen.F90	2007-04-25 13:54:29 UTC (rev 368)
+@@ -122,7 +122,7 @@
+      if(mode(5:5).eq.'A') mode65=1
+      if(mode(5:5).eq.'B') mode65=2
+      if(mode(5:5).eq.'C') mode65=4
+-     call gen65(msg,mode65,samfacout,iwave,nwave,sendingsh,msgsent)
++     call gen65(msg,mode65,samfacout,iwave,nwave,sendingsh,msgsent,nmsg0)
+ 
+      if(lcwid) then
+ !  Generate and insert the CW ID.
+@@ -232,6 +232,6 @@
+      nwave=trperiod*fsample_out
+   endif
+ 
+-999  return
++999 return
+ end subroutine wsjtgen
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000052.html">[WSJT-SVN] r367 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000054.html">[WSJT-SVN] r369 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

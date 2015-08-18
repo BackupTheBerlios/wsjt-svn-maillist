@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2095 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2095%20-%20wsjt7a&In-Reply-To=%3C20100807143743.0415E480F14%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001786.html">
+   <LINK REL="Next"  HREF="001788.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2095 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2095%20-%20wsjt7a&In-Reply-To=%3C20100807143743.0415E480F14%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2095 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug  7 16:37:42 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001786.html">[WSJT-SVN] r2094 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001788.html">[WSJT-SVN] r2096 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1787">[ date ]</a>
+              <a href="thread.html#1787">[ thread ]</a>
+              <a href="subject.html#1787">[ subject ]</a>
+              <a href="author.html#1787">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-07 16:37:42 +0200 (Sat, 07 Aug 2010)
+New Revision: 2095
+
+Modified:
+   wsjt7a/avecho.f90
+   wsjt7a/decode1.f90
+   wsjt7a/fivehz.f90
+   wsjt7a/wsjt.py
+Log:
+Echo mode is in good shape now, including graphics.  
+Still to do: Costas array waveform.
+
+
+Modified: wsjt7a/avecho.f90
+===================================================================
+--- wsjt7a/avecho.f90	2010-08-06 18:43:17 UTC (rev 2094)
++++ wsjt7a/avecho.f90	2010-08-07 14:37:42 UTC (rev 2095)
+@@ -1,5 +1,5 @@
+ subroutine avecho(fname,ntime,y1,ibuf0,ntc,necho,nfrit,ndither,      &amp;
+-     dlatency,nsave,f1,nsum,ss1,ss2)
++     dlatency,nsave,f1,nsum,nclearave,ss1,ss2)
+ 
+   parameter (NBSIZE=1024*2048)
+   character*24 fname
+@@ -33,6 +33,8 @@
+   sigdB=db(sq/(14*2048)) - 58.5
+   if(sigdB.lt.-99.0) sigdB=-99.0
+ 
++  if(nclearave.ne.0) nsum=0
++  nclearave=0
+   if(nsum.eq.0) then
+      dop0=2.0*xdop(1)       !Remember the initial Doppler
+      s1=0.
+@@ -50,7 +52,7 @@
+   x(28673:)=0.0
+   call xfft(x,32768)
+ 
+-  fac=1.e-6
++  fac=1.e-9
+   do i=1,8192
+      s(i)=fac * (real(c(i))**2 + aimag(c(i))**2)
+   enddo
+
+Modified: wsjt7a/decode1.f90
+===================================================================
+--- wsjt7a/decode1.f90	2010-08-06 18:43:17 UTC (rev 2094)
++++ wsjt7a/decode1.f90	2010-08-07 14:37:42 UTC (rev 2095)
+@@ -30,7 +30,7 @@
+      i1=index(fnamex,'.WAV')
+      fnamex=fnamex(1:i1-3)//'.eco'
+      call avecho(fnamex,ntime,y1,ibuf0,ntc,necho,nfrit,ndither,dlatency,   &amp;
+-          nsave,fecho,nsumecho,ss1,ss2)
++          nsave,fecho,nsumecho,nclearave,ss1,ss2)
+      ndecoding=0
+      ndecdone=1
+   endif
+
+Modified: wsjt7a/fivehz.f90
+===================================================================
+--- wsjt7a/fivehz.f90	2010-08-06 18:43:17 UTC (rev 2094)
++++ wsjt7a/fivehz.f90	2010-08-07 14:37:42 UTC (rev 2095)
+@@ -68,9 +68,10 @@
+   endif
+ 
+ ! Echo mode
++  if(mode(1:4).ne.'Echo') n3=0
+   if(mode(1:4).eq.'Echo') then
+      s6=mod(tsec,6.d0)
+-     if(lauto.eq.0) go to 10
++     if(lauto.eq.0 .and. (n3.le.0 .or. n3.ge.6)) go to 10
+ 
+ ! When s6 has wrapped back to zero, start a new cycle
+      if(s6.lt.s6z) then
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-06 18:43:17 UTC (rev 2094)
++++ wsjt7a/wsjt.py	2010-08-07 14:37:42 UTC (rev 2095)
+@@ -1388,19 +1388,19 @@
+         ss2=Audio.gcom2.ss2[i+1]
+         y2.append(ss2)
+     ymax=max(y1+y2)
+-    yfac=30.0
+-    if ymax&gt;85.0/yfac: yfac=85.0/ymax
++    yfac=0.5
++    if ymax&gt;80.0/yfac: yfac=80.0/ymax
+     xy1=[]
+     xy2=[]
+     fac=500.0/446.0
+     for i in range(446):        #Make xy list for magenta/orange curves
+         x=i*fac
+         ss1=Audio.gcom2.ss1[i+1]
+-        n=int(90.0-yfac*ss1)
++        n=int(90.0-yfac*ss1) + 20
+         xy1.append(x)
+         xy1.append(n)
+         ss2=Audio.gcom2.ss2[i+1]
+-        n=int(90.0-yfac*ss2) - 20
++        n=int(90.0-yfac*ss2)
+         xy2.append(x)
+         xy2.append(n)
+     graph1.create_line(xy1,fill='#33FFFF')            #Light blue
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001786.html">[WSJT-SVN] r2094 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001788.html">[WSJT-SVN] r2096 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1787">[ date ]</a>
+              <a href="thread.html#1787">[ thread ]</a>
+              <a href="subject.html#1787">[ subject ]</a>
+              <a href="author.html#1787">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

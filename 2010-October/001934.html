@@ -1,0 +1,367 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2242 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2242%20-%20branches/wspr&In-Reply-To=%3C20101029112716.B5605480FA4%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001933.html">
+   <LINK REL="Next"  HREF="001935.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2242 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2242%20-%20branches/wspr&In-Reply-To=%3C20101029112716.B5605480FA4%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2242 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 29 13:27:16 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001933.html">[WSJT-SVN] r2241 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001935.html">[WSJT-SVN] r2243 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1934">[ date ]</a>
+              <a href="thread.html#1934">[ thread ]</a>
+              <a href="subject.html#1934">[ subject ]</a>
+              <a href="author.html#1934">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-10-29 13:27:16 +0200 (Fri, 29 Oct 2010)
+New Revision: 2242
+
+Added:
+   branches/wspr/fcal.exe
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/fcal.f90
+   branches/wspr/fmt.exe
+   branches/wspr/fmt.f90
+   branches/wspr/fmtave.exe
+   branches/wspr/fmtave.f90
+   branches/wspr/gocal.bat
+   branches/wspr/wspr.py
+Log:
+Update Makefile.MinGW
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/Makefile.MinGW	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -17,7 +17,7 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    WSPR.EXE fcal.exe
++all:    WSPR.EXE fmt.exe fmtave.exe fcal.exe 
+ 
+ OBJS1 = rxtest.o mept162.o getrms.o mix162.o deg2grid.o \
+ 	sync162.o decode162.o spec162.o set.o xfft.o \
+@@ -84,6 +84,14 @@
+ 	WsprMod/advanced.py WsprMod/iq.py
+ 	c:/python25/python c:/python25/pyinstaller-1.4/makespec.py --icon \
+ 	  wsjt.ico --tk --onefile wspr.py
++
++fmt.exe: fmt.f90 fil1.f90 four2a.f peakup.f db.f sound.o 
++	$(FC) -o fmt.exe -ftrace=full fmt.f90 fil1.f90 four2a.f peakup.f db.f \
++	sound.o libportaudio.a c:\MinGW\lib\libwinmm.a libfftw3f_win.a
++
++fmtave.exe: fmtave.f90
++	$(FC) -o fmtave.exe fmtave.f90
++
+ fcal.exe: fcal.f90
+ 	$(FC) -o fcal.exe fcal.f90
+ 
+
+Added: branches/wspr/fcal.exe
+===================================================================
+(Binary files differ)
+
+
+Property changes on: branches/wspr/fcal.exe
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Modified: branches/wspr/fcal.f90
+===================================================================
+--- branches/wspr/fcal.f90	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/fcal.f90	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -4,6 +4,7 @@
+   implicit real*8 (a-h,o-z)
+   real*8 fd(NZ),deltaf(NZ),r(NZ)
+   character infile*50
++  character line*80
+ 
+   nargs=iargc()
+   if(nargs.ne.1) then
+@@ -18,7 +19,16 @@
+ 
+   i=0
+   do j=1,9999
+-     read(10,*,err=5,end=10) f,df
++     read(10,1000,end=10) line
++1000 format(a80)
++     i0=index(line,' 0 ')
++     i1=index(line,' 1 ')
++     if(i0.le.0 .and. i1.le.0) then
++        read(line,*,err=5) f,df
++        ncal=1
++     else
++        read(line,*,err=5) f,df,ncal
++     endif
+      i=i+1
+      fd(i)=f
+      deltaf(i)=df
+@@ -55,7 +65,7 @@
+   endif
+ 
+   write(12,1130) a,b
+-1130 format(f6.2/f10.6)
++1130 format(f10.4)
+ 
+   go to 999
+ 
+
+Modified: branches/wspr/fmt.exe
+===================================================================
+(Binary files differ)
+
+Modified: branches/wspr/fmt.f90
+===================================================================
+--- branches/wspr/fmt.f90	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/fmt.f90	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -11,6 +11,7 @@
+   integer*2 kwave(NMAX)                      !Raw data samples at 48 kHz
+   integer*2 iwave(NMAX2)                     !Downsampled data, 12 kHz
+   character arg*12                           !Command-line arg
++  character callsign*6
+   character cmnd*120                         !Command to set rig frequency
+   character cflag*1
+   real x(NFFT)                               !Real data for FFT
+@@ -21,16 +22,22 @@
+   equivalence (x,c)
+ 
+   nargs=iargc()
+-  if(nargs.lt.3) then
+-     print*,'Usage: fmt &lt;kHz&gt; &lt;offset&gt; &lt;tsec&gt;'
++  if(nargs.ne.6) then
++     print*,'Usage:   fmt &lt;kHz&gt; &lt;0|1&gt; &lt;offset&gt; &lt;range&gt; &lt;tsec&gt; &lt;call&gt;'
++     print*,'Example: fmt 10000   1    1500     100      30    WWV'
+      go to 999
+   endif
+   call getarg(1,arg)
+   read(arg,*) nkhz                     !Nominal frequency to be measured (kHz)
+   call getarg(2,arg)
++  read(arg,*) ncal                     !1=CAL, 0=to be measured
++  call getarg(3,arg)
+   read(arg,*) noffset                  !Offset (Hz)
+-  call getarg(3,arg)
++  call getarg(4,arg)
++  read(arg,*) nrange                   !Search range (Hz)
++  call getarg(5,arg)
+   read(arg,*) ntsec                    !Length of measurement (s)
++  call getarg(6,callsign)
+ 
+   open(10,file='fmt.ini',status='old',err=910)
+   read(10,'(a120)') cmnd              !Get rigctl command to set frequency
+@@ -54,6 +61,12 @@
+      w(i)=sin(i*3.14159/NFFT)
+   enddo
+ 
++  write(*,1000)
++1000 format(                                                              &amp;
++     '   UTC     Freq CAL Offset  fMeas        DF    Level   S/N  Call'/   &amp;
++     '          (kHz)  ?   (Hz)    (Hz)       (Hz)    (dB)  (dB)      '/   &amp;
++     '------------------------------------------------------------------')
++
+   call soundinit                             !Initialize Portaudio
+ 
+   npts=ntsec*48000
+@@ -64,18 +77,19 @@
+      print*,'Error in soundin',ierr
+      stop
+   endif
+-  call fil1(kwave,npts,iwave,n2)          !Fiilter and downsample to 12 kHz
++  call fil1(kwave,npts,iwave,n2)          !Filter and downsample to 12 kHz
+ 
+   nrpt=n2/NH - 1
+   fac=1.0/float(NFFT)**2
+-  ia=(noffset-500)/df
+-  ib=(noffset+1000)/df
++  ia=(noffset-nrange)/df
++  ib=(noffset+nrange)/df
+ 
+   do irpt=0,nrpt
+      k=irpt*NH
+      t0=nsec0 + k/12000.0
+      do i=1,NFFT
+         k=k+1
++        if(k.gt.NMAX2) go to 999
+         x(i)=w(i)*iwave(k)
+      enddo
+ 
+@@ -109,15 +123,18 @@
+      nhr=n/3600
+      nmin=mod(n/60,60)
+      nsec=mod(n,60)
+-     pave=db(ave)
++     pave=db(ave) + 8.0
+      snr=db(smax/ave)
+      ferr=fpeak-noffset
+      cflag=' '
+-     if(snr.lt.18.0) cflag='*'
+-     write(*,1100)  nhr,nmin,nsec,nkhz,noffset,fpeak,ferr,pave,snr,cflag
+-     write(12,1100) nhr,nmin,nsec,nkhz,noffset,fpeak,ferr,pave,snr,cflag
+-     write(13,1100) nhr,nmin,nsec,nkhz,noffset,fpeak,ferr,pave,snr,cflag
+-1100 format(i2.2,':',i2.2,':',i2.2,i7,i6,2f10.3,2f7.1,2x,a1)
++     if(snr.lt.20.0) cflag='*'
++     write(*,1100)  nhr,nmin,nsec,nkhz,ncal,noffset,fpeak,ferr,pave,   &amp;
++          snr,callsign,cflag
++     write(12,1100) nhr,nmin,nsec,nkhz,ncal,noffset,fpeak,ferr,pave,   &amp;
++          snr,callsign,cflag
++     write(13,1100) nhr,nmin,nsec,nkhz,ncal,noffset,fpeak,ferr,pave,   &amp;
++          snr,callsign,cflag
++1100 format(i2.2,':',i2.2,':',i2.2,i7,i3,i6,2f10.3,2f7.1,2x,a6,2x,a1)
+      call flush(12)
+      call flush(13)
+   enddo
+
+Modified: branches/wspr/fmtave.exe
+===================================================================
+(Binary files differ)
+
+Modified: branches/wspr/fmtave.f90
+===================================================================
+--- branches/wspr/fmtave.f90	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/fmtave.f90	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -12,25 +12,28 @@
+   call getarg(1,infile)
+ 
+   open(10,file=infile,status='old')
++  open(12,file='fmtave.out',status='unknown')
+ 
++  write(*,1000)
++1000 format('    Freq    DF    CAL   N     rms    UTC'/                &amp;
++            '   (kHz)   (Hz)    ?         (Hz)'/                       &amp;
++            '-------------------------------------------')
+   nkhz0=0
+   sum=0.d0
+   sumsq=0.d0
+   n=0
+   do i=1,99999
+-     read(10,*,end=10) cutc,nkHz,noffset,faudio,snr,yave,yrms
++     read(10,*,end=10) cutc,nkHz,ncal,noffset,faudio,snr,yave,yrms
+      if(nkHz.ne.nkHz0 .and. i.ne.1) then
+         ave=sum/n
+         rms=0.d0
+         if(n.gt.1) then
+            rms=sqrt(abs(sumsq - sum*sum/n)/(n-1.d0))
+         endif
+-        err=0.2
+-        if(n.ge.2) err=rms/sqrt(n-1.d0)
+-        if(err.lt.0.1) err=0.1
+         fMHz=0.001d0*nkHz0
+-        write(*,1010) fMHz,ave,rms,err,cutc1
+-1010    format(f8.3,3f8.2,2x,a8)
++        write(*,1010)  fMHz,ave,ncal,n,rms,cutc1
++        write(12,1010) fMHz,ave,ncal,n,rms,cutc1
++1010    format(2f8.3,i4,i5,f8.2,2x,a8)
+         sum=0.d0
+         sumsq=0.d0
+         n=0
+@@ -48,9 +51,8 @@
+   if(n.gt.0) then
+      rms=sqrt((sumsq - sum*sum/n)/(n-1.d0))
+   endif
+-  err=rms/sqrt(n-1.d0)
+-  if(err.lt.0.1) err=0.1
+   fMHz=0.001d0*nkHz
+-  write(*,1010) fMHz,ave,rms,err,cutc1
++  write(*,1010)  fMHz,ave,ncal,n,rms,cutc1
++  write(12,1010) fMHz,ave,ncal,n,rms,cutc1
+ 
+ 999 end program fmtave
+
+Modified: branches/wspr/gocal.bat
+===================================================================
+--- branches/wspr/gocal.bat	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/gocal.bat	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -1,11 +1,11 @@
+-fmt   660 1500 30 1
+-fmt   880 1500 30 1
+-fmt  1210 1500 30 1
+-fmt  2500 1500 30 1
+-fmt  3330 1500 30 1
+-fmt  5000 1500 30 1
+-fmt  7850 1500 30 1
+-fmt 10000 1500 30 1
+-fmt 14670 1500 30 1
+-fmt 15000 1500 30 1
+-fmt 20000 1500 30 1
++fmt   660 1 1500 100 30  WFAN
++fmt   880 1 1500 100 30  WCBS
++fmt  1210 1 1500 100 30  WPHT
++fmt  2500 1 1500 100 30  WWV
++fmt  3330 1 1500 100 30  CHU
++fmt  5000 1 1500 100 30  WWV
++fmt  7850 1 1500 100 30  CHU
++fmt 10000 1 1500 100 30  WWV
++fmt 14670 1 1500 100 30  CHU
++fmt 15000 1 1500 100 30  WWV
++fmt 20000 1 1500 100 30  WWV
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-10-28 17:07:43 UTC (rev 2241)
++++ branches/wspr/wspr.py	2010-10-29 11:27:16 UTC (rev 2242)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- WSPR
++#------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+@@ -29,7 +29,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;2.10_r&quot; + &quot;$Rev$&quot;[6:-2]
++Version=&quot;2.11_r&quot; + &quot;$Rev$&quot;[6:-2]
+ print &quot;******************************************************************&quot;
+ print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001933.html">[WSJT-SVN] r2241 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001935.html">[WSJT-SVN] r2243 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1934">[ date ]</a>
+              <a href="thread.html#1934">[ thread ]</a>
+              <a href="subject.html#1934">[ subject ]</a>
+              <a href="author.html#1934">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

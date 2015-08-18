@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2887 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2887%20-%20branches/wsprx&In-Reply-To=%3C20130104160832.42AF155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002578.html">
+   <LINK REL="Next"  HREF="002580.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2887 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2887%20-%20branches/wsprx&In-Reply-To=%3C20130104160832.42AF155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2887 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 17:08:32 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002578.html">[WSJT-SVN] r2886 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002580.html">[WSJT-SVN] r2888 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2579">[ date ]</a>
+              <a href="thread.html#2579">[ thread ]</a>
+              <a href="subject.html#2579">[ subject ]</a>
+              <a href="author.html#2579">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-04 17:08:31 +0100 (Fri, 04 Jan 2013)
+New Revision: 2887
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+   branches/wsprx/soundin.cpp
+   branches/wsprx/soundout.cpp
+Log:
+Tx is now (sort of) working.  Must fix PTT release and setting of Tx Freq.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-03 16:28:35 UTC (rev 2886)
++++ branches/wsprx/mainwindow.cpp	2013-01-04 16:08:31 UTC (rev 2887)
+@@ -136,6 +136,7 @@
+   m_idle=false;
+   m_TxOK=false;
+   m_nrx=1;
++  m_txnext=false;
+   m_uploading=false;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -231,6 +232,8 @@
+   settings.setValue(&quot;DialFreq&quot;,m_dialFreq);
+   settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.setValue(&quot;UploadSpots&quot;,m_uploadSpots);
++  settings.setValue(&quot;TxEnable&quot;,m_TxOK);
++  settings.setValue(&quot;PctTx&quot;,m_pctx);
+   settings.endGroup();
+ }
+ 
+@@ -282,6 +285,10 @@
+   ui-&gt;inGain-&gt;setValue(m_inGain);
+   m_uploadSpots=settings.value(&quot;UploadSpots&quot;,false).toBool();
+   ui-&gt;cbUpload-&gt;setChecked(m_uploadSpots);
++  m_TxOK=settings.value(&quot;TxEnable&quot;,false).toBool();
++  ui-&gt;cbTxEnable-&gt;setChecked(m_TxOK);
++  m_pctx=settings.value(&quot;PctTx&quot;,25).toInt();
++  ui-&gt;sbPctTx-&gt;setValue(m_pctx);
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -745,12 +752,15 @@
+ 
+ void MainWindow::on_TxNextButton_clicked()
+ {
++  /* The following was for testing direct access to WSPRnet:
+   QString t(&quot;<A HREF="http://wsprnet.org/post?function=wsprstat&amp;rcall=K1JT&amp;">http://wsprnet.org/post?function=wsprstat&amp;rcall=K1JT&amp;</A>&quot;);
+   t += &quot;rgrid=FN20qi&amp;rqrg=10.140200&amp;tpct=0&amp;tqrg=10.140200&amp;dbm=20&amp;&quot;;
+   t += &quot;version=&quot; + Version;
+   QUrl url(t);
+ //  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; t;
+   reply = mNetworkManager-&gt;get(QNetworkRequest(url));
++  */
++  m_txnext=true;
+ }
+ 
+ void MainWindow::onNetworkReply(QNetworkReply* reply)
+@@ -784,7 +794,6 @@
+   QString utc = t.date().toString(&quot;yyyy MMM dd&quot;) + &quot; \n &quot; +
+           t.time().toString();
+   ui-&gt;labUTC-&gt;setText(utc);
+-//  qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; m_receiving &lt;&lt; m_diskData &lt;&lt; t.time().toString();
+   if(!m_receiving and !m_diskData) {
+ //    ui-&gt;xThermo-&gt;setValue(0.0);
+   }
+@@ -805,14 +814,8 @@
+   if(m_rxdone) {
+     loggit(&quot;Rx Done&quot;);
+     m_receiving=false;
+-    soundInThread.setReceiving(m_receiving);
++    soundInThread.setReceiving(false);
+     m_rxdone=false;
+-    //thisfile= yymmdd + m_rxtime + &quot;.wav&quot;
+-    //if(m_diskData) thisfile=file2
+-    if((m_rxnormal and m_ncal==0) or (!m_rxnormal and m_ncal==2) or
+-       (m_diskData==1)) {
+-      //decode()
+-    }
+   }
+ 
+   if(m_txdone) {
+@@ -822,16 +825,17 @@
+     m_ntr=0;
+   }
+ 
+-  if(m_nseq &gt;= m_nseqdone and m_ntune==0) {
+-//    if(m_nseq==m_nseqdone) qDebug() &lt;&lt; &quot;Seq Done&quot; &lt;&lt; m_nseq &lt;&lt; m_nseqdone;
++  if((m_nseq &gt;= m_nseqdone and m_ntune==0) or
++     (m_nseq &gt;= m_pctx and m_ntune&gt;0)) {
+     if(m_transmitting) {
+       stopTx();
+       m_txdone=true;
+     }
+     if(m_receiving) m_rxdone=true;
++
+     m_transmitting=false;
+     m_receiving=false;
+-    soundInThread.setReceiving(m_receiving);
++    soundInThread.setReceiving(false);
+     m_ntr=0;
+   }
+ 
+@@ -842,62 +846,43 @@
+     //Make a test transmission of duration pctx.
+     //m_nsectx=nsec
+     m_transmitting=true;
+-    //starttx()
++    startTx();
+   }
+ 
+-  /*
+-  if(m_ncal==1 and !m_transmitting and !m_receiving) {
+-    qDebug() &lt;&lt; &quot;Cal&quot;;
+-    //Execute one Rx sequence (length??)
+-    m_receiving=true;
+-    soundInThread.setReceiving(m_receiving);
+-    //m_rxtime=hhmm
+-    m_rxnormal=false;
+-    m_diskData=0;
+-    startRx();
+-  }
+-*/
++  if(m_nseq==0 and !m_transmitting and !m_receiving and !m_idle) {
+ 
+-  if(m_nseq!=0 or m_transmitting or m_receiving or m_idle) {
+-//    qDebug() &lt;&lt; &quot;ChkLevel&quot;;
+-    //chklevel()
+-    //if(iqmode) ...
+-    return;
+-  }
+-
+-  //file2= yymmdd + hhmm + &quot;.wav&quot;
+-  if(m_hopping) {
+-    qDebug() &lt;&lt; &quot;Hopping&quot;;
+-    //...
+-  } else {
+-    if(m_pctx==0) m_nrx=1;
+-  }
+-
+-  if(m_TxOK and m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
+-    m_transmitting=true;              //Start a normal Tx sequence
+-    float x=(float)rand()/RAND_MAX;
+-    if(m_pctx&lt;50) {
+-      m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
++    if(m_hopping) {
++      loggit(&quot;Hopping&quot;);
++      //...
+     } else {
+-      m_nrx=0;
+-      if(x&lt;m_rxavg) m_nrx=1;
++      if(m_pctx==0) m_nrx=1;
+     }
++
++    if(m_TxOK and m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
++      m_transmitting=true;              //Start a normal Tx sequence
++      float x=(float)rand()/RAND_MAX;
++      if(m_pctx&lt;50) {
++        m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
++      } else {
++        m_nrx=0;
++        if(x&lt;m_rxavg) m_nrx=1;
++      }
+ //    message=MyCall + MyGrid + &quot;ndbm&quot;;
+     //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
+-    m_ntr=-1;
+-    loggit(&quot;Start Tx&quot;);
+-    m_txdone=false;
+-    m_txnext=false;
+-    startTx();
+-  } else {
+-    m_receiving=true;                 //Start a normal Rx sequence
+-    soundInThread.setReceiving(m_receiving);
+-    //m_rxtime=hhmm
+-    m_ntr=1;
+-    m_rxnormal=true;
+-    loggit(&quot;Start Rx&quot;);
+-//    startRx();
+-    m_nrx=m_nrx-1;
++      m_ntr=-1;
++      m_txdone=false;
++      m_txnext=false;
++      startTx();
++    } else {
++      m_receiving=true;                 //Start a normal Rx sequence
++      soundInThread.setReceiving(true);
++      //m_rxtime=hhmm
++      m_ntr=1;
++      m_rxnormal=true;
++      loggit(&quot;Start Rx&quot;);
++      //    startRx();
++      m_nrx=m_nrx-1;
++    }
+   }
+ }
+ 
+@@ -922,7 +907,7 @@
+ void MainWindow::startTx()
+ {
+   static char msg[23];
+-  QString message=m_myCall + m_myGrid + &quot;37&quot;;            //### dBm ###
++  QString message=m_myCall + &quot; &quot; + m_myGrid.mid(0,4) + &quot; 37&quot;;      //### dBm ###
+   QByteArray ba=message.toAscii();
+   ba2msg(ba,msg);
+   int len1=22;
+@@ -973,6 +958,7 @@
+ void MainWindow::on_cbTxEnable_toggled(bool b)
+ {
+   m_TxOK=b;
++  btxok=b;
+ }
+ 
+ 
+@@ -983,7 +969,7 @@
+ 
+ void MainWindow::loggit(QString t)
+ {
+-//  qDebug() &lt;&lt; t &lt;&lt; m_nseq;
++//  qDebug() &lt;&lt; t &lt;&lt; m_sec0 &lt;&lt; m_nseq &lt;&lt; m_nrx &lt;&lt; m_ntr;
+ }
+ 
+ void MainWindow::on_cbUpload_toggled(bool b)
+@@ -995,3 +981,9 @@
+ {
+   m_bandHop=b;
+ }
++
++void MainWindow::on_TuneButton_clicked()
++{
++  on_cbIdle_toggled(true);
++  m_ntune=1;
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-03 16:28:35 UTC (rev 2886)
++++ branches/wsprx/mainwindow.h	2013-01-04 16:08:31 UTC (rev 2887)
+@@ -78,6 +78,8 @@
+ 
+   void on_cbBandHop_toggled(bool checked);
+ 
++  void on_TuneButton_clicked();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-03 16:28:35 UTC (rev 2886)
++++ branches/wsprx/mainwindow.ui	2013-01-04 16:08:31 UTC (rev 2887)
+@@ -243,7 +243,7 @@
+         &lt;item&gt;
+          &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbIdle&quot;&gt;
+           &lt;property name=&quot;enabled&quot;&gt;
+-           &lt;bool&gt;false&lt;/bool&gt;
++           &lt;bool&gt;true&lt;/bool&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+            &lt;string&gt;Idle&lt;/string&gt;
+
+Modified: branches/wsprx/soundin.cpp
+===================================================================
+--- branches/wsprx/soundin.cpp	2013-01-03 16:28:35 UTC (rev 2886)
++++ branches/wsprx/soundin.cpp	2013-01-04 16:08:31 UTC (rev 2887)
+@@ -1,7 +1,7 @@
+ #include &quot;soundin.h&quot;
+ #include &lt;stdexcept&gt;
+ 
+-#define FRAMES_PER_BUFFER 1024
++#define FRAMES_PER_BUFFER 2048
+ #define NSMAX 22000
+ 
+ extern &quot;C&quot; {
+
+Modified: branches/wsprx/soundout.cpp
+===================================================================
+--- branches/wsprx/soundout.cpp	2013-01-03 16:28:35 UTC (rev 2886)
++++ branches/wsprx/soundout.cpp	2013-01-04 16:08:31 UTC (rev 2887)
+@@ -43,6 +43,7 @@
+   static int ic=0;
+   static short int i2;
+   int isym;
++  static int isym0=-99;
+ 
+   udata-&gt;ncall++;
+   if(udata-&gt;bRestart) {
+@@ -59,6 +60,12 @@
+   baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/48000.0;
++  /*
++  if(isym != isym0) {
++    qDebug() &lt;&lt; isym &lt;&lt; itone[isym] &lt;&lt; btxok &lt;&lt; btxMute;
++    isym0=isym;
++  }
++  */
+   if(udata-&gt;txsnrdb &lt; 0.0) {
+     snr=pow(10.0,0.05*(udata-&gt;txsnrdb-6.0));
+     fac=3000.0;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002578.html">[WSJT-SVN] r2886 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002580.html">[WSJT-SVN] r2888 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2579">[ date ]</a>
+              <a href="thread.html#2579">[ thread ]</a>
+              <a href="subject.html#2579">[ subject ]</a>
+              <a href="author.html#2579">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

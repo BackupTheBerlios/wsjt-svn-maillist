@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r635 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r635%20-%20trunk&In-Reply-To=%3C200802281604.m1SG4Gko003847%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000321.html">
+   <LINK REL="Next"  HREF="000323.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r635 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r635%20-%20trunk&In-Reply-To=%3C200802281604.m1SG4Gko003847%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r635 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Feb 28 17:04:16 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000321.html">[WSJT-SVN] r634 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000323.html">[WSJT-SVN] r636 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#322">[ date ]</a>
+              <a href="thread.html#322">[ thread ]</a>
+              <a href="subject.html#322">[ subject ]</a>
+              <a href="author.html#322">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-02-28 17:04:14 +0100 (Thu, 28 Feb 2008)
+New Revision: 635
+
+Modified:
+   trunk/JT65code.f
+   trunk/gcom2.f90
+   trunk/wsjt.py
+Log:
+More thorough validity checking of various combinations of MyCall, 
+add-on prefix/suffix, and ToRadio entries.
+
+
+Modified: trunk/JT65code.f
+===================================================================
+--- trunk/JT65code.f	2008-02-27 14:14:18 UTC (rev 634)
++++ trunk/JT65code.f	2008-02-28 16:04:14 UTC (rev 635)
+@@ -1,4 +1,4 @@
+-      program JT65karn
++      program JT65code
+ 
+ C  Provides examples of message packing, bit and symbol ordering,
+ C  Reed Solomon encoding, and other necessary details of the JT65
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2008-02-27 14:14:18 UTC (rev 634)
++++ trunk/gcom2.f90	2008-02-28 16:04:14 UTC (rev 635)
+@@ -90,6 +90,7 @@
+ character*80 filetokilla !Filenames (full path)                 Decoder
+ character*80 filetokillb
+ character*12 pttport
++character*22 t0msg
+ 
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,iter,ndecoding,ndecoding0,mousebutton,   &amp;
+@@ -103,6 +104,6 @@
+      ndepth,nspecial,ndf,nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+      fnameb,decodedfile,AppDir,AzElDir,filetokilla,filetokillb,       &amp;
+-     utcdate,pttport
++     utcdate,pttport,t0msg
+ 
+ !### volatile /gcom2/
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-02-27 14:14:18 UTC (rev 634)
++++ trunk/wsjt.py	2008-02-28 16:04:14 UTC (rev 635)
+@@ -48,6 +48,8 @@
+ 
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
++addpfx0=&quot;&quot;
++first=1
+ g.appdir=appdir
+ isync=0
+ isync441=2
+@@ -74,6 +76,7 @@
+ mode=StringVar()
+ mode.set(&quot;&quot;)
+ mrudir=os.getcwd()
++MyCall0=&quot;&quot;
+ nafc=IntVar()
+ naz=0
+ ndepth=IntVar()
+@@ -97,6 +100,7 @@
+ ShOK=IntVar()
+ slabel=&quot;Sync   &quot;
+ textheight=7
++ToRadio0=&quot;&quot;
+ tx6alt=&quot;&quot;
+ txsnrdb=99.
+ TxFirst=IntVar()
+@@ -1208,7 +1212,7 @@
+     
+ #------------------------------------------------------ GenStdMsgs
+ def GenStdMsgs(event=NONE):
+-    global altmsg
++    global altmsg,MyCall0,addpfx0,ToRadio0
+     t=ToRadio.get().upper().strip()
+     ToRadio.delete(0,99)
+     ToRadio.insert(0,t)
+@@ -1226,20 +1230,40 @@
+         tx6.insert(0,setmsg(options.tx6.get(),r))
+     elif mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+                mode.get()[:3]=='JT4':
+-        if ToRadio.get().find(&quot;/&quot;) == -1 and \
+-               options.MyCall.get().find(&quot;/&quot;) == -1:
+-            t=ToRadio.get() + &quot; &quot;+options.MyCall.get() + &quot; &quot;+options.MyGrid.get()[:4]
+-            tx1.insert(0,t.upper())
+-        else:
+-            tx1.insert(0,ToRadio.get() + &quot; &quot;+options.MyCall.get())
++        if options.MyCall.get()!= MyCall0 or \
++               options.addpfx.get()!= addpfx0 or ToRadio.get()!=ToRadio0:
++            MyCall0=options.MyCall.get()
++            addpfx0=options.addpfx.get()
++            ToRadio0=ToRadio.get()
++            t0=(&quot;SM5BSZ &quot;+options.MyCall.get()).upper()
++            Audio.gcom2.t0msg=(t0+'                      ')[:22]
++            nplain,naddon,ndiff=Audio.chkt0()
++            if nplain==1:
++                MsgBox(&quot;Bad 'MyCall' or bad prefix/suffix?\nPlease check on Setup | Options screen.&quot;)
++                options1()
++            t0=(&quot;SM5BSZ &quot;+ToRadio0).upper()
++            Audio.gcom2.t0msg=(t0+'                      ')[:22]
++            nplain,naddon,ndiff=Audio.chkt0()
++            if nplain==1:
++                MsgBox(&quot;Bad call in To Radio?\nPlease check.&quot;)
++            
++        t0=(ToRadio.get() + &quot; &quot;+options.MyCall.get()).upper()
++        Audio.gcom2.t0msg=(t0+'                      ')[:22]
++        nplain,naddon,ndiff=Audio.chkt0()
++        if nplain==0 and naddon==0 and ndiff==0:
++            t0=t0 + &quot; &quot;+options.MyGrid.get()[:4]
++        tx1.insert(0,t0.upper())
+         tx2.insert(0,tx1.get()+&quot; OOO&quot;)
+         tx3.insert(0,&quot;RO&quot;)
+         tx4.insert(0,&quot;RRR&quot;)
+         tx5.insert(0,&quot;73&quot;)
+-        t=&quot;CQ &quot; + options.MyCall.get()
+-        if options.MyCall.get().find(&quot;/&quot;) == -1:
+-            t=t + &quot; &quot; + options.MyGrid.get()[:4]
+-        tx6.insert(0,t.upper())
++
++        t0=&quot;CQ &quot; + options.MyCall.get().upper()
++        Audio.gcom2.t0msg=(t0+'                      ')[:22]
++        nplain,naddon,ndiff=Audio.chkt0()
++        if nplain==0 and naddon==0 and ndiff==0:
++            t0=t0 + &quot; &quot;+options.MyGrid.get()[:4]
++        tx6.insert(0,t0.upper())
+         altmsg=0
+     elif mode.get()[:2]==&quot;CW&quot;:
+         tx1.insert(0,&quot;[&quot; + ToRadio.get() + &quot; &quot; +options.MyCall.get() + &quot;]&quot;)
+@@ -1550,6 +1574,7 @@
+ #        elif mode.get()==&quot;Echo&quot;:
+ #            msg2.configure(bg='#FF0000')
+         g.mode=mode.get()
++        if first: GenStdMsgs()
+         first=0
+ 
+     samfac_in=Audio.gcom1.mfsample/110250.0
+@@ -2400,10 +2425,8 @@
+ Audio.gcom2.azeldir=(options.azeldir.get()+'                                                                                          ')[:80]
+ Audio.gcom2.ndepth=ndepth.get()
+ Audio.ftn_init()
+-GenStdMsgs()
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+'        ')[:8]
+ stopmon()
+-first=1
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title('  WSJT 6     by K1JT')
+ import astro
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000321.html">[WSJT-SVN] r634 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000323.html">[WSJT-SVN] r636 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#322">[ date ]</a>
+              <a href="thread.html#322">[ thread ]</a>
+              <a href="subject.html#322">[ subject ]</a>
+              <a href="author.html#322">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

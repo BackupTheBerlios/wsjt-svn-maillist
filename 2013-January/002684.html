@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2992 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2992%20-%20trunk&In-Reply-To=%3C20130131021432.38DE255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002683.html">
+   <LINK REL="Next"  HREF="002685.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2992 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2992%20-%20trunk&In-Reply-To=%3C20130131021432.38DE255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2992 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 31 03:14:31 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002683.html">[WSJT-SVN] r2991 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002685.html">[WSJT-SVN] r2993 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2684">[ date ]</a>
+              <a href="thread.html#2684">[ thread ]</a>
+              <a href="subject.html#2684">[ subject ]</a>
+              <a href="author.html#2684">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-31 03:14:31 +0100 (Thu, 31 Jan 2013)
+New Revision: 2992
+
+Modified:
+   trunk/deep4.f90
+   trunk/deep65.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Correct a flaw in deep4 and deep65.  (It has been there for a LONG time!!
+
+
+Modified: trunk/deep4.f90
+===================================================================
+--- trunk/deep4.f90	2013-01-30 20:41:57 UTC (rev 2991)
++++ trunk/deep4.f90	2013-01-31 02:14:31 UTC (rev 2992)
+@@ -80,8 +80,8 @@
+ 
+      mz=1
+ ! Allow MyCall + HisCall + rpt (?)
+-     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
+-          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
++     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and. callsign(1:6).ne.'      ') &amp;
++          mz=MAXRPT+1
+      do m=1,mz
+         if(m.gt.1) grid=rpt(m-1)
+         if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+@@ -122,6 +122,7 @@
+   p1=-1.e30
+   p2=-1.e30
+   do k=1,ntot
++     if(k.ge.2 .and. k.le.64 .and. flip.lt.0.0) cycle
+      pp(k)=0.
+ ! Test all messages if flip=+1; skip the CQ messages if flip=-1.
+      if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
+@@ -141,22 +142,23 @@
+      if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
+   enddo
+ 
++  qual=p1-max(1.15*p2,80.0)
+ ! ### DO NOT REMOVE ### 
+   call cs_lock('deep4')
+   rewind 77
+-  write(77,*) p1,p2,ntot,rms
++  write(77,*) p1,p2,ntot,rms,qual,ip1,testmsg(ip1)
++  call flush(77)
+   call cs_unlock
+ ! ### Works OK without it (in both Windows and Linux) if compiled 
+ ! ### without optimization.  However, in Windows this is a colossal 
+ ! ### pain because of the way F2PY wants to run the compile step.
+ 
+-  qual=p1-max(1.15*p2,80.0)
+ 
+-  call cs_lock('deep4')
+-  write(71,3000) p1,p2,qual,testmsg(ip1)
+-3000 format(3f10.3,2x,a22)
+-  call flush(71)
+-  call cs_unlock
++!  call cs_lock('deep4')
++!  write(71,3001) p1,p2,qual,testmsg(ip1)
++!3001 format(3f10.3,2x,a22)
++!  call flush(71)
++!  call cs_unlock
+ 
+   if(qual.gt.1.0) then
+      decoded=testmsg(ip1)
+
+Modified: trunk/deep65.f90
+===================================================================
+--- trunk/deep65.f90	2013-01-30 20:41:57 UTC (rev 2991)
++++ trunk/deep65.f90	2013-01-31 02:14:31 UTC (rev 2992)
+@@ -78,8 +78,8 @@
+      
+      mz=1
+ ! Allow MyCall + HisCall + rpt (?)
+-     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
+-          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
++     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and. callsign(1:6).ne.'      ')  &amp;
++          mz=MAXRPT+1
+      do m=1,mz
+         if(m.gt.1) grid=rpt(m-1)
+         if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+@@ -116,6 +116,7 @@
+   p1=-1.e30
+   p2=-1.e30
+   do k=1,ntot
++     if(k.ge.2 .and. k.le.64 .and. flip.lt.0.0) cycle
+      pp(k)=0.
+ ! Test all messages if flip=+1; skip the CQ messages if flip=-1.
+      if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-30 20:41:57 UTC (rev 2991)
++++ trunk/wsjt.py	2013-01-31 02:14:31 UTC (rev 2992)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------------- WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-30 20:41:57 UTC (rev 2991)
++++ trunk/wsjt1.f90	2013-01-31 02:14:31 UTC (rev 2992)
+@@ -221,7 +221,7 @@
+      fzap(1)=0.
+      if(nzap.eq.1) call avesp2(dat,jz,nadd,mode,NFreeze,MouseDF2,        &amp;
+           DFTolerance,fzap)
+-     if(nzap.eq.1.and.nstest.eq.0) call bzap(dat,jz,nadd,mode,fzap)
++     if(nzap.eq.1) call bzap(dat,jz,nadd,mode,fzap)
+ 
+      i=index(MyCall,char(0))
+      if(i.le.0) i=index(MyCall,' ')
+@@ -230,7 +230,6 @@
+      if(i.le.0) i=index(HisCall,' ')
+      hiscall=HisCall(1:i-1)//'            '
+ 
+-! Offset data by about 1 s.
+      jztest=165000
+      if(jz.ge.jztest) call wsjt4(dat,jz,cfile6,NClearAve,MinSigdB,      &amp;
+           DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,        &amp;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002683.html">[WSJT-SVN] r2991 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002685.html">[WSJT-SVN] r2993 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2684">[ date ]</a>
+              <a href="thread.html#2684">[ thread ]</a>
+              <a href="subject.html#2684">[ subject ]</a>
+              <a href="author.html#2684">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

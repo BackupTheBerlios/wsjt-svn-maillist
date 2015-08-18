@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2781 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2781%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121128143319.4DB2555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002472.html">
+   <LINK REL="Next"  HREF="002474.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2781 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2781%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121128143319.4DB2555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2781 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Nov 28 15:33:19 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002472.html">[WSJT-SVN] r2780 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002474.html">[WSJT-SVN] r2782 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2473">[ date ]</a>
+              <a href="thread.html#2473">[ thread ]</a>
+              <a href="subject.html#2473">[ subject ]</a>
+              <a href="author.html#2473">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-28 15:33:18 +0100 (Wed, 28 Nov 2012)
+New Revision: 2781
+
+Modified:
+   branches/wsjtx/lib/packgrid.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/widegraph.ui
+Log:
+Signal reports from -01 to -30 formatted as always; new formatting
+for -50 to -31 and 0 to +49.
+Change DialFreq to MHz.
+Fix info saved to wsjt.log.
+
+
+Modified: branches/wsjtx/lib/packgrid.f90
+===================================================================
+--- branches/wsjtx/lib/packgrid.f90	2012-11-28 12:47:42 UTC (rev 2780)
++++ branches/wsjtx/lib/packgrid.f90	2012-11-28 14:33:18 UTC (rev 2781)
+@@ -8,12 +8,40 @@
+   text=.false.
+   if(grid.eq.'    ') go to 90               !Blank grid is OK
+ 
+-  n=99
++! First, handle signal reports in the original range, -01 to -30 dB
++  if(grid(1:1).eq.'-') then
++     read(grid(2:3),*,err=800,end=800) n
++     if(n.ge.1 .and. n.le.30) then
++        ng=NGBASE+1+n
++        go to 900
++     endif
++     go to 10
++  else if(grid(1:2).eq.'R-') then
++     read(grid(3:4),*,err=800,end=800) n
++     if(n.ge.1 .and. n.le.30) then
++        ng=NGBASE+31+n
++        go to 900
++     endif
++     go to 10
++! Now check for RO, RRR, or 73 in the message field normally used for grid
++  else if(grid(1:4).eq.'RO  ') then
++     ng=NGBASE+62
++     go to 900
++  else if(grid(1:4).eq.'RRR ') then
++     ng=NGBASE+63
++     go to 900
++  else if(grid(1:4).eq.'73  ') then
++     ng=NGBASE+64
++     go to 900
++  endif
++
++! Now check for extended-range signal reports: -50 to -31, and 0 to +49.
++10 n=99
+   c1=grid(1:1)
+-  read(grid,*,err=1) n
+-  go to 2
+-1 read(grid(2:4),*,err=2) n
+-2 if(n.ge.-50 .and. n.le.49) then
++  read(grid,*,err=20) n
++  go to 30
++20 read(grid(2:4),*,err=30) n
++30 if(n.ge.-50 .and. n.le.49) then
+      if(c1.eq.'R') then
+         write(grid,1002) n+50
+ 1002    format('LA',i2.2)
+@@ -21,33 +49,28 @@
+         write(grid,1003) n+50
+ 1003    format('KA',i2.2)
+      endif
+-     go to 10
+-  else if(grid(1:2).eq.'RO') then
+-     ng=NGBASE+62
+-     go to 100
+-  else if(grid(1:3).eq.'RRR') then
+-     ng=NGBASE+63
+-     go to 100
+-  else if(grid(1:2).eq.'73') then
+-     ng=NGBASE+64
+-     go to 100
++     go to 40
+   endif
+ 
++! Maybe it's free text ?
+   if(grid(1:1).lt.'A' .or. grid(1:1).gt.'R') text=.true.
+   if(grid(2:2).lt.'A' .or. grid(2:2).gt.'R') text=.true.
+   if(grid(3:3).lt.'0' .or. grid(3:3).gt.'9') text=.true.
+   if(grid(4:4).lt.'0' .or. grid(4:4).gt.'9') text=.true.
+-  if(text) go to 100
++  if(text) go to 900
+ 
+-10 call grid2deg(grid//'mm',dlong,dlat)
++! OK, we have a properly formatted grid locator
++40 call grid2deg(grid//'mm',dlong,dlat)
+   long=dlong
+   lat=dlat+ 90.0
+   ng=((long+180)/2)*180 + lat
+-  go to 100
++  go to 900
+ 
+ 90 ng=NGBASE + 1
++  go to 900
+ 
+-100 continue
++800 text=.true.
++900 continue
++
+   return
+ end subroutine packgrid
+-
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-28 12:47:42 UTC (rev 2780)
++++ branches/wsjtx/mainwindow.cpp	2012-11-28 14:33:18 UTC (rev 2781)
+@@ -1536,11 +1536,11 @@
+ 
+ void MainWindow::on_logQSOButton_clicked()                 //Log QSO button
+ {
+-  int nMHz=144;
++  double dialFreq=g_pWideGraph-&gt;dialFreq();
+   QDateTime t = QDateTime::currentDateTimeUtc();
+   QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
+       t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
+-      QString::number(nMHz) + &quot;,JTMSK\n&quot;;
++      QString::number(dialFreq) + &quot;,&quot; + m_mode + &quot;\n&quot;;
+   QFile f(&quot;wsjt.log&quot;);
+   if(!f.open(QFile::Append)) {
+     msgBox(&quot;Cannot open file \&quot;wsjt.log\&quot;.&quot;);
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2012-11-28 12:47:42 UTC (rev 2780)
++++ branches/wsjtx/widegraph.ui	2012-11-28 14:33:18 UTC (rev 2781)
+@@ -326,7 +326,7 @@
+           &lt;bool&gt;true&lt;/bool&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;Dial Freq (kHz)&lt;/string&gt;
++          &lt;string&gt;Dial Freq (MHz)&lt;/string&gt;
+          &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+@@ -348,7 +348,7 @@
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;473.000&lt;/string&gt;
++          &lt;string&gt;1.8395&lt;/string&gt;
+          &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002472.html">[WSJT-SVN] r2780 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002474.html">[WSJT-SVN] r2782 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2473">[ date ]</a>
+              <a href="thread.html#2473">[ thread ]</a>
+              <a href="subject.html#2473">[ subject ]</a>
+              <a href="author.html#2473">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

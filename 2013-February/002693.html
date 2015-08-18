@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3001 - trunk/jt4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3001%20-%20trunk/jt4&In-Reply-To=%3C20130221144010.7561055B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002692.html">
+   <LINK REL="Next"  HREF="002694.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3001 - trunk/jt4</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3001%20-%20trunk/jt4&In-Reply-To=%3C20130221144010.7561055B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3001 - trunk/jt4">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Feb 21 15:40:10 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002692.html">[WSJT-SVN] r3000 - trunk/jt4
+</A></li>
+        <LI>Next message: <A HREF="002694.html">[WSJT-SVN] r3002 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2693">[ date ]</a>
+              <a href="thread.html#2693">[ thread ]</a>
+              <a href="subject.html#2693">[ subject ]</a>
+              <a href="author.html#2693">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-21 15:40:09 +0100 (Thu, 21 Feb 2013)
+New Revision: 3001
+
+Modified:
+   trunk/jt4/encode4.f90
+   trunk/jt4/jt4code.f90
+   trunk/jt4/sim14.f90
+   trunk/jt4/simjt4.f90
+Log:
+Code cleanup.
+
+
+Modified: trunk/jt4/encode4.f90
+===================================================================
+--- trunk/jt4/encode4.f90	2013-02-20 20:53:22 UTC (rev 3000)
++++ trunk/jt4/encode4.f90	2013-02-21 14:40:09 UTC (rev 3001)
+@@ -1,19 +1,23 @@
+-subroutine encode4(message,ncode)
++subroutine encode4(message,imsg,ncode)
+ 
+   parameter (MAXCALLS=7000,MAXRPT=63)
++  integer imsg(72)
+   integer ncode(206)
+   character*22 message          !Message to be generated
+   character*3 cok               !'   ' or 'OOO'
+-  integer dgen
++  character*72 c72
++  integer dgen(13)
+   integer*1 data0(13),symbol(206)
+   logical text
+-  common/jt4com1/dgen(13)
+ 
+   call chkmsg(message,cok,nspecial,flip)
+   call packmsg(message,dgen,text)  !Pack 72-bit message into 12 six-bit symbols
++  write(c72,1000) dgen(1:12)
++1000 format(12b6.6)
++  read(c72,1010) imsg
++1010 format(72i1)
+   call entail(dgen,data0)
+   call encode232(data0,206,symbol)       !Convolutional encoding
+-  call interleave4(symbol,1)             !Apply JT4 interleaving
+   do i=1,206
+      ncode(i)=symbol(i)
+   enddo
+
+Modified: trunk/jt4/jt4code.f90
+===================================================================
+--- trunk/jt4/jt4code.f90	2013-02-20 20:53:22 UTC (rev 3000)
++++ trunk/jt4/jt4code.f90	2013-02-21 14:40:09 UTC (rev 3001)
+@@ -23,26 +23,23 @@
+      print*,'Usage: JT65code &quot;message&quot;'
+      go to 999
+   endif
+-!  call getmet4(7,mettab)
+   call getarg(1,msg0)                     !Get message from command line
+   msg=msg0
+ 
+-  call packmsg(msg,dgen)         !Pack 72-bit message into 12 six-bit symbols
+   write(*,1020) msg0
+ 1020 format('Message:   ',a22)            !Echo input message
+-  if(iand(dgen(10),8).ne.0) write(*,1030) !Is the plain text bit set?
+-1030 format('Plain text.')         
+-  write(*,1040) dgen
+-1040 format('Packed message, 6-bit symbols: ',12i3) !Display packed symbols
+ 
+-  call encode4(msg,ncode)
++  call encode4(msg,imsg,ncode)
++  if(imsg(57).ne.0) write(*,1030)         !Is the free-text bit set?
++1030 format('Free text.')
++  write(*,1040) imsg
++1040 format(/'Source-encoded message, 72 bits:'/(50i1))
++
+   symbol=ncode
++  call interleave4(symbol,1)
+   write(*,1050) symbol
+-1050 format('Channel symbols:',50i1/                              &amp;
+-            ('                ',50i1))
++1050 format(/'Channel symbols, 206 bits:'/(50i1))
+ 
+-  call interleave4(symbol,-1)         !Remove interleaving
+-
+   do i=1,206
+      if(symbol(i).eq.0) then
+         sym(0,i)=5.
+@@ -52,6 +49,7 @@
+         sym(0,i)=1.
+      endif
+   enddo
++  call interleave4a(sym,-1)
+ 
+   scale=10.0
+   nadd=1
+@@ -61,6 +59,7 @@
+   nbits=72+31
+   ndelta=30
+   limit=100
++
+   call fano232(sym,nadd,amp,iknown,imsg,nbits,ndelta,limit,data1,    &amp;
+        ncycles,metric,ncount)
+   nlim=ncycles/nbits
+@@ -77,7 +76,7 @@
+ 1102 format(12b6)
+      call unpackmsg(data4,decoded)
+      write(*,1060) decoded
+-1060 format('Decoded message: ',a22)
++1060 format(/'Decoded message: ',a22)
+   else
+      print*,'Error: Fano decoder failed.'
+   endif
+
+Modified: trunk/jt4/sim14.f90
+===================================================================
+--- trunk/jt4/sim14.f90	2013-02-20 20:53:22 UTC (rev 3000)
++++ trunk/jt4/sim14.f90	2013-02-21 14:40:09 UTC (rev 3001)
+@@ -12,7 +12,6 @@
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+   common/scalecom/scale
+-  common/jt4com1/imsg6(12)
+ 
+   nargs=iargc()
+   if(nargs.ne.8) then
+@@ -55,10 +54,8 @@
+   '---------------------------------------------------------------------')
+ 
+   msg='CQ K1JT FN20'
+-  call encode4(msg,icode)
+-  write(c72,1002) imsg6
+-1002 format(12b6.6)
+-  read(c72,1004) imsg
++  call encode4(msg,imsg,icode)
++  write(c72,1004) imsg
+ 1004 format(72i1)
+   read(c72,1006) n2a,n2b
+ 1006 format(b14,44x,b14)
+@@ -122,7 +119,7 @@
+         call cpu_time(t0)
+ !        call fano232(sym,nadd,amp,iknown,imsg,nbits,ndelta,limit,    &amp;
+ !             data1,ncycles,metric,ncount)
+-        call ex28(sym,c72,n2)
++        call ex28(sym,c72,data1)
+         call cpu_time(t1)
+         ttotal=ttotal + (t1-t0)
+         do i=1,9
+
+Modified: trunk/jt4/simjt4.f90
+===================================================================
+--- trunk/jt4/simjt4.f90	2013-02-20 20:53:22 UTC (rev 3000)
++++ trunk/jt4/simjt4.f90	2013-02-21 14:40:09 UTC (rev 3001)
+@@ -6,18 +6,18 @@
+   character arg*12,c72*72
+   character*22 msg,decoded
+   integer icode(206)
++  integer*1 symbol(206)
+   integer imsg(72)
+   logical iknown(72)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+   common/scalecom/scale
+-  common/jt4com1/imsg6(12)
+ 
+   nargs=iargc()
+   if(nargs.ne.8) then
+      print*,'Usage: simjt4 nadd scale ndelta limit known snr amp iters'
+-     print*,'               1    10.0   30   10000   0    0   3   100'
++     print*,'               1    10.0   30   10000   0    0   6   100'
+      go to 999
+   endif
+ 
+@@ -55,11 +55,9 @@
+   '---------------------------------------------------------------------')
+ 
+   msg='CQ K1JT FN20'
+-  call encode4(msg,icode)
+-  write(c72,1002) imsg6
+-1002 format(12b6.6)
+-  read(c72,1004) imsg
+-1004 format(72i1)
++  call encode4(msg,imsg,icode)
++  symbol=icode
++  call interleave4(symbol,1)
+ 
+   rate=72.0/206.0
+   nbits=72+31
+@@ -99,7 +97,7 @@
+            s1=s1/nadd
+            sum0=sum0 + min(s0,s1)
+            sum1=sum1 + max(s0,s1)
+-           if(icode(j).eq.1) then
++           if(symbol(j).eq.1) then
+               sym(0,j)=s0
+               sym(1,j)=s1
+            else
+@@ -110,8 +108,8 @@
+ 
+         nb=0
+         do j=1,206
+-           if(icode(j).eq.1 .and. sym(1,j).lt.sym(0,j)) nb=nb+1
+-           if(icode(j).eq.0 .and. sym(1,j).ge.sym(0,j)) nb=nb+1
++           if(symbol(j).eq.1 .and. sym(1,j).lt.sym(0,j)) nb=nb+1
++           if(symbol(j).eq.0 .and. sym(1,j).ge.sym(0,j)) nb=nb+1
+         enddo
+         call interleave4a(sym,-1)
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002692.html">[WSJT-SVN] r3000 - trunk/jt4
+</A></li>
+	<LI>Next message: <A HREF="002694.html">[WSJT-SVN] r3002 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2693">[ date ]</a>
+              <a href="thread.html#2693">[ thread ]</a>
+              <a href="subject.html#2693">[ subject ]</a>
+              <a href="author.html#2693">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

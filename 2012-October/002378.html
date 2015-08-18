@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2686 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2686%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121024194430.19CD655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002377.html">
+   <LINK REL="Next"  HREF="002379.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2686 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2686%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121024194430.19CD655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2686 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct 24 21:44:29 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002377.html">[WSJT-SVN] r2685 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002379.html">[WSJT-SVN] r2687 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2378">[ date ]</a>
+              <a href="thread.html#2378">[ thread ]</a>
+              <a href="subject.html#2378">[ subject ]</a>
+              <a href="author.html#2378">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-24 21:44:29 +0200 (Wed, 24 Oct 2012)
+New Revision: 2686
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+Log:
+Fix double-click on call.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-22 19:39:03 UTC (rev 2685)
++++ branches/wsjtx/lib/decoder.f90	2012-10-24 19:44:29 UTC (rev 2686)
+@@ -51,8 +51,10 @@
+   rewind 13
+ !  write(*,1010) nutc,sync,xdt,1000.0+fpk,msg
+   nsync=sync
+-  write(13,1010) nutc,nsync,snr,xdt,1000.0+fpk,msg
+-1010 format(i4.4,i4,f7.1,f6.1,f8.1,3x,a22,e12.3)
++  nsnr=nint(snr)
++  width=0.0
++  write(13,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++1010 format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+   call flush(13)
+   close(13)
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-22 19:39:03 UTC (rev 2685)
++++ branches/wsjtx/mainwindow.cpp	2012-10-24 19:44:29 UTC (rev 2686)
+@@ -1095,16 +1095,23 @@
+   ui-&gt;dxCallEntry-&gt;setText(hiscall);
+   QString t = ui-&gt;decodedTextBrowser-&gt;toPlainText();   //Full contents
+   int i2=ui-&gt;decodedTextBrowser-&gt;textCursor().position();
+-  QString t1 = t.mid(0,i2);              //contents up to text cursor
+-  int i1=t1.lastIndexOf(&quot;\n&quot;) + 1;
+-  QString t2 = t1.mid(i1,i2-i1);         //selected line
+-  int n = 60*t2.mid(13,2).toInt() + t2.mid(15,2).toInt();
+-  m_txFirst = ((n%2) == 1);
++  int i3=t.mid(i2,99).indexOf(&quot;\n&quot;)-1;   //points to last char of line
++  QString t1 = t.mid(0,i3);              //contents up to \n on selected line
++  int i1=t1.lastIndexOf(&quot;\n&quot;) + 1;       //points to first char of line
++  QString t2 = t1.mid(i1,i3-i1);         //selected line
++  int n = 60*t2.mid(0,2).toInt() + t2.mid(2,2).toInt();
++  int nmod=n%(m_TRperiod/30);
++  m_txFirst=(nmod!=0);
+   ui-&gt;txFirstCheckBox-&gt;setChecked(m_txFirst);
+-  QString rpt=&quot;&quot;;
+-  if(ctrl) rpt=t2.mid(23,3);
+-  lookup();
+-  rpt=&quot;-30&quot;;
++  qDebug() &lt;&lt; t2.mid(0,2) &lt;&lt; t2.mid(2,2) &lt;&lt; n &lt;&lt; nmod &lt;&lt; m_txFirst;
++  QString rpt=t2.mid(10,3);
++  if(ctrl) {
++    int i4=t.mid(i2,20).indexOf(&quot; &quot;);
++    QString hisgrid=t.mid(i2,20).mid(i4+1,4);
++    ui-&gt;dxGridEntry-&gt;setText(hisgrid);
++  } else {
++    lookup();
++  }
+   genStdMsgs(rpt);
+   if(t2.indexOf(m_myCall)&gt;0) {
+     m_ntx=2;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-22 19:39:03 UTC (rev 2685)
++++ branches/wsjtx/mainwindow.ui	2012-10-24 19:44:29 UTC (rev 2686)
+@@ -66,7 +66,7 @@
+         &lt;/size&gt;
+        &lt;/property&gt;
+        &lt;property name=&quot;title&quot;&gt;
+-        &lt;string&gt;     UTC      Sync         dB             DT            Freq&lt;/string&gt;
++        &lt;string&gt;     UTC      Sync       dB            DT          Freq          Width&lt;/string&gt;
+        &lt;/property&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+         &lt;item&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002377.html">[WSJT-SVN] r2685 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002379.html">[WSJT-SVN] r2687 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2378">[ date ]</a>
+              <a href="thread.html#2378">[ thread ]</a>
+              <a href="subject.html#2378">[ subject ]</a>
+              <a href="author.html#2378">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

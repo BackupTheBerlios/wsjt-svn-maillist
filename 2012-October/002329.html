@@ -1,0 +1,743 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2637 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2637%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121003151001.7BC1F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002327.html">
+   <LINK REL="Next"  HREF="002330.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2637 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2637%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121003151001.7BC1F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2637 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct  3 17:10:01 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002327.html">[WSJT-SVN] r2636 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002330.html">[WSJT-SVN] r2638 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2329">[ date ]</a>
+              <a href="thread.html#2329">[ thread ]</a>
+              <a href="subject.html#2329">[ subject ]</a>
+              <a href="author.html#2329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-03 17:10:01 +0200 (Wed, 03 Oct 2012)
+New Revision: 2637
+
+Added:
+   branches/wsjtx/lib/timf2.f90
+Removed:
+   branches/wsjtx/lib/symspecx.f90
+   branches/wsjtx/lib/timf2.f90
+   branches/wsjtx/lib/timf2x.f90
+Modified:
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+More cleanup
+
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-03 14:50:57 UTC (rev 2636)
++++ branches/wsjtx/lib/symspec.f90	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -91,7 +91,7 @@
+      do i=1,NFFT1
+         x0(i)=fac*id2(k1+i)
+      enddo
+-     call timf2x(x0,k,NFFT1,nwindow,nb,peaklimit,faclim,x1,   &amp;
++     call timf2(x0,k,NFFT1,nwindow,nb,peaklimit,faclim,x1,   &amp;
+           slimit,lstrong,px,nzap)
+ !     x1=x0
+      x2=x1
+
+Deleted: branches/wsjtx/lib/symspecx.f90
+===================================================================
+--- branches/wsjtx/lib/symspecx.f90	2012-10-03 14:50:57 UTC (rev 2636)
++++ branches/wsjtx/lib/symspecx.f90	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -1,83 +0,0 @@
+-subroutine symspecx(k,nsps,ndiskdat,nb,nbslider,pxdb,s,ihsym,   &amp;
+-     nzap,slimit,lstrong)
+-
+-!  k        pointer to the most recent new data
+-!  nsps     samples per symbol (at 12000 Hz)
+-!  ndiskdat 0/1 to indicate if data from disk
+-!  nb       0/1 status of noise blanker (off/on)
+-!  pxdb     power (0-60 dB)
+-!  s        spectrum for waterfall display
+-!  ihsym    index number of this half-symbol (1-322)
+-!  nzap     number of samples zero'ed by noise blanker
+-
+-  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NSMAX=10000)             !Max length of saved spectra
+-  parameter (MAXFFT=262144)          !Max length of FFTs
+-  integer*2 id2
+-  real*8 ts,hsym
+-  real*8 fcenter
+-  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),fcenter,nutc,junk(20)
+-  real*4 s(NSMAX)
+-  real x(MAXFFT)
+-  complex cx(0:MAXFFT/2)
+-  equivalence (x,cx)
+-  data rms/999.0/,k0/99999999/,ntrperiod0/0/
+-  save
+-
+-  nfft=nsps
+-  hsym=nsps/2
+-  if(k.gt.NMAX) go to 999
+-  if(k.lt.nfft) then
+-     ihsym=0
+-     go to 999             !Wait for enough samples to start
+-  endif
+-
+-  if(k.lt.k0) then
+-     ts=1.d0 - hsym
+-     savg=0.
+-     ihsym=0
+-     k1=0
+-     if(ndiskdat.eq.0) id2(k+1)=0.        !### Should not be needed ??? ###
+-  endif
+-  k0=k
+-
+-  nzap=0
+-  sigmas=1.5*(10.0**(0.01*nbslider)) + 0.7
+-  peaklimit=sigmas*max(10.0,rms)
+-  faclim=3.0
+-
+-  ts=ts+hsym
+-  ja=ts                               !Index of first sample
+-  jb=ja+nfft-1                        !Last sample
+-
+-  i=0
+-  sq=0.
+-  do j=ja,jb                          !Copy data into cx, cy
+-     i=i+1
+-     x(i)=id2(j)
+-     sq=sq + x(i)*x(i)
+-  enddo
+-  rms=sqrt(sq/nfft)
+-  pxdb=0.
+-  if(rms.gt.1.0) pxdb=20.0*log10(rms)
+-  if(pxdb.gt.60.0) pxdb=60.0
+-
+-  ihsym=ihsym+1
+-  call four2a(x,nfft,1,-1,0)          !Forward FFT of symbol length
+-  df=12000.0/nfft
+-  i0=nint(1000.0/df)
+-  nz=min(NSMAX,nfft/2)
+-!  rewind 71
+-  do i=1,nz
+-     sx=real(cx(i0+i))**2 + aimag(cx(i0+i))**2
+-     sx=1.e-8*sx
+-     s(i)=sx
+-     savg(i)=savg(i) + sx
+-     if(ihsym.le.184) ss(ihsym,i)=sx
+-!     write(71,3001) (i0+i-1)*df,savg(i),db(savg(i))
+-!3001 format(f12.6,2f12.3)
+-  enddo
+-!  flush(71)
+-
+-999 return
+-end subroutine symspecx
+
+Deleted: branches/wsjtx/lib/timf2.f90
+===================================================================
+--- branches/wsjtx/lib/timf2.f90	2012-10-03 14:50:57 UTC (rev 2636)
++++ branches/wsjtx/lib/timf2.f90	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -1,225 +0,0 @@
+-subroutine timf2(k,nxpol,nfft,nwindow,nb,peaklimit,iqadjust,iqapply,faclim,   &amp;
+-  cx0,cy0,gainx,gainy,phasex,phasey,cx1,cy1,slimit,lstrong,px,py,nzap)
+-
+-! Sequential processing of time-domain I/Q data, using Linrad-like
+-! &quot;first FFT&quot; and &quot;first backward FFT&quot;.  
+-
+-!  cx0,cy0      - complex input data
+-!  nfft      - length of FFTs
+-!  nwindow   - 0 for no window, 2 for sin^2 window
+-!  iqapply   - 0/1 determines if I/Q phase and amplitude corrections applied
+-!  gainx,y   - gain error in Q channel, relative to I
+-!  phasex,y  - phase error
+-!  cx1,cy1   - output data
+-
+-! Non-windowed processing means no overlap, so kstep=nfft.  
+-! Sin^2 window has 50% overlap, kstep=nfft/2.
+-
+-! Frequencies with strong signals are identified and separated.  The back
+-! transforms are done separately for weak and strong signals, so that
+-! noise blanking can be applied to the weak-signal portion.  Strong and
+-! weak are finally re-combined in the time domain.
+-
+-  parameter (MAXFFT=1024,MAXNH=MAXFFT/2)
+-  parameter (MAXSIGS=100)
+-  complex cx0(0:nfft-1),cx1(0:nfft-1)
+-  complex cy0(0:nfft-1),cy1(0:nfft-1)
+-  complex cx(0:MAXFFT-1),cxt(0:MAXFFT-1)
+-  complex cy(0:MAXFFT-1),cyt(0:MAXFFT-1)
+-  complex cxs(0:MAXFFT-1),covxs(0:MAXNH-1)     !Strong X signals
+-  complex cys(0:MAXFFT-1),covys(0:MAXNH-1)     !Strong Y signals
+-  complex cxw(0:MAXFFT-1),covxw(0:MAXNH-1)     !Weak X signals
+-  complex cyw(0:MAXFFT-1),covyw(0:MAXNH-1)     !Weak Y signals
+-  real*4 w(0:MAXFFT-1)
+-  real*4 s(0:MAXFFT-1),stmp(0:MAXFFT-1)
+-  logical*1 lstrong(0:MAXFFT-1),lprev
+-  integer ia(MAXSIGS),ib(MAXSIGS)
+-  complex h,u,v
+-  logical first
+-  data first/.true./
+-  data k0/99999999/
+-  save w,covxs,covxw,covys,covyw,s,ntc,ntot,nh,kstep,fac,first,k0
+-
+-  if(first) then
+-     pi=4.0*atan(1.0)
+-     do i=0,nfft-1
+-        w(i)=(sin(i*pi/nfft))**2
+-     enddo
+-     s=0.
+-     ntc=0
+-     ntot=0
+-     nh=nfft/2
+-     kstep=nfft
+-     if(nwindow.eq.2) kstep=nh
+-     fac=1.0/nfft
+-     slimit=1.e30
+-     first=.false.
+-  endif
+-
+-  if(k.lt.k0) then
+-     covxs=0.
+-     covxw=0.
+-     covys=0.
+-     covyw=0.
+-  endif
+-  k0=k
+-
+-  cx(0:nfft-1)=cx0
+-  if(nwindow.eq.2) cx(0:nfft-1)=w(0:nfft-1)*cx(0:nfft-1)
+-  call four2a(cx,nfft,1,1,1)                       !First forward FFT
+-
+-  if(nxpol.ne.0) then
+-     cy(0:nfft-1)=cy0
+-     if(nwindow.eq.2) cy(0:nfft-1)=w(0:nfft-1)*cy(0:nfft-1)
+-     call four2a(cy,nfft,1,1,1)                    !First forward FFT
+-  endif
+-
+-  if(iqapply.ne.0) then                            !Apply I/Q corrections
+-     h=gainx*cmplx(cos(phasex),sin(phasex))
+-     v=0.
+-     do i=0,nfft-1
+-        u=cx(i)
+-        if(i.gt.0) v=cx(nfft-i)
+-        x=real(u)  + real(v)  - (aimag(u) + aimag(v))*aimag(h) +         &amp;
+-             (real(u) - real(v))*real(h)
+-        y=aimag(u) - aimag(v) + (aimag(u) + aimag(v))*real(h)  +         &amp;
+-             (real(u) - real(v))*aimag(h)
+-        cxt(i)=0.5*cmplx(x,y)
+-     enddo
+-  else
+-     cxt(0:nfft-1)=cx(0:nfft-1)
+-  endif
+-
+-  if(nxpol.ne.0) then
+-     if(iqapply.ne.0) then                         !Apply I/Q corrections
+-        h=gainy*cmplx(cos(phasey),sin(phasey))
+-        v=0.
+-        do i=0,nfft-1
+-           u=cy(i)
+-           if(i.gt.0) v=cy(nfft-i)
+-           x=real(u)  + real(v)  - (aimag(u) + aimag(v))*aimag(h) +         &amp;
+-                (real(u) - real(v))*real(h)
+-           y=aimag(u) - aimag(v) + (aimag(u) + aimag(v))*real(h)  +         &amp;
+-                (real(u) - real(v))*aimag(h)
+-           cyt(i)=0.5*cmplx(x,y)
+-        enddo
+-     else
+-        cyt(0:nfft-1)=cy(0:nfft-1)
+-     endif
+-  endif
+-
+-! Identify frequencies with strong signals, copy frequency-domain
+-! data into array cs (strong) or cw (weak).
+-
+-  ntot=ntot+1
+-  if(mod(ntot,128).eq.5) then
+-     call pctile(s,stmp,1024,50,xmedian)
+-     slimit=faclim*xmedian
+-  endif
+-
+-  if(ntc.lt.96000/nfft) ntc=ntc+1
+-  uu=1.0/ntc
+-  smax=0.
+-  do i=0,nfft-1
+-     p=real(cxt(i))**2 + aimag(cxt(i))**2
+-     if(nxpol.ne.0) p=p + real(cyt(i))**2 + aimag(cyt(i))**2
+-     s(i)=(1.0-uu)*s(i) + uu*p
+-     lstrong(i)=(s(i).gt.slimit)
+-     if(s(i).gt.smax) smax=s(i)
+-  enddo
+-
+-  nsigs=0
+-  lprev=.false.
+-  iwid=1
+-  ib=-99
+-  do i=0,nfft-1
+-     if(lstrong(i) .and. (.not.lprev)) then
+-        if(nsigs.lt.MAXSIGS) nsigs=nsigs+1
+-        ia(nsigs)=i-iwid
+-        if(ia(nsigs).lt.0) ia(nsigs)=0
+-     endif
+-     if(.not.lstrong(i) .and. lprev) then
+-        ib(nsigs)=i-1+iwid
+-        if(ib(nsigs).gt.nfft-1) ib(nsigs)=nfft-1
+-     endif
+-     lprev=lstrong(i)
+-  enddo
+-
+-  if(nsigs.gt.0) then
+-     do i=1,nsigs
+-        ja=ia(i)
+-        jb=ib(i)
+-        if(ja.lt.0 .or. ja.gt.nfft-1 .or. jb.lt.0 .or. jb.gt.nfft-1) then
+-           cycle
+-        endif
+-        if(jb.eq.-99) jb=ja + min(2*iwid,nfft-1)
+-        lstrong(ja:jb)=.true.
+-     enddo
+-  endif
+-
+-  do i=0,nfft-1
+-     if(lstrong(i)) then
+-        cxs(i)=fac*cxt(i)
+-        cxw(i)=0.
+-        if(nxpol.ne.0) then
+-           cys(i)=fac*cyt(i)
+-           cyw(i)=0.
+-        endif
+-     else
+-        cxw(i)=fac*cxt(i)
+-        cxs(i)=0.
+-        if(nxpol.ne.0) then
+-           cyw(i)=fac*cyt(i)
+-           cys(i)=0.
+-        endif
+-     endif
+-  enddo
+-
+-  call four2a(cxw,nfft,1,-1,1)                 !Transform weak and strong X
+-  call four2a(cxs,nfft,1,-1,1)                 !back to time domain, separately
+-
+-  if(nxpol.ne.0) then
+-     call four2a(cyw,nfft,1,-1,1)              !Transform weak and strong Y
+-     call four2a(cys,nfft,1,-1,1)              !back to time domain, separately
+-  endif
+-
+-  if(nwindow.eq.2) then
+-     cxw(0:nh-1)=cxw(0:nh-1)+covxw(0:nh-1)     !Add previous segment's 2nd half
+-     covxw(0:nh-1)=cxw(nh:nfft-1)              !Save 2nd half
+-     cxs(0:nh-1)=cxs(0:nh-1)+covxs(0:nh-1)     !Ditto for strong signals
+-     covxs(0:nh-1)=cxs(nh:nfft-1)
+-
+-     if(nxpol.ne.0) then
+-        cyw(0:nh-1)=cyw(0:nh-1)+covyw(0:nh-1)  !Add previous segment's 2nd half
+-        covyw(0:nh-1)=cyw(nh:nfft-1)           !Save 2nd half
+-        cys(0:nh-1)=cys(0:nh-1)+covys(0:nh-1)  !Ditto for strong signals
+-        covys(0:nh-1)=cys(nh:nfft-1)
+-     endif
+-  endif
+-
+-! Apply noise blanking to weak data
+-  if(nb.ne.0) then
+-     do i=0,kstep-1
+-        peak=abs(cxw(i))
+-        if(nxpol.ne.0) peak=max(peak,abs(cyw(i)))
+-        if(peak.gt.peaklimit) then
+-           cxw(i)=0.
+-           if(nxpol.ne.0) cyw(i)=0.
+-           nzap=nzap+1
+-        endif
+-     enddo
+-  endif
+-
+-! Compute power levels from weak data only
+-  do i=0,kstep-1
+-     px=px + real(cxw(i))**2 + aimag(cxw(i))**2
+-     if(nxpol.ne.0) py=py + real(cyw(i))**2 + aimag(cyw(i))**2
+-  enddo
+-
+-  cx1(0:kstep-1)=cxw(0:kstep-1) + cxs(0:kstep-1)     !Recombine weak + strong
+-  if(nxpol.ne.0) then
+-     cy1(0:kstep-1)=cyw(0:kstep-1) + cys(0:kstep-1)    !Weak + strong
+-  endif
+-
+-  return
+-end subroutine timf2
+
+Copied: branches/wsjtx/lib/timf2.f90 (from rev 2635, branches/wsjtx/lib/timf2x.f90)
+===================================================================
+--- branches/wsjtx/lib/timf2.f90	                        (rev 0)
++++ branches/wsjtx/lib/timf2.f90	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -0,0 +1,154 @@
++subroutine timf2(x0,k,nfft,nwindow,nb,peaklimit,faclim,x1,     &amp;
++     slimit,lstrong,px,nzap)
++
++! Sequential processing of time-domain I/Q data, using Linrad-like
++! &quot;first FFT&quot; and &quot;first backward FFT&quot;, treating frequencies with
++! strong signals differently.  Noise blanking is applied to weak
++! signals only.
++
++!  x0       - real input data
++!  nfft     - length of FFTs
++!  nwindow  - 0 for no window, 2 for sin^2 window
++!  x1       - real output data
++
++! Non-windowed processing means no overlap, so kstep=nfft.  
++! Sin^2 window has 50% overlap, kstep=nfft/2.
++
++! Frequencies with strong signals are identified and separated.  Back
++! transforms are done separately for weak and strong signals, so that
++! noise blanking can be applied to the weak-signal portion.  Strong and
++! weak are finally re-combined, in the time domain.
++
++  parameter (MAXFFT=1024,MAXNH=MAXFFT/2)
++  parameter (MAXSIGS=100)
++  real x0(0:nfft-1),x1(0:nfft-1)
++  real x(0:MAXFFT-1),xw(0:MAXFFT-1),xs(0:MAXFFT-1)
++  real xwov(0:MAXNH-1),xsov(0:MAXNH-1)
++  complex cx(0:MAXFFT-1),cxt(0:MAXFFT-1)
++  complex cxs(0:MAXFFT-1)                     !Strong signals
++  complex cxw(0:MAXFFT-1)                     !Weak signals
++  real*4 w(0:MAXFFT-1)
++  real*4 s(0:MAXNH),stmp(0:MAXNH)
++  logical*1 lstrong(0:MAXNH),lprev
++  integer ia(MAXSIGS),ib(MAXSIGS)
++  logical first
++  equivalence (x,cx),(xw,cxw),(xs,cxs)
++  data first/.true./
++  data k0/99999999/
++  save w,xsov,xwov,s,ntc,ntot,nh,kstep,fac,first,k0
++
++  if(first) then
++     pi=4.0*atan(1.0)
++     do i=0,nfft-1
++        w(i)=(sin(i*pi/nfft))**2
++     enddo
++     s=0.
++     ntc=0
++     ntot=0
++     nh=nfft/2
++     kstep=nfft
++     if(nwindow.eq.2) kstep=nh
++     fac=1.0/nfft
++     slimit=1.e30
++     first=.false.
++  endif
++
++  if(k.lt.k0) then
++     xsov=0.
++     xwov=0.
++  endif
++  k0=k
++
++  x(0:nfft-1)=x0
++  if(nwindow.eq.2) x(0:nfft-1)=w(0:nfft-1)*x(0:nfft-1)
++  call four2a(x,nfft,1,-1,0)                       !First forward FFT, r2c
++  cxt(0:nh)=cx(0:nh)
++
++! Identify frequencies with strong signals.
++
++  ntot=ntot+1
++  if(mod(ntot,128).eq.5) then
++     call pctile(s,stmp,nh,50,xmedian)
++     slimit=faclim*xmedian
++  endif
++
++  if(ntc.lt.12000/nfft) ntc=ntc+1
++  uu=1.0/ntc
++  smax=0.
++  do i=0,nh
++     p=real(cxt(i))**2 + aimag(cxt(i))**2
++     s(i)=(1.0-uu)*s(i) + uu*p
++     lstrong(i)=(s(i).gt.slimit)
++     if(s(i).gt.smax) smax=s(i)
++  enddo
++
++  nsigs=0
++  lprev=.false.
++  iwid=1
++  ib=-99
++  do i=0,nh
++     if(lstrong(i) .and. (.not.lprev)) then
++        if(nsigs.lt.MAXSIGS) nsigs=nsigs+1
++        ia(nsigs)=i-iwid
++        if(ia(nsigs).lt.0) ia(nsigs)=0
++     endif
++     if(.not.lstrong(i) .and. lprev) then
++        ib(nsigs)=i-1+iwid
++        if(ib(nsigs).gt.nh) ib(nsigs)=nh
++     endif
++     lprev=lstrong(i)
++  enddo
++
++  if(nsigs.gt.0) then
++     do i=1,nsigs
++        ja=ia(i)
++        jb=ib(i)
++        if(ja.lt.0 .or. ja.gt.nh .or. jb.lt.0 .or. jb.gt.nh) then
++           cycle
++        endif
++        if(jb.eq.-99) jb=ja + min(2*iwid,nh)
++        lstrong(ja:jb)=.true.
++     enddo
++  endif
++
++! Copy frequency-domain data into array cs (strong) or cw (weak).
++  do i=0,nh
++     if(lstrong(i)) then
++        cxs(i)=fac*cxt(i)
++        cxw(i)=0.
++     else
++        cxw(i)=fac*cxt(i)
++        cxs(i)=0.
++     endif
++  enddo
++
++  call four2a(cxw,nfft,1,1,-1)           !Transform weak and strong back
++  call four2a(cxs,nfft,1,1,-1)           !to time domain, separately (c2r)
++
++  if(nwindow.eq.2) then
++     xw(0:nh-1)=xw(0:nh-1)+xwov(0:nh-1)     !Add previous segment's 2nd half
++     xwov(0:nh-1)=xw(nh:nfft-1)             !Save 2nd half
++     xs(0:nh-1)=xs(0:nh-1)+xsov(0:nh-1)     !Ditto for strong signals
++     xsov(0:nh-1)=xs(nh:nfft-1)
++  endif
++
++! Apply noise blanking to weak data
++  if(nb.ne.0) then
++     do i=0,kstep-1
++        peak=abs(xw(i))
++        if(peak.gt.peaklimit) then
++           xw(i)=0.
++           nzap=nzap+1
++        endif
++     enddo
++  endif
++
++! Compute power levels from weak data only
++  do i=0,kstep-1
++     px=px + xw(i)*xw(i)
++  enddo
++
++  x1(0:kstep-1)=xw(0:kstep-1) + xs(0:kstep-1)     !Recombine weak + strong
++
++  return
++end subroutine timf2
+
+Deleted: branches/wsjtx/lib/timf2x.f90
+===================================================================
+--- branches/wsjtx/lib/timf2x.f90	2012-10-03 14:50:57 UTC (rev 2636)
++++ branches/wsjtx/lib/timf2x.f90	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -1,154 +0,0 @@
+-subroutine timf2x(x0,k,nfft,nwindow,nb,peaklimit,faclim,x1,     &amp;
+-     slimit,lstrong,px,nzap)
+-
+-! Sequential processing of time-domain I/Q data, using Linrad-like
+-! &quot;first FFT&quot; and &quot;first backward FFT&quot;, treating frequencies with
+-! strong signals differently.  Noise blanking is applied to weak
+-! signals only.
+-
+-!  x0       - real input data
+-!  nfft     - length of FFTs
+-!  nwindow  - 0 for no window, 2 for sin^2 window
+-!  x1       - real output data
+-
+-! Non-windowed processing means no overlap, so kstep=nfft.  
+-! Sin^2 window has 50% overlap, kstep=nfft/2.
+-
+-! Frequencies with strong signals are identified and separated.  Back
+-! transforms are done separately for weak and strong signals, so that
+-! noise blanking can be applied to the weak-signal portion.  Strong and
+-! weak are finally re-combined, in the time domain.
+-
+-  parameter (MAXFFT=1024,MAXNH=MAXFFT/2)
+-  parameter (MAXSIGS=100)
+-  real x0(0:nfft-1),x1(0:nfft-1)
+-  real x(0:MAXFFT-1),xw(0:MAXFFT-1),xs(0:MAXFFT-1)
+-  real xwov(0:MAXNH-1),xsov(0:MAXNH-1)
+-  complex cx(0:MAXFFT-1),cxt(0:MAXFFT-1)
+-  complex cxs(0:MAXFFT-1)                     !Strong signals
+-  complex cxw(0:MAXFFT-1)                     !Weak signals
+-  real*4 w(0:MAXFFT-1)
+-  real*4 s(0:MAXNH),stmp(0:MAXNH)
+-  logical*1 lstrong(0:MAXNH),lprev
+-  integer ia(MAXSIGS),ib(MAXSIGS)
+-  logical first
+-  equivalence (x,cx),(xw,cxw),(xs,cxs)
+-  data first/.true./
+-  data k0/99999999/
+-  save w,xsov,xwov,s,ntc,ntot,nh,kstep,fac,first,k0
+-
+-  if(first) then
+-     pi=4.0*atan(1.0)
+-     do i=0,nfft-1
+-        w(i)=(sin(i*pi/nfft))**2
+-     enddo
+-     s=0.
+-     ntc=0
+-     ntot=0
+-     nh=nfft/2
+-     kstep=nfft
+-     if(nwindow.eq.2) kstep=nh
+-     fac=1.0/nfft
+-     slimit=1.e30
+-     first=.false.
+-  endif
+-
+-  if(k.lt.k0) then
+-     xsov=0.
+-     xwov=0.
+-  endif
+-  k0=k
+-
+-  x(0:nfft-1)=x0
+-  if(nwindow.eq.2) x(0:nfft-1)=w(0:nfft-1)*x(0:nfft-1)
+-  call four2a(x,nfft,1,-1,0)                       !First forward FFT, r2c
+-  cxt(0:nh)=cx(0:nh)
+-
+-! Identify frequencies with strong signals.
+-
+-  ntot=ntot+1
+-  if(mod(ntot,128).eq.5) then
+-     call pctile(s,stmp,nh,50,xmedian)
+-     slimit=faclim*xmedian
+-  endif
+-
+-  if(ntc.lt.12000/nfft) ntc=ntc+1
+-  uu=1.0/ntc
+-  smax=0.
+-  do i=0,nh
+-     p=real(cxt(i))**2 + aimag(cxt(i))**2
+-     s(i)=(1.0-uu)*s(i) + uu*p
+-     lstrong(i)=(s(i).gt.slimit)
+-     if(s(i).gt.smax) smax=s(i)
+-  enddo
+-
+-  nsigs=0
+-  lprev=.false.
+-  iwid=1
+-  ib=-99
+-  do i=0,nh
+-     if(lstrong(i) .and. (.not.lprev)) then
+-        if(nsigs.lt.MAXSIGS) nsigs=nsigs+1
+-        ia(nsigs)=i-iwid
+-        if(ia(nsigs).lt.0) ia(nsigs)=0
+-     endif
+-     if(.not.lstrong(i) .and. lprev) then
+-        ib(nsigs)=i-1+iwid
+-        if(ib(nsigs).gt.nh) ib(nsigs)=nh
+-     endif
+-     lprev=lstrong(i)
+-  enddo
+-
+-  if(nsigs.gt.0) then
+-     do i=1,nsigs
+-        ja=ia(i)
+-        jb=ib(i)
+-        if(ja.lt.0 .or. ja.gt.nh .or. jb.lt.0 .or. jb.gt.nh) then
+-           cycle
+-        endif
+-        if(jb.eq.-99) jb=ja + min(2*iwid,nh)
+-        lstrong(ja:jb)=.true.
+-     enddo
+-  endif
+-
+-! Copy frequency-domain data into array cs (strong) or cw (weak).
+-  do i=0,nh
+-     if(lstrong(i)) then
+-        cxs(i)=fac*cxt(i)
+-        cxw(i)=0.
+-     else
+-        cxw(i)=fac*cxt(i)
+-        cxs(i)=0.
+-     endif
+-  enddo
+-
+-  call four2a(cxw,nfft,1,1,-1)           !Transform weak and strong back
+-  call four2a(cxs,nfft,1,1,-1)           !to time domain, separately (c2r)
+-
+-  if(nwindow.eq.2) then
+-     xw(0:nh-1)=xw(0:nh-1)+xwov(0:nh-1)     !Add previous segment's 2nd half
+-     xwov(0:nh-1)=xw(nh:nfft-1)             !Save 2nd half
+-     xs(0:nh-1)=xs(0:nh-1)+xsov(0:nh-1)     !Ditto for strong signals
+-     xsov(0:nh-1)=xs(nh:nfft-1)
+-  endif
+-
+-! Apply noise blanking to weak data
+-  if(nb.ne.0) then
+-     do i=0,kstep-1
+-        peak=abs(xw(i))
+-        if(peak.gt.peaklimit) then
+-           xw(i)=0.
+-           nzap=nzap+1
+-        endif
+-     enddo
+-  endif
+-
+-! Compute power levels from weak data only
+-  do i=0,kstep-1
+-     px=px + xw(i)*xw(i)
+-  enddo
+-
+-  x1(0:kstep-1)=xw(0:kstep-1) + xs(0:kstep-1)     !Recombine weak + strong
+-
+-  return
+-end subroutine timf2x
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-03 14:50:57 UTC (rev 2636)
++++ branches/wsjtx/mainwindow.cpp	2012-10-03 15:10:01 UTC (rev 2637)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002327.html">[WSJT-SVN] r2636 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002330.html">[WSJT-SVN] r2638 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2329">[ date ]</a>
+              <a href="thread.html#2329">[ thread ]</a>
+              <a href="subject.html#2329">[ subject ]</a>
+              <a href="author.html#2329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

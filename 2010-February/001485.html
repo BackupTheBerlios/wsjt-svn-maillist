@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1793 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1793%20-%20branches/wspr&In-Reply-To=%3C201002081553.o18Frm3Z011590%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001484.html">
+   <LINK REL="Next"  HREF="001486.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1793 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1793%20-%20branches/wspr&In-Reply-To=%3C201002081553.o18Frm3Z011590%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1793 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb  8 16:53:48 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001484.html">[WSJT-SVN] r1792 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001486.html">[WSJT-SVN] r1794 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-02-08 16:53:44 +0100 (Mon, 08 Feb 2010)
+New Revision: 1793
+
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/decode.F90
+   branches/wspr/rx.F90
+   branches/wspr/wspr.py
+Log:
+Don't upload spots if band has changed between start of Rx and Decode.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-02-05 19:32:14 UTC (rev 1792)
++++ branches/wspr/acom1.f90	2010-02-08 15:53:44 UTC (rev 1793)
+@@ -1,13 +1,13 @@
+   parameter (NMAX=120*12000)                          !Max length of waveform
+   parameter (NZ=120*48000)
+-  real*8 f0,ftx,tsec0
++  real*8 f0,f0a,f0b,ftx,tsec0
+   logical ltest,receiving,transmitting
+   character*80 infile,outfile,pttport,thisfile
+   character cdate*8,utctime*10,rxtime*4,catport*12
+   character pttmode*3,appdir*80
+   character callsign*12,grid*4,grid6*6,ctxmsg*22,sending*22
+   integer*2 iwave,kwave
+-  common/acom1/ f0,ftx,tsec0,rms,pctx,igrid6,nsec,ndevin,              &amp;
++  common/acom1/ f0,f0a,f0b,ftx,tsec0,rms,pctx,igrid6,nsec,ndevin,      &amp;
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,                            &amp;
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2010-02-05 19:32:14 UTC (rev 1792)
++++ branches/wspr/decode.F90	2010-02-08 15:53:44 UTC (rev 1793)
+@@ -13,6 +13,7 @@
+   equivalence (x,c)
+   include 'acom1.f90'
+ 
++  f0b=f0a
+   if(ncal.eq.2) then
+      fac=1.e-6
+      do i=1,65536
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2010-02-05 19:32:14 UTC (rev 1792)
++++ branches/wspr/rx.F90	2010-02-08 15:53:44 UTC (rev 1793)
+@@ -14,6 +14,7 @@
+   npts=114*12000
+   if(ncal.eq.1) npts=65536
+   nsec1=time()
++  f0a=f0                                   !Save rx frequency at start
+   ierr=soundin(ndevin,kwave,4*npts)
+   if(ierr.ne.0) then
+      print*,'Error in soundin',ierr
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-02-05 19:32:14 UTC (rev 1792)
++++ branches/wspr/wspr.py	2010-02-08 15:53:44 UTC (rev 1793)
+@@ -586,6 +586,11 @@
+                     n=tcall.find('&gt;')
+                     tcall=tcall[1:n]
+                 if tcall=='...': continue
++                dfreq=float(d['freq'])-w.acom1.f0b-0.001500
++                print 'dfreq:',dfreq
++                if abs(dfreq)&gt;0.0001:
++                    print 'Frequency changed, no upload of spots'
++                    continue
+                 reportparams = urllib.urlencode({'function': 'wspr',
+                                                  'rcall': options.MyCall.get(),
+                                                  'rgrid': options.MyGrid.get(),
+@@ -628,7 +633,7 @@
+             reply = urlf.readlines()
+             urlf.close()
+     except:
+-        t=&quot; UTC: attempted access to WSPRnet timed out.&quot;
++        t=&quot; UTC: attempted access to WSPRnet failed.&quot;
+         if not no_beep: t=t + &quot;\a&quot;
+         print time.asctime(time.gmtime()) + t
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001484.html">[WSJT-SVN] r1792 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001486.html">[WSJT-SVN] r1794 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

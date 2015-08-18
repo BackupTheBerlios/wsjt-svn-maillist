@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r989 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r989%20-%20branches/map65&In-Reply-To=%3C200807232027.m6NKRpuD005187%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000679.html">
+   <LINK REL="Next"  HREF="000681.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r989 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r989%20-%20branches/map65&In-Reply-To=%3C200807232027.m6NKRpuD005187%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r989 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 23 22:27:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000679.html">[WSJT-SVN] r988 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000681.html">[WSJT-SVN] r990 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#680">[ date ]</a>
+              <a href="thread.html#680">[ thread ]</a>
+              <a href="subject.html#680">[ subject ]</a>
+              <a href="author.html#680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-23 22:27:47 +0200 (Wed, 23 Jul 2008)
+New Revision: 989
+
+Modified:
+   branches/map65/map65.py
+   branches/map65/recvpkt.F90
+   branches/map65/spec.f90
+Log:
+Working on the T/R sequencing.  This is better, I think.  No &quot;blackouts&quot;.
+But still can be improved ...  Perhaps accept packets from Linrad even
+while transmitting, but zero them out?  Then might still be able to
+decode a sequence interrupted by a short, aborted, trenamission?
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2008-07-23 15:23:56 UTC (rev 988)
++++ branches/map65/map65.py	2008-07-23 20:27:47 UTC (rev 989)
+@@ -977,10 +977,10 @@
+         ldate.configure(text=t)
+         t=&quot;Rx noise: %.1f dB&quot; % Audio.gcom2.rxnoise
+         msg4.configure(text=t)
+-        t=&quot;Drop: %.2f %%&quot; % Audio.gcom2.pctlost
++##        t=&quot;Drop: %.2f %%&quot; % Audio.gcom2.pctlost
++##        msg5.configure(text=t)
++        t=&quot;%d  %d   %d&quot; % (Audio.datcom.kbuf,Audio.datcom.kk,Audio.datcom.kxp/96000)
+         msg5.configure(text=t)
+-##        t=&quot;%d  %d   %d&quot; % (Audio.datcom.kbuf,Audio.datcom.kk,Audio.datcom.kxp/96000)
+-##        msg7.configure(text=t)
+         root_geom=root.geometry()
+         try:
+             bm_geom=bm.geometry()
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2008-07-23 15:23:56 UTC (rev 988)
++++ branches/map65/recvpkt.F90	2008-07-23 20:27:47 UTC (rev 989)
+@@ -15,7 +15,7 @@
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   equivalence (id,d8)
+-  data nblock0/0/,first/.true./,kb/1/,npkt/0/,nw/0/
++  data nblock0/0/,first/.true./,kb/1/,npkt/0/,nw/0/,nseq/0/
+   data sqave/0.0/,u/0.001/,rxnoise/0.0/,kbuf/1/,lost_tot/0/
+   data multicast0/-99/
+   save
+@@ -31,15 +31,23 @@
+ 
+   call recv_pkt(center_freq)
+   fcenter=center_freq
++  nsec=mod(Tsec,86400.d0)
+ 
+-! Wait for an even minute to start accepting Rx data.
++! Wait for start of a minute to begin accepting Rx data.
++! (Alternative: wreset buffer pointers at start of minute?)
+   if(nsec0.eq.-999) then
+-     if(mod(msec/1000,60).ne.0) go to 10
++     if(mod(nsec,60).ne.0) go to 10
+      nsec0=-998
+   endif
+ 
+   isec=sec_midn()
+   imin=isec/60
++
++  if(transmitting.eq.1) then
++     ndone1=0
++     ndone2=0
++  endif
++
+   if((monitoring.eq.0) .or. (lauto.eq.1 .and. mod(imin,2).eq.(1-TxFirst))) then
+      first=.true.
+ 
+@@ -58,6 +66,8 @@
+   endif
+ 
+ ! If we get here, we're in Rx mode
++
++! Check for lost packets
+   lost=nblock-nblock0-1
+   if(lost.ne.0 .and. .not.first) then
+      nb=nblock
+@@ -72,8 +82,10 @@
+   endif
+   nblock0=nblock
+ 
+-  nsec=msec/1000
+-  if(mod(nsec,60).eq.1) nreset=1
++  if(mod(nsec,60).eq.1 .or. transmitting) nreset=1
++  tdiff=mod(0.001d0*msec,60.d0)-mod(Tsec,60.d0)
++  if(tdiff.lt.-30.) tdiff=tdiff+60.
++  if(tdiff.gt.30.) tdiff=tdiff-60.
+ 
+ ! If this is the start of a new minute, switch buffers
+   if(mod(nsec,60).eq.0 .and. nreset.eq.1) then
+@@ -84,11 +96,18 @@
+      lost_tot=0
+      ndone1=0
+      ndone2=0
++     nseq=nseq+1
++     kxp=k
+   endif
+ 
+-  if(kb.eq.1 .and. (k+174).gt.NSMAX) go to 20
+-  if(kb.eq.2 .and. (k+174).gt.2*NSMAX) go to 20
++! Test for buffer full
++  if((kb.eq.1 .and. (k+174).gt.NSMAX) .or.                          &amp;
++       (kb.eq.2 .and. (k+174).gt.2*NSMAX)) then
++     print*,'Recvpkt:',kb,k,NSMAX
++     go to 20
++  endif
+ 
++! Move data into Rx buffer and compute average signal level.
+   sq=0.
+   do i=1,174
+      k=k+1
+@@ -130,13 +149,15 @@
+   endif
+ 
+ 20 if(nsec.ne.nsec0) then
+-     mutch=nsec/3600
+-     mutcm=mod(nsec/60,60)
+-     mutc=100*mutch + mutcm
+-     ns=mod(nsec,60)
+      nsec0=nsec
+ 
++     nseclr=msec/1000
++     mutch=nseclr/3600
++     mutcm=mod(nseclr/60,60)
++     mutc=100*mutch + mutcm
++
+ ! See if it's time to start FFTs
++     ns=mod(nsec,60)
+      if(ns.ge.nt1 .and. ndone1.eq.0) then
+         nutc=mutc
+         fcenter=center_freq
+@@ -147,11 +168,17 @@
+      endif
+ 
+ ! See if it's time to start second stage of processing
+-     if(ns.ge.nt2 .and. ndone2.eq.0) then
++!     if(ns.ge.nt2 .and. ndone2.eq.0) then
++     if(ns.ge.nt2) then
+         kk=k
+         ndone2=1
+         nlost=lost_tot                         ! Save stats for printout
+      endif
++
++!     if(ns.le.5 .or. ns.ge.46) write(*,3001) ns,ndone1,ndone2,kb,  &amp;
++!          kbuf,nreset,kk,tdiff
++!3001 format(6i4,i12,f8.2)
++
+   endif
+   first=.false.
+   go to 10
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2008-07-23 15:23:56 UTC (rev 988)
++++ branches/map65/spec.f90	2008-07-23 20:27:47 UTC (rev 989)
+@@ -107,10 +107,10 @@
+   imid0=nint(1000.0*(fmid-125.0+48.0)/df) - nbpp/2  !Last term is empirical
+   i0=imid-375
+   ii0=imid0-375*nbpp
+-  if(nfullspec.eq.1) then
+-     nbpp=NFFT/NX
+-     ii0=0
+-  endif
++!  if(nfullspec.eq.1) then
++!     nbpp=NFFT/NX
++!     ii0=0
++!  endif
+ 
+   k=0
+   do j=nlines,1,-1               !Reverse order so last will be on top
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000679.html">[WSJT-SVN] r988 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000681.html">[WSJT-SVN] r990 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#680">[ date ]</a>
+              <a href="thread.html#680">[ thread ]</a>
+              <a href="subject.html#680">[ subject ]</a>
+              <a href="author.html#680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

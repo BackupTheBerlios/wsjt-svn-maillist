@@ -1,0 +1,346 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1839 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1839%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C201003151934.o2FJYVum016416%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001530.html">
+   <LINK REL="Next"  HREF="001532.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1839 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1839%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C201003151934.o2FJYVum016416%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1839 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 15 20:34:31 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001530.html">[WSJT-SVN] r1838 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001532.html">[WSJT-SVN] r1840 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1531">[ date ]</a>
+              <a href="thread.html#1531">[ thread ]</a>
+              <a href="subject.html#1531">[ subject ]</a>
+              <a href="author.html#1531">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-15 20:34:26 +0100 (Mon, 15 Mar 2010)
+New Revision: 1839
+
+Modified:
+   branches/wspr/WsprMod/advanced.py
+   branches/wspr/acom1.f90
+   branches/wspr/decode.F90
+   branches/wspr/rx.F90
+   branches/wspr/start_threads.c
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.F90
+Log:
+Started to implement an &quot;ARRL FMT&quot; feature.
+
+
+Modified: branches/wspr/WsprMod/advanced.py
+===================================================================
+--- branches/wspr/WsprMod/advanced.py	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/WsprMod/advanced.py	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -26,9 +26,13 @@
+ igrid6=IntVar()
+ encal=IntVar()
+ fset=IntVar()
++nfmt=IntVar()
+ Acal=DoubleVar()
+ Bcal=DoubleVar()
+ fset.set(0)
++nfmt.set(0)
++nutc=[]
++nkhz=[]
+ 
+ #------------------------------------------------------ freqcal
+ def freqcal(event=NONE):
+@@ -36,6 +40,27 @@
+         bmeas.configure(bg='green')
+         w.acom1.ncal=1
+ 
++#------------------------------------------------------ fmt
++def fmt(event=NONE):
++    global nutc,nkhz
++    if w.acom1.ncal==0:
++        bfmt.configure(bg='green')
++        try:
++            f=open('fmt.txt','r')
++            s=f.readlines()
++            f.close
++            iz=len(s)
++            for i in range(iz):
++                n,m,fmtcall=s[i].split()
++                nutc.append(3600*int(n[:2]) + 60*int(n[2:]))
++                nkhz.append(int(m))
++            nutc.append(nutc[iz-1]+300)
++            nkhz.append(nkhz[iz-1])
++            nfmt.set(1)
++        except:
++            t='Cannot open fmt.txt, or invalid data in file'
++            result=tkMessageBox.showwarning(message=t)
++
+ #-------------------------------------------------------- readab
+ def readab(event=NONE):
+     try:
+@@ -100,6 +125,11 @@
+ bsetfreq=Button(g1.interior(), text='Update rig frequency',command=setfreq,
+              width=26,padx=1,pady=2)
+ bsetfreq.pack(padx=5,pady=5)
++
++bfmt=Button(g1.interior(), text='Execute FMT sequence',command=fmt,
++             width=26,padx=1,pady=2)
++bfmt.pack(padx=5,pady=5)
++
+ bgrid6=Checkbutton(g1.interior(),text='Force transmission of 6-digit locator',
+                    variable=igrid6)
+ bgrid6.pack(anchor=W,padx=5,pady=2)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/acom1.f90	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -10,7 +10,7 @@
+   common/acom1/ f0,f0a,f0b,ftx,tsec0,rms,pctx,igrid6,nsec,ndevin,      &amp;
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+-       receiving,transmitting,nrig,nappdir,                            &amp;
++       receiving,transmitting,nrig,nappdir,nrecsec,noffset,nkhz,       &amp;
+        nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,rms1,xdb1,infile,outfile,pttport,      &amp;
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/decode.F90	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -15,6 +15,7 @@
+ 
+   f0b=f0a
+   if(ncal.eq.2) then
++! Process a &quot;Measure an audio frequency&quot; request
+      fac=1.e-6
+      do i=1,65536
+         x(i)=fac*iwave(i)
+@@ -36,6 +37,39 @@
+      ndecoding=0
+      call cs_unlock
+      go to 900
++  else if(ncal.eq.4) then
++! Process a Frequency Measuring Test sequence
++     fac=1.e-6
++     nrpt=nrecsec*12000/65536
++     k=0
++     do irpt=1,nrpt
++        do i=1,65536
++           k=k+1
++           x(i)=fac*iwave(k)
++        enddo
++        call xfft(x,65536)
++        df=12000.d0/65536.d0
++        smax=0.
++        do i=1,16384
++           s=real(c(i))**2 + aimag(c(i))**2
++           if(s.gt.smax) then
++              smax=s
++              fpeak=i*df
++           endif
++        enddo
++        call cs_lock('decode')
++        thisfile=utctime(1:4)//'00.wav'
++        write(*,1004) utctime(1:2)//':'//utctime(3:4),fpeak,nkhz,noffset
++        write(19,1004) utctime(1:2)//':'//utctime(3:4),fpeak,nkhs,noffset
++1004    format(a5,f12.2,2i8)
++        call cs_unlock
++        if(irpt.eq.1) savefile=appdir(:nappdir)//'/save/'//thisfile
++     enddo
++     npts=nrecsec*12000
++     call wfile5(jwave,npts,12000,savefile)      !Does its own cs_lock
++     ncal=0
++     ndecoding=0
++     go to 900
+   else
+      minsync=1
+      if(nsave.gt.0 .and. ndiskdat.eq.0) jwave=iwave(1:114*12000)
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/rx.F90	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -13,6 +13,7 @@
+ 
+   npts=114*12000
+   if(ncal.eq.1) npts=65536
++  if(ncal.eq.3) npts=nrecsec*12000
+   nsec1=time()
+   f0a=f0                                   !Save rx frequency at start
+   ierr=soundin(ndevin,kwave,4*npts)
+@@ -27,6 +28,7 @@
+   call cs_lock('rx')
+   nrxdone=1
+   if(ncal.eq.1) ncal=2
++  if(ncal.eq.3) ncal=4
+   call cs_unlock
+ 
+   return
+
+Modified: branches/wspr/start_threads.c
+===================================================================
+--- branches/wspr/start_threads.c	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/start_threads.c	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -50,7 +50,8 @@
+   int iarg1 = 1;
+ 
+   if(decode_started&gt;0)  {
+-    if(time(NULL)-decode_started &lt; 100)  {
++    // the following was &quot;&lt; 100&quot;:
++    if(time(NULL)-decode_started &lt; 5)  {
+       printf(&quot;Attempted to start decoder too soon:  %d   %d&quot;,
+ 	     time(NULL),decode_started);
+       return 0;
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/wspr.py	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -88,7 +88,6 @@
+ nparam=0
+ nsave=IntVar()
+ nscroll=0
+-nsec0=0
+ nspeed0=IntVar()
+ ntr0=0
+ ntxfirst=IntVar()
+@@ -711,7 +710,7 @@
+ 
+ #------------------------------------------------------ update
+ def update():
+-    global root_geom,isec0,im,pim,ndbm0,nsec0,a,ftx0,nin0,nout0, \
++    global root_geom,isec0,im,pim,ndbm0,a,ftx0,nin0,nout0, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+         modpixmap0,tw,s0,c0,fmid,fmid0,loopall,ntr0,txmsg,iband0, \
+         bandmap,bm
+@@ -719,8 +718,7 @@
+     tsec=time.time()
+     utc=time.gmtime(tsec)
+     nsec=int(tsec)
+-    nsec0=nsec
+-    ns120=nsec % 120
++        
+     try:
+         f0.set(float(sf0.get()))
+         ftx.set(float(sftx.get()))
+@@ -797,6 +795,49 @@
+         if t=='': r=FLAT
+         msg1.configure(text=t,bg=bg,relief=r)
+ 
++        if advanced.nfmt.get()==1 and w.acom1.ncal==0 and utc[5]==0:
++            ns=nsec % 86400
++            iz=len(advanced.nutc)-1
++            for i in range(iz):
++                ns1=advanced.nutc[i]
++                ns2=advanced.nutc[i+1]-60
++                if advanced.nutc[i+1] &lt; advanced.nutc[i]: ns2=ns2+86400
++                if ns &gt;= ns1 and ns &lt; ns2:
++                    nrecsec=ns2-ns+58
++                    if nrecsec&gt;54: nrecsec=54
++                    w.acom1.nrecsec=nrecsec
++                    noffset=500*(utc[4]%4) + 500
++                    if options.cat_enable.get():
++                        w.acom1.noffset=noffset
++                        w.acom1.nkhz=nkhz[i]
++                        nHz=1000.0*advanced.nkhz[i]-noffset
++                        cmd=&quot;rigctl -m %d -r %s -s %d -C data_bits=%s -C stop_bits=%s -C serial_handshake=%s F %d&quot; % \
++                             (options.rignum.get(),options.CatPort.get(), \
++                              options.serial_rate.get(),options.databits.get(), \
++                              options.stopbits.get(),options.serial_handshake.get(), nHz)
++                        ierr=os.system(cmd)
++                        if ierr==0:
++                            bandmap=[]
++                            bm={}
++                            text1.configure(state=NORMAL)
++                            text1.delete('1.0',END)
++                            text1.configure(state=DISABLED)
++                            iband0=iband.get()
++                        else:
++                            print 'Error attempting to set rig frequency.\a'
++                            print cmd + '\a'
++                            iband.set(iband0)
++                            f0.set(freq0[iband.get()])
++                            t=&quot;%.6f&quot; % (f0.get(),)
++                            sf0.set(t)
++                            ftx.set(freqtx[iband.get()])
++                            t=&quot;%.6f&quot; % (ftx.get(),)
++                            sftx.set(t)
++                    w.acom1.ncal=3
++                    t=time.strftime('%H:%M:%S',utc)
++                    print 'Starting FMT sequence at ',t,advanced.nkhz[i],noffset
++                    
++
+ # If T/R status has changed, get new info
+     ntr=int(w.acom1.ntr)
+     if ntr!=ntr0:
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2010-03-11 20:16:29 UTC (rev 1838)
++++ branches/wspr/wspr2.F90	2010-03-15 19:34:26 UTC (rev 1839)
+@@ -56,7 +56,7 @@
+      thisfile=outfile
+      call cs_unlock
+      if((nrxnormal.eq.1 .and. ncal.eq.0) .or.                          &amp;
+-        (nrxnormal.eq.0 .and. ncal.eq.2) .or.                          &amp;
++        (nrxnormal.eq.0 .and. (ncal.eq.2 .or. ncal.eq.4)) .or.         &amp;
+         ndiskdat.eq.1) then
+         call startdec
+      endif
+@@ -88,8 +88,8 @@
+      call starttx
+   endif
+ 
+-  if (ncal.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
+-       (.not.receiving)) then
++  if ((ncal.eq.1 .or. ncal.eq.3) .and. ndevsok.eq.1.and.              &amp;
++       (.not.transmitting) .and. (.not.receiving)) then
+ ! Execute one receive sequence
+      call cs_lock('wspr2')
+      receiving=.true.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001530.html">[WSJT-SVN] r1838 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001532.html">[WSJT-SVN] r1840 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1531">[ date ]</a>
+              <a href="thread.html#1531">[ thread ]</a>
+              <a href="subject.html#1531">[ subject ]</a>
+              <a href="author.html#1531">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

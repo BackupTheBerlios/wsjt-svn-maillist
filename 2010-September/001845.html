@@ -1,0 +1,453 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2153 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2153%20-%20branches/wspr&In-Reply-To=%3C20100916182520.348F948106B%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001844.html">
+   <LINK REL="Next"  HREF="001846.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2153 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2153%20-%20branches/wspr&In-Reply-To=%3C20100916182520.348F948106B%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2153 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 16 20:25:20 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001844.html">[WSJT-SVN] r2152 - in wsjt7a: . WsjtMod
+</A></li>
+        <LI>Next message: <A HREF="001846.html">[WSJT-SVN] r2154 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1845">[ date ]</a>
+              <a href="thread.html#1845">[ thread ]</a>
+              <a href="subject.html#1845">[ subject ]</a>
+              <a href="author.html#1845">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-16 20:25:19 +0200 (Thu, 16 Sep 2010)
+New Revision: 2153
+
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/WSPRcode.f90
+   branches/wspr/fmt.f90
+   branches/wspr/genwspr.f90
+   branches/wspr/gmtime2.c
+   branches/wspr/ptt.c
+   branches/wspr/sound.c
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+Log:
+Implementing Tx for I/Q mode.
+Also some code cleanup...
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/Makefile.MinGW	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -2,9 +2,21 @@
+ CC = /mingw/bin/gcc
+ FC = /mingw/bin/g95
+ 
+-FFLAGS = -cpp
++FFLAGS = -O2 -fbounds-check -Wall -Wno-precision-loss
+ CFLAGS = -I. -fbounds-check
+ 
++# Default rules
++%.o: %.c
++	${CC} ${CFLAGS} -c $&lt;
++%.o: %.f
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.F
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.f90
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.F90
++	${FC} ${FFLAGS} -c $&lt;
++
+ all:    WSPR.EXE fcal.exe
+ 
+ OBJS1 = rxtest.o mept162.o getrms.o mix162.o deg2grid.o \
+@@ -41,6 +53,16 @@
+ 
+ SRCS2C = ptt.c start_threads.c padevsub.c fthread.c
+ 
++OBJS3 = WSPRcode.o deg2grid.o pack50.o packcall.o packgrid.o \
++	unpack50.o unpackcall.o unpackgrid.o nchar.o \
++	grid2deg.o wqencode.o wqdecode.o nhash.o hash.o \
++	packname.o unpackname.o packtext2.o unpacktext2.o \
++	encode232.o inter_mept.o packprop.o unpackprop.o \
++	packpfx.o unpackpfx.o cs_stubs.o fano232.o
++
++WSPRcode.exe: $(OBJS3)
++	$(FC) -o WSPRcode.exe $(OBJS3)
++
+ WSPR.EXE: WsprMod/w.pyd wspr.spec
+ 	c:/python25/python c:/python25/pyinstaller-1.4/Build.py wspr.spec
+ 	mv dist/wspr.exe WSPR.EXE
+
+Modified: branches/wspr/WSPRcode.f90
+===================================================================
+--- branches/wspr/WSPRcode.f90	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/WSPRcode.f90	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -5,6 +5,7 @@
+ ! information contained in WSPR messages.
+ 
+   parameter (NSYM=162)
++  parameter (MAXSYM=176)
+   character*22 message,msg,msg2
+   character*40 infile
+   integer*1 data0(7)
+
+Modified: branches/wspr/fmt.f90
+===================================================================
+--- branches/wspr/fmt.f90	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/fmt.f90	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -48,9 +48,10 @@
+   call soundinit
+   ndevin=0
+   npts=NZ1
++  iqmode=0
+   do iter=1,nrpt
+      nsec=time()
+-     ierr=soundin(ndevin,kwave,4*npts)
++     ierr=soundin(ndevin,kwave,4*npts,iqmode)
+      if(ierr.ne.0) then
+         print*,'Error in soundin',ierr
+         stop
+@@ -85,7 +86,6 @@
+         s1(i)=s
+      enddo
+ 
+-
+      fpeak=ipk*df
+      n=mod(nsec,86400)
+      nhr=n/3600
+
+Modified: branches/wspr/genwspr.f90
+===================================================================
+--- branches/wspr/genwspr.f90	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/genwspr.f90	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -1,12 +1,12 @@
+-subroutine genwspr(message,ntxdf,ntune,snrdb,appdir,nappdir,msg2,iwave)
++subroutine genwspr(message,ntxdf,ntune,snrdb,iqmode,appdir,nappdir,msg2,jwave)
+ 
+ ! Encode an MEPT_JT message and generate the corresponding wavefile.
+ 
+-  parameter (NMAX=120*48000)     !Max length of wave file
++  parameter (NMAX=2*120*48000)     !Max length of wave file
+   character*22 message           !Message to be generated
+   character*22 msg2
+   character*80 appdir,alltxt
+-  integer*2 iwave(NMAX)          !Generated wave file
++  integer*2 jwave(NMAX)          !Generated wave file
+   parameter (MAXSYM=176)
+   integer*1 symbol(MAXSYM)
+   integer*1 data0(11),i1
+@@ -74,7 +74,7 @@
+   f=f0
+   dphi=twopi*dt*f
+ 
+-  do i=1,NMAX
++  do i=1,120*48000
+      t=t+dt
+      j=int(t/tsymbol) + 1                          !Symbol number
+      sig=0.
+@@ -87,15 +87,39 @@
+         sig=0.9999
+         phi=phi+dphi
+         if(snrdb.gt.50.0) then
+-           n=32767.0*sin(phi)           !Normal transmission, signal only
++           if(iqmode.eq.0) then
++              n=32767.0*sin(phi)           !Normal transmission, signal only
++              jwave(i)=n
++           else
++              n=32767.0*cos(phi)           !Normal transmission, signal only
++              jwave(2*i-1)=n
++              n=32767.0*sin(phi)           !Normal transmission, signal only
++              jwave(2*i)=n
++           endif
+         else
+-           n=fac*(gran(idum) + sig*snr*sin(phi))
+-           if(n.gt.32767) n=32767
+-           if(n.lt.-32767) n=-32767
++           if(iqmode.eq.0) then
++              n=fac*(gran(idum) + sig*snr*sin(phi))
++              if(n.gt.32767) n=32767
++              if(n.lt.-32767) n=-32767
++              jwave(i)=n
++           else
++              n=fac*(gran(idum) + sig*snr*cos(phi))
++              if(n.gt.32767) n=32767
++              if(n.lt.-32767) n=-32767
++              jwave(2*i-1)=n
++              n=fac*(gran(idum) + sig*snr*sin(phi))
++              if(n.gt.32767) n=32767
++              if(n.lt.-32767) n=-32767
++              jwave(2*i)=n
++           endif
+         endif
+-        iwave(i)=n
+      else
+-        iwave(i)=0
++        if(iqmode.eq.0) then
++           jwave(i)=0
++        else
++           jwave(2*i-1)=0
++           jwave(2*i)=0
++        endif
+      endif
+   enddo
+   ntune2=0
+
+Modified: branches/wspr/gmtime2.c
+===================================================================
+--- branches/wspr/gmtime2.c	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/gmtime2.c	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -35,11 +35,7 @@
+ }
+ #endif
+ 
+-#ifdef CVF
+-extern void __stdcall GMTIME2(int it[], double *stime)
+-#else
+ extern void gmtime2_(int it[], double *stime)
+-#endif
+ {
+   SYSTEMTIME st;
+ 
+
+Modified: branches/wspr/ptt.c
+===================================================================
+--- branches/wspr/ptt.c	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/ptt.c	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -1,12 +1,7 @@
+ #include &lt;windows.h&gt;
+ #include &lt;stdio.h&gt;
+ 
+-#ifdef CVF
+-extern int __stdcall PTT(int *nport, char *unused, int *ntx, int *iptt)
+-#else
+ int ptt_(int *nport, char *unused, int *ntx, int *iptt)
+-#endif
+-
+ {
+   static HANDLE hFile;
+   static int open=0;
+
+Modified: branches/wspr/sound.c
+===================================================================
+--- branches/wspr/sound.c	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/sound.c	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -4,17 +4,12 @@
+ 
+ #define SAMPLE_RATE  (48000)
+ #define FRAMES_PER_BUFFER (4096)
+-#define NUM_CHANNELS    (1)
+ /* #define DITHER_FLAG     (paDitherOff)  */
+ #define DITHER_FLAG     (0) /**/
+ #define PA_SAMPLE_TYPE  paInt16
+ typedef short SAMPLE;
+ 
+-#ifdef CVF
+-int __stdcall SOUNDINIT(void)
+-#else 
+ int soundinit_(void)
+-#endif
+ {
+   PaError err;
+   err = Pa_Initialize();
+@@ -30,21 +25,13 @@
+   }
+ }
+ 
+-#ifdef CVF
+-int __stdcall SOUNDEXIT(void)
+-#else
+ int soundexit_(void)
+-#endif
+ {
+   Pa_Terminate();
+   return 0;
+ }
+ 
+-#ifdef CVF
+-int __stdcall SOUNDIN(int *idevin, short recordedSamples[],int *nframes0)
+-#else
+ int soundin_(int *idevin, short recordedSamples[], int *nframes0, int *iqmode)
+-#endif
+ {
+     PaStreamParameters inputParameters;
+     PaStream *stream;
+@@ -94,19 +81,11 @@
+     fprintf( stderr, &quot;An error occured while using the portaudio stream\n&quot; );
+     fprintf( stderr, &quot;Error number: %d\n&quot;, err );
+     fprintf( stderr, &quot;Error message: %s\n&quot;, Pa_GetErrorText( err ) );
+-#ifdef CVF
+-     SOUNDINIT();
+-#else 
+-     soundinit_();
+-#endif
++    soundinit_();
+     return -1;
+ }
+ 
+-#ifdef CVF
+-int __stdcall SOUNDOUT(int *idevout,short recordedSamples[], int *nframes0)
+-#else
+-int soundout_(int *idevout, short recordedSamples[], int *nframes0)
+-#endif
++int soundout_(int *idevout, short recordedSamples[], int *nframes0, int *iqmode)
+ {
+     PaStreamParameters outputParameters;
+     PaStream *stream;
+@@ -114,12 +93,14 @@
+     int totalFrames;
+     int numSamples;
+     int numBytes;
++    int num_channels;
+ 
+     totalFrames=*nframes0;
+-    numSamples = totalFrames * NUM_CHANNELS;
++    num_channels=*iqmode + 1;
++    numSamples = totalFrames * num_channels;
+     numBytes = numSamples * sizeof(SAMPLE);
+     outputParameters.device = *idevout;
+-    outputParameters.channelCount = NUM_CHANNELS;
++    outputParameters.channelCount = num_channels;
+     outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
+     outputParameters.suggestedLatency = 0.4;
+     outputParameters.hostApiSpecificStreamInfo = NULL;
+@@ -153,19 +134,11 @@
+     fprintf( stderr, &quot;An error occured while using the portaudio stream\n&quot; );
+     fprintf( stderr, &quot;Error number: %d\n&quot;, err );
+     fprintf( stderr, &quot;Error message: %s\n&quot;, Pa_GetErrorText( err ) );
+-#ifdef CVF
+-    SOUNDINIT();
+-#else 
+     soundinit_();
+-#endif
+     return -1;
+ }
+ 
+-#ifdef CVF
+-void __stdcall MSLEEP(int *msec0)
+-#else
+ void msleep_(int *msec0)
+-#endif
+ {
+   Pa_Sleep(*msec0);
+ }
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/tx.f90	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -4,7 +4,7 @@
+ 
+   integer system
+ 
+-  parameter (NMAX2=120*48000)
++  parameter (NMAX2=2*120*48000)
+   parameter (NMAX3=4.5*48000)
+   character message*22,call1*12,cdbm*3
+   character*22 msg0,msg1,cwmsg
+@@ -73,6 +73,10 @@
+   endif
+ 
+   ntxdf=nint(1.e6*(ftx-f0)) - 1500
++  if(iqmode.ne.0) then
++     ntxdf=ntxdf + 8760
++     print*,ntxdf
++  endif
+   ctxmsg=message
+   snr=99.0
+   snrfile=appdir(:nappdir)//'/test.snr'
+@@ -83,11 +87,11 @@
+ 10 close(18)
+   call cs_unlock
+   call gmtime2(nt,tsec1)
+-  call genwspr(message,ntxdf,ntune,snr,appdir,nappdir,sending,jwave)
++  call genwspr(message,ntxdf,ntune,snr,iqmode,appdir,nappdir,sending,jwave)
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
+ 
+-  if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint) then
++  if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint .and. iqmode.eq.0) then
+ !  Generate and insert the CW ID.
+      wpm=25.
+      freqcw=1500.0 + ntxdf
+@@ -107,10 +111,10 @@
+   if(ntune.eq.0) then
+      call gmtime2(nt,tsec2)
+      istart=48000*(tsec2-tsec0)
+-     ierr=soundout(ndevout,jwave(istart),npts)
++     ierr=soundout(ndevout,jwave(istart),npts,iqmode)
+   else
+      npts=48000*pctx
+-     ierr=soundout(ndevout,jwave(2*48000),npts)
++     ierr=soundout(ndevout,jwave(2*48000),npts,iqmode)
+      ntune=0
+   endif
+   if(ierr.ne.0) then
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-16 16:04:27 UTC (rev 2152)
++++ branches/wspr/wspr.py	2010-09-16 18:25:19 UTC (rev 2153)
+@@ -29,7 +29,7 @@
+ import webbrowser
+ 
+ root = Tk()
+-Version=&quot;2.01_r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;2.10_r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;WSPR Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Run date:   &quot; + time.asctime(time.gmtime()) + &quot; UTC&quot;
+@@ -1477,7 +1477,7 @@
+ draw_axis()
+ erase()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSPR 2.01     by K1JT')
++root.title('  WSPR 2.10     by K1JT')
+ 
+ put_params()
+ try:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001844.html">[WSJT-SVN] r2152 - in wsjt7a: . WsjtMod
+</A></li>
+	<LI>Next message: <A HREF="001846.html">[WSJT-SVN] r2154 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1845">[ date ]</a>
+              <a href="thread.html#1845">[ thread ]</a>
+              <a href="subject.html#1845">[ subject ]</a>
+              <a href="author.html#1845">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

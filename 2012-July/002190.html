@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2498 - branches/jtms3/libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2498%20-%20branches/jtms3/libm65&In-Reply-To=%3C20120707133013.31DEE55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002189.html">
+   <LINK REL="Next"  HREF="002191.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2498 - branches/jtms3/libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2498%20-%20branches/jtms3/libm65&In-Reply-To=%3C20120707133013.31DEE55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2498 - branches/jtms3/libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jul  7 15:30:13 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002189.html">[WSJT-SVN] r2497 - branches/jtms3
+</A></li>
+        <LI>Next message: <A HREF="002191.html">[WSJT-SVN] r2499 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2190">[ date ]</a>
+              <a href="thread.html#2190">[ thread ]</a>
+              <a href="subject.html#2190">[ subject ]</a>
+              <a href="author.html#2190">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-07 15:30:12 +0200 (Sat, 07 Jul 2012)
+New Revision: 2498
+
+Added:
+   branches/jtms3/libm65/ms3.f90
+Modified:
+   branches/jtms3/libm65/Makefile.MinGW
+Log:
+Starting to test JTMS3 decoding ideas (in stand-alone program ms3).
+
+
+Modified: branches/jtms3/libm65/Makefile.MinGW
+===================================================================
+--- branches/jtms3/libm65/Makefile.MinGW	2012-07-06 20:55:35 UTC (rev 2497)
++++ branches/jtms3/libm65/Makefile.MinGW	2012-07-07 13:30:12 UTC (rev 2498)
+@@ -17,7 +17,7 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libm65.a m65.exe JT65code.exe
++all:    libm65.a ms3.exe
+ 
+ OBJS1 = trimlist.o display.o getdphi.o pctile.o ccf65.o \
+ 	decode1a.o sort.o filbig.o fil6521.o afc65b.o \
+@@ -31,21 +31,17 @@
+ 	astro.o tm2.o sun.o moondop.o coord.o tmoonsub.o \
+ 	geocentric.o moon2.o toxyz.o dot.o dcoord.o f77_wisdom.o \
+ 	gen65.o chkmsg.o ptt.o astrosub.o astro0.o recvpkt.o symspec.o \
+-	iqcal.o iqfix.o timf2.o s3avg.o
++	iqcal.o iqfix.o timf2.o s3avg.o genjtms3.o \
++	entail.o encode232.o scr258.o analytic.o db.o
+ 
+ libm65.a: $(OBJS1)
+ 	ar cr libm65.a $(OBJS1) 
+ 	ranlib libm65.a
+ 
+-OBJS3 = m65.o m65a.o map65a.o symspec.o decode0.o ftninit.o ftnquit.o \
+-	timer.o ipcomm.o sec_midn.o cutil.o 
+-LIBS3    = -L'c:/QtSDK/Desktop/Qt/4.7.4/mingw/lib' -lQtCore4
++OBJS3 = ms3.o 
++ms3.exe: $(OBJS3) libm65.a
++	$(FC) -o ms3.exe $(OBJS3) libm65.a ../libfftw3f_win.a \
+ 
+-m65.exe: $(OBJS3) libm65.a
+-	g++ -o m65.exe $(OBJS3) $(LIBS3) libm65.a ../libfftw3f_win.a \
+-	c:/MinGW/lib/libf95.a
+-	cp m65.exe ../../map65_install
+-
+ OBJS2 = JT65code.o
+ JT65code.exe: $(OBJS2) libm65.a
+ 	$(FC) -o JT65code.exe $(OBJS2) libm65.a
+
+Added: branches/jtms3/libm65/ms3.f90
+===================================================================
+--- branches/jtms3/libm65/ms3.f90	                        (rev 0)
++++ branches/jtms3/libm65/ms3.f90	2012-07-07 13:30:12 UTC (rev 2498)
+@@ -0,0 +1,78 @@
++program ms3
++
++! Starting code for a JTMS3 decoder.
++
++  character*80 infile
++  parameter (NSMAX=30*48000)
++  parameter (NFFT=8192,NH=NFFT/2)
++  integer hdr(11)
++  integer*2 id(NSMAX)
++  real x(NFFT)
++  complex cx(NFFT),cx2(NFFT)
++  real s(NH)
++
++  nargs=iargc()
++  if(nargs.lt.1) then
++     print*,'Usage: ms3 file1 [file2 ...]'
++     print*,'       Reads data from *.wav files.'
++     go to 999
++  endif
++
++  npts=NSMAX
++  kstep=1024
++  nsteps=npts/kstep
++  do ifile=1,nargs
++     call getarg(ifile,infile)
++     open(10,file=infile,access='stream',status='old',err=998)
++     read(10) hdr
++     read(10) id
++     close(10)
++
++     k=hdr(1)
++     k=0
++     do j=1,nsteps
++        sq=0.
++        do i=1,kstep
++           k=k+1
++           sq=sq + (0.001*id(k))**2
++        enddo
++        t=j*kstep/48000.0
++        pdb=db(sq)
++        write(13,1010) t,sq,pdb
++1010    format(3f12.3)
++     enddo
++  enddo
++
++  iz=29.5*48000.0
++  df=48000.0/nfft
++  ja=nint(2600.0)/df
++  jb=nint(3400.0)/df
++  do i=1,iz,nh
++     x(1:nfft)=0.001*id(i:i+nfft-1)
++     call analytic(x,nfft,nfft,s,cx)
++     t=i/48000.0
++     sq=dot_product(x,x) 
++     write(14,1010) t,sq,db(sq)
++     cx2=cx*cx
++     call four2a(cx2,nfft,1,-1,1)               !Forward c2c FFT
++     smax=0.
++     do j=ja,jb
++        sq=1.e-6*(real(cx2(j))**2 + aimag(cx2(j))**2)
++        f=(j-1)*df
++        if(sq.gt.smax) then
++           smax=sq
++           xdf=0.5*(f-3000.0)
++        endif
++        write(15,1020) (j-1)*df,sq
++1020    format(f10.3,f12.3)
++     enddo
++     write(16,1030) t,smax,xdf
++1030 format(3f12.3)
++  enddo
++
++  go to 999
++
++998 print*,'Cannot open file:'
++  print*,infile
++
++999 end program ms3
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002189.html">[WSJT-SVN] r2497 - branches/jtms3
+</A></li>
+	<LI>Next message: <A HREF="002191.html">[WSJT-SVN] r2499 - in branches/jtms3: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2190">[ date ]</a>
+              <a href="thread.html#2190">[ thread ]</a>
+              <a href="subject.html#2190">[ subject ]</a>
+              <a href="author.html#2190">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

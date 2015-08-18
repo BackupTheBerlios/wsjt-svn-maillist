@@ -1,0 +1,629 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3246 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3246%20-%20branches/wsjtx&In-Reply-To=%3C20130430185412.84E5255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002937.html">
+   <LINK REL="Next"  HREF="002939.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3246 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3246%20-%20branches/wsjtx&In-Reply-To=%3C20130430185412.84E5255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3246 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 30 20:54:12 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002937.html">[WSJT-SVN] r3245 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002939.html">[WSJT-SVN] r3247 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2938">[ date ]</a>
+              <a href="thread.html#2938">[ thread ]</a>
+              <a href="subject.html#2938">[ subject ]</a>
+              <a href="author.html#2938">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-30 20:54:11 +0200 (Tue, 30 Apr 2013)
+New Revision: 3246
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/getfile.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/rigclass.cpp
+   branches/wsjtx/rigclass.h
+Log:
+This is test code!!
+
+I have changed the declarations of the Rig class functions we use:
+
+open()
+setConf()
+getFreq()
+setFreq()
+setPTT()
+close()
+
+... so that each one returns the (negative) error code returned by 
+hamlib.  These functions no longer throw exceptions.
+
+Initial tests seem to show things working well.  I have found one
+condition that causes a crash.  The rig is initially opened and is
+running OK (in this case, with the Polling interval set to 1 s).  Then
+the radio is turned off.  The next call to getFreq() never returns.
+
+Probably we need to set a timeout limit?
+
+The code is kinda on the quick-and-dirty side.  Improvements will be 
+welcom!
+
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/devsetup.cpp	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -218,9 +218,6 @@
+   ui.f14-&gt;setText(m_dFreq[13]);
+   ui.f15-&gt;setText(m_dFreq[14]);
+   ui.f16-&gt;setText(m_dFreq[15]);
+-
+-  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_poll;
+-
+ }
+ 
+ //------------------------------------------------------- accept()
+@@ -408,6 +405,8 @@
+ 
+ void DevSetup::on_testCATButton_clicked()
+ {
++  QString t;
++  int ret;
+ 
+   if(!m_catEnabled) return;
+   if(m_bRigOpen) {
+@@ -416,36 +415,44 @@
+     m_bRigOpen=false;
+   }
+   rig = new Rig(m_rig);
+-  try {
+-    rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+-    char buf[80];
+-    sprintf(buf,&quot;%d&quot;,m_serialRate);
+-    rig-&gt;setConf(&quot;serial_speed&quot;,buf);
+-    sprintf(buf,&quot;%d&quot;,m_dataBits);
+-    rig-&gt;setConf(&quot;data_bits&quot;,buf);
+-    sprintf(buf,&quot;%d&quot;,m_stopBits);
+-    rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+-    rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
+-    if(m_bDTRoff) {
+-      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+-      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
+-    }
+-    //qDebug() &lt;&lt; &quot;B6&quot;;
+-    rig-&gt;open();
+-    //rig-&gt;getVFO();
+-    //qDebug() &lt;&lt; &quot;B7&quot; &lt;&lt; rig-&gt;getVFO();
++  rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
++  char buf[80];
++  sprintf(buf,&quot;%d&quot;,m_serialRate);
++  rig-&gt;setConf(&quot;serial_speed&quot;,buf);
++  sprintf(buf,&quot;%d&quot;,m_dataBits);
++  rig-&gt;setConf(&quot;data_bits&quot;,buf);
++  sprintf(buf,&quot;%d&quot;,m_stopBits);
++  rig-&gt;setConf(&quot;stop_bits&quot;,buf);
++  rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++
++  if(m_bDTRoff) {
++    rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
++    rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++  }
++
++  ret=rig-&gt;open();
++  if(ret==RIG_OK) {
+     m_bRigOpen=true;
+-  }
+-  catch (const RigException &amp;Ex) {
+-//    qDebug() &lt;&lt; &quot;B8&quot;;
+-    m_bRigOpen=false;
+-    msgBox(&quot;Failed to open rig (devsetup)&quot;);
++  } else {
++    t=&quot;Open rig failed&quot;;
++    msgBox(t);
++    m_catEnabled=false;
++    ui.cbEnableCAT-&gt;setChecked(false);
+     return;
+   }
+-//  qDebug() &lt;&lt; &quot;B9&quot;;
++
+   double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
+-  QString t;
+-  t.sprintf(&quot;Rig control working.\nDial Frequency: %.6f&quot;,fMHz);
++  if(fMHz&gt;0.0) {
++    t.sprintf(&quot;Rig control appears to be working.\nDial Frequency:  %.6f MHz&quot;,
++              fMHz);
++  } else {
++    t.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
++              int(1000000.0*fMHz));
++    if(m_poll&gt;0) {
++      m_catEnabled=false;
++      ui.cbEnableCAT-&gt;setChecked(false);
++    }
++  }
+   msgBox(t);
+ }
+ 
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/devsetup.h	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -5,7 +5,7 @@
+ #include &lt;QProcess&gt;
+ #include &lt;QMessageBox&gt;
+ #include &quot;ui_devsetup.h&quot;
+-#include &lt;hamlib/rigclass.h&gt;
++#include &quot;rigclass.h&quot;
+ 
+ class DevSetup : public QDialog
+ {
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/devsetup.ui	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -1050,7 +1050,7 @@
+          &lt;item&gt;
+           &lt;widget class=&quot;QLabel&quot; name=&quot;label_47&quot;&gt;
+            &lt;property name=&quot;sizePolicy&quot;&gt;
+-            &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++            &lt;sizepolicy hsizetype=&quot;Preferred&quot; vsizetype=&quot;Preferred&quot;&gt;
+              &lt;horstretch&gt;0&lt;/horstretch&gt;
+              &lt;verstretch&gt;0&lt;/verstretch&gt;
+             &lt;/sizepolicy&gt;
+@@ -1062,7 +1062,7 @@
+             &lt;/size&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;Polling interval:&lt;/string&gt;
++            &lt;string&gt;Polling interval (s):&lt;/string&gt;
+            &lt;/property&gt;
+           &lt;/widget&gt;
+          &lt;/item&gt;
+
+Modified: branches/wsjtx/getfile.cpp
+===================================================================
+--- branches/wsjtx/getfile.cpp	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/getfile.cpp	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -206,3 +206,8 @@
+   return 0;
+ #endif
+ }
++
++int hamlibError(int retcode)
++{
++  qDebug() &lt;&lt; &quot;Hamlib error&quot; &lt;&lt; retcode;
++}
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/mainwindow.cpp	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -179,6 +179,7 @@
+   m_bRigOpen=false;
+   m_secBandChanged=0;
+   m_bMultipleOK=false;
++  m_dontReadFreq=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -866,7 +867,7 @@
+   t.sprintf(&quot;%.6f&quot;,m_dialFreq);
+   int n=t.length();
+   t=t.mid(0,n-3) + &quot; &quot; + t.mid(n-3,3);
+-  if(qAbs(m_dialFreq-dFreq[m_band])&lt;0.1) {
++  if(qAbs(m_dialFreq-dFreq[m_band])&lt;0.01) {
+     ui-&gt;labDialFreq-&gt;setStyleSheet( \
+         &quot;QLabel { background-color : black; color : yellow; }&quot;);
+   } else {
+@@ -1466,13 +1467,14 @@
+ void MainWindow::guiUpdate()
+ {
+   static int iptt0=0;
+-//  static int iptt=0;
+   static bool btxok0=false;
+   static int nc0=1;
+   static char message[29];
+   static char msgsent[29];
+   static int nsendingsh=0;
+   int khsym=0;
++  int ret=0;
++  QString rt;
+ 
+   double tx1=0.0;
+   double tx2=1.0 + 85.0*m_nsps/12000.0 + icw[0]*2560.0/48000.0;
+@@ -1500,8 +1502,13 @@
+ //Raise PTT
+       if(m_catEnabled and m_bRigOpen and  m_pttMethodIndex==0) {
+         m_iptt=1;
+-        if(m_pttData) rig-&gt;setPTT(RIG_PTT_ON_DATA, RIG_VFO_CURR);
+-        if(!m_pttData) rig-&gt;setPTT(RIG_PTT_ON_MIC, RIG_VFO_CURR);
++        if(m_pttData) ret=rig-&gt;setPTT(RIG_PTT_ON_DATA, RIG_VFO_CURR);
++        if(!m_pttData) ret=rig-&gt;setPTT(RIG_PTT_ON_MIC, RIG_VFO_CURR);
++        if(ret!=RIG_OK) {
++          rt.sprintf(&quot;CAT control PTT failed:  %d&quot;,ret);
++          msgBox(rt);
++        }
++
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {  //DTR or RTS
+           ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -1634,7 +1641,11 @@
+     //Lower PTT
+     if(m_catEnabled and m_bRigOpen and  m_pttMethodIndex==0) {
+       m_iptt=0;
+-      rig-&gt;setPTT(RIG_PTT_OFF, RIG_VFO_CURR);  //CAT control for PTT=0
++      ret=rig-&gt;setPTT(RIG_PTT_OFF, RIG_VFO_CURR);  //CAT control for PTT=0
++      if(ret!=RIG_OK) {
++        rt.sprintf(&quot;CAT control PTT failed:  %d&quot;,ret);
++        msgBox(rt);
++      }
+     }
+     if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {  //DTR-RTS
+       ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -1698,14 +1709,26 @@
+     if(!m_monitoring and !m_diskData) {
+       ui-&gt;xThermo-&gt;setValue(0.0);
+     }
++
++    if(m_catEnabled and m_poll&gt;0 and (nsec%m_poll)==0) {
++      if(m_dontReadFreq) {
++        m_dontReadFreq=false;
++      } else {
++        double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
++        if(fMHz&lt;0.0) {
++          rt.sprintf(&quot;Rig control error %d\nFailed to read frequency.&quot;,
++                    int(1000000.0*fMHz));
++          msgBox(rt);
++          m_catEnabled=false;
++        }
++
++        int ndiff=1000000.0*(fMHz-m_dialFreq);
++        if(ndiff!=0) dialFreqChanged2(fMHz);
++      }
++    }
++
+     m_hsym0=khsym;
+     m_sec0=nsec;
+-
+-    if(m_catEnabled) {
+-      double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
+-      int ndiff=1000000.0*(fMHz-m_dialFreq);
+-      if(ndiff!=0) dialFreqChanged2(fMHz);
+-    }
+   }
+ 
+   iptt0=m_iptt;
+@@ -1761,9 +1784,16 @@
+ 
+ void MainWindow::stopTx2()
+ {
++  int ret=0;
++  QString rt;
++
+ //Lower PTT
+   if(m_catEnabled and m_bRigOpen and  m_pttMethodIndex==0) {
+-    rig-&gt;setPTT(RIG_PTT_OFF, RIG_VFO_CURR);  //CAT control for PTT=0
++    ret=rig-&gt;setPTT(RIG_PTT_OFF, RIG_VFO_CURR);  //CAT control for PTT=0
++    if(ret!=RIG_OK) {
++      rt.sprintf(&quot;CAT control PTT failed:  %d&quot;,ret);
++      msgBox(rt);
++    }
+   }
+   if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+     ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+@@ -2534,6 +2564,9 @@
+ 
+ void MainWindow::on_bandComboBox_activated(int index)
+ {
++  int ret=0;
++  QString rt;
++
+   m_band=index;
+   QString t=m_dFreq[index];
+   m_dialFreq=t.toDouble();
+@@ -2544,7 +2577,14 @@
+     if(!m_bRigOpen) {
+       rigOpen();
+     }
+-    if(m_bRigOpen) rig-&gt;setFreq(MHz(m_dialFreq));
++    if(m_bRigOpen) {
++      m_dontReadFreq=true;
++      ret=rig-&gt;setFreq(MHz(m_dialFreq));
++      if(ret!=RIG_OK) {
++        rt.sprintf(&quot;Set rig frequency failed:  %d&quot;,ret);
++        msgBox(rt);
++      }
++    }
+   }
+   QFile f2(&quot;ALL.TXT&quot;);
+   f2.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+@@ -2719,35 +2759,37 @@
+ 
+ void MainWindow::rigOpen()
+ {
++  QString t;
++  int ret;
++
+   rig = new Rig(m_rig);
+-  try {
+-    rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+-    char buf[80];
+-    sprintf(buf,&quot;%d&quot;,m_serialRate);
+-    rig-&gt;setConf(&quot;serial_speed&quot;,buf);
+-    sprintf(buf,&quot;%d&quot;,m_dataBits);
+-    rig-&gt;setConf(&quot;data_bits&quot;,buf);
+-    sprintf(buf,&quot;%d&quot;,m_stopBits);
+-    rig-&gt;setConf(&quot;stop_bits&quot;,buf);
+-    rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
+-    if(m_bDTRoff) {
+-      rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
+-      rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
+-    }
+-    rig-&gt;open();
+-    pbwidth_t bw;
+-    rmode_t rigMode;
+-    rigMode=rig-&gt;getMode(bw);
+-    if(rigMode!=RIG_MODE_USB) rig-&gt;setMode(RIG_MODE_USB);
++  rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
++  char buf[80];
++  sprintf(buf,&quot;%d&quot;,m_serialRate);
++  rig-&gt;setConf(&quot;serial_speed&quot;,buf);
++  sprintf(buf,&quot;%d&quot;,m_dataBits);
++  rig-&gt;setConf(&quot;data_bits&quot;,buf);
++  sprintf(buf,&quot;%d&quot;,m_stopBits);
++  rig-&gt;setConf(&quot;stop_bits&quot;,buf);
++  rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++  if(m_bDTRoff) {
++    rig-&gt;setConf(&quot;rts_state&quot;,&quot;OFF&quot;);
++    rig-&gt;setConf(&quot;dtr_state&quot;,&quot;OFF&quot;);
++  }
++
++  ret=rig-&gt;open();
++  if(ret==RIG_OK) {
+     m_bRigOpen=true;
++  } else {
++    t=&quot;Open rig failed&quot;;
++    msgBox(t);
++  }
++
++  if(m_poll&gt;0) {
+     ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;QLabel{background-color: red}&quot;);
++  } else {
++    ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;QLabel{background-color: orange}&quot;);
+   }
+-  catch (const RigException &amp;Ex) {
+-    m_catEnabled=false;
+-    m_bRigOpen=false;
+-    ui-&gt;labRigOpen-&gt;setStyleSheet(&quot;&quot;);
+-    delete rig;
+-  }
+ }
+ 
+ void MainWindow::on_actionAllow_multiple_instances_triggered(bool checked)
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/mainwindow.h	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -7,7 +7,7 @@
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
+ #include &quot;psk_reporter.h&quot;
+-#include &lt;hamlib/rigclass.h&gt;
++#include &quot;rigclass.h&quot;
+ 
+ #ifdef WIN32
+ #include &quot;PSKReporter.h&quot;
+@@ -254,6 +254,7 @@
+     bool    m_bMultipleOK;
+     bool    m_bDTRoff;
+     bool    m_pttData;
++    bool    m_dontReadFreq;
+ 
+     char    m_decoded[80];
+ 
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/rigclass.cpp	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -35,10 +35,14 @@
+ 
+ #include &lt;hamlib/rig.h&gt;
+ #include &quot;rigclass.h&quot;
++#include &lt;QDebug&gt;
+ 
+ #define CHECK_RIG(cmd) { int _retval = cmd; if (_retval != RIG_OK) \
+   THROW(new RigException (_retval)); }
+ 
++#define CHECK_RIG2(cmd) { int _retval = cmd; if (_retval != RIG_OK) \
++  return _retval; }
++
+ static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg);
+ 
+ static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg)
+@@ -68,24 +72,41 @@
+   caps = NULL;
+ }
+ 
+-void Rig::open(void) {
+-  CHECK_RIG( rig_open(theRig) );
++int Rig::open(void) {
++  CHECK_RIG2( rig_open(theRig) );
+ }
+ 
+-void Rig::close(void) {
+-  CHECK_RIG( rig_close(theRig) );
++int Rig::close(void) {
++  CHECK_RIG2( rig_close(theRig) );
+ }
+ 
+-void Rig::setConf(token_t token, const char *val)
++int Rig::setConf(const char *name, const char *val)
+ {
+-  CHECK_RIG( rig_set_conf(theRig, token, val) );
++  CHECK_RIG2( rig_set_conf(theRig, tokenLookup(name), val) );
+ }
+ 
+-void Rig::setConf(const char *name, const char *val)
++int Rig::setPTT(ptt_t ptt, vfo_t vfo)
+ {
+-  CHECK_RIG( rig_set_conf(theRig, tokenLookup(name), val) );
++  CHECK_RIG2( rig_set_ptt(theRig, vfo, ptt) );
+ }
+ 
++int Rig::setFreq(freq_t freq, vfo_t vfo) {
++  CHECK_RIG2( rig_set_freq(theRig, vfo, freq) );
++}
++
++freq_t Rig::getFreq(vfo_t vfo)
++{
++  freq_t freq;
++  CHECK_RIG2( rig_get_freq(theRig, vfo, &amp;freq) );
++  return freq;
++}
++
++//--------------------------------------------------------------
++int Rig::setConf(token_t token, const char *val)
++{
++  CHECK_RIG( rig_set_conf(theRig, token, val) );
++}
++
+ void Rig::getConf(token_t token, char *val)
+ {
+   CHECK_RIG( rig_get_conf(theRig, token, val) );
+@@ -101,17 +122,6 @@
+   return rig_token_lookup(theRig, name);
+ }
+ 
+-void Rig::setFreq(freq_t freq, vfo_t vfo) {
+-  CHECK_RIG( rig_set_freq(theRig, vfo, freq) );
+-}
+-
+-freq_t Rig::getFreq(vfo_t vfo)
+-{
+-  freq_t freq;
+-  CHECK_RIG( rig_get_freq(theRig, vfo, &amp;freq) );
+-  return freq;
+-}
+-
+ void Rig::setMode(rmode_t mode, pbwidth_t width, vfo_t vfo) {
+   CHECK_RIG(rig_set_mode(theRig, vfo, mode, width));
+ }
+@@ -134,10 +144,6 @@
+   return vfo;
+ }
+ 
+-void Rig::setPTT(ptt_t ptt, vfo_t vfo)
+-{
+-  CHECK_RIG( rig_set_ptt(theRig, vfo, ptt) );
+-}
+ 
+ ptt_t Rig::getPTT(vfo_t vfo)
+ {
+
+Modified: branches/wsjtx/rigclass.h
+===================================================================
+--- branches/wsjtx/rigclass.h	2013-04-30 14:34:45 UTC (rev 3245)
++++ branches/wsjtx/rigclass.h	2013-04-30 18:54:11 UTC (rev 3246)
+@@ -25,6 +25,7 @@
+ #include &lt;hamlib/rig.h&gt;
+ #include &lt;iostream&gt;
+ 
++//extern   int hamlibError(int retcode);
+ 
+ class BACKEND_IMPEXP Rig {
+ private:
+@@ -39,25 +40,27 @@
+   const struct rig_caps *caps;
+ 
+   // This method open the communication port to the rig
+-  void open(void);
++  int open(void);
+ 
+   // This method close the communication port to the rig
+-  void close(void);
++  int close(void);
+ 
+-  void setConf(token_t token, const char *val);
+-  void setConf(const char *name, const char *val);
++  int setConf(const char *name, const char *val);
++  int setFreq(freq_t freq, vfo_t vfo = RIG_VFO_CURR);
++  freq_t getFreq(vfo_t vfo = RIG_VFO_CURR);
++  int setPTT (ptt_t ptt, vfo_t vfo = RIG_VFO_CURR);
++
++  int setConf(token_t token, const char *val);
+   void getConf(token_t token, char *val);
+   void getConf(const char *name, char *val);
+   token_t tokenLookup(const char *name);
+ 
+-  void setFreq(freq_t freq, vfo_t vfo = RIG_VFO_CURR);
+-  freq_t getFreq(vfo_t vfo = RIG_VFO_CURR);
++
+   void setMode(rmode_t, pbwidth_t width = RIG_PASSBAND_NORMAL, vfo_t vfo = RIG_VFO_CURR);
+   rmode_t getMode(pbwidth_t&amp;, vfo_t vfo = RIG_VFO_CURR);
+   void setVFO(vfo_t);
+   vfo_t getVFO();
+ 
+-  void setPTT (ptt_t ptt, vfo_t vfo = RIG_VFO_CURR);
+   ptt_t getPTT (vfo_t vfo = RIG_VFO_CURR);
+   dcd_t getDCD (vfo_t vfo = RIG_VFO_CURR);
+ 
+@@ -273,5 +276,4 @@
+ 
+ #define THROWS(s)
+ 
+-
+ #endif	// _RIGCLASS_H
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002937.html">[WSJT-SVN] r3245 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002939.html">[WSJT-SVN] r3247 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2938">[ date ]</a>
+              <a href="thread.html#2938">[ thread ]</a>
+              <a href="subject.html#2938">[ subject ]</a>
+              <a href="author.html#2938">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

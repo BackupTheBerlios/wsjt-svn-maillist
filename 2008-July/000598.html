@@ -1,0 +1,453 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r909 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r909%20-%20trunk&In-Reply-To=%3C200807091554.m69Fs8w7006672%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000597.html">
+   <LINK REL="Next"  HREF="000599.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r909 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r909%20-%20trunk&In-Reply-To=%3C200807091554.m69Fs8w7006672%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r909 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul  9 17:54:08 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000597.html">[WSJT-SVN] r908 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000599.html">[WSJT-SVN] r910 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-09 17:54:02 +0200 (Wed, 09 Jul 2008)
+New Revision: 909
+
+Modified:
+   trunk/decode162.f
+   trunk/decode3.F90
+   trunk/decode65.f
+   trunk/deep65.F
+   trunk/gcom2.f90
+   trunk/mept162a.f
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjt65.f
+   trunk/wsjtwspr.f90
+Log:
+&quot;Quick decode&quot; option for WSPR.  (This can probably stand improvement, still.)
+
+
+Modified: trunk/decode162.f
+===================================================================
+--- trunk/decode162.f	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/decode162.f	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,4 +1,4 @@
+-      subroutine decode162(c4,npts,message,ncycles,metric,nerr)
++      subroutine decode162(c4,npts,ndwspr,message,ncycles,metric,nerr)
+ 
+ C  Decode MEPT_JT data, assuming that DT and DF have already been determined.
+ 
+@@ -88,10 +88,11 @@
+          nbits=50+31
+          amp=20                                !### 32 ??? ###
+          ndelta=50
+-         limit=20000
+          first=.false.
+       endif
+ 
++      limit=20000
++      if(ndwspr.eq.0) limit=10000
+ C  Should amp be adjusted according to signal strength?
+ C  Compute soft symbols
+       k=0
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/decode3.F90	2008-07-09 15:54:02 UTC (rev 909)
+@@ -73,8 +73,8 @@
+      enddo
+      jz=min(60*11025,jz+nzero)
+   endif
+-  call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,nchallenge,MinSigdB, &amp;
+-       NQRN,DFTolerance,MouseButton,NClearAve,nforce,                  &amp;
++  call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,                     &amp;
++       MinSigdB,NQRN,DFTolerance,MouseButton,NClearAve,nforce,         &amp;
+        nMode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode,              &amp;
+        MyCall,HisCall,HisGrid,neme,ntx2,s2,                            &amp;
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,         &amp;
+
+Modified: trunk/decode65.f
+===================================================================
+--- trunk/decode65.f	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/decode65.f	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,4 +1,4 @@
+-      subroutine decode65(dat,npts,dtx,dfx,flip,ndepth,nchallenge,neme,
++      subroutine decode65(dat,npts,dtx,dfx,flip,ndepth,neme,
+      +  mycall,hiscall,hisgrid,mode65,nafc,decoded,ncount,
+      +  deepmsg,qual)
+ 
+@@ -33,7 +33,7 @@
+ 
+       call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+-      if(ndepth.ge.1) call deep65(s3,mode65,neme,nchallenge,
++      if(ndepth.ge.1) call deep65(s3,mode65,neme,
+      +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
+       if(ncount.lt.0) decoded='                      '
+
+Modified: trunk/deep65.F
+===================================================================
+--- trunk/deep65.F	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/deep65.F	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,4 +1,4 @@
+-      subroutine deep65(s3,mode65,neme,nchallenge,flip,mycall,hiscall,
++      subroutine deep65(s3,mode65,neme,flip,mycall,hiscall,
+      +  hisgrid,decoded,qual)
+ 
+       parameter (MAXCALLS=7000,MAXRPT=63)
+@@ -138,63 +138,7 @@
+          endif
+       enddo
+ 
+-      if(nchallenge.eq.0) go to 30
+-!  Accept the DJ5HG challenge, and decode all four-character alphanumeric
+-!  messages using deep search.
+-      p2a=p2
+-      ip1a=ip1
+-      ip2a=ip2
+-      ntot2=36**4
+-
+-      if(dgen(1).eq.999) then
+-         do i1=1,36
+-            message=cc(i1:i1)//'                     '
+-            do i2=1,36
+-               message(2:2)=cc(i2:i2)
+-               do i3=1,36
+-                  message(3:3)=cc(i3:i3)
+-                  do i4=1,36
+-                     message(4:4)=cc(i4:i4)
+-                     call packmsg(message,dgen)
+-                     call rs_encode(dgen,sent)
+-                     call interleave63(sent,1)
+-                     call graycode(sent,63,1)
+-                     do i=1,63
+-                        sent1(i)=sent(i)
+-                     enddo
+-                     write(49) sent1
+-                  enddo
+-               enddo
+-            enddo
+-         enddo
+-      endif
+-      rewind 49
+-      do k=1,ntot2
+-         read(49) sent1
+-         sum=0.
+-         ref=ref0
+-         do j=1,63
+-            i=sent1(j)+1
+-            sum=sum + s3(i,j)
+-            if(i.eq.mrs(j)) then
+-               ref=ref - s3(i,j) + s3(mrs2(j),j)
+-            endif
+-         enddo
+-         p=sum/ref
+-         if(p.gt.p2) then
+-            if(p.gt.p1) then
+-               p2=p1
+-               ip2=ip1
+-               p1=p
+-               ip1=k+ntot
+-            else
+-               p2=p
+-               ip2=k+ntot
+-            endif
+-         endif
+-      enddo
+-
+- 30   if(mode65.eq.1) bias=max(1.12*p2,0.335)
++      if(mode65.eq.1) bias=max(1.12*p2,0.335)
+       if(mode65.eq.2) bias=max(1.08*p2,0.405)
+       if(mode65.ge.4) bias=max(1.04*p2,0.505)
+       qual=100.0*(p1-bias)
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/gcom2.f90	2008-07-09 15:54:02 UTC (rev 909)
+@@ -69,8 +69,8 @@
+ integer ntdecode       !Time to start decoding in JT65 modes    GUI
+ integer ntxreq         !Tx msg# requested                       GUI
+ integer ntxnow         !Tx msg# being sent now                  GUI
+-integer nchallenge     !Nonzero for DJ5HG challenge             GUI
+ integer ndepth         !Requested &quot;depth&quot; of JT65 decoding      GUI
++integer ndwspr         !Requested &quot;depth&quot; of WSPR decoding      GUI
+ integer nspecial       !JT65 shorthand msg#: RO=2 RRR=3 73=4    Decoder
+ integer ndf            !Measured DF in Hz                       Decoder
+ real ss1               !Magenta curve for JT65 shorthand msg    Decoder
+@@ -102,8 +102,8 @@
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf, &amp;
+      shok,sendingsh,d2a(ND2MAX),d2b(ND2MAX),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nfsam,nlines,nflat,      &amp;
+-     ntdecode,ntxreq,ntxnow,nchallenge,                               &amp;
+-     ndepth,nspecial,ndf,nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
++     ntdecode,ntxreq,ntxnow,nchallenge,ndepth,ndwspr,nspecial,ndf,    &amp;
++     nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),                &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+      fnameb,decodedfile,AppDir,AzElDir,filetokilla,filetokillb,       &amp;
+      utcdate,pttport,t0msg
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/mept162a.f	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,4 +1,5 @@
+-      subroutine mept162a(c2,jz,f0,cfile6,ndiag,minsync,mousedf,ndftol)
++      subroutine mept162a(c2,jz,f0,cfile6,ndiag,minsync,mousedf,ndftol,
++     +    ndwspr)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+@@ -42,6 +43,11 @@
+ C  Look for sync patterns, get DF and DT
+       call sync162(c2,jz,mousedf,ndftol,ps,sstf,kz)
+ 
++      idtmax=64
++      idtstep=1
++      if(ndwspr.eq.0) then
++         idtstep=8
++      endif
+       do k=1,kz
+          snrsync=sstf(1,k)
+          snrx=sstf(2,k)
+@@ -61,28 +67,33 @@
+          message='                      '
+          if(nsync.ge.minsync .and. nsnrx.ge.-30) then      !### -31 dB limit?
+             dt=1.0/375
+-            do idt=0,128
+-               ii=(idt+1)/2
+-               if(mod(idt,2).eq.1) ii=-ii
+-               i1=nint((dtx+2.0)/dt) + ii !Start index for synced symbols
+-               if(i1.ge.1) then
+-                  c4(1:45000-i1+1)=c3(i1:45000)
+-                  c4(jz-i1+2:)=0.
+-               else
+-                  c4(1:-i1+1)=0.
+-                  c4(-i1+2:45000)=c3(1:45000+i1-1)
+-               endif
+-               call decode162(c4,jz,message,ncycles,metric,nerr)
+-               if(message(1:6).ne.'      ') go to 23
++            do idt=0,idtmax,idtstep
++               do isign=-1,1,2
++                  ii=idt*isign
++                  i1=nint((dtx+2.0)/dt) + ii !Start index for synced symbols
++                  if(i1.ge.1) then
++                     c4(1:45000-i1+1)=c3(i1:45000)
++                     c4(jz-i1+2:)=0.
++                  else
++                     c4(1:-i1+1)=0.
++                     c4(-i1+2:45000)=c3(1:45000+i1-1)
++                  endif
++                  call decode162(c4,jz,ndwspr,message,ncycles,metric,
++     +                           nerr)
++                  if(message(1:6).ne.'      ') go to 23
++               enddo
+             enddo
+ 
+  23         width=0.
+             nf1=nint(-a(2))
+             if(ndiag.ne.0) then
+                write(11,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message,
+-     +           ii,ncycles/81
++     +              ii,ncycles/81
++               write(21,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message,
++     +              ii,ncycles/81
+             else
+                write(11,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message
++               write(21,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message
+             endif
+  1012       format(a6,i4,i4,f5.1,i6,i3,2x,a22,15x,i4,i6)
+             i1=index(message,' ')
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/wsjt.py	2008-07-09 15:54:02 UTC (rev 909)
+@@ -81,10 +81,10 @@
+ nafc=IntVar()
+ naz=0
+ ndepth=IntVar()
++ndwspr=IntVar()
+ nel=0
+ nblank=IntVar()
+ ncall=0
+-nchallenge=IntVar()
+ ncwtrperiod=120
+ ndmiles=0
+ ndkm=0
+@@ -601,6 +601,7 @@
+         report.configure(state=NORMAL)
+         shmsg.configure(state=NORMAL)
+         graph2.configure(bg='black')
++        report.delete(0,END)
+         report.insert(0,'26')
+         itol=4
+         inctol()
+@@ -1876,7 +1877,7 @@
+     Audio.gcom2.dftolerance=ntol[itol]
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+-    Audio.gcom2.nchallenge=nchallenge.get()
++    Audio.gcom2.ndwspr=ndwspr.get()
+     if mode.get()=='CW':
+         Audio.gcom2.ntdecode=56
+     elif mode.get()=='WSPR':
+@@ -2056,10 +2057,14 @@
+                                 variable=ndepth, value=2)
+ decodemenu.JT65.add_radiobutton(label ='Include Average in Aggressive Deep Search',
+                                 variable=ndepth, value=3)
+-decodemenu.JT65.add_separator()
+-#decodemenu.JT65.add_checkbutton(label='DJ5HG Challenge',variable=nchallenge)
++
++decodemenu.WSPR=Menu(decodemenu,tearoff=0)
++decodemenu.WSPR.add_radiobutton(label='Quick decode',variable=ndwspr, value=0)
++decodemenu.WSPR.add_radiobutton(label='Deepest decode',variable=ndwspr, value=1)
++
+ decodemenu.add_cascade(label = 'FSK441',menu=decodemenu.FSK441)
+ decodemenu.add_cascade(label = 'JT65',menu=decodemenu.JT65)
++decodemenu.add_cascade(label = 'WSPR',menu=decodemenu.WSPR)
+ 
+ if (sys.platform == 'darwin'):
+     mbar.add_cascade(label=&quot;Decode&quot;, menu=decodemenu)
+@@ -2462,6 +2467,7 @@
+ isync=1
+ ntx.set(1)
+ ndepth.set(0)
++ndwspr.set(0)
+ from WsjtMod import options
+ options.defaults()
+ ModeFSK441()
+@@ -2600,6 +2606,7 @@
+         elif key == 'QDecode': qdecode.set(value)
+         elif key == 'NEME': neme.set(value)
+         elif key == 'NDepth': ndepth.set(value)
++        elif key == 'Ndwspr': ndwspr.set(value)
+         elif key == 'Debug': ndebug.set(value)
+         elif key == 'HisCall':
+             Audio.gcom2.hiscall=(value+'            ')[:12]
+@@ -2634,6 +2641,7 @@
+ Audio.gcom2.appdir=(appdir+'                                                                                          ')[:80]
+ Audio.gcom2.azeldir=(options.azeldir.get()+'                                                                                          ')[:80]
+ Audio.gcom2.ndepth=ndepth.get()
++Audio.gcom2.ndwspr=ndwspr.get()
+ Audio.ftn_init()
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+'        ')[:8]
+ stopmon()
+@@ -2703,6 +2711,7 @@
+ f.write(&quot;QDecode &quot; + str(qdecode.get()) + &quot;\n&quot;)
+ f.write(&quot;NEME &quot; + str(neme.get()) + &quot;\n&quot;)
+ f.write(&quot;NDepth &quot; + str(ndepth.get()) + &quot;\n&quot;)
++f.write(&quot;Ndwspr &quot; + str(ndwspr.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+ #f.write(&quot;TRPeriod &quot; + str(Audio.gcom1.trperiod) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/wsjt1.F	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,4 +1,4 @@
+-        subroutine wsjt1(d,jz0,istart,samfacin,FileID,ndepth,nchallenge,
++        subroutine wsjt1(d,jz0,istart,samfacin,FileID,ndepth,
+      +    MinSigdB,NQRN,DFTolerance,MouseButton,NClearAve,nforce,
+      +    Mode,NFreeze,NAFC,NZap,mode65,mode4,idf,ntdecode0,
+      +    MyCall,HisCall,HisGrid,neme,ntx2,s2,
+@@ -195,7 +195,7 @@
+            jztest=11025*ntdecode/2 - 2755
+            if(jz.ge.jztest) call wsjt65(dat(4097),jz-4096,cfile6,
+      +        NClearAve,MinSigdB,DFTolerance,NFreeze,NAFC,mode65,Nseg,
+-     +        MouseDF2,NAgain,ndepth,nchallenge,neme,idf,idfsh,
++     +        MouseDF2,NAgain,ndepth,neme,idf,idfsh,
+      +        mycall,hiscall,hisgrid,lumsg,lcum,nspecial,ndf,
+      +        nstest,dfsh,snrsh,
+      +        NSyncOK,ccf,psavg,ndiag,nwsh)
+
+Modified: trunk/wsjt65.f
+===================================================================
+--- trunk/wsjt65.f	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/wsjt65.f	2008-07-09 15:54:02 UTC (rev 909)
+@@ -1,6 +1,6 @@
+       subroutine wsjt65(dat,npts,cfile6,NClearAve,MinSigdB,
+      +  DFTolerance,NFreeze,NAFC,mode65,Nseg,MouseDF,NAgain,
+-     +  ndepth,nchallenge,neme,idf,idfsh,mycall,hiscall,hisgrid,
++     +  ndepth,neme,idf,idfsh,mycall,hiscall,hisgrid,
+      +  lumsg,lcum,nspecial,ndf,nstest,dfsh,
+      +  snrsh,NSyncOK,ccfblue,ccfred,ndiag,nwsh)
+ 
+@@ -110,7 +110,7 @@
+          cooo='O ?'
+       endif
+ 
+-      call decode65(dat,npts,dtx,dfx,flip,ndepth,nchallenge,neme,
++      call decode65(dat,npts,dtx,dfx,flip,ndepth,neme,
+      +   mycall,hiscall,hisgrid,mode65,nafc,decoded,
+      +   ncount,deepmsg,qual)
+       if(ncount.eq.-999) qual=0                 !Bad data
+
+Modified: trunk/wsjtwspr.f90
+===================================================================
+--- trunk/wsjtwspr.f90	2008-07-09 14:31:15 UTC (rev 908)
++++ trunk/wsjtwspr.f90	2008-07-09 15:54:02 UTC (rev 909)
+@@ -9,7 +9,7 @@
+   newdat=1
+   if(nagain.eq.1) newdat=0
+   call filbig2(dat,jz,f0,newdat,c2,n4)
+-  call mept162a(c2,n4,f0,cfile6,ndiag,MinSyncdB,mousedf,DFTolerance)
++  call mept162a(c2,n4,f0,cfile6,ndiag,MinSyncdB,mousedf,DFTolerance,ndwspr)
+ 
+   return
+ end subroutine wsjtwspr
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000597.html">[WSJT-SVN] r908 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000599.html">[WSJT-SVN] r910 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

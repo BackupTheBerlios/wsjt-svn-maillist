@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1840 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1840%20-%20branches/wspr&In-Reply-To=%3C201003160014.o2G0EgiM009644%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001531.html">
+   <LINK REL="Next"  HREF="001533.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1840 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1840%20-%20branches/wspr&In-Reply-To=%3C201003160014.o2G0EgiM009644%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1840 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 16 01:14:42 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001531.html">[WSJT-SVN] r1839 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001533.html">[WSJT-SVN] r1841 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1532">[ date ]</a>
+              <a href="thread.html#1532">[ thread ]</a>
+              <a href="subject.html#1532">[ subject ]</a>
+              <a href="author.html#1532">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-16 01:14:38 +0100 (Tue, 16 Mar 2010)
+New Revision: 1840
+
+Modified:
+   branches/wspr/decode.F90
+   branches/wspr/rx.F90
+   branches/wspr/wspr.py
+Log:
+Some tweaks to FMT mode.
+
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2010-03-15 19:34:26 UTC (rev 1839)
++++ branches/wspr/decode.F90	2010-03-16 00:14:38 UTC (rev 1840)
+@@ -5,11 +5,13 @@
+ #ifdef CVF
+   use dfport
+ #endif
++  parameter (NFFTMAX=128*1024)
++  parameter (NHMAX=NFFTMAX/2)
+   character*80 savefile
+   integer*2 jwave(114*12000)
+   real*8 df,fpeak
+-  real x(65536)
+-  complex c(0:32768)
++  real x(NFFTMAX)
++  complex c(0:NHMAX)
+   equivalence (x,c)
+   include 'acom1.f90'
+ 
+@@ -40,18 +42,22 @@
+   else if(ncal.eq.4) then
+ ! Process a Frequency Measuring Test sequence
+      fac=1.e-6
+-     nrpt=nrecsec*12000/65536
++     nfft=1024*128
++     nq=nfft/4
++     nrpt=nrecsec*12000/nfft
+      k=0
+      do irpt=1,nrpt
+-        do i=1,65536
++        do i=1,nfft
+            k=k+1
+            x(i)=fac*iwave(k)
+         enddo
+-        call xfft(x,65536)
+-        df=12000.d0/65536.d0
++        call xfft(x,nfft)
++        df=12000.d0/nfft
+         smax=0.
+-        do i=1,16384
+-           s=real(c(i))**2 + aimag(c(i))**2
++        do i=1,nq
++           s=0.25*(real(c(i-1))**2 + aimag(c(i-1))**2) +         &amp;
++                0.5*(real(c(i))**2 + aimag(c(i))**2)   +         &amp;
++                0.25*(real(c(i+1))**2 + aimag(c(i+1))**2)
+            if(s.gt.smax) then
+               smax=s
+               fpeak=i*df
+@@ -59,9 +65,10 @@
+         enddo
+         call cs_lock('decode')
+         thisfile=utctime(1:4)//'00.wav'
+-        write(*,1004) utctime(1:2)//':'//utctime(3:4),fpeak,nkhz,noffset
+-        write(19,1004) utctime(1:2)//':'//utctime(3:4),fpeak,nkhs,noffset
+-1004    format(a5,f12.2,2i8)
++        write(*,1004)  utctime(1:2)//':'//utctime(3:4),nkhz,noffset,fpeak,smax
++        write(19,1004) utctime(1:2)//':'//utctime(3:4),nkhz,noffset,fpeak,smax
++1004    format(a5,2i8,f10.2,f10.1)
++        call flush(19)
+         call cs_unlock
+         if(irpt.eq.1) savefile=appdir(:nappdir)//'/save/'//thisfile
+      enddo
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2010-03-15 19:34:26 UTC (rev 1839)
++++ branches/wspr/rx.F90	2010-03-16 00:14:38 UTC (rev 1840)
+@@ -1,6 +1,6 @@
+ subroutine rx
+ 
+-!  Receive and decode MEPT_JT signals for one 2-minute sequence.
++!  Receive WSPR signals for one 2-minute sequence.
+ 
+ #ifdef CVF
+   use dfport
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-03-15 19:34:26 UTC (rev 1839)
++++ branches/wspr/wspr.py	2010-03-16 00:14:38 UTC (rev 1840)
+@@ -800,7 +800,7 @@
+             iz=len(advanced.nutc)-1
+             for i in range(iz):
+                 ns1=advanced.nutc[i]
+-                ns2=advanced.nutc[i+1]-60
++                ns2=advanced.nutc[i+1]-59
+                 if advanced.nutc[i+1] &lt; advanced.nutc[i]: ns2=ns2+86400
+                 if ns &gt;= ns1 and ns &lt; ns2:
+                     nrecsec=ns2-ns+58
+@@ -809,7 +809,7 @@
+                     noffset=500*(utc[4]%4) + 500
+                     if options.cat_enable.get():
+                         w.acom1.noffset=noffset
+-                        w.acom1.nkhz=nkhz[i]
++                        w.acom1.nkhz=advanced.nkhz[i]
+                         nHz=1000.0*advanced.nkhz[i]-noffset
+                         cmd=&quot;rigctl -m %d -r %s -s %d -C data_bits=%s -C stop_bits=%s -C serial_handshake=%s F %d&quot; % \
+                              (options.rignum.get(),options.CatPort.get(), \
+@@ -817,12 +817,7 @@
+                               options.stopbits.get(),options.serial_handshake.get(), nHz)
+                         ierr=os.system(cmd)
+                         if ierr==0:
+-                            bandmap=[]
+-                            bm={}
+-                            text1.configure(state=NORMAL)
+-                            text1.delete('1.0',END)
+-                            text1.configure(state=DISABLED)
+-                            iband0=iband.get()
++                            pass
+                         else:
+                             print 'Error attempting to set rig frequency.\a'
+                             print cmd + '\a'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001531.html">[WSJT-SVN] r1839 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001533.html">[WSJT-SVN] r1841 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1532">[ date ]</a>
+              <a href="thread.html#1532">[ thread ]</a>
+              <a href="subject.html#1532">[ subject ]</a>
+              <a href="author.html#1532">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2316 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2989 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2989%20-%20trunk&In-Reply-To=%3C20130129161842.5DB5F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002680.html">
+   <LINK REL="Next"  HREF="002682.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2989 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2989%20-%20trunk&In-Reply-To=%3C20130129161842.5DB5F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2989 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 29 17:18:42 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002680.html">[WSJT-SVN] r2988 - branches/wsprx/lib
+</A></li>
+        <LI>Next message: <A HREF="002682.html">[WSJT-SVN] r2990 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2681">[ date ]</a>
+              <a href="thread.html#2681">[ thread ]</a>
+              <a href="subject.html#2681">[ subject ]</a>
+              <a href="author.html#2681">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-29 17:18:41 +0100 (Tue, 29 Jan 2013)
+New Revision: 2989
+
+Added:
+   trunk/decode4.f90
+   trunk/deep4.f90
+   trunk/gen4.f90
+   trunk/getmet4.f90
+   trunk/interleave4.f90
+   trunk/ps4.f90
+   trunk/sync4.f90
+   trunk/wsjt4.f90
+   trunk/xcor4.f90
+Removed:
+   trunk/decode24.f90
+   trunk/deep24.f90
+   trunk/gen24.f
+   trunk/getmet24.f90
+   trunk/interleave24.f
+   trunk/ps24.f
+   trunk/sync24.f90
+   trunk/wsjt24.f90
+   trunk/xcor24.f90
+Modified:
+   trunk/avemsg4.f90
+   trunk/encode4.f90
+   trunk/extract4.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjtgen.f90
+Log:
+Migrating more *.f code to *.f90.  At the same time, changing routine
+names with *24* to simply *4*.  (JT2 mode is no longer part of WSJT.)
+
+
+Modified: trunk/avemsg4.f90
+===================================================================
+--- trunk/avemsg4.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/avemsg4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -53,9 +53,9 @@
+      qbest=0.
+      neme=1
+ 
+-     call timer('deep24b ',0)
++     call timer('deep4b  ',0)
+      do k=1,7
+-        call deep24(sym(2,k),neme,flipx,mycall,hiscall,hisgrid,deepmsg,qual)
++        call deep4(sym(2,k),neme,flipx,mycall,hiscall,hisgrid,deepmsg,qual)
+         if(qual.gt.qbest) then
+            qbest=qual
+            deepbest=deepmsg
+@@ -63,7 +63,7 @@
+         endif
+         if(nch(k).ge.mode4) exit
+      enddo
+-     call timer('deep24b ',1)
++     call timer('deep4b  ',1)
+      deepmsg=deepbest
+      qual=qbest
+      nqual=qbest
+
+Deleted: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/decode24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,139 +0,0 @@
+-subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,  &amp;
+-  hisgrid,decoded,ncount,deepbest,qbest,ichbest,submode)
+-
+-! Decodes JT65 data, assuming that DT and DF have already been determined.
+-
+-  parameter (MAXAVE=120)
+-  real dat(npts)                        !Raw data
+-  character decoded*22,deepmsg*22,deepbest*22
+-  character*12 mycall,hiscall
+-  character*6 hisgrid
+-  character submode*1
+-  real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+-  complex*16 cz,cz1,c0,c1
+-  real*4 rsymbol(207,7)
+-  real*4 sym(207)
+-  integer nsum(7)
+-  integer amp
+-  integer mettab(0:255,0:1)             !Metric table
+-  integer nch(7)
+-  integer npr2(207)
+-  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+-  data mode0/-999/
+-  data nsum/7*0/,rsymbol/1449*0.0/
+-  data npr2/                                                         &amp;
+-       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,  &amp;
+-       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,  &amp;
+-       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1,  &amp;
+-       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1,  &amp;
+-       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1,  &amp;
+-       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1,  &amp;
+-       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
+-
+-  data nch/1,2,4,9,18,36,72/
+-  save mettab,mode0,nsum,rsymbol
+-
+-  if(mode.ne.mode0) call getmet24(mode,mettab)
+-  mode0=mode
+-  twopi=8*atan(1.d0)
+-  dt=2.d0/11025             !Sample interval (2x downsampled data)
+-  df=11025.d0/2520.d0       !Tone separation for JT4A mode
+-  nsym=206
+-  amp=15
+-  istart=nint(dtx/dt)              !Start index for synced FFTs
+-  if(istart.lt.0) istart=0
+-  nchips=0
+-  qbest=-1.e30
+-  deepmsg='                      '
+-  ichbest=-1
+-
+-! Should amp be adjusted according to signal strength?
+-! Compute soft symbols using differential BPSK demodulation
+-  c0=0.                                !### C0=amp ???
+-  k=istart
+-  phi=0.d0
+-  phi1=0.d0
+-
+-  nw=0.5*width/df
+-  if(nw.gt.mode4) nw=mode4
+-  do ich=1,7
+-     if(nch(ich).ge.nw) exit
+-  enddo
+-
+-40 ich=ich+1
+-  nchips=nch(ich)
+-  nspchip=1260/nchips
+-  k=istart
+-  phi=0.d0
+-  phi1=0.d0
+-  fac2=1.e-8 * sqrt(float(mode4))
+-  do j=1,nsym+1
+-     if(flip.gt.0.0) then
+-        f0=1270.46 + dfx + (npr2(j)-1.5)*mode4*df
+-        f1=1270.46 + dfx + (2+npr2(j)-1.5)*mode4*df
+-     else
+-        f0=1270.46 + dfx + (1-npr2(j)-1.5)*mode4*df
+-        f1=1270.46 + dfx + (3-npr2(j)-1.5)*mode4*df
+-     endif
+-     dphi=twopi*dt*f0
+-     dphi1=twopi*dt*f1
+-     sq0=0.
+-     sq1=0.
+-     do nc=1,nchips
+-        phi=0.d0
+-        phi1=0.d0
+-        c0=0.
+-        c1=0.
+-        do i=1,nspchip
+-           k=k+1
+-           phi=phi+dphi
+-           phi1=phi1+dphi1
+-           cz=dcmplx(cos(phi),-sin(phi))
+-           cz1=dcmplx(cos(phi1),-sin(phi1))
+-           if(k.le.npts) then
+-              c0=c0 + dat(k)*cz
+-              c1=c1 + dat(k)*cz1
+-           endif
+-        enddo
+-        sq0=sq0 + real(c0)**2 + aimag(c0)**2
+-        sq1=sq1 + real(c1)**2 + aimag(c1)**2
+-     enddo
+-     sq0=fac2*sq0
+-     sq1=fac2*sq1
+-     rsym=amp*(sq1-sq0)
+-     if(j.ge.1) then
+-        rsymbol(j,ich)=rsym
+-        sym(j)=rsym
+-     endif
+-  enddo
+-  
+-  call timer('extr4a  ',0)
+-  call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
+-  call timer('extr4a  ',1)
+-
+-  qual=0.                                    !Now try deep search
+-  neme=1
+-  call timer('deep24a ',0)
+-  call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
+-  call timer('deep24a ',1)
+-  if(qual.gt.qbest) then
+-     qbest=qual
+-     deepbest=deepmsg
+-     ichbest=ich
+-  endif
+-
+-  if(ncount.ge.0) then
+-     ichbest=ich
+-     go to 100
+-  endif
+-  if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+-
+-100 if(ncount.lt.0) then
+-     decoded=deepbest
+-     qual=qbest
+-  endif
+-  submode=char(ichar('A')+ichbest-1)
+-  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)  !Save data for message averaging
+-
+-  return
+-end subroutine decode24
+
+Copied: trunk/decode4.f90 (from rev 2988, trunk/decode24.f90)
+===================================================================
+--- trunk/decode4.f90	                        (rev 0)
++++ trunk/decode4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,139 @@
++subroutine decode4(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,  &amp;
++  hisgrid,decoded,ncount,deepbest,qbest,ichbest,submode)
++
++! Decodes JT65 data, assuming that DT and DF have already been determined.
++
++  parameter (MAXAVE=120)
++  real dat(npts)                        !Raw data
++  character decoded*22,deepmsg*22,deepbest*22
++  character*12 mycall,hiscall
++  character*6 hisgrid
++  character submode*1
++  real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
++  complex*16 cz,cz1,c0,c1
++  real*4 rsymbol(207,7)
++  real*4 sym(207)
++  integer nsum(7)
++  integer amp
++  integer mettab(0:255,0:1)             !Metric table
++  integer nch(7)
++  integer npr2(207)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  data mode0/-999/
++  data nsum/7*0/,rsymbol/1449*0.0/
++  data npr2/                                                         &amp;
++       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,  &amp;
++       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,  &amp;
++       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1,  &amp;
++       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1,  &amp;
++       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1,  &amp;
++       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1,  &amp;
++       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
++
++  data nch/1,2,4,9,18,36,72/
++  save mettab,mode0,nsum,rsymbol
++
++  if(mode.ne.mode0) call getmet4(mode,mettab)
++  mode0=mode
++  twopi=8*atan(1.d0)
++  dt=2.d0/11025             !Sample interval (2x downsampled data)
++  df=11025.d0/2520.d0       !Tone separation for JT4A mode
++  nsym=206
++  amp=15
++  istart=nint(dtx/dt)              !Start index for synced FFTs
++  if(istart.lt.0) istart=0
++  nchips=0
++  qbest=-1.e30
++  deepmsg='                      '
++  ichbest=-1
++
++! Should amp be adjusted according to signal strength?
++! Compute soft symbols using differential BPSK demodulation
++  c0=0.                                !### C0=amp ???
++  k=istart
++  phi=0.d0
++  phi1=0.d0
++
++  nw=0.5*width/df
++  if(nw.gt.mode4) nw=mode4
++  do ich=1,7
++     if(nch(ich).ge.nw) exit
++  enddo
++
++40 ich=ich+1
++  nchips=nch(ich)
++  nspchip=1260/nchips
++  k=istart
++  phi=0.d0
++  phi1=0.d0
++  fac2=1.e-8 * sqrt(float(mode4))
++  do j=1,nsym+1
++     if(flip.gt.0.0) then
++        f0=1270.46 + dfx + (npr2(j)-1.5)*mode4*df
++        f1=1270.46 + dfx + (2+npr2(j)-1.5)*mode4*df
++     else
++        f0=1270.46 + dfx + (1-npr2(j)-1.5)*mode4*df
++        f1=1270.46 + dfx + (3-npr2(j)-1.5)*mode4*df
++     endif
++     dphi=twopi*dt*f0
++     dphi1=twopi*dt*f1
++     sq0=0.
++     sq1=0.
++     do nc=1,nchips
++        phi=0.d0
++        phi1=0.d0
++        c0=0.
++        c1=0.
++        do i=1,nspchip
++           k=k+1
++           phi=phi+dphi
++           phi1=phi1+dphi1
++           cz=dcmplx(cos(phi),-sin(phi))
++           cz1=dcmplx(cos(phi1),-sin(phi1))
++           if(k.le.npts) then
++              c0=c0 + dat(k)*cz
++              c1=c1 + dat(k)*cz1
++           endif
++        enddo
++        sq0=sq0 + real(c0)**2 + aimag(c0)**2
++        sq1=sq1 + real(c1)**2 + aimag(c1)**2
++     enddo
++     sq0=fac2*sq0
++     sq1=fac2*sq1
++     rsym=amp*(sq1-sq0)
++     if(j.ge.1) then
++        rsymbol(j,ich)=rsym
++        sym(j)=rsym
++     endif
++  enddo
++  
++  call timer('extr4a  ',0)
++  call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
++  call timer('extr4a  ',1)
++
++  qual=0.                                    !Now try deep search
++  neme=1
++  call timer('deep4a  ',0)
++  call deep4(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++  call timer('deep4a  ',1)
++  if(qual.gt.qbest) then
++     qbest=qual
++     deepbest=deepmsg
++     ichbest=ich
++  endif
++
++  if(ncount.ge.0) then
++     ichbest=ich
++     go to 100
++  endif
++  if(mode.eq.7 .and. nchips.lt.mode4) go to 40
++
++100 if(ncount.lt.0) then
++     decoded=deepbest
++     qual=qbest
++  endif
++  submode=char(ichar('A')+ichbest-1)
++  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)  !Save data for message averaging
++
++  return
++end subroutine decode4
+
+Deleted: trunk/deep24.f90
+===================================================================
+--- trunk/deep24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/deep24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,180 +0,0 @@
+-subroutine deep24(sym,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
+-
+-! Have barely begun converting this from JT65 to JT4
+-
+-  parameter (MAXCALLS=7000,MAXRPT=63)
+-  real*4 sym(206)
+-  character callsign*12,grid*4,message*22,hisgrid*6,ceme*3
+-  character*12 mycall,hiscall
+-  character mycall0*12,hiscall0*12,hisgrid0*6
+-  character*22 decoded
+-  character*22 testmsg(2*MAXCALLS + 2 + MAXRPT)
+-  character*15 callgrid(MAXCALLS)
+-  character*180 line
+-  character*4 rpt(MAXRPT)
+-  integer ncode(206)
+-  real*4   code(206,2*MAXCALLS + 2 + MAXRPT)
+-  real pp(2*MAXCALLS + 2 + MAXRPT)
+-!  common/c3com/ mcall3a
+-
+-  data neme0/-99/
+-  data rpt/'-01','-02','-03','-04','-05',          &amp;
+-           '-06','-07','-08','-09','-10',          &amp;
+-           '-11','-12','-13','-14','-15',          &amp;
+-           '-16','-17','-18','-19','-20',          &amp;
+-           '-21','-22','-23','-24','-25',          &amp;
+-           '-26','-27','-28','-29','-30',          &amp;
+-           'R-01','R-02','R-03','R-04','R-05',     &amp;
+-           'R-06','R-07','R-08','R-09','R-10',     &amp;
+-           'R-11','R-12','R-13','R-14','R-15',     &amp;
+-           'R-16','R-17','R-18','R-19','R-20',     &amp;
+-           'R-21','R-22','R-23','R-24','R-25',     &amp;
+-           'R-26','R-27','R-28','R-29','R-30',     &amp;
+-           'RO','RRR','73'/
+-  save
+-
+-  if(mycall.eq.mycall0 .and. hiscall.eq.hiscall0 .and.         &amp;
+-       hisgrid.eq.hisgrid0 .and. mcall3a.eq.0 .and. neme.eq.neme0) go to 30
+-      
+-  mcall3a=0
+-  rewind 23
+-  k=0
+-  icall=0
+-  do n=1,MAXCALLS
+-     if(n.eq.1) then
+-        callsign=hiscall
+-        do i=4,12
+-           if(ichar(callsign(i:i)).eq.0) callsign(i:i)=' '
+-        enddo
+-        grid=hisgrid(1:4)
+-        if(ichar(grid(3:3)).eq.0) grid(3:3)=' '
+-        if(ichar(grid(4:4)).eq.0) grid(4:4)=' '
+-     else
+-        read(23,1002,end=20) line
+-1002    format (A80)
+-        if(line(1:4).eq.'ZZZZ') go to 20
+-        if(line(1:2).eq.'//') go to 10
+-        i1=index(line,',')
+-        if(i1.lt.4) go to 10
+-        i2=index(line(i1+1:),',')
+-        if(i2.lt.5) go to 10
+-        i2=i2+i1
+-        i3=index(line(i2+1:),',')
+-        if(i3.lt.1) i3=index(line(i2+1:),' ')
+-        i3=i2+i3
+-        callsign=line(1:i1-1)
+-        grid=line(i1+1:i2-1)
+-        ceme=line(i2+1:i3-1)
+-        if(neme.eq.1 .and. ceme.ne.'EME') go to 10
+-     endif
+-
+-     icall=icall+1
+-     j1=index(mycall,' ') - 1
+-     if(j1.le.-1) j1=12
+-     if(j1.lt.3) j1=6
+-     j2=index(callsign,' ') - 1
+-     if(j2.le.-1) j2=12
+-     if(j2.lt.3) j2=6
+-     j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
+-     j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
+-     callgrid(icall)=callsign(1:j2)
+-
+-     mz=1
+-! Allow MyCall + HisCall + rpt (?)
+-     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
+-          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
+-     do m=1,mz
+-        if(m.gt.1) grid=rpt(m-1)
+-        if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+-        message=mycall(1:j1)//' '//callgrid(icall)
+-        k=k+1
+-        testmsg(k)=message
+-        call encode4(message,ncode)
+-        code(1:206,k)=2*ncode(1:206)-1
+-        if(n.ge.2) then
+-! Insert CQ message
+-           if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+-           message='CQ '//callgrid(icall)
+-           k=k+1
+-           testmsg(k)=message
+-           call encode4(message,ncode)
+-        code(1:206,k)=2*ncode(1:206)-1
+-        endif
+-     enddo
+-10   continue
+-  enddo
+-
+-20 continue
+-  ntot=k
+-  neme0=neme
+-
+-30 mycall0=mycall
+-  hiscall0=hiscall
+-  hisgrid0=hisgrid
+-
+-  sq=0.
+-  do j=1,206
+-     sq=sq + sym(j)**2
+-  enddo
+-  rms=sqrt(sq/206.0)
+-  sym=sym/rms
+-
+-  p1=-1.e30
+-  p2=-1.e30
+-  do k=1,ntot
+-     pp(k)=0.
+-! Test all messages if flip=+1; skip the CQ messages if flip=-1.
+-     if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
+-        p=0.
+-        do j=1,206
+-           i=code(j,k)+1
+-           p=p + code(j,k)*sym(j)
+-        enddo
+-        pp(k)=p
+-        if(p.gt.p1) then
+-           p1=p
+-           ip1=k
+-        endif
+-     endif
+-  enddo
+-
+-  do i=1,ntot
+-     if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
+-  enddo
+-
+-! ### DO NOT REMOVE ### 
+-!  rewind 77
+-!  write(77,*) p1,p2
+-! ### Works OK without it (in both Windows and Linux) if compiled 
+-! ### without optimization.  However, in Windows this is a colossal 
+-! ### pain because of the way F2PY wants to run the compile step.
+-
+-
+-  bias=1.15*p2                                !### 1.1 ?
+-!  if(mode65.eq.1) bias=max(1.12*p2,0.335)
+-!  if(mode65.eq.2) bias=max(1.08*p2,0.405)
+-!  if(mode65.ge.4) bias=max(1.04*p2,0.505)
+-
+-  if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep24'
+-  qual=1.0*(p1-bias)
+-
+-  decoded='                      '
+-
+-  if(qual.gt.1.0) then
+-     decoded=testmsg(ip1)
+-  else
+-     qual=0.
+-  endif
+-
+-! Make sure everything is upper case.
+-  do i=1,22
+-     if(decoded(i:i).ge.'a' .and. decoded(i:i).le.'z')                &amp;
+-          decoded(i:i)=char(ichar(decoded(i:i))-32)
+-  enddo
+-
+-!  write(71,3000) p1,p2,qual,decoded
+-!3000 format(3f8.1,2x,a22)
+-!  call flush(71)
+-
+-  return
+-end subroutine deep24
+
+Copied: trunk/deep4.f90 (from rev 2988, trunk/deep24.f90)
+===================================================================
+--- trunk/deep4.f90	                        (rev 0)
++++ trunk/deep4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,180 @@
++subroutine deep4(sym,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++
++! Have barely begun converting this from JT65 to JT4
++
++  parameter (MAXCALLS=7000,MAXRPT=63)
++  real*4 sym(206)
++  character callsign*12,grid*4,message*22,hisgrid*6,ceme*3
++  character*12 mycall,hiscall
++  character mycall0*12,hiscall0*12,hisgrid0*6
++  character*22 decoded
++  character*22 testmsg(2*MAXCALLS + 2 + MAXRPT)
++  character*15 callgrid(MAXCALLS)
++  character*180 line
++  character*4 rpt(MAXRPT)
++  integer ncode(206)
++  real*4   code(206,2*MAXCALLS + 2 + MAXRPT)
++  real pp(2*MAXCALLS + 2 + MAXRPT)
++!  common/c3com/ mcall3a
++
++  data neme0/-99/
++  data rpt/'-01','-02','-03','-04','-05',          &amp;
++           '-06','-07','-08','-09','-10',          &amp;
++           '-11','-12','-13','-14','-15',          &amp;
++           '-16','-17','-18','-19','-20',          &amp;
++           '-21','-22','-23','-24','-25',          &amp;
++           '-26','-27','-28','-29','-30',          &amp;
++           'R-01','R-02','R-03','R-04','R-05',     &amp;
++           'R-06','R-07','R-08','R-09','R-10',     &amp;
++           'R-11','R-12','R-13','R-14','R-15',     &amp;
++           'R-16','R-17','R-18','R-19','R-20',     &amp;
++           'R-21','R-22','R-23','R-24','R-25',     &amp;
++           'R-26','R-27','R-28','R-29','R-30',     &amp;
++           'RO','RRR','73'/
++  save
++
++  if(mycall.eq.mycall0 .and. hiscall.eq.hiscall0 .and.         &amp;
++       hisgrid.eq.hisgrid0 .and. mcall3a.eq.0 .and. neme.eq.neme0) go to 30
++      
++  mcall3a=0
++  rewind 23
++  k=0
++  icall=0
++  do n=1,MAXCALLS
++     if(n.eq.1) then
++        callsign=hiscall
++        do i=4,12
++           if(ichar(callsign(i:i)).eq.0) callsign(i:i)=' '
++        enddo
++        grid=hisgrid(1:4)
++        if(ichar(grid(3:3)).eq.0) grid(3:3)=' '
++        if(ichar(grid(4:4)).eq.0) grid(4:4)=' '
++     else
++        read(23,1002,end=20) line
++1002    format (A80)
++        if(line(1:4).eq.'ZZZZ') go to 20
++        if(line(1:2).eq.'//') go to 10
++        i1=index(line,',')
++        if(i1.lt.4) go to 10
++        i2=index(line(i1+1:),',')
++        if(i2.lt.5) go to 10
++        i2=i2+i1
++        i3=index(line(i2+1:),',')
++        if(i3.lt.1) i3=index(line(i2+1:),' ')
++        i3=i2+i3
++        callsign=line(1:i1-1)
++        grid=line(i1+1:i2-1)
++        ceme=line(i2+1:i3-1)
++        if(neme.eq.1 .and. ceme.ne.'EME') go to 10
++     endif
++
++     icall=icall+1
++     j1=index(mycall,' ') - 1
++     if(j1.le.-1) j1=12
++     if(j1.lt.3) j1=6
++     j2=index(callsign,' ') - 1
++     if(j2.le.-1) j2=12
++     if(j2.lt.3) j2=6
++     j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
++     j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
++     callgrid(icall)=callsign(1:j2)
++
++     mz=1
++! Allow MyCall + HisCall + rpt (?)
++     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
++          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
++     do m=1,mz
++        if(m.gt.1) grid=rpt(m-1)
++        if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++        message=mycall(1:j1)//' '//callgrid(icall)
++        k=k+1
++        testmsg(k)=message
++        call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
++        if(n.ge.2) then
++! Insert CQ message
++           if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++           message='CQ '//callgrid(icall)
++           k=k+1
++           testmsg(k)=message
++           call encode4(message,ncode)
++        code(1:206,k)=2*ncode(1:206)-1
++        endif
++     enddo
++10   continue
++  enddo
++
++20 continue
++  ntot=k
++  neme0=neme
++
++30 mycall0=mycall
++  hiscall0=hiscall
++  hisgrid0=hisgrid
++
++  sq=0.
++  do j=1,206
++     sq=sq + sym(j)**2
++  enddo
++  rms=sqrt(sq/206.0)
++  sym=sym/rms
++
++  p1=-1.e30
++  p2=-1.e30
++  do k=1,ntot
++     pp(k)=0.
++! Test all messages if flip=+1; skip the CQ messages if flip=-1.
++     if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
++        p=0.
++        do j=1,206
++           i=code(j,k)+1
++           p=p + code(j,k)*sym(j)
++        enddo
++        pp(k)=p
++        if(p.gt.p1) then
++           p1=p
++           ip1=k
++        endif
++     endif
++  enddo
++
++  do i=1,ntot
++     if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
++  enddo
++
++! ### DO NOT REMOVE ### 
++!  rewind 77
++!  write(77,*) p1,p2
++! ### Works OK without it (in both Windows and Linux) if compiled 
++! ### without optimization.  However, in Windows this is a colossal 
++! ### pain because of the way F2PY wants to run the compile step.
++
++
++  bias=1.15*p2                                !### 1.1 ?
++!  if(mode65.eq.1) bias=max(1.12*p2,0.335)
++!  if(mode65.eq.2) bias=max(1.08*p2,0.405)
++!  if(mode65.ge.4) bias=max(1.04*p2,0.505)
++
++  if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep4'
++  qual=1.0*(p1-bias)
++
++  decoded='                      '
++
++  if(qual.gt.1.0) then
++     decoded=testmsg(ip1)
++  else
++     qual=0.
++  endif
++
++! Make sure everything is upper case.
++  do i=1,22
++     if(decoded(i:i).ge.'a' .and. decoded(i:i).le.'z')                &amp;
++          decoded(i:i)=char(ichar(decoded(i:i))-32)
++  enddo
++
++!  write(71,3000) p1,p2,qual,decoded
++!3000 format(3f8.1,2x,a22)
++!  call flush(71)
++
++  return
++end subroutine deep4
+
+Modified: trunk/encode4.f90
+===================================================================
+--- trunk/encode4.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/encode4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -12,7 +12,7 @@
+   call packmsg(message,dgen,text)  !Pack 72-bit message into 12 six-bit symbols
+   call entail(dgen,data0)
+   call encode232(data0,206,symbol)       !Convolutional encoding
+-  call interleave24(symbol,1)            !Apply JT4 interleaving
++  call interleave4(symbol,1)             !Apply JT4 interleaving
+   do i=1,206
+      ncode(i)=symbol(i)
+   enddo
+
+Modified: trunk/extract4.f90
+===================================================================
+--- trunk/extract4.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/extract4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -13,7 +13,7 @@
+   save first,mettab
+ 
+   if(first) then
+-     call getmet24(mode,mettab)
++     call getmet4(mode,mettab)
+      first=.false.
+   endif
+ 
+@@ -34,7 +34,7 @@
+   decoded='                      '
+   submode=' '
+ 
+-  call interleave24(symbol(2),-1)         !Remove the interleaving
++  call interleave4(symbol(2),-1)          !Remove the interleaving
+   call fano232(symbol(2),nbits,mettab,ndelta,limit,data1,ncycles,metric,ncount)
+   nlim=ncycles/nbits
+ 
+
+Deleted: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/gen24.f	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,88 +0,0 @@
+-      subroutine gen24(message,mode4,samfac,ntxdf,iwave,nwave,
+-     +  sendingsh,msgsent,nmsg)
+-
+-C  Encode a JT4 message into a wavefile.
+-
+-      parameter (NMAX=60*11025)     !Max length of wave file
+-      character*22 message          !Message to be generated
+-      character*22 msgsent          !Message as it will be received
+-      character*3 cok               !'   ' or 'OOO'
+-      real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,samfac,tsymbol
+-      integer*2 iwave(NMAX)         !Generated wave file
+-      integer sendingsh
+-      integer dgen(13)
+-      integer*1 data0(13),symbol(216)
+-      logical first
+-      include 'prcom2.f'
+-      data first/.true./
+-      save
+-
+-      nsym=207                               !Symbols per transmission
+-      if(first) then
+-         do i=1,nsym
+-            pr2(i)=2*npr2(i)-1
+-         enddo
+-         pi=4.d0*atan(1.d0)
+-         twopi=2.d0*pi
+-         first=.false.
+-      endif
+-
+-      call chkmsg(message,cok,nspecial,flip)
+-      call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
+-      call entail(dgen,data0)
+-      call unpackmsg(dgen,msgsent)
+-
+-      nbytes=(72+31+7)/8
+-      call encode(data0,nbytes,symbol(2))    !Convolutional encoding
+-      symbol(1)=0                            !Reference phase
+-      sendingsh=0
+-      if(iand(dgen(10),8).ne.0) sendingsh=-1 !Plain text flag
+-      call interleave24(symbol(2),1)         !Apply JT4 interleaving
+-
+-C  Set up necessary constants
+-      tsymbol=2520.d0/11025.d0
+-      dt=1.d0/(samfac*11025.d0)
+-      f0=118*11025.d0/1024 + ntxdf
+-      dfgen=11025.d0/2520                     !4.375 Hz
+-      t=0.d0
+-      phi=0.d0
+-      j0=0
+-      ndata=(nsym*11025.d0*samfac*tsymbol)/2
+-      ndata=2*ndata
+-      do i=1,ndata
+-         t=t+dt
+-         j=int(t/tsymbol) + 1   !Symbol number, 1-207
+-         if(j.ne.j0) then
+-            f=f0 + (npr2(j)+2*symbol(j)-1.5) * dfgen * mode4
+-            if(flip.lt.0.0) 
+-     +           f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen*mode4
+-            dphi=twopi*dt*f
+-            j0=j
+-         endif
+-         phi=phi+dphi
+-         iwave(i)=32767.0*sin(phi)
+-      enddo
+-
+-      do j=1,5512                !Put another 0.5 sec of silence at end
+-         i=i+1
+-         iwave(i)=0
+-      enddo
+-      nwave=i
+-
+-      if(flip.lt.0.0) then
+-         do i=22,1,-1
+-            if(msgsent(i:i).ne.' ') goto 10
+-         enddo
+- 10      msgsent=msgsent(1:i)//' OOO'
+-      endif
+-      do i=22,1,-1
+-         if(msgsent(i:i).ne.' ') goto 20
+-      enddo
+- 20   nmsg=i
+-
+-!      write(*,3002) (symbol(i),i=1,207)
+-! 3002 format(70i1)
+-
+-      return
+-      end
+-
+
+Copied: trunk/gen4.f90 (from rev 2988, trunk/gen24.f)
+===================================================================
+--- trunk/gen4.f90	                        (rev 0)
++++ trunk/gen4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,92 @@
++subroutine gen4(message,mode4,samfac,ntxdf,iwave,nwave,sendingsh,msgsent,nmsg)
++
++! Encode a JT4 message into a wavefile.
++
++  parameter (NMAX=60*11025)     !Max length of wave file
++  character*22 message          !Message to be generated
++  character*22 msgsent          !Message as it will be received
++  character*3 cok               !'   ' or 'OOO'
++  real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,samfac,tsymbol
++  integer*2 iwave(NMAX)         !Generated wave file
++  integer sendingsh
++  integer dgen(13)
++  integer*1 data0(13),symbol(216)
++  logical first
++  common/prcom2/ npr2(207),pr2(207)
++  data npr2/                                                    &amp;
++       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0, &amp;
++       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0, &amp;
++       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1, &amp;
++       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1, &amp;
++       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1, &amp;
++       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1, &amp;
++       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
++
++  data first/.true./
++  save
++
++  nsym=207                               !Symbols per transmission
++  if(first) then
++     do i=1,nsym
++        pr2(i)=2*npr2(i)-1
++     enddo
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     first=.false.
++  endif
++
++  call chkmsg(message,cok,nspecial,flip)
++  call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
++  call entail(dgen,data0)
++  call unpackmsg(dgen,msgsent)
++
++  nbytes=(72+31+7)/8
++  call encode(data0,nbytes,symbol(2))    !Convolutional encoding
++  symbol(1)=0                            !Reference phase
++  sendingsh=0
++  if(iand(dgen(10),8).ne.0) sendingsh=-1 !Plain text flag
++  call interleave4(symbol(2),1)          !Apply JT4 interleaving
++
++! Set up necessary constants
++  tsymbol=2520.d0/11025.d0
++  dt=1.d0/(samfac*11025.d0)
++  f0=118*11025.d0/1024 + ntxdf
++  dfgen=11025.d0/2520                     !4.375 Hz
++  t=0.d0
++  phi=0.d0
++  j0=0
++  ndata=(nsym*11025.d0*samfac*tsymbol)/2
++  ndata=2*ndata
++  do i=1,ndata
++     t=t+dt
++     j=int(t/tsymbol) + 1   !Symbol number, 1-207
++     if(j.ne.j0) then
++        f=f0 + (npr2(j)+2*symbol(j)-1.5) * dfgen * mode4
++        if(flip.lt.0.0) f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen*mode4
++        dphi=twopi*dt*f
++        j0=j
++     endif
++     phi=phi+dphi
++     iwave(i)=32767.0*sin(phi)
++  enddo
++
++  do j=1,5512                !Put another 0.5 sec of silence at end
++     i=i+1
++     iwave(i)=0
++  enddo
++  nwave=i
++
++  if(flip.lt.0.0) then
++     do i=22,1,-1
++        if(msgsent(i:i).ne.' ') goto 10
++     enddo
++10   msgsent=msgsent(1:i)//' OOO'
++  endif
++  do i=22,1,-1
++     if(msgsent(i:i).ne.' ') goto 20
++  enddo
++20 nmsg=i
++
++  return
++end subroutine gen4
++
+
+Deleted: trunk/getmet24.f90
+===================================================================
+--- trunk/getmet24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/getmet24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,52 +0,0 @@
+-subroutine getmet24(mode,mettab)
+-
+-! Return appropriate metric table for soft-decision convolutional decoder.
+-
+-! Metric table (RxSymbol,TxSymbol)
+-  integer mettab(0:255,0:1)
+-  real*4 xx0(0:255)
+-  data xx0/                                                      &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
+-        0.988, 1.000, 0.991, 0.993, 1.000, 0.995, 1.000, 0.991,  &amp;
+-        1.000, 0.991, 0.992, 0.991, 0.990, 0.990, 0.992, 0.996,  &amp;
+-        0.990, 0.994, 0.993, 0.991, 0.992, 0.989, 0.991, 0.987,  &amp;
+-        0.985, 0.989, 0.984, 0.983, 0.979, 0.977, 0.971, 0.975,  &amp;
+-        0.974, 0.970, 0.970, 0.970, 0.967, 0.962, 0.960, 0.957,  &amp;
+-        0.956, 0.953, 0.942, 0.946, 0.937, 0.933, 0.929, 0.920,  &amp;
+-        0.917, 0.911, 0.903, 0.895, 0.884, 0.877, 0.869, 0.858,  &amp;
+-        0.846, 0.834, 0.821, 0.806, 0.790, 0.775, 0.755, 0.737,  &amp;
+-        0.713, 0.691, 0.667, 0.640, 0.612, 0.581, 0.548, 0.510,  &amp;
+-        0.472, 0.425, 0.378, 0.328, 0.274, 0.212, 0.146, 0.075,  &amp;
+-        0.000,-0.079,-0.163,-0.249,-0.338,-0.425,-0.514,-0.606,  &amp;
+-       -0.706,-0.796,-0.895,-0.987,-1.084,-1.181,-1.280,-1.376,  &amp;
+-       -1.473,-1.587,-1.678,-1.790,-1.882,-1.992,-2.096,-2.201,  &amp;
+-       -2.301,-2.411,-2.531,-2.608,-2.690,-2.829,-2.939,-3.058,  &amp;
+-       -3.164,-3.212,-3.377,-3.463,-3.550,-3.768,-3.677,-3.975,  &amp;
+-       -4.062,-4.098,-4.186,-4.261,-4.472,-4.621,-4.623,-4.608,  &amp;
+-       -4.822,-4.870,-4.652,-4.954,-5.108,-5.377,-5.544,-5.995,  &amp;
+-       -5.632,-5.826,-6.304,-6.002,-6.559,-6.369,-6.658,-7.016,  &amp;
+-       -6.184,-7.332,-6.534,-6.152,-6.113,-6.288,-6.426,-6.313,  &amp;
+-       -9.966,-6.371,-9.966,-7.055,-9.966,-6.629,-6.313,-9.966,  &amp;
+-       -5.858,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
+-       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
+-       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
+-       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
+-       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
+-       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
+-  save
+-
+-  bias=0.5
+-  scale=10.0
+-  do i=0,255
+-     mettab(i,0)=nint(scale*(xx0(i)-bias))
+-     if(i.ge.1) mettab(256-i,1)=mettab(i,0)
+-  enddo
+-
+-  return
+-end subroutine getmet24
+-
+
+Copied: trunk/getmet4.f90 (from rev 2988, trunk/getmet24.f90)
+===================================================================
+--- trunk/getmet4.f90	                        (rev 0)
++++ trunk/getmet4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,52 @@
++subroutine getmet4(mode,mettab)
++
++! Return appropriate metric table for soft-decision convolutional decoder.
++
++! Metric table (RxSymbol,TxSymbol)
++  integer mettab(0:255,0:1)
++  real*4 xx0(0:255)
++  data xx0/                                                      &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        0.988, 1.000, 0.991, 0.993, 1.000, 0.995, 1.000, 0.991,  &amp;
++        1.000, 0.991, 0.992, 0.991, 0.990, 0.990, 0.992, 0.996,  &amp;
++        0.990, 0.994, 0.993, 0.991, 0.992, 0.989, 0.991, 0.987,  &amp;
++        0.985, 0.989, 0.984, 0.983, 0.979, 0.977, 0.971, 0.975,  &amp;
++        0.974, 0.970, 0.970, 0.970, 0.967, 0.962, 0.960, 0.957,  &amp;
++        0.956, 0.953, 0.942, 0.946, 0.937, 0.933, 0.929, 0.920,  &amp;
++        0.917, 0.911, 0.903, 0.895, 0.884, 0.877, 0.869, 0.858,  &amp;
++        0.846, 0.834, 0.821, 0.806, 0.790, 0.775, 0.755, 0.737,  &amp;
++        0.713, 0.691, 0.667, 0.640, 0.612, 0.581, 0.548, 0.510,  &amp;
++        0.472, 0.425, 0.378, 0.328, 0.274, 0.212, 0.146, 0.075,  &amp;
++        0.000,-0.079,-0.163,-0.249,-0.338,-0.425,-0.514,-0.606,  &amp;
++       -0.706,-0.796,-0.895,-0.987,-1.084,-1.181,-1.280,-1.376,  &amp;
++       -1.473,-1.587,-1.678,-1.790,-1.882,-1.992,-2.096,-2.201,  &amp;
++       -2.301,-2.411,-2.531,-2.608,-2.690,-2.829,-2.939,-3.058,  &amp;
++       -3.164,-3.212,-3.377,-3.463,-3.550,-3.768,-3.677,-3.975,  &amp;
++       -4.062,-4.098,-4.186,-4.261,-4.472,-4.621,-4.623,-4.608,  &amp;
++       -4.822,-4.870,-4.652,-4.954,-5.108,-5.377,-5.544,-5.995,  &amp;
++       -5.632,-5.826,-6.304,-6.002,-6.559,-6.369,-6.658,-7.016,  &amp;
++       -6.184,-7.332,-6.534,-6.152,-6.113,-6.288,-6.426,-6.313,  &amp;
++       -9.966,-6.371,-9.966,-7.055,-9.966,-6.629,-6.313,-9.966,  &amp;
++       -5.858,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
++  save
++
++  bias=0.5
++  scale=10.0
++  do i=0,255
++     mettab(i,0)=nint(scale*(xx0(i)-bias))
++     if(i.ge.1) mettab(256-i,1)=mettab(i,0)
++  enddo
++
++  return
++end subroutine getmet4
++
+
+Deleted: trunk/interleave24.f
+===================================================================
+--- trunk/interleave24.f	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/interleave24.f	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,43 +0,0 @@
+-      subroutine interleave24(id,ndir)
+-      integer*1 id(0:205),itmp(0:205)
+-      integer j0(0:205)
+-      logical first
+-      data first/.true./
+-      save first,j0
+-
+-      if(first) then
+-         k=-1
+-         do i=0,255
+-            m=i
+-            n=iand(m,1)
+-            n=2*n + iand(m/2,1)
+-            n=2*n + iand(m/4,1)
+-            n=2*n + iand(m/8,1)
+-            n=2*n + iand(m/16,1)
+-            n=2*n + iand(m/32,1)
+-            n=2*n + iand(m/64,1)
+-            n=2*n + iand(m/128,1)
+-            if(n.le.205) then
+-               k=k+1
+-               j0(k)=n
+-            endif
+-         enddo
+-         first=.false.
+-      endif
+-
+-      if(ndir.eq.1) then
+-         do i=0,205
+-            itmp(j0(i))=id(i)
+-         enddo
+-      else
+-         do i=0,205
+-            itmp(i)=id(j0(i))
+-         enddo
+-      endif
+-
+-      do i=0,205
+-         id(i)=itmp(i)
+-      enddo
+-
+-      return
+-      end
+
+Copied: trunk/interleave4.f90 (from rev 2988, trunk/interleave24.f)
+===================================================================
+--- trunk/interleave4.f90	                        (rev 0)
++++ trunk/interleave4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,43 @@
++subroutine interleave4(id,ndir)
++  integer*1 id(0:205),itmp(0:205)
++  integer j0(0:205)
++  logical first
++  data first/.true./
++  save first,j0
++
++  if(first) then
++     k=-1
++     do i=0,255
++        m=i
++        n=iand(m,1)
++        n=2*n + iand(m/2,1)
++        n=2*n + iand(m/4,1)
++        n=2*n + iand(m/8,1)
++        n=2*n + iand(m/16,1)
++        n=2*n + iand(m/32,1)
++        n=2*n + iand(m/64,1)
++        n=2*n + iand(m/128,1)
++        if(n.le.205) then
++           k=k+1
++           j0(k)=n
++        endif
++     enddo
++     first=.false.
++  endif
++
++  if(ndir.eq.1) then
++     do i=0,205
++        itmp(j0(i))=id(i)
++     enddo
++  else
++     do i=0,205
++        itmp(i)=id(j0(i))
++     enddo
++  endif
++
++  do i=0,205
++     id(i)=itmp(i)
++  enddo
++
++  return
++end subroutine interleave4
+
+Deleted: trunk/ps24.f
+===================================================================
+--- trunk/ps24.f	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/ps24.f	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,27 +0,0 @@
+-      subroutine ps24(dat,nfft,s)
+-
+-      parameter (NMAX=2520+2)
+-      parameter (NHMAX=NMAX/2-1)
+-      real dat(nfft)
+-      real dat2(NMAX)
+-      real s(NHMAX)
+-      complex c(0:NMAX)
+-      equivalence(dat2,c)
+-
+-      nh=nfft/2
+-      do i=1,nh
+-         dat2(i)=dat(i)/128.0       !### Why 128 ??
+-      enddo
+-      do i=nh+1,nfft
+-         dat2(i)=0.
+-      enddo
+-
+-      call four2a(c,nfft,1,-1,0)
+-
+-      fac=1.0/nfft
+-      do i=1,nh
+-         s(i)=fac*(real(c(i))**2 + aimag(c(i))**2)
+-      enddo
+-
+-      return
+-      end
+
+Copied: trunk/ps4.f90 (from rev 2988, trunk/ps24.f)
+===================================================================
+--- trunk/ps4.f90	                        (rev 0)
++++ trunk/ps4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,27 @@
++subroutine ps4(dat,nfft,s)
++
++  parameter (NMAX=2520+2)
++  parameter (NHMAX=NMAX/2-1)
++  real dat(nfft)
++  real dat2(NMAX)
++  real s(NHMAX)
++  complex c(0:NMAX)
++  equivalence(dat2,c)
++
++  nh=nfft/2
++  do i=1,nh
++     dat2(i)=dat(i)/128.0       !### Why 128 ??
++  enddo
++  do i=nh+1,nfft
++     dat2(i)=0.
++  enddo
++
++  call four2a(c,nfft,1,-1,0)
++
++  fac=1.0/nfft
++  do i=1,nh
++     s(i)=fac*(real(c(i))**2 + aimag(c(i))**2)
++  enddo
++
++  return
++end subroutine ps4
+
+Deleted: trunk/sync24.f90
+===================================================================
+--- trunk/sync24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/sync24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,177 +0,0 @@
+-subroutine sync24(dat,jz,DFTolerance,NFreeze,MouseDF,mode,mode4,    &amp;
+-     dtx,dfx,snrx,snrsync,ccfblue,ccfred1,flip,width)
+-
+-! Synchronizes JT4 data, finding the best-fit DT and DF.  
+-
+-  parameter (NFFTMAX=2520)         !Max length of FFTs
+-  parameter (NHMAX=NFFTMAX/2)      !Max length of power spectra
+-  parameter (NSMAX=525)            !Max number of half-symbol steps
+-  integer DFTolerance              !Range of DF search
+-  real dat(jz)
+-  real psavg(NHMAX)                !Average spectrum of whole record
+-  real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
+-  real ccfblue(-5:540)             !CCF with pseudorandom sequence
+-  real ccfred(-450:450)            !Peak of ccfblue, as function of freq
+-  real ccfred1(-224:224)           !Peak of ccfblue, as function of freq
+-  real tmp(1260)
+-  integer ipk1(1)
+-  equivalence (ipk1,ipk1a)
+-  save
+-
+-! Do FFTs of twice symbol length, stepped by half symbols.  Note that 
+-! we have already downsampled the data by factor of 2.
+-
+-  nsym=207
+-  nfft=2520
+-  nh=nfft/2
+-  nq=nfft/4
+-  nsteps=jz/nq - 1
+-  df=0.5*11025.0/nfft
+-  psavg(1:nh)=0.
+-
+-  do j=1,nsteps                     !Compute spectrum for each step, get average
+-     k=(j-1)*nq + 1
+-     call ps24(dat(k),nfft,s2(1,j))
+-     psavg(1:nh)=psavg(1:nh) + s2(1:nh,j)
+-  enddo
+-
+-  call flat1(psavg,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten spectra
+-
+-! Set freq and lag ranges
+-  famin=200.
+-  fbmax=2700.
+-  fa=famin
+-  fb=fbmax
+-  if(NFreeze.eq.1) then
+-     fa=max(famin,1270.46+MouseDF-DFTolerance)
+-     fb=min(fbmax,1270.46+MouseDF+DFTolerance)
+-  else
+-     fa=max(famin,1270.46+MouseDF-600)
+-     fb=min(fbmax,1270.46+MouseDF+600)
+-  endif
+-  ia=fa/df
+-  ib=fb/df
+-  if(mode.eq.7) then
+-     ia=ia - 3*mode4
+-     ib=ib - 3*mode4
+-  endif
+-  i0=nint(1270.46/df)
+-  lag1=-5
+-  lag2=59
+-  syncbest=-1.e30
+-  syncbest2=-1.e30
+-  ccfred=0.
+-  if(ia-i0.lt.-450) ia=i0-450
+-  if(ib-i0.gt.450)  ib=i0450
+-  jmax=-1000
+-  jmin=1000
+-
+-  do i=ia,ib                                !Find best frequency channel for CCF
+-
+-     call xcor24(s2,i,nsteps,nsym,lag1,lag2,mode4,ccfblue,ccf0,lagpk0,flip)
+-     j=i-i0
+-     if(mode.eq.7) j=j + 3*mode4
+-     if(j.ge.-372 .and. j.le.372) then
+-        ccfred(j)=ccf0
+-        jmax=max(j,jmax)
+-        jmin=min(j,jmin)
+-     endif
+-
+-! Find rms of the CCF, without main peak
+-     call slope(ccfblue(lag1),lag2-lag1+1,lagpk0-lag1+1.0)
+-     sync=abs(ccfblue(lagpk0))
+-     ppmax=psavg(i)-1.0
+-
+-! Find best sync value
+-     if(sync.gt.syncbest2) then
+-        ipk2=i
+-        lagpk2=lagpk0
+-        syncbest2=sync
+-     endif
+-
+-! We are most interested if snrx will be more than -30 dB.
+-     if(ppmax.gt.0.2938) then            !Corresponds to snrx.gt.-30.0
+-        if(sync.gt.syncbest) then
+-           ipk=i
+-           lagpk=lagpk0
+-           syncbest=sync
+-        endif
+-     endif
+-  enddo
+-
+-! If we found nothing with snrx &gt; -30 dB, take the best sync that *was* found.
+-  if(syncbest.lt.-10.) then
+-     ipk=ipk2
+-     lagpk=lagpk2
+-     syncbest=syncbest2
+-  endif
+-
+-  dfx=(ipk-i0)*df
+-  if(mode.eq.7) dfx=dfx + 3*mode4*df
+-
+-! Peak up in time, at best whole-channel frequency
+-  call xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode4,ccfblue,ccfmax,lagpk,flip)
+-  xlag=lagpk
+-  if(lagpk.gt.lag1 .and. lagpk.lt.lag2) then
+-     call peakup(ccfblue(lagpk-1),ccfmax,ccfblue(lagpk+1),dx2)
+-     xlag=lagpk+dx2
+-  endif
+-
+-! Find rms of the CCF, without the main peak
+-  call slope(ccfblue(lag1),lag2-lag1+1,xlag-lag1+1.0)
+-  sq=0.
+-  nsq=0
+-  do lag=lag1,lag2
+-     if(abs(lag-xlag).gt.2.0) then
+-        sq=sq+ccfblue(lag)**2
+-        nsq=nsq+1
+-     endif
+-  enddo
+-  rms=sqrt(sq/nsq)
+-  snrsync=abs(ccfblue(lagpk))/rms - 1.1                       !Empirical
+-
+-  dt=2.0/11025.0
+-  istart=xlag*nq
+-  dtx=istart*dt
+-  snrx=-99.0
+-  ppmax=psavg(ipk)-1.0
+-
+-  if(ppmax.gt.0.0001) then
+-     snrx=db(ppmax*df/2500.0) + 7.5        !Empirical
+-     if(mode.eq.7) snrx=snrx + 3.0         !Empirical
+-  endif
+-  if(snrx.lt.-33.0) snrx=-33.0
+-  width=df*mode4
+-
+-  ccfred1=0.
+-  jmin=max(jmin,-224)
+-  jmax=min(jmax,224)
+-  do i=jmin,jmax
+-     ccfred1(i)=ccfred(i)
+-  enddo
+-
+-  ipk1=maxloc(ccfred1) - 225
+-  ns=0
+-  s=0.
+-  iw=min(mode4,(ib-ia)/4)
+-  do i=jmin,jmax
+-     if(abs(i-ipk1a).gt.iw) then
+-        s=s+ccfred1(i)
+-        ns=ns+1
+-     endif
+-  enddo
+-  base=s/ns
+-  ccfred1=ccfred1-base
+-  ccf10=0.1*maxval(ccfred1)
+-  do i=ipk1a,jmin,-1
+-     if(ccfred1(i).le.ccf10) exit
+-  enddo
+-  i1=i
+-  do i=ipk1a,jmax
+-     if(ccfred1(i).le.ccf10) exit
+-  enddo
+-  width=df*(i-i1)
+-
+-999 return
+-end subroutine sync24
+-
+
+Copied: trunk/sync4.f90 (from rev 2988, trunk/sync24.f90)
+===================================================================
+--- trunk/sync4.f90	                        (rev 0)
++++ trunk/sync4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,177 @@
++subroutine sync4(dat,jz,DFTolerance,NFreeze,MouseDF,mode,mode4,    &amp;
++     dtx,dfx,snrx,snrsync,ccfblue,ccfred1,flip,width)
++
++! Synchronizes JT4 data, finding the best-fit DT and DF.  
++
++  parameter (NFFTMAX=2520)         !Max length of FFTs
++  parameter (NHMAX=NFFTMAX/2)      !Max length of power spectra
++  parameter (NSMAX=525)            !Max number of half-symbol steps
++  integer DFTolerance              !Range of DF search
++  real dat(jz)
++  real psavg(NHMAX)                !Average spectrum of whole record
++  real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++  real ccfblue(-5:540)             !CCF with pseudorandom sequence
++  real ccfred(-450:450)            !Peak of ccfblue, as function of freq
++  real ccfred1(-224:224)           !Peak of ccfblue, as function of freq
++  real tmp(1260)
++  integer ipk1(1)
++  equivalence (ipk1,ipk1a)
++  save
++
++! Do FFTs of twice symbol length, stepped by half symbols.  Note that 
++! we have already downsampled the data by factor of 2.
++
++  nsym=207
++  nfft=2520
++  nh=nfft/2
++  nq=nfft/4
++  nsteps=jz/nq - 1
++  df=0.5*11025.0/nfft
++  psavg(1:nh)=0.
++
++  do j=1,nsteps                     !Compute spectrum for each step, get average
++     k=(j-1)*nq + 1
++     call ps4(dat(k),nfft,s2(1,j))
++     psavg(1:nh)=psavg(1:nh) + s2(1:nh,j)
++  enddo
++
++  call flat1(psavg,s2,nh,nsteps,NHMAX,NSMAX)        !Flatten spectra
++
++! Set freq and lag ranges
++  famin=200.
++  fbmax=2700.
++  fa=famin
++  fb=fbmax
++  if(NFreeze.eq.1) then
++     fa=max(famin,1270.46+MouseDF-DFTolerance)
++     fb=min(fbmax,1270.46+MouseDF+DFTolerance)
++  else
++     fa=max(famin,1270.46+MouseDF-600)
++     fb=min(fbmax,1270.46+MouseDF+600)
++  endif
++  ia=fa/df
++  ib=fb/df
++  if(mode.eq.7) then
++     ia=ia - 3*mode4
++     ib=ib - 3*mode4
++  endif
++  i0=nint(1270.46/df)
++  lag1=-5
++  lag2=59
++  syncbest=-1.e30
++  syncbest2=-1.e30
++  ccfred=0.
++  if(ia-i0.lt.-450) ia=i0-450
++  if(ib-i0.gt.450)  ib=i0450
++  jmax=-1000
++  jmin=1000
++
++  do i=ia,ib                                !Find best frequency channel for CCF
++
++     call xcor4(s2,i,nsteps,nsym,lag1,lag2,mode4,ccfblue,ccf0,lagpk0,flip)
++     j=i-i0
++     if(mode.eq.7) j=j + 3*mode4
++     if(j.ge.-372 .and. j.le.372) then
++        ccfred(j)=ccf0
++        jmax=max(j,jmax)
++        jmin=min(j,jmin)
++     endif
++
++! Find rms of the CCF, without main peak
++     call slope(ccfblue(lag1),lag2-lag1+1,lagpk0-lag1+1.0)
++     sync=abs(ccfblue(lagpk0))
++     ppmax=psavg(i)-1.0
++
++! Find best sync value
++     if(sync.gt.syncbest2) then
++        ipk2=i
++        lagpk2=lagpk0
++        syncbest2=sync
++     endif
++
++! We are most interested if snrx will be more than -30 dB.
++     if(ppmax.gt.0.2938) then            !Corresponds to snrx.gt.-30.0
++        if(sync.gt.syncbest) then
++           ipk=i
++           lagpk=lagpk0
++           syncbest=sync
++        endif
++     endif
++  enddo
++
++! If we found nothing with snrx &gt; -30 dB, take the best sync that *was* found.
++  if(syncbest.lt.-10.) then
++     ipk=ipk2
++     lagpk=lagpk2
++     syncbest=syncbest2
++  endif
++
++  dfx=(ipk-i0)*df
++  if(mode.eq.7) dfx=dfx + 3*mode4*df
++
++! Peak up in time, at best whole-channel frequency
++  call xcor4(s2,ipk,nsteps,nsym,lag1,lag2,mode4,ccfblue,ccfmax,lagpk,flip)
++  xlag=lagpk
++  if(lagpk.gt.lag1 .and. lagpk.lt.lag2) then
++     call peakup(ccfblue(lagpk-1),ccfmax,ccfblue(lagpk+1),dx2)
++     xlag=lagpk+dx2
++  endif
++
++! Find rms of the CCF, without the main peak
++  call slope(ccfblue(lag1),lag2-lag1+1,xlag-lag1+1.0)
++  sq=0.
++  nsq=0
++  do lag=lag1,lag2
++     if(abs(lag-xlag).gt.2.0) then
++        sq=sq+ccfblue(lag)**2
++        nsq=nsq+1
++     endif
++  enddo
++  rms=sqrt(sq/nsq)
++  snrsync=abs(ccfblue(lagpk))/rms - 1.1                       !Empirical
++
++  dt=2.0/11025.0
++  istart=xlag*nq
++  dtx=istart*dt
++  snrx=-99.0
++  ppmax=psavg(ipk)-1.0
++
++  if(ppmax.gt.0.0001) then
++     snrx=db(ppmax*df/2500.0) + 7.5        !Empirical
++     if(mode.eq.7) snrx=snrx + 3.0         !Empirical
++  endif
++  if(snrx.lt.-33.0) snrx=-33.0
++  width=df*mode4
++
++  ccfred1=0.
++  jmin=max(jmin,-224)
++  jmax=min(jmax,224)
++  do i=jmin,jmax
++     ccfred1(i)=ccfred(i)
++  enddo
++
++  ipk1=maxloc(ccfred1) - 225
++  ns=0
++  s=0.
++  iw=min(mode4,(ib-ia)/4)
++  do i=jmin,jmax
++     if(abs(i-ipk1a).gt.iw) then
++        s=s+ccfred1(i)
++        ns=ns+1
++     endif
++  enddo
++  base=s/ns
++  ccfred1=ccfred1-base
++  ccf10=0.1*maxval(ccfred1)
++  do i=ipk1a,jmin,-1
++     if(ccfred1(i).le.ccf10) exit
++  enddo
++  i1=i
++  do i=ipk1a,jmax
++     if(ccfred1(i).le.ccf10) exit
++  enddo
++  width=df*(i-i1)
++
++999 return
++end subroutine sync4
++
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/wsjt.py	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------ WSJT
++#----------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/wsjt1.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -231,13 +231,12 @@
+ 
+ ! Offset data by about 1 s.
+      jztest=165000
+-     call timer('wsjt24  ',0)
+-     if(jz.ge.jztest) call wsjt24(dat,jz,cfile6,                        &amp;
+-          NClearAve,MinSigdB,DFTolerance,NFreeze,mode,mode4,            &amp;
+-          mycall,hiscall,hisgrid,                                       &amp;
++     call timer('wsjt4   ',0)
++     if(jz.ge.jztest) call wsjt4(dat,jz,cfile6,NClearAve,MinSigdB,      &amp;
++          DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,        &amp;
+           Nseg,MouseDF2,NAgain,ndepth,idf,lumsg,lcum,nspecial,ndf,      &amp;
+           NSyncOK,ccf,psavg,ndiag)
+-     call timer('wsjt24  ',1)
++     call timer('wsjt4   ',1)
+      goto 900
+   endif
+ 
+
+Deleted: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/wsjt24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,198 +0,0 @@
+-subroutine wsjt24(dat,npts,cfile6,NClearAve,MinSigdB,                  &amp;
+-     DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,            &amp;
+-     Nseg,MouseDF,NAgain,ndepth,                                       &amp;
+-     idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag)
+-
+-! Orchestrates the process of decoding JT4 messages, using data that 
+-! have been 2x downsampled.  
+-
+-  parameter (MAXAVE=120)
+-  real dat(npts)                                     !Raw data
+-  real*4 ccfblue(-5:540)                             !CCF in time
+-  real*4 ccfred(-224:224)                            !CCF in frequency
+-  integer DFTolerance
+-  logical first
+-  logical lcum
+-  character decoded*22,cfile6*6,special*5,cooo*3
+-  character*22 avemsg1,avemsg2,deepmsg
+-  character*77 line,ave1,ave2
+-  character*1 csync,c1
+-  character*12 mycall
+-  character*12 hiscall
+-  character*6 hisgrid
+-  character submode*1
+-  real*4 ccfbluesum(-5:540),ccfredsum(-224:224)
+-  integer nch(7)
+-  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+-  data first/.true./,ns10/0/,ns20/0/
+-  data nch/1,2,4,9,18,36,72/
+-  save
+-
+-  if(first) then
+-     nsave=0
+-     first=.false.
+-     ave1=' '
+-     ave2=' '
+-     ccfblue=0.
+-     ccfred=0.
+-     if(nspecial.eq.999) go to 900        !Silence compiler warning
+-  endif
+-
+-  naggressive=0
+-  if(ndepth.ge.2) naggressive=1
+-  nq1=3
+-  nq2=6
+-  if(naggressive.eq.1) nq1=1
+-
+-  if(NClearAve.ne.0) then
+-     nsave=0                        !Clear the averaging accumulators
+-     ns10=0
+-     ns20=0
+-     ave1=' '
+-     ave2=' '
+-  endif
+-  if(MinSigdB.eq.99 .or. MinSigdB.eq.-99) then
+-     ns10=0                         !For Include/Exclude ?
+-     ns20=0
+-  endif
+-
+-! Attempt to synchronize: look for sync pattern, get DF and DT.
+-  call timer('sync24  ',0)
+-  call sync24(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
+-       mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
+-  call timer('sync24  ',1)
+-
+-  call timer('snr4    ',0)
+-  call snr4(ccfblue,snrsync,snrx)          !### New calc of sync, snr ###
+-  call timer('snr4    ',1)
+-  
+-  csync=' '
+-  decoded='                      '
+-  deepmsg='                      '
+-  special='     '
+-  cooo='   '
+-  ncount=-1             !Flag for convolutional decode of current record
+-  ncount1=-1            !Flag for convolutional decode of ave1
+-  ncount2=-1            !Flag for convolutional decode of ave2
+-  NSyncOK=0
+-  nqual1=0
+-  nqual2=0
+-
+-  if(nsave.lt.MAXAVE .and. (NAgain.eq.0 .or. NClearAve.eq.1)) nsave=nsave+1
+-  if(nsave.le.0) go to 900          !Prevent bounds error
+-  
+-  nflag(nsave)=0                    !Clear the &quot;good sync&quot; flag
+-  iseg(nsave)=Nseg                  !Set the RX segment to 1 or 2
+-
+-  nsync=snrsync
+-  nsnr=nint(snrx)
+-  nsnrlim=-33
+-  if(nsnr.lt.nsnrlim .or. nsync.lt.0) nsync=0
+-  if(nsync.lt.MinSigdB .or. nsnr.lt.nsnrlim) go to 200
+-
+-! If we get here, we have achieved sync!
+-  NSyncOK=1
+-  nflag(nsave)=1            !Mark this RX file as good
+-  csync='*'
+-  if(flip.lt.0.0) then
+-     csync='#'
+-     cooo='O ?'
+-  endif
+-
+-  call timer('decode24',0)
+-  call decode24(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,    &amp;
+-       hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
+-  call timer('decode24',1)
+-
+-200 kvqual=0
+-  if(ncount.ge.0) kvqual=1
+-  nqual=qual
+-! if(ndiag.eq.0 .and. nqual.gt.10) nqual=10
+-  if(nqual.ge.nq1 .and.kvqual.eq.0) decoded=deepmsg
+-
+-  ndf=nint(dfx)
+-  if(flip.lt.0.0 .and. (kvqual.eq.1 .or. nqual.ge.nq2)) cooo='OOO'
+-  if(kvqual.eq.0.and.nqual.ge.nq1.and.nqual.lt.nq2) cooo(2:3)=' ?'
+-  if(decoded.eq.'                      ') cooo='   '
+-  do i=1,22
+-     c1=decoded(i:i)
+-     if(c1.ge.'a' .and. c1.le.'z') decoded(i:i)=char(ichar(c1)-32)
+-  enddo
+-  jdf=ndf+idf
+-  do i=22,1,-1
+-     if(decoded(i:i).ne.' ') exit
+-  enddo
+-  if(i.le.20) decoded(i+2:)=cooo
+-!  if(nqual.lt.6) decoded(22:22)='?'               !### ??? ###
+-
+-  call cs_lock('wsjt24')
+-  write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
+-       csync,special,decoded,kvqual,nqual,submode
+-1010 format(a6,i3,i5,f5.1,i5,i4,1x,a1,1x,a5,a22,i4,i5,1x,a1)
+-
+-! Blank all end-of-line stuff if no decode
+-  if(line(31:40).eq.'          ') line=line(:30)
+-
+-  if(lcum) write(21,1011) line
+-
+-! Write decoded msg unless this is an &quot;Exclude&quot; request:
+-  if(MinSigdB.lt.99) write(lumsg,1011) line
+-1011 format(a77)
+-  call cs_unlock
+-
+-  call timer('avemsg4 ',0)
+-  if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
+-       avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,ns1,ncount1)
+-  if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
+-       avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,ns2,ncount2)
+-  call timer('avemsg4 ',1)
+-  nqual1=qual1
+-  nqual2=qual2
+-! if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
+-! if(ndiag.eq.0 .and. nqual2.gt.10) nqual2=10
+-  nc1=0
+-  nc2=0
+-  if(ncount1.ge.0) nc1=1
+-  if(ncount2.ge.0) nc2=1
+-
+-  call cs_lock('wsjt24  ')
+-  if(ns1.ge.1) then                            !Write the average line
+-     if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
+-1021 format(a6,i3,i4,'/',i1,21x,a19,i7,i5)
+-     if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
+-          1,nused1,ns1,avemsg1,nc1,nqual1
+-1022 format(a6,i3,i4,'/',i2,20x,a19,i7,i5)
+-     if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
+-          avemsg1,nc1,nqual1
+-1023 format(a6,i3,i4,'/',i3,19x,a19,i7,i5)
+-     if(lcum .and. (avemsg1.ne.'                  '))                &amp;
+-          write(21,1011) ave1
+-     ns10=ns1
+-  endif
+-
+-! If Monitor segment #2 is available, write that line also
+-  if(ns2.ge.1) then
+-     if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
+-     if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,       &amp;
+-          2,nused2,ns2,avemsg2,nc2,nqual2
+-     if(ns2.ge.100) write(ave2,1023) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
+-     if(lcum .and. (avemsg2.ne.'                  '))               &amp;
+-          write(21,1011) ave2
+-     ns20=ns2
+-  endif
+-
+-  if(ave1(31:40).eq.'          ') ave1=ave1(:30)
+-  if(ave2(31:40).eq.'          ') ave2=ave2(:30)
+-  write(12,1011) ave1
+-  write(12,1011) ave2
+-  call flush(12)
+-  call cs_unlock
+-  
+-900 continue
+-
+-  ccfbluesum=ccfbluesum + ccfblue
+-  ccfredsum=ccfredsum + ccfred
+-  if(mode4.gt.1 .and. ichbest.gt.1) ccfred=ccfred*sqrt(float(nch(ichbest)))
+-
+-  return
+-end subroutine wsjt24
+
+Copied: trunk/wsjt4.f90 (from rev 2988, trunk/wsjt24.f90)
+===================================================================
+--- trunk/wsjt4.f90	                        (rev 0)
++++ trunk/wsjt4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,197 @@
++subroutine wsjt4(dat,npts,cfile6,NClearAve,MinSigdB,DFTolerance,NFreeze,   &amp;
++     mode,mode4,mycall,hiscall,hisgrid,Nseg,MouseDF,NAgain,ndepth,         &amp;
++     idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag)
++
++! Orchestrates the process of decoding JT4 messages, using data that 
++! have been 2x downsampled.  
++
++  parameter (MAXAVE=120)
++  real dat(npts)                                     !Raw data
++  real*4 ccfblue(-5:540)                             !CCF in time
++  real*4 ccfred(-224:224)                            !CCF in frequency
++  integer DFTolerance
++  logical first
++  logical lcum
++  character decoded*22,cfile6*6,special*5,cooo*3
++  character*22 avemsg1,avemsg2,deepmsg
++  character*77 line,ave1,ave2
++  character*1 csync,c1
++  character*12 mycall
++  character*12 hiscall
++  character*6 hisgrid
++  character submode*1
++  real*4 ccfbluesum(-5:540),ccfredsum(-224:224)
++  integer nch(7)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  data first/.true./,ns10/0/,ns20/0/
++  data nch/1,2,4,9,18,36,72/
++  save
++
++  if(first) then
++     nsave=0
++     first=.false.
++     ave1=' '
++     ave2=' '
++     ccfblue=0.
++     ccfred=0.
++     if(nspecial.eq.999) go to 900        !Silence compiler warning
++  endif
++
++  naggressive=0
++  if(ndepth.ge.2) naggressive=1
++  nq1=3
++  nq2=6
++  if(naggressive.eq.1) nq1=1
++
++  if(NClearAve.ne.0) then
++     nsave=0                        !Clear the averaging accumulators
++     ns10=0
++     ns20=0
++     ave1=' '
++     ave2=' '
++  endif
++  if(MinSigdB.eq.99 .or. MinSigdB.eq.-99) then
++     ns10=0                         !For Include/Exclude ?
++     ns20=0
++  endif
++
++! Attempt to synchronize: look for sync pattern, get DF and DT.
++  call timer('sync4   ',0)
++  call sync4(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
++       mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
++  call timer('sync4   ',1)
++
++  call timer('snr4    ',0)
++  call snr4(ccfblue,snrsync,snrx)          !### New calc of sync, snr ###
++  call timer('snr4    ',1)
++  
++  csync=' '
++  decoded='                      '
++  deepmsg='                      '
++  special='     '
++  cooo='   '
++  ncount=-1             !Flag for convolutional decode of current record
++  ncount1=-1            !Flag for convolutional decode of ave1
++  ncount2=-1            !Flag for convolutional decode of ave2
++  NSyncOK=0
++  nqual1=0
++  nqual2=0
++
++  if(nsave.lt.MAXAVE .and. (NAgain.eq.0 .or. NClearAve.eq.1)) nsave=nsave+1
++  if(nsave.le.0) go to 900          !Prevent bounds error
++  
++  nflag(nsave)=0                    !Clear the &quot;good sync&quot; flag
++  iseg(nsave)=Nseg                  !Set the RX segment to 1 or 2
++
++  nsync=snrsync
++  nsnr=nint(snrx)
++  nsnrlim=-33
++  if(nsnr.lt.nsnrlim .or. nsync.lt.0) nsync=0
++  if(nsync.lt.MinSigdB .or. nsnr.lt.nsnrlim) go to 200
++
++! If we get here, we have achieved sync!
++  NSyncOK=1
++  nflag(nsave)=1            !Mark this RX file as good
++  csync='*'
++  if(flip.lt.0.0) then
++     csync='#'
++     cooo='O ?'
++  endif
++
++  call timer('decode4 ',0)
++  call decode4(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,    &amp;
++       hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
++  call timer('decode4 ',1)
++
++200 kvqual=0
++  if(ncount.ge.0) kvqual=1
++  nqual=qual
++! if(ndiag.eq.0 .and. nqual.gt.10) nqual=10
++  if(nqual.ge.nq1 .and.kvqual.eq.0) decoded=deepmsg
++
++  ndf=nint(dfx)
++  if(flip.lt.0.0 .and. (kvqual.eq.1 .or. nqual.ge.nq2)) cooo='OOO'
++  if(kvqual.eq.0.and.nqual.ge.nq1.and.nqual.lt.nq2) cooo(2:3)=' ?'
++  if(decoded.eq.'                      ') cooo='   '
++  do i=1,22
++     c1=decoded(i:i)
++     if(c1.ge.'a' .and. c1.le.'z') decoded(i:i)=char(ichar(c1)-32)
++  enddo
++  jdf=ndf+idf
++  do i=22,1,-1
++     if(decoded(i:i).ne.' ') exit
++  enddo
++  if(i.le.20) decoded(i+2:)=cooo
++!  if(nqual.lt.6) decoded(22:22)='?'               !### ??? ###
++
++  call cs_lock('wsjt4')
++  write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
++       csync,special,decoded,kvqual,nqual,submode
++1010 format(a6,i3,i5,f5.1,i5,i4,1x,a1,1x,a5,a22,i4,i5,1x,a1)
++
++! Blank all end-of-line stuff if no decode
++  if(line(31:40).eq.'          ') line=line(:30)
++
++  if(lcum) write(21,1011) line
++
++! Write decoded msg unless this is an &quot;Exclude&quot; request:
++  if(MinSigdB.lt.99) write(lumsg,1011) line
++1011 format(a77)
++  call cs_unlock
++
++  call timer('avemsg4 ',0)
++  if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
++       avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,ns1,ncount1)
++  if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
++       avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,ns2,ncount2)
++  call timer('avemsg4 ',1)
++  nqual1=qual1
++  nqual2=qual2
++! if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
++! if(ndiag.eq.0 .and. nqual2.gt.10) nqual2=10
++  nc1=0
++  nc2=0
++  if(ncount1.ge.0) nc1=1
++  if(ncount2.ge.0) nc2=1
++
++  call cs_lock('wsjt4   ')
++  if(ns1.ge.1) then                            !Write the average line
++     if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
++1021 format(a6,i3,i4,'/',i1,21x,a19,i7,i5)
++     if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
++          1,nused1,ns1,avemsg1,nc1,nqual1
++1022 format(a6,i3,i4,'/',i2,20x,a19,i7,i5)
++     if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
++          avemsg1,nc1,nqual1
++1023 format(a6,i3,i4,'/',i3,19x,a19,i7,i5)
++     if(lcum .and. (avemsg1.ne.'                  '))                &amp;
++          write(21,1011) ave1
++     ns10=ns1
++  endif
++
++! If Monitor segment #2 is available, write that line also
++  if(ns2.ge.1) then
++     if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
++     if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,       &amp;
++          2,nused2,ns2,avemsg2,nc2,nqual2
++     if(ns2.ge.100) write(ave2,1023) cfile6,2,nused2,ns2,avemsg2,nc2,nqual2
++     if(lcum .and. (avemsg2.ne.'                  '))               &amp;
++          write(21,1011) ave2
++     ns20=ns2
++  endif
++
++  if(ave1(31:40).eq.'          ') ave1=ave1(:30)
++  if(ave2(31:40).eq.'          ') ave2=ave2(:30)
++  write(12,1011) ave1
++  write(12,1011) ave2
++  call flush(12)
++  call cs_unlock
++  
++900 continue
++
++  ccfbluesum=ccfbluesum + ccfblue
++  ccfredsum=ccfredsum + ccfred
++  if(mode4.gt.1 .and. ichbest.gt.1) ccfred=ccfred*sqrt(float(nch(ichbest)))
++
++  return
++end subroutine wsjt4
+
+Modified: trunk/wsjtgen.f90
+===================================================================
+--- trunk/wsjtgen.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/wsjtgen.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -141,7 +141,7 @@
+         sendingsh=0
+         msgsent=msg
+      else if(mode(1:3).eq.'JT4' ) then
+-        call gen24(msg,mode4,samfacout,ntxdf,iwave,nwave,                 &amp;
++        call gen4(msg,mode4,samfacout,ntxdf,iwave,nwave,                  &amp;
+              sendingsh,msg22,nmsg0)
+         msgsent=msg22
+      else if(mode(1:5).eq.'Diana') then
+
+Deleted: trunk/xcor24.f90
+===================================================================
+--- trunk/xcor24.f90	2013-01-29 01:35:46 UTC (rev 2988)
++++ trunk/xcor24.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -1,94 +0,0 @@
+-subroutine xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode4,ccf,ccf0,lagpk,flip)
+-
+-! Computes ccf of a row of s2 and the pseudo-random array pr2.  Returns
+-! peak of the CCF and the lag at which peak occurs.  For JT65, the 
+-! CCF peak may be either positive or negative, with negative implying
+-! the &quot;OOO&quot; message.
+-
+-  parameter (NHMAX=1260)           !Max length of power spectra
+-  parameter (NSMAX=525)            !Max number of half-symbol steps
+-  real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
+-  real a(NSMAX)
+-  real ccf(-5:540)
+-  integer npr2(207)
+-  real pr2(207)
+-  logical first
+-  data lagmin/0/                    !Silence g77 warning
+-  data first/.true./
+-  data npr2/                                                        &amp;
+-       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0, &amp;
+-       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0, &amp;
+-       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1, &amp;
+-       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1, &amp;
+-       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1, &amp;
+-       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1, &amp;
+-       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
+-  save
+-
+-  if(first) then
+-     do i=1,207
+-        pr2(i)=2*npr2(i)-1
+-     enddo
+-     first=.false.
+-  endif
+-
+-  do j=1,nsteps
+-     n=2*mode4
+-     if(mode4.eq.1) then
+-        a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - max(s2(ipk  ,j),s2(ipk+2*n,j))
+-     else
+-        kz=mode4/2
+-        ss0=0.
+-        ss1=0.
+-        ss2=0.
+-        ss3=0.
+-        wsum=0.
+-        do k=-kz+1,kz-1
+-           w=float(kz-iabs(k))/mode4
+-           wsum=wsum+w
+-           if(ipk+k.lt.1 .or. ipk+3*n+k.gt.1260) then
+-              print*,'xcor24:',ipk,n,k
+-           else
+-              ss0=ss0 + w*s2(ipk    +k,j)
+-              ss1=ss1 + w*s2(ipk+  n+k,j)
+-              ss2=ss2 + w*s2(ipk+2*n+k,j)
+-              ss3=ss3 + w*s2(ipk+3*n+k,j)
+-           endif
+-        enddo
+-        a(j)=(max(ss1,ss3) - max(ss0,ss2))/sqrt(wsum)
+-     endif
+-  enddo
+-
+-  ccfmax=0.
+-  ccfmin=0.
+-  do lag=lag1,lag2
+-     x=0.
+-     do i=1,nsym
+-        j=2*i-1+lag
+-        if(j.ge.1 .and. j.le.nsteps) x=x+a(j)*pr2(i)
+-     enddo
+-     ccf(lag)=2*x                        !The 2 is for plotting scale
+-     if(ccf(lag).gt.ccfmax) then
+-        ccfmax=ccf(lag)
+-        lagpk=lag
+-     endif
+-
+-     if(ccf(lag).lt.ccfmin) then
+-        ccfmin=ccf(lag)
+-        lagmin=lag
+-     endif
+-  enddo
+-
+-  ccf0=ccfmax
+-  flip=1.0
+-  if(-ccfmin.gt.ccfmax) then
+-     do lag=lag1,lag2
+-        ccf(lag)=-ccf(lag)
+-     enddo
+-     lagpk=lagmin
+-     ccf0=-ccfmin
+-     flip=-1.0
+-  endif
+-
+-  return
+-end subroutine xcor24
+
+Copied: trunk/xcor4.f90 (from rev 2988, trunk/xcor24.f90)
+===================================================================
+--- trunk/xcor4.f90	                        (rev 0)
++++ trunk/xcor4.f90	2013-01-29 16:18:41 UTC (rev 2989)
+@@ -0,0 +1,94 @@
++subroutine xcor4(s2,ipk,nsteps,nsym,lag1,lag2,mode4,ccf,ccf0,lagpk,flip)
++
++! Computes ccf of a row of s2 and the pseudo-random array pr2.  Returns
++! peak of the CCF and the lag at which peak occurs.  For JT65, the 
++! CCF peak may be either positive or negative, with negative implying
++! the &quot;OOO&quot; message.
++
++  parameter (NHMAX=1260)           !Max length of power spectra
++  parameter (NSMAX=525)            !Max number of half-symbol steps
++  real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++  real a(NSMAX)
++  real ccf(-5:540)
++  integer npr2(207)
++  real pr2(207)
++  logical first
++  data lagmin/0/                    !Silence g77 warning
++  data first/.true./
++  data npr2/                                                        &amp;
++       0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0, &amp;
++       0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0, &amp;
++       1,0,0,1,0,0,1,1,1,1,1,0,0,0,1,0,1,0,0,0,1,1,1,1,0,1,1,0,0,1, &amp;
++       0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,1, &amp;
++       0,1,1,1,0,0,1,0,1,1,0,1,1,1,1,0,0,0,0,1,1,0,1,1,0,0,0,1,1,1, &amp;
++       0,1,1,1,0,1,1,1,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,0,0,1,1,1,1,1, &amp;
++       1,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,0,1,1,1,1,0,1,0,1/
++  save
++
++  if(first) then
++     do i=1,207
++        pr2(i)=2*npr2(i)-1
++     enddo
++     first=.false.
++  endif
++
++  do j=1,nsteps
++     n=2*mode4
++     if(mode4.eq.1) then
++        a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - max(s2(ipk  ,j),s2(ipk+2*n,j))
++     else
++        kz=mode4/2
++        ss0=0.
++        ss1=0.
++        ss2=0.
++        ss3=0.
++        wsum=0.
++        do k=-kz+1,kz-1
++           w=float(kz-iabs(k))/mode4
++           wsum=wsum+w
++           if(ipk+k.lt.1 .or. ipk+3*n+k.gt.1260) then
++              print*,'xcor4:',ipk,n,k
++           else
++              ss0=ss0 + w*s2(ipk    +k,j)
++              ss1=ss1 + w*s2(ipk+  n+k,j)
++              ss2=ss2 + w*s2(ipk+2*n+k,j)
++              ss3=ss3 + w*s2(ipk+3*n+k,j)
++           endif
++        enddo
++        a(j)=(max(ss1,ss3) - max(ss0,ss2))/sqrt(wsum)
++     endif
++  enddo
++
++  ccfmax=0.
++  ccfmin=0.
++  do lag=lag1,lag2
++     x=0.
++     do i=1,nsym
++        j=2*i-1+lag
++        if(j.ge.1 .and. j.le.nsteps) x=x+a(j)*pr2(i)
++     enddo
++     ccf(lag)=2*x                        !The 2 is for plotting scale
++     if(ccf(lag).gt.ccfmax) then
++        ccfmax=ccf(lag)
++        lagpk=lag
++     endif
++
++     if(ccf(lag).lt.ccfmin) then
++        ccfmin=ccf(lag)
++        lagmin=lag
++     endif
++  enddo
++
++  ccf0=ccfmax
++  flip=1.0
++  if(-ccfmin.gt.ccfmax) then
++     do lag=lag1,lag2
++        ccf(lag)=-ccf(lag)
++     enddo
++     lagpk=lagmin
++     ccf0=-ccfmin
++     flip=-1.0
++  endif
++
++  return
++end subroutine xcor4
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002680.html">[WSJT-SVN] r2988 - branches/wsprx/lib
+</A></li>
+	<LI>Next message: <A HREF="002682.html">[WSJT-SVN] r2990 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2681">[ date ]</a>
+              <a href="thread.html#2681">[ thread ]</a>
+              <a href="subject.html#2681">[ subject ]</a>
+              <a href="author.html#2681">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

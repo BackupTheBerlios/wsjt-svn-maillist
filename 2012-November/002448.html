@@ -1,0 +1,1369 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2756 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2756%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121121174253.D520B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002447.html">
+   <LINK REL="Next"  HREF="002449.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2756 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2756%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121121174253.D520B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2756 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Nov 21 18:42:53 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002447.html">[WSJT-SVN] r2755 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002449.html">[WSJT-SVN] r2757 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2448">[ date ]</a>
+              <a href="thread.html#2448">[ thread ]</a>
+              <a href="subject.html#2448">[ subject ]</a>
+              <a href="author.html#2448">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-21 18:42:53 +0100 (Wed, 21 Nov 2012)
+New Revision: 2756
+
+Added:
+   branches/wsjtx/killbyname.cpp
+   branches/wsjtx/lib/afc9.f90
+   branches/wsjtx/lib/fchisq.f90
+   branches/wsjtx/lib/jt9a.F90
+Removed:
+   branches/wsjtx/lib/jt9a.f90
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/ipcomm.cpp
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/wsjtx.pro
+Log:
+Now working with decoding done in a separate process, jt9.exe.
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/commons.h	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -8,6 +8,7 @@
+ extern struct {
+   float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
++  float c0[2*1800*1500];
+   short int d2[1800*12000];
+   int nutc;                         //UTC as integer, HHMM
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+@@ -15,12 +16,17 @@
+   int nfqso;                        //User-selected QSO freq (kHz)
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int npts8;                        //npts for c0() array
+-  int nfb;                          //High decode limit (kHz)
++  int nfa;                          //Low decode limit (Hz)
++  int nfb;                          //High decode limit (Hz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+   int kin;
+   int nzhsym;
+-  int nsynced;
+-  int ndecoded;
++  int nsave;
++  int nagain;
++  int ndepth;
++  int nrxlog;
++  int nfsample;
++  char datetime[20];
+ } jt9com_;
+ 
+ }
+
+Added: branches/wsjtx/killbyname.cpp
+===================================================================
+--- branches/wsjtx/killbyname.cpp	                        (rev 0)
++++ branches/wsjtx/killbyname.cpp	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -0,0 +1,282 @@
++#include &lt;windows.h&gt;
++#include &lt;tlhelp32.h&gt;
++#include &lt;iostream&gt;
++
++int killbyname(const char *szToTerminate)
++// Created: 6/23/2000  (Ravi Kochhar)
++// Last modified: 3/10/2002  (RK)
++// Please report any problems or bugs to <A HREF="https://lists.berlios.de/mailman/listinfo/wsjt-svn">kochhar at physiology.wisc.edu</A>
++// The latest version of this routine can be found at:
++//     <A HREF="http://www.neurophys.wisc.edu/ravi/software/killproc/">http://www.neurophys.wisc.edu/ravi/software/killproc/</A>
++// Terminate the process &quot;szToTerminate&quot; if it is currently running
++// This works for Win/95/98/ME and also Win/NT/2000/XP
++// The process name is case-insensitive, i.e. &quot;notepad.exe&quot; and &quot;NOTEPAD.EXE&quot;
++// will both work (for szToTerminate)
++// Return codes are as follows:
++//   0   = Process was successfully terminated
++//   602 = Unable to terminate process for some other reason
++//   603 = Process was not currently running
++//   604 = No permission to terminate process
++//   605 = Unable to load PSAPI.DLL
++//   606 = Unable to identify system type
++//   607 = Unsupported OS
++//   632 = Invalid process name
++//   700 = Unable to get procedure address from PSAPI.DLL
++//   701 = Unable to get process list, EnumProcesses failed
++//   702 = Unable to load KERNEL32.DLL
++//   703 = Unable to get procedure address from KERNEL32.DLL
++//   704 = CreateToolhelp32Snapshot failed
++
++{
++  BOOL bResult,bResultm;
++  DWORD aiPID[1000],iCb=1000,iNumProc;  //,iV2000=0;
++  DWORD iCbneeded,i,iFound=0;
++  char szName[MAX_PATH],szToTermUpper[MAX_PATH];
++  HANDLE hProc,hSnapShot,hSnapShotm;
++  OSVERSIONINFO osvi;
++  HINSTANCE hInstLib;
++  int iLen,iLenP,indx;
++  HMODULE hMod;
++  PROCESSENTRY32 procentry;
++  MODULEENTRY32 modentry;
++
++  // Transfer Process name into &quot;szToTermUpper&quot; and convert to upper case
++  iLenP=strlen(szToTerminate);
++  if(iLenP&lt;1 || iLenP&gt;MAX_PATH) return 632;
++  for(indx=0;indx&lt;iLenP;indx++)
++    szToTermUpper[indx]=toupper(szToTerminate[indx]);
++  szToTermUpper[iLenP]=0;
++
++  // PSAPI Function Pointers.
++  BOOL (WINAPI *lpfEnumProcesses)( DWORD *, DWORD cb, DWORD * );
++  BOOL (WINAPI *lpfEnumProcessModules)( HANDLE, HMODULE *,
++                                        DWORD, LPDWORD );
++  DWORD (WINAPI *lpfGetModuleBaseName)( HANDLE, HMODULE,
++                                        LPTSTR, DWORD );
++
++  // ToolHelp Function Pointers.
++  HANDLE (WINAPI *lpfCreateToolhelp32Snapshot)(DWORD,DWORD) ;
++  BOOL (WINAPI *lpfProcess32First)(HANDLE,LPPROCESSENTRY32) ;
++  BOOL (WINAPI *lpfProcess32Next)(HANDLE,LPPROCESSENTRY32) ;
++  BOOL (WINAPI *lpfModule32First)(HANDLE,LPMODULEENTRY32) ;
++  BOOL (WINAPI *lpfModule32Next)(HANDLE,LPMODULEENTRY32) ;
++
++  // First check what version of Windows we're in
++  osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
++  bResult=GetVersionEx(&amp;osvi);
++  if(!bResult) return 606;    // Unable to identify system version
++
++  // At Present we only support Win/NT/2000/XP or Win/9x/ME
++  // Seems to work OK in Win7
++  if((osvi.dwPlatformId != VER_PLATFORM_WIN32_NT) &amp;&amp;
++     (osvi.dwPlatformId != VER_PLATFORM_WIN32_WINDOWS)) return 607;
++
++  if(osvi.dwPlatformId==VER_PLATFORM_WIN32_NT)
++  {
++    // Win/NT or 2000 or XP
++
++    // Load library and get the procedures explicitly. We do
++    // this so that we don't have to worry about modules using
++    // this code failing to load under Windows 9x, because
++    // it can't resolve references to the PSAPI.DLL.
++    hInstLib = LoadLibraryA(&quot;PSAPI.DLL&quot;);
++    if(hInstLib == NULL) return 605;
++
++    // Get procedure addresses.
++    lpfEnumProcesses = (BOOL(WINAPI *)(DWORD *,DWORD,DWORD*))
++        GetProcAddress( hInstLib, &quot;EnumProcesses&quot; ) ;
++    lpfEnumProcessModules = (BOOL(WINAPI *)(HANDLE, HMODULE *,
++        DWORD, LPDWORD)) GetProcAddress( hInstLib,                                                                     &quot;EnumProcessModules&quot; ) ;
++        lpfGetModuleBaseName =(DWORD (WINAPI *)(HANDLE, HMODULE, LPTSTR,
++        DWORD )) GetProcAddress( hInstLib, &quot;GetModuleBaseNameA&quot; ) ;
++
++    if(lpfEnumProcesses == NULL || lpfEnumProcessModules == NULL ||
++         lpfGetModuleBaseName == NULL) {
++      FreeLibrary(hInstLib);
++      return 700;
++    }
++
++    bResult=lpfEnumProcesses(aiPID,iCb,&amp;iCbneeded);
++    if(!bResult) {
++      // Unable to get process list, EnumProcesses failed
++      FreeLibrary(hInstLib);
++      return 701;
++    }
++
++    // How many processes are there?
++    iNumProc=iCbneeded/sizeof(DWORD);
++
++    // Get and match the name of each process
++    for(i=0;i&lt;iNumProc;i++) {
++      // Get the (module) name for this process
++      strcpy(szName,&quot;Unknown&quot;);
++      // First, get a handle to the process
++      hProc=OpenProcess(PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,FALSE,
++                        aiPID[i]);
++      // Now, get the process name
++      if(hProc) {
++        if(lpfEnumProcessModules(hProc,&amp;hMod,sizeof(hMod),&amp;iCbneeded) ) {
++          iLen=lpfGetModuleBaseName(hProc,hMod,szName,MAX_PATH);
++        }
++      }
++      CloseHandle(hProc);
++      // We will match regardless of lower or upper case
++      if(strcmp(_strupr(szName),szToTermUpper)==0) {
++        // Process found, now terminate it
++        iFound=1;
++        // First open for termination
++        hProc=OpenProcess(PROCESS_TERMINATE,FALSE,aiPID[i]);
++        if(hProc) {
++          if(TerminateProcess(hProc,0)) {
++            // process terminated
++            CloseHandle(hProc);
++            FreeLibrary(hInstLib);
++            return 0;
++          } else {
++            // Unable to terminate process
++            CloseHandle(hProc);
++            FreeLibrary(hInstLib);
++            return 602;
++          }
++        } else {
++          // Unable to open process for termination
++          FreeLibrary(hInstLib);
++          return 604;
++        }
++      }
++    }
++  }
++
++  if(osvi.dwPlatformId==VER_PLATFORM_WIN32_WINDOWS)
++  {
++    // Win/95 or 98 or ME
++
++    hInstLib = LoadLibraryA(&quot;Kernel32.DLL&quot;);
++    if( hInstLib == NULL )
++      return 702;
++
++    // Get procedure addresses.
++    // We are linking to these functions of Kernel32
++    // explicitly, because otherwise a module using
++    // this code would fail to load under Windows NT,
++    // which does not have the Toolhelp32
++    // functions in the Kernel 32.
++    lpfCreateToolhelp32Snapshot=
++        (HANDLE(WINAPI *)(DWORD,DWORD))
++        GetProcAddress( hInstLib,
++                        &quot;CreateToolhelp32Snapshot&quot; ) ;
++    lpfProcess32First=
++        (BOOL(WINAPI *)(HANDLE,LPPROCESSENTRY32))
++        GetProcAddress( hInstLib, &quot;Process32First&quot; ) ;
++    lpfProcess32Next=
++        (BOOL(WINAPI *)(HANDLE,LPPROCESSENTRY32))
++        GetProcAddress( hInstLib, &quot;Process32Next&quot; ) ;
++    lpfModule32First=
++        (BOOL(WINAPI *)(HANDLE,LPMODULEENTRY32))
++        GetProcAddress( hInstLib, &quot;Module32First&quot; ) ;
++    lpfModule32Next=
++        (BOOL(WINAPI *)(HANDLE,LPMODULEENTRY32))
++        GetProcAddress( hInstLib, &quot;Module32Next&quot; ) ;
++    if( lpfProcess32Next == NULL ||
++        lpfProcess32First == NULL ||
++        lpfModule32Next == NULL ||
++        lpfModule32First == NULL ||
++        lpfCreateToolhelp32Snapshot == NULL )
++    {
++      FreeLibrary(hInstLib);
++      return 703;
++    }
++
++    // The Process32.. and Module32.. routines return names in all uppercase
++
++    // Get a handle to a Toolhelp snapshot of all the systems processes.
++
++    hSnapShot = lpfCreateToolhelp32Snapshot(
++          TH32CS_SNAPPROCESS, 0 ) ;
++    if( hSnapShot == INVALID_HANDLE_VALUE )
++    {
++      FreeLibrary(hInstLib);
++      return 704;
++    }
++
++    // Get the first process' information.
++    procentry.dwSize = sizeof(PROCESSENTRY32);
++    bResult=lpfProcess32First(hSnapShot,&amp;procentry);
++
++    // While there are processes, keep looping and checking.
++    while(bResult)
++    {
++      // Get a handle to a Toolhelp snapshot of this process.
++      hSnapShotm = lpfCreateToolhelp32Snapshot(
++            TH32CS_SNAPMODULE, procentry.th32ProcessID) ;
++      if( hSnapShotm == INVALID_HANDLE_VALUE )
++      {
++        CloseHandle(hSnapShot);
++        FreeLibrary(hInstLib);
++        return 704;
++      }
++      // Get the module list for this process
++      modentry.dwSize=sizeof(MODULEENTRY32);
++      bResultm=lpfModule32First(hSnapShotm,&amp;modentry);
++
++      // While there are modules, keep looping and checking
++      while(bResultm)
++      {
++        if(strcmp(modentry.szModule,szToTermUpper)==0)
++        {
++          // Process found, now terminate it
++          iFound=1;
++          // First open for termination
++          hProc=OpenProcess(PROCESS_TERMINATE,FALSE,procentry.th32ProcessID);
++          if(hProc)
++          {
++            if(TerminateProcess(hProc,0))
++            {
++              // process terminated
++              CloseHandle(hSnapShotm);
++              CloseHandle(hSnapShot);
++              CloseHandle(hProc);
++              FreeLibrary(hInstLib);
++              return 0;
++            }
++            else
++            {
++              // Unable to terminate process
++              CloseHandle(hSnapShotm);
++              CloseHandle(hSnapShot);
++              CloseHandle(hProc);
++              FreeLibrary(hInstLib);
++              return 602;
++            }
++          }
++          else
++          {
++            // Unable to open process for termination
++            CloseHandle(hSnapShotm);
++            CloseHandle(hSnapShot);
++            FreeLibrary(hInstLib);
++            return 604;
++          }
++        }
++        else
++        {  // Look for next modules for this process
++          modentry.dwSize=sizeof(MODULEENTRY32);
++          bResultm=lpfModule32Next(hSnapShotm,&amp;modentry);
++        }
++      }
++
++      //Keep looking
++      CloseHandle(hSnapShotm);
++      procentry.dwSize = sizeof(PROCESSENTRY32);
++      bResult = lpfProcess32Next(hSnapShot,&amp;procentry);
++    }
++    CloseHandle(hSnapShot);
++  }
++  if(iFound==0)
++  {
++    FreeLibrary(hInstLib);
++    return 603;
++  }
++  FreeLibrary(hInstLib);
++  return 0;
++}
+
+Added: branches/wsjtx/lib/afc9.f90
+===================================================================
+--- branches/wsjtx/lib/afc9.f90	                        (rev 0)
++++ branches/wsjtx/lib/afc9.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -0,0 +1,57 @@
++subroutine afc9(cx,npts,nfast,fsample,nflip,ipol,xpol,           &amp;
++     ndphi,iloop,a,ccfbest,dtbest)
++
++  logical xpol
++  complex cx(npts)
++  real a(3),deltaa(3)
++
++  a(1)=0.                                   !f0
++  a(2)=0.                                   !f1
++  a(3)=0.                                   !f2
++  deltaa(1)=2.0
++  deltaa(2)=2.0
++  deltaa(3)=2.0
++  nterms=3
++
++! Start the iteration
++  chisqr=0.
++  chisqr0=1.e6
++  do iter=1,3                               !One iteration is enough?
++     do j=1,nterms
++        chisq1=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        fn=0.
++        delta=deltaa(j)
++10      a(j)=a(j)+delta
++        chisq2=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        if(chisq2.eq.chisq1) go to 10
++        if(chisq2.gt.chisq1) then
++           delta=-delta                      !Reverse direction
++           a(j)=a(j)+delta
++           tmp=chisq1
++           chisq1=chisq2
++           chisq2=tmp
++        endif
++20      fn=fn+1.0
++        a(j)=a(j)+delta
++        chisq3=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++        if(chisq3.lt.chisq2) then
++           chisq1=chisq2
++           chisq2=chisq3
++           go to 20
++        endif
++
++! Find minimum of parabola defined by last three points
++        delta=delta*(1./(1.+(chisq1-chisq2)/(chisq3-chisq2))+0.5)
++        a(j)=a(j)-delta
++        deltaa(j)=deltaa(j)*fn/3.
++     enddo
++     chisqr=fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++     if(chisqr/chisqr0.gt.0.9999) go to 30
++     chisqr0=chisqr
++  enddo
++
++30 ccfbest=ccfmax * (1378.125/fsample)**2
++  dtbest=dtmax
++
++  return
++end subroutine afc9
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/lib/decoder.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -1,26 +1,32 @@
+-subroutine decoder(ntrSeconds,ndepth,nRxLog,c00)
++subroutine decoder(ss,c0)
+ 
+ ! Decoder for JT9.
+ 
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+   parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+   parameter (NSMAX=22000)            !Max length of saved spectra
++  real ss(184,NSMAX)
+   character*22 msg
+   character*33 line
+   character*80 fmt,fmt14
++  character*20 datetime
+   real*4 ccfred(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+   integer ii(1)
+-  complex c0(NDMAX),c00(NDMAX)
+-  common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
+-       ntr,nfqso,newdat,npts80,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+-  common/jt9comB/ss(184,NSMAX),c0
++  complex c0(NDMAX)
++! common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
++!      ntr,nfqso,newdat,npts80,nfb,ntol,kin,nzhsym,nsynced,ndecoded
++!  common/jt9comB/ss(184,NSMAX),c0
++  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
++       kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
+   common/tracer/limtrace,lu
+   logical first
+   data first/.true./
+   save
+ 
++  call timer('decoder ',0)
++
+   if(first) then
+      limtrace=0
+      lu=12
+@@ -29,16 +35,14 @@
+      first=.false.
+   endif
+ 
+-  call timer('decoder ',0)
++! if(newdat.ne.0) then
++!    ss=ss0
++!    c0=c00
++!    nutc=nutc0
++!    npts8=npts80
++! endif
+ 
+-  if(newdat.ne.0) then
+-     ss=ss0
+-     c0=c00
+-     nutc=nutc0
+-     npts8=npts80
+-  endif
+-
+-  ntrMinutes=ntrSeconds/60
++  ntrMinutes=ntrperiod/60
+   newdat=1
+   nsynced=0
+   ndecoded=0
+@@ -82,8 +86,8 @@
+   call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  !Compute ccfred
+   call timer('sync9   ',1)
+ 
+-  open(13,file='decoded.txt',status='unknown')
+-  rewind 13
++!  open(13,file='decoded.txt',status='unknown')
++!  rewind 13
+   if(iand(nRxLog,2).ne.0) rewind 14
+   if(iand(nRxLog,1).ne.0) then
+ ! Write date and time to lu 14     
+@@ -120,7 +124,7 @@
+      endif
+ 
+      if(msg.ne.'                      ') then
+-        write(13,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,msg
++        write(*,fmt) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,msg
+         write(14,fmt14) nutc,nsync,nsnr,xdt,1000.0+fpk,drift,nlim,msg
+         fgood=f
+         nsynced=1
+@@ -132,17 +136,20 @@
+   if(maxval(ccfred(ia:ib)).gt.3.0) go to 10
+ 
+   if(fgood.eq.0.0) then
+-     write(13,1020) line
++     write(*,1020) line
+      write(14,1020) line
+ 1020 format(a33)
+   endif
+ 
+-  call flush(13)
++  write(*,1010) nsum,nsave
++1010 format('&lt;DecodeFinished&gt;',2i4)
++  flush(6)
++
++  call flush(6)
+   call flush(14)
+-  close(13)
+ 
+   call timer('decoder ',1)
+-  call timer('decoder ',101)
++  if(nstandalone.eq.0) call timer('decoder ',101)
+ 
+   return
+ end subroutine decoder
+
+Added: branches/wsjtx/lib/fchisq.f90
+===================================================================
+--- branches/wsjtx/lib/fchisq.f90	                        (rev 0)
++++ branches/wsjtx/lib/fchisq.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -0,0 +1,69 @@
++real function fchisq(cx,npts,nfast,fsample,nflip,a,ccfmax,dtmax)
++
++  parameter (NMAX=60*96000)          !Samples per 60 s
++  complex cx(npts)
++  real a(3)
++  complex w,wstep,za,zb,z
++  real ss(3000)
++  complex csx(0:NMAX/64)
++  data twopi/6.283185307/a1,a2,a3/99.,99.,99./
++  save
++
++  call timer('fchisq  ',0)
++  baud=nfast*11025.0/4096.0
++  nsps=nint(fsample/baud)                  !Samples per symbol
++  nsph=nsps/2                              !Samples per half-symbol
++  ndiv=16                                  !Output ss() steps per symbol
++  nout=ndiv*npts/nsps
++  dtstep=1.0/(ndiv*baud)                   !Time per output step
++
++  if(a(1).ne.a1 .or. a(2).ne.a2 .or. a(3).ne.a3) then
++     a1=a(1)
++     a2=a(2)
++     a3=a(3)
++
++! Mix and integrate the complex signal
++     csx(0)=0.
++     w=1.0
++     x0=0.5*(npts+1)
++     s=2.0/npts
++     do i=1,npts
++        x=s*(i-x0)
++        if(mod(i,100).eq.1) then
++           p2=1.5*x*x - 0.5
++!          p3=2.5*(x**3) - 1.5*x
++!          p4=4.375*(x**4) - 3.75*(x**2) + 0.375
++           dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/fsample)
++           wstep=cmplx(cos(dphi),sin(dphi))
++        endif
++        w=w*wstep
++        csx(i)=csx(i-1) + w*cx(i)
++     enddo
++  endif
++
++! Compute 1/2-symbol powers at 1/16-symbol steps.
++  fac=1.e-4
++
++  do i=1,nout
++     j=i*nsps/ndiv
++     k=j-nsph
++     ss(i)=0.
++     if(k.ge.1) then
++        za=csx(j)-csx(k)
++        ss(i)=fac*(real(za)**2 + aimag(za)**2)
++     endif
++  enddo
++
++  ccfmax=0.
++  call timer('ccf2    ',0)
++  call ccf2(ss,nout,nflip,ccf,lagpk)
++  call timer('ccf2    ',1)
++  if(ccf.gt.ccfmax) then
++     ccfmax=ccf
++     dtmax=lagpk*dtstep
++  endif
++  fchisq=-ccfmax
++
++  call timer('fchisq  ',1)
++  return
++end function fchisq
+
+Modified: branches/wsjtx/lib/ipcomm.cpp
+===================================================================
+--- branches/wsjtx/lib/ipcomm.cpp	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/lib/ipcomm.cpp	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -2,33 +2,33 @@
+ #include &lt;qsharedmemory.h&gt;
+ #include &lt;QSystemSemaphore&gt;
+ 
+-QSharedMemory mem_m65(&quot;mem_m65&quot;);
+-QSystemSemaphore sem_m65(&quot;sem_m65&quot;, 1, QSystemSemaphore::Open);
++QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
++QSystemSemaphore sem_jt9(&quot;sem_jt9&quot;, 1, QSystemSemaphore::Open);
+ 
+ extern &quot;C&quot; {
+-  bool attach_m65_();
+-  bool create_m65_(int nsize);
+-  bool detach_m65_();
+-  bool lock_m65_();
+-  bool unlock_m65_();
+-  char* address_m65_();
+-  int size_m65_();
++  bool attach_jt9_();
++  bool create_jt9_(int nsize);
++  bool detach_jt9_();
++  bool lock_jt9_();
++  bool unlock_jt9_();
++  char* address_jt9_();
++  int size_jt9_();
+ 
+-  bool acquire_m65_();
+-  bool release_m65_();
++  bool acquire_jt9_();
++  bool release_jt9_();
+ 
+   extern struct {
+     char c[10];
+-  } m65com_;
++  } jt9com_;
+ }
+ 
+-bool attach_m65_() {return mem_m65.attach();}
+-bool create_m65_(int nsize) {return mem_m65.create(nsize);}
+-bool detach_m65_() {return mem_m65.detach();}
+-bool lock_m65_() {return mem_m65.lock();}
+-bool unlock_m65_() {return mem_m65.unlock();}
+-char* address_m65_() {return (char*)mem_m65.constData();}
+-int size_m65_() {return (int)mem_m65.size();}
++bool attach_jt9_() {return mem_jt9.attach();}
++bool create_jt9_(int nsize) {return mem_jt9.create(nsize);}
++bool detach_jt9_() {return mem_jt9.detach();}
++bool lock_jt9_() {return mem_jt9.lock();}
++bool unlock_jt9_() {return mem_jt9.unlock();}
++char* address_jt9_() {return (char*)mem_jt9.constData();}
++int size_jt9_() {return (int)mem_jt9.size();}
+ 
+-bool acquire_m65_() {return sem_m65.acquire();}
+-bool release_m65_() {return sem_m65.release();}
++bool acquire_jt9_() {return sem_jt9.acquire();}
++bool release_jt9_() {return sem_jt9.release();}
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/lib/jt9.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -17,9 +17,9 @@
+   character*22 msg
+   character*33 line
+   integer*2 id2
+-  complex c0(NDMAX)
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
+-       ntr,mousefqso,newdat,nfa,nfb,ntol,kin
++  complex c0
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat,  &amp;
++       ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+@@ -31,7 +31,11 @@
+      go to 999
+   endif
+   call getarg(1,arg)
+-  if(arg(1:2).eq.'-s') go to 999
++  if(arg(1:2).eq.'-s') then
++     call jt9a
++!    call ftnquit
++     go to 999
++  endif
+   read(arg,*) ntrperiod
+ 
+   ifile1=2
+@@ -56,11 +60,22 @@
+      go to 2
+ 1    nutc0=0
+ 2    nsps=0
+-     if(ntrperiod.eq.1)  nsps=6912
+-     if(ntrperiod.eq.2)  nsps=15360
+-     if(ntrperiod.eq.5)  nsps=40960
+-     if(ntrperiod.eq.10) nsps=82944
+-     if(ntrperiod.eq.30) nsps=252000
++     if(ntrperiod.eq.1)  then
++        nsps=6912
++        nzhsym=181
++     else if(ntrperiod.eq.2)  then
++        nsps=15360
++        nzhsym=178
++     else if(ntrperiod.eq.5)  then
++        nsps=40960
++        nzhsym=172
++     else if(ntrperiod.eq.10) then
++        nsps=82944
++        nzhsym=171
++     else if(ntrperiod.eq.30) then
++        nsps=252000
++        nzhsym=167
++     endif
+      if(nsps.eq.0) stop 'Error: bad TRperiod'
+ 
+      kstep=nsps/2
+@@ -68,6 +83,7 @@
+      k=0
+      nhsym0=-999
+      npts=(60*ntrperiod-6)*12000
++     if(ifile.eq.ifile1) call timer('jt9     ',0)
+ 
+ !     do i=1,npts
+ !        id2(i)=100.0*sin(6.283185307*1600.0*i/12000.0)
+@@ -75,13 +91,18 @@
+ 
+      do iblk=1,npts/kstep
+         k=iblk*kstep
++        call timer('read_wav',0)
+         read(10,end=10) id2(k-kstep+1:k)
++        call timer('read_wav',1)
++
+         nhsym=(k-2048)/kstep
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+            ingain=0
++           call timer('symspec ',0)
+            call symspec(k,ntrperiod,nsps,ingain,nb,nbslider,pxdb,   &amp;
+                 s,ccfred,df3,ihsym,nzap,slimit,lstrong,c0,npts8)
++           call timer('symspec ',1)
+            nhsym0=nhsym
+            if(ihsym.ge.184) go to 10
+         endif
+@@ -91,7 +112,7 @@
+      iz=1000.0/df3
+      nutc=nutc0
+ 
+-     call sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  !Get sync, freq
++     call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk) !Get sync, freq
+ 
+      fgood=0.
+      df8=1500.0/(nsps/8)
+@@ -132,6 +153,9 @@
+ 
+   enddo
+ 
++  call timer('jt9     ',1)
++  call timer('jt9     ',101)
++!  call ftnquit
+   go to 999
+ 
+ 998 print*,'Cannot open file:'
+
+Copied: branches/wsjtx/lib/jt9a.F90 (from rev 2755, branches/wsjtx/lib/jt9a.f90)
+===================================================================
+--- branches/wsjtx/lib/jt9a.F90	                        (rev 0)
++++ branches/wsjtx/lib/jt9a.F90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -0,0 +1,100 @@
++subroutine jt9a
++
++! NB: this interface block is required by g95, but must be omitted
++!     for gfortran.  (????)
++
++#ifndef UNIX
++  interface
++     function address_jt9()
++     end function address_jt9
++  end interface
++#endif
++  
++  integer*1 attach_jt9,lock_jt9,unlock_jt9
++  integer size_jt9
++  integer*1, pointer :: address_jt9,p_jt9
++  character*80 cwd
++  logical fileExists
++  common/tracer/limtrace,lu
++
++  call getcwd(cwd)
++!  call ftninit(trim(cwd))
++
++  limtrace=0
++  lu=12
++  i1=attach_jt9()
++
++10 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
++  if(fileExists) then
++     call sleep_msec(100)
++     go to 10
++  endif
++
++  inquire(file=trim(cwd)//'/.quit',exist=fileExists)
++  if(fileExists) then
++!     call ftnquit
++     i=detach_jt9()
++     go to 999
++  endif
++  
++  nbytes=size_jt9()
++  if(nbytes.le.0) then
++     print*,'jt9a: Shared memory mem_jt9 does not exist.' 
++     print*,&quot;Must start 'jt9 -s' from within WSJT-X.&quot;
++     go to 999
++  endif
++  p_jt9=&gt;address_jt9()
++  call jt9b(p_jt9,nbytes)
++
++!  write(*,1010) 
++!1010 format('&lt;jt9aFinished&gt;')
++!  flush(6)
++
++100 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
++  if(fileExists) go to 10
++  call sleep_msec(100)
++  go to 100
++
++999 return
++end subroutine jt9a
++
++subroutine jt9b(jt9com,nbytes)
++  integer*1 jt9com(0:nbytes-1)
++  kss=0
++  ksavg=kss + 4*184*22000
++  kc0=ksavg + 4*22000
++  kid2=kc0 + 2*4*1800*1500
++  knutc=kid2 + 2*1800*12000
++  call jt9c(jt9com(kss),jt9com(ksavg),jt9com(kc0),jt9com(kid2),jt9com(knutc))
++  return
++end subroutine jt9b
++
++subroutine jt9c(ss,savg,c0,id2,nparams0)
++  parameter (NSMAX=22000)
++  integer*1 detach_jt9
++  real*4 ss(184*NSMAX),savg(NSMAX)
++  complex c0(1800*1500)
++  integer*2 id2(1800*12000)
++
++  integer nparams0(21),nparams(21)
++  character*20 datetime
++  common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
++       kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
++  equivalence (nparams,nutc)
++  
++  nparams=nparams0                     !Copy parameters into common/npar/
++  npatience=1
++
++  if(iand(nrxlog,1).ne.0) then
++!     write(21,1000) datetime(:17)
++!1000 format(/'UTC Date: 'a17/78('-'))
++!     flush(21)
++  endif
++!  if(iand(nrxlog,2).ne.0) rewind 21
++!  if(iand(nrxlog,4).ne.0) rewind 26
++
++  nstandalone=0
++  if(sum(nparams).ne.0) call decoder(ss,c0,ntrperiod,ndepth,nrxlog)
++
++  return
++end subroutine jt9c
+
+Deleted: branches/wsjtx/lib/jt9a.f90
+===================================================================
+--- branches/wsjtx/lib/jt9a.f90	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/lib/jt9a.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -1,97 +0,0 @@
+-subroutine m65a
+-
+-! NB: this interface block is required by g95, but must be omitted
+-!     for gfortran.  (????)
+-
+-#ifndef UNIX
+-  interface
+-     function address_m65()
+-     end function address_m65
+-  end interface
+-#endif
+-  
+-  integer*1 attach_m65,lock_m65,unlock_m65
+-  integer size_m65
+-  integer*1, pointer :: address_m65,p_m65
+-  character*80 cwd
+-  logical fileExists
+-  common/tracer/limtrace,lu
+-
+-  call getcwd(cwd)
+-  call ftninit(trim(cwd))
+-  limtrace=0
+-  lu=12
+-  i1=attach_m65()
+-
+-10 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
+-  if(fileExists) then
+-     call sleep_msec(100)
+-     go to 10
+-  endif
+-
+-  inquire(file=trim(cwd)//'/.quit',exist=fileExists)
+-  if(fileExists) then
+-     call ftnquit
+-     i=detach_m65()
+-     go to 999
+-  endif
+-  
+-  nbytes=size_m65()
+-  if(nbytes.le.0) then
+-     print*,'m65a: Shared memory mem_m65 does not exist.' 
+-     print*,'Program m65a should be started automatically from within map65.'
+-     go to 999
+-  endif
+-  p_m65=&gt;address_m65()
+-  call m65b(p_m65,nbytes)
+-
+-  write(*,1010) 
+-1010 format('&lt;m65aFinished&gt;')
+-  flush(6)
+-
+-100 inquire(file=trim(cwd)//'/.lock',exist=fileExists)
+-  if(fileExists) go to 10
+-  call sleep_msec(100)
+-  go to 100
+-
+-999 return
+-end subroutine m65a
+-
+-subroutine m65b(m65com,nbytes)
+-  integer*1 m65com(0:nbytes-1)
+-  kss=4*4*60*96000
+-  ksavg=kss+4*4*322*32768
+-  kfcenter=ksavg+4*4*32768
+- call m65c(m65com(0),m65com(kss),m65com(ksavg),m65com(kfcenter))
+-  return
+-end subroutine m65b
+-
+-subroutine m65c(dd,ss,savg,nparams0)
+-  integer*1 detach_m65
+-  real*4 dd(4,5760000),ss(4,322,32768),savg(4,32768)
+-  real*8 fcenter
+-  integer nparams0(37),nparams(37)
+-  character*12 mycall,hiscall
+-  character*6 mygrid,hisgrid
+-  character*20 datetime
+-  common/npar/fcenter,nutc,idphi,mousedf,mousefqso,                     &amp;
+-       ndepth,ndiskdat,neme,newdat,nfa,nfb,nfcal,nfshift,               &amp;
+-       mcall3,nkeep,ntol,nxant,nrxlog,nfsample,nxpol,mode65,            &amp;
+-       mycall,mygrid,hiscall,hisgrid,datetime
+-  equivalence (nparams,fcenter)
+-  
+-  nparams=nparams0                     !Copy parameters into common/npar/
+-  npatience=1
+-  if(iand(nrxlog,1).ne.0) then
+-     write(21,1000) datetime(:17)
+-1000 format(/'UTC Date: 'a17/78('-'))
+-     flush(21)
+-  endif
+-  if(iand(nrxlog,2).ne.0) rewind 21
+-  if(iand(nrxlog,4).ne.0) rewind 26
+-
+-  nstandalone=0
+-  if(sum(nparams).ne.0) call decode0(dd,ss,savg,nstandalone)
+-
+-  return
+-end subroutine m65c
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/lib/symspec.f90	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -1,5 +1,5 @@
+ subroutine symspec(k,ntrperiod,nsps,ingain,nb,nbslider,pxdb,s,red,    &amp;
+-     df3,ihsym,nzap,slimit,lstrong,c0,npts8)
++     df3,ihsym,nzap,slimit,lstrong,npts8)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -31,8 +31,8 @@
+   complex cx(0:MAXFFT3-1)
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+-  complex c0(NDMAX)
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
++  complex c0
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),c0(NDMAX),id2(NMAX),nutc,ndiskdat, &amp;
+        ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/mainwindow.cpp	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -12,7 +12,7 @@
+ int itone[85];                        //Tx audio tones for 85 symbols
+ bool btxok;                           //True if OK to transmit
+ double outputLatency;                 //Latency in seconds
+-float c0[2*1800*1500];
++//float c0[2*1800*1500];
+ 
+ WideGraph* g_pWideGraph = NULL;
+ QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
+@@ -29,7 +29,7 @@
+   ui-&gt;setupUi(this);
+ 
+ #ifdef WIN32
+-  freopen(&quot;wsjtx.log&quot;,&quot;w&quot;,stderr);
++//  freopen(&quot;wsjtx.log&quot;,&quot;w&quot;,stderr);
+ #endif
+   on_EraseButton_clicked();
+   ui-&gt;labUTC-&gt;setStyleSheet( \
+@@ -147,11 +147,11 @@
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+   }
+   readSettings();		             //Restore user's setup params
+-  QFile lockFile(m_appDir + &quot;/.lock&quot;);     //Create .lock so m65 will wait
++  QFile lockFile(m_appDir + &quot;/.lock&quot;);     //Create .lock so jt9 will wait
+   lockFile.open(QIODevice::ReadWrite);
+   QFile quitFile(m_appDir + &quot;/.lock&quot;);
+   quitFile.remove();
+-//  proc_jt9.start(QDir::toNativeSeparators(m_appDir + &quot;/jt9 -s&quot;));
++  proc_jt9.start(QDir::toNativeSeparators(m_appDir + &quot;/jt9 -s&quot;));
+ 
+   m_pbdecoding_style1=&quot;QPushButton{background-color: cyan; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+@@ -374,7 +374,7 @@
+   if(m_NB) nb=1;
+   trmin=m_TRperiod/60;
+   symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;m_inGain, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
+-           &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, c0, &amp;npts8);
++           &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, &amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap*100.0/m_nsps;
+@@ -393,9 +393,7 @@
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+     decode();                                           //Start the decoder
+-    if(!m_diskData and
+-       (m_saveAll or (m_saveSynced and (jt9com_.nsynced==1))
+-                  or (m_saveDecoded and (jt9com_.ndecoded==1)))) {
++    if(!m_diskData and m_saveAll) {
+       int ihr=t.time().toString(&quot;hh&quot;).toInt();
+       int imin=t.time().toString(&quot;mm&quot;).toInt();
+       imin=imin - (imin%(m_TRperiod/60));
+@@ -627,7 +625,7 @@
+   QFile quitFile(m_appDir + &quot;/.quit&quot;);
+   quitFile.open(QIODevice::ReadWrite);
+   QFile lockFile(m_appDir + &quot;/.lock&quot;);
+-  lockFile.remove();                      // Allow m65 to terminate
++  lockFile.remove();                      // Allow jt9 to terminate
+   bool b=proc_jt9.waitForFinished(1000);
+   if(!b) proc_jt9.kill();
+   quitFile.remove();
+@@ -868,7 +866,7 @@
+     decode();
+   }
+ }
+-
++/*
+ void MainWindow::decode()                                       //decode()
+ {
+   if(!m_dataAvailable) return;
+@@ -893,97 +891,66 @@
+                                &amp;m_RxLog, &amp;c0[0]);
+   watcher3-&gt;setFuture(*future3);
+ }
++*/
+ 
+-/*
+ void MainWindow::decode()                                       //decode()
+ {
+   ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+-  if(datcom_.nagain==0 &amp;&amp; (!m_diskData)) {
++  if(jt9com_.nagain==0 &amp;&amp; (!m_diskData)) {
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int imin=ms/60000;
+     int ihr=imin/60;
+     imin=imin % 60;
+-    int isec=(ms/1000) % 60;
+-    datcom_.nutc=100*(100*ihr + imin);
+-    if((m_mode==&quot;JT65B2&quot; or m_mode==&quot;JT65C2&quot;) and isec&gt;30) datcom_.nutc += 30;
++    jt9com_.nutc=100*(100*ihr + imin);
+   }
+ 
+-  datcom_.idphi=m_dPhi;
+-  datcom_.mousedf=g_pWideGraph-&gt;DF();
+-  datcom_.mousefqso=g_pWideGraph-&gt;QSOfreq();
+-  datcom_.ndepth=m_ndepth;
+-  datcom_.ndiskdat=0;
+-  if(m_diskData) datcom_.ndiskdat=1;
+-  datcom_.neme=0;
+-  if(ui-&gt;actionOnly_EME_calls-&gt;isChecked()) datcom_.neme=1;
++  jt9com_.nfqso=g_pWideGraph-&gt;QSOfreq();
++  jt9com_.ndepth=m_ndepth;
++  jt9com_.ndiskdat=0;
++  if(m_diskData) jt9com_.ndiskdat=1;
+ 
+-  int ispan=int(g_pWideGraph-&gt;fSpan());
+-  if(ispan%2 == 1) ispan++;
+-  int ifc=int(1000.0*(datcom_.fcenter - int(datcom_.fcenter))+0.5);
+-  int nfa=g_pWideGraph-&gt;nStartFreq();
+-  int nfb=nfa+ispan;
+-  int nfshift=nfa + ispan/2 - ifc;
++  jt9com_.nfa=1000;                         //### temporary ###
++  jt9com_.nfb=2000;
+ 
+-  datcom_.nfa=nfa;
+-  datcom_.nfb=nfb;
+-  datcom_.nfcal=m_fCal;
+-  datcom_.nfshift=nfshift;
+-  datcom_.mcall3=0;
+-  if(m_call3Modified) datcom_.mcall3=1;
+-  datcom_.ntimeout=m_timeout;
+-  datcom_.ntol=m_tol;
+-  datcom_.nxant=0;
+-  if(m_xpolx) datcom_.nxant=1;
+-  if(datcom_.nutc &lt; m_nutc0) m_map65RxLog |= 1;  //Date and Time to all65.txt
+-  m_nutc0=datcom_.nutc;
+-  datcom_.map65RxLog=m_map65RxLog;
+-  datcom_.nfsample=96000;
+-  if(!m_fs96000) datcom_.nfsample=95238;
+-  datcom_.nxpol=0;
+-  if(m_xpol) datcom_.nxpol=1;
+-  datcom_.mode65=m_mode65;
+-  datcom_.nfast=m_nfast;
+-  datcom_.nsave=m_nsave;
++  jt9com_.ntol=m_tol;
++  if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to all65.txt
++  m_nutc0=jt9com_.nutc;
++  jt9com_.nrxlog=m_RxLog;
++  jt9com_.nfsample=12000;
++  jt9com_.ntrperiod=m_TRperiod;
++  m_nsave=0;
++  if(m_saveSynced) m_nsave=1;
++  if(m_saveDecoded) m_nsave=2;
++  jt9com_.nsave=m_nsave;
++  strncpy(jt9com_.datetime, m_dateTime.toAscii(), 20);
+ 
+-  QString mcall=(m_myCall+&quot;            &quot;).mid(0,12);
+-  QString mgrid=(m_myGrid+&quot;            &quot;).mid(0,6);
+-  QString hcall=(ui-&gt;dxCallEntry-&gt;text()+&quot;            &quot;).mid(0,12);
+-  QString hgrid=(ui-&gt;dxGridEntry-&gt;text()+&quot;      &quot;).mid(0,6);
+-
+-  strncpy(datcom_.mycall, mcall.toAscii(), 12);
+-  strncpy(datcom_.mygrid, mgrid.toAscii(), 6);
+-  strncpy(datcom_.hiscall, hcall.toAscii(), 12);
+-  strncpy(datcom_.hisgrid, hgrid.toAscii(), 6);
+-  strncpy(datcom_.datetime, m_dateTime.toAscii(), 20);
+-
+   //newdat=1  ==&gt; this is new data, must do the big FFT
+   //nagain=1  ==&gt; decode only at fQSO +/- Tol
+ 
+-  char *to = (char*)mem_m65.data();
+-  char *from = (char*) datcom_.d4;
+-  int size=sizeof(datcom_);
+-  if(datcom_.newdat==0) {
++  char *to = (char*)mem_jt9.data();
++  char *from = (char*) jt9com_.ss;
++  int size=sizeof(jt9com_);
++  /*
++  if(jt9com_.newdat==0) {
+     int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
+     to += noffset;
+     from += noffset;
+     size -= noffset;
+   }
+-  memcpy(to, from, qMin(mem_m65.size(), size));
+-  datcom_.nagain=0;
+-  datcom_.ndiskdat=0;
+-  m_call3Modified=false;
++  */
++  memcpy(to, from, qMin(mem_jt9.size(), size));
++  jt9com_.nagain=0;
++  jt9com_.ndiskdat=0;
+ 
+-  QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow m65 to start
++  QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow jt9 to start
+   lockFile.remove();
+   decodeBusy(true);
+ }
+ 
+-*/
+-
+-void MainWindow::jt9_error()                                     //m65_error
++void MainWindow::jt9_error()                                     //jt9_error
+ {
+   if(!m_killAll) {
+-    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/m65 -s&quot;);
++    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/jt9 -s&quot;);
+     exit(1);
+   }
+ }
+@@ -1015,11 +982,15 @@
+       lockFile.open(QIODevice::ReadWrite);
+       ui-&gt;DecodeButton-&gt;setStyleSheet(&quot;&quot;);
+       decodeBusy(false);
+-//      m_map65RxLog=0;
++      m_RxLog=0;
+       m_startAnother=m_loopall;
+       return;
++    } else {
++      int n=t.length();
++      ui-&gt;decodedTextBrowser-&gt;append(t.mid(0,n-2));
+     }
+ 
++    /*
+     if(t.indexOf(&quot;!&quot;) &gt;= 0) {
+       int n=t.length();
+       if(n&gt;=30) ui-&gt;decodedTextBrowser-&gt;append(t.mid(1,n-3));
+@@ -1030,7 +1001,6 @@
+ //      m_bandmapText=&quot;&quot;;
+     }
+ 
+-    /*
+     if(t.indexOf(&quot;@&quot;) &gt;= 0) {
+       m_messagesText += t.mid(1);
+       m_widebandDecode=true;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/mainwindow.h	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -136,6 +136,7 @@
+     qint32  m_hsymStop;
+     qint32  m_len1;
+     qint32  m_inGain;
++    qint32  m_nsave;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+@@ -218,11 +219,11 @@
+ void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, int* nb,
+               int* m_NBslider, float* px, float s[], float red[],
+               float* df3, int* nhsym, int* nzap, float* slimit,
+-              uchar lstrong[], float c0[], int* npts8);
++              uchar lstrong[], int* npts8);
+ 
+ void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+-void decoder_(int* ntrperiod, int* ndepth, int* mRxLog, float c0[]);
++//void decoder_(int* ntrperiod, int* ndepth, int* mRxLog, float c0[]);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/soundin.cpp	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -9,6 +9,7 @@
+ extern struct {
+   float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
++  float c0[2*1800*1500];
+   short int d2[1800*12000];
+   int nutc;                         //UTC as integer, HHMM
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+@@ -16,12 +17,17 @@
+   int mousefqso;                    //User-selected QSO freq (kHz)
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int npts8;                        //npts in c0() array
+-  int nfb;                          //High decode limit (kHz)
++  int nfa;                          //Low decode limit (Hz)
++  int nfb;                          //High decode limit (Hz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+   int kin;
+   int nzhsym;
+-  int nsynced;
+-  int ndecoded;
++  int nsave;
++  int nagain;
++  int ndepth;
++  int nrxlog;
++  int nfsample;
++  char datetime[20];
+ } jt9com_;
+ }
+ 
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-11-20 20:39:41 UTC (rev 2755)
++++ branches/wsjtx/wsjtx.pro	2012-11-21 17:42:53 UTC (rev 2756)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-CONFIG   += console release
++#CONFIG   += console
+ 
+ TARGET = wsjtx
+ VERSION = 0.2
+@@ -38,7 +38,7 @@
+     displaytext.cpp getdev.cpp
+ 
+ win32 {
+-SOURCES +=
++SOURCES += killbyname.cpp
+ }
+ 
+ HEADERS  += mainwindow.h plotter.h soundin.h soundout.h \
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002447.html">[WSJT-SVN] r2755 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002449.html">[WSJT-SVN] r2757 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2448">[ date ]</a>
+              <a href="thread.html#2448">[ thread ]</a>
+              <a href="subject.html#2448">[ subject ]</a>
+              <a href="author.html#2448">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

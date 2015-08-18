@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2361 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2361%20-%20branches/wspr&In-Reply-To=%3C20110226192501.42796481443%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002052.html">
+   <LINK REL="Next"  HREF="002054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2361 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2361%20-%20branches/wspr&In-Reply-To=%3C20110226192501.42796481443%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2361 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Feb 26 20:25:01 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002052.html">[WSJT-SVN] r2360 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002054.html">[WSJT-SVN] r2362 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2053">[ date ]</a>
+              <a href="thread.html#2053">[ thread ]</a>
+              <a href="subject.html#2053">[ subject ]</a>
+              <a href="author.html#2053">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-26 20:25:00 +0100 (Sat, 26 Feb 2011)
+New Revision: 2361
+
+Modified:
+   branches/wspr/calobs.f90
+   branches/wspr/clean.f90
+   branches/wspr/wwv.f90
+Log:
+Version 1.03 of wwv.exe.  Should have fixed the &quot;inverted signal&quot; problem.
+
+
+Modified: branches/wspr/calobs.f90
+===================================================================
+--- branches/wspr/calobs.f90	2011-02-26 14:38:50 UTC (rev 2360)
++++ branches/wspr/calobs.f90	2011-02-26 19:25:00 UTC (rev 2361)
+@@ -20,9 +20,7 @@
+      stop
+   endif
+ 
+-  do i=1,npts                                 !Convert to floats
+-     x1(i)=id(i)
+-  enddo
++  x1(:npts)=id(:npts)
+   call averms(x1,npts,ave1,rms1,xmax1)        !Get ave, rms
+   x1(:npts)=(1.0/rms1)*(x1(:npts)-ave1)       !Remove DC and normalize
+ 
+@@ -42,16 +40,15 @@
+   do i=1,npts,nfs                           !Fold at p=nfs (exactly)
+      prof1(:ip)=prof1(:ip) + xx1(i:i+ip-1)
+   enddo
+-  if(pk1.lt.0.0) prof1(:ip)=-prof1(:ip)
+ 
+-  pk=0.
++  pmax=0.
+   do i=1,ip
+-     if(prof1(i).gt.pk) then
+-        pk=prof1(i)
++     if(abs(prof1(i)).gt.abs(pmax)) then
++        pmax=prof1(i)
+         ipk=i
+      endif
+   enddo
+-  prof1(:ip)=prof1(:ip)/pk
++  prof1(:ip)=prof1(:ip)/pmax
+ 
+   write(*,1000) ave1,rms1,xmax1,p1
+ 1000 format('Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0,'   Fsample:',f12.4)
+
+Modified: branches/wspr/clean.f90
+===================================================================
+--- branches/wspr/clean.f90	2011-02-26 14:38:50 UTC (rev 2360)
++++ branches/wspr/clean.f90	2011-02-26 19:25:00 UTC (rev 2361)
+@@ -75,18 +75,14 @@
+         snr0=ccfmax/rms2
+      endif
+ 
+-     if(snr0.lt.12.0) go to 100
++     snrdb=db(snr0/12.0)
++     if(snrdb.lt.dbmin) go to 100
+      if(ii.eq.1) ccfmax0=ccfmax
+      if(ccfmax.lt.0.2*ccfmax0) go to 100
+-
+-     snrdb=db(snr0/12.0)
+-     if(snrdb.ge.dbmin) then
+-        nd=nd+1
+-        snr(nd)=snrdb
+-        delay(nd)=1000.0*lagpk*dt
+-        nwwv(nd)=nw
+-     endif
+-
++     nd=nd+1
++     snr(nd)=snrdb
++     delay(nd)=1000.0*lagpk*dt
++     nwwv(nd)=nw
+   enddo
+ 
+ 100 continue
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-26 14:38:50 UTC (rev 2360)
++++ branches/wspr/wwv.f90	2011-02-26 19:25:00 UTC (rev 2361)
+@@ -62,7 +62,7 @@
+ 
+   call getarg(1,arg)
+   if(arg(:2).eq.'-v') then
+-     print*,'Version 1.02'
++     print*,'Version 1.03'
+      go to 999
+   else if(arg.eq.'cal' .or. arg.eq.'CAL') then
+      nsec=60
+@@ -141,9 +141,7 @@
+      stop
+   endif
+ 
+-  do i=1,npts                                 !Convert to floats
+-     x1(i)=id(i)
+-  enddo
++  x1(:npts)=id(:npts)
+   call averms(x1,npts,ave1,rms1,xmax1)        !Get ave, rms
+   x1(:npts)=(1.0/rms1)*(x1(:npts)-ave1)       !Remove DC and normalize
+ 
+@@ -159,11 +157,19 @@
+   do i=1,npts,nfs                           !Fold at p=nfs (exactly)
+      prof1(:ip)=prof1(:ip) + xx1(i:i+ip-1)
+   enddo
+-  prof1=-prof1
++
++  pmax=0.
++  do i=1,ip
++     if(abs(prof1(i)).gt.abs(pmax)) then
++        pmax=prof1(i)
++        ipk=i
++     endif
++  enddo
++  prof1(:ip)=prof1(:ip)/pmax
+   xx=prof1
+ 
+   if(nsave.ne.0) then
+-     iipk=maxloc(prof1)
++!     iipk=maxloc(prof1)
+      i0=0.001/dt
+      rewind 13
+      rewind 14
+@@ -231,8 +237,9 @@
+ 920 print*,'Cannot open file: cal.dat'
+   go to 999
+ 
+-998 print*,'Usage: wwv cal &lt;nsec&gt;'
+-  print*,  '       wwv &lt;f_kHz&gt;'
+-  print*,  '       wwv all'
++998 print*,'Usage: wwv cal &lt;nsec&gt;      (Calibration, 1 PPS only)'
++  print*,  '       wwv &lt;f_kHz&gt;         (1 PPS and WWV at one frequency)'
++  print*,  '       wwv all             (1 PPS and WWV at all frequencies)'
++  print*,  '       wwv -v              (Print version number and exit'
+ 
+ 999 end program wwv
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002052.html">[WSJT-SVN] r2360 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002054.html">[WSJT-SVN] r2362 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2053">[ date ]</a>
+              <a href="thread.html#2053">[ thread ]</a>
+              <a href="subject.html#2053">[ subject ]</a>
+              <a href="author.html#2053">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

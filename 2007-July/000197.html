@@ -1,0 +1,287 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r512 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r512%20-%20trunk&In-Reply-To=%3C200707311920.l6VJK6tO010352%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000196.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r512 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r512%20-%20trunk&In-Reply-To=%3C200707311920.l6VJK6tO010352%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r512 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 31 21:20:06 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000196.html">[WSJT-SVN] r511 - branches/map65
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-31 21:19:43 +0200 (Tue, 31 Jul 2007)
+New Revision: 512
+
+Modified:
+   trunk/Makefile.in
+   trunk/Makefile.win
+   trunk/gencw.f
+   trunk/wsjt.py
+   trunk/wsjtgen.F90
+Log:
+Modified CW mode to generate and accept [] message types, and to
+tweak keying speed (around 20 wpm) so as to generate Tx audio files that 
+end smoothly with &quot;KK&quot; and no gap.
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2007-07-23 01:44:00 UTC (rev 511)
++++ trunk/Makefile.in	2007-07-31 19:19:43 UTC (rev 512)
+@@ -60,7 +60,8 @@
+         set.f flatten.f db.f pctile.f sort.f ssort.f ps.f smooth.f \
+         ping.f longx.f peakup.f sync.f detect.f avemsg65.f decode65.f \
+         demod64a.f encode65.f extract.f chkhist.f flat1.f four2.f rfile2.f \
+-        gencw.f getpfx1.f getpfx2.f getsnr.f graycode.f grid2k.f \
++        gencw.f gencwid.f msgtype.f \
++	getpfx1.f getpfx2.f getsnr.f graycode.f grid2k.f \
+         interleave63.f k2grid.f limit.f lpf1.f morse.f \
+         nchar.f packcall.f packgrid.f packmsg.f packtext.f setup65.f \
+         short65.f slope.f spec2d65.f sync65.f unpackcall.f \
+
+Modified: trunk/Makefile.win
+===================================================================
+--- trunk/Makefile.win	2007-07-23 01:44:00 UTC (rev 511)
++++ trunk/Makefile.win	2007-07-31 19:19:43 UTC (rev 512)
+@@ -33,7 +33,8 @@
+ 	gentone.f syncf0.f syncf1.f synct.f decode6m.f avemsg6m.f \
+ 	set.f flatten.f db.f pctile.f sort.f ssort.f ps.f smooth.f ping.f \
+ 	longx.f peakup.f sync.f detect.f avemsg65.f decode65.f demod64a.f \
+-	encode65.f extract.f chkhist.f flat1.f four2.f gencw.f getpfx1.f \
++	encode65.f extract.f chkhist.f flat1.f four2.f gencw.f \
++	gencwid.f msgtype.f getpfx1.f \
+ 	getpfx2.f getsnr.f graycode.f grid2k.f interleave63.f k2grid.f \
+ 	limit.f lpf1.f deep65.f morse.f nchar.f packcall.f packgrid.f \
+ 	packmsg.f packtext.f setup65.f short65.f slope.f spec2d65.f \
+
+Modified: trunk/gencw.f
+===================================================================
+--- trunk/gencw.f	2007-07-23 01:44:00 UTC (rev 511)
++++ trunk/gencw.f	2007-07-31 19:19:43 UTC (rev 512)
+@@ -1,80 +1,89 @@
+-      subroutine gencw(msg,wpm,freqcw,samfac,TRPeriod,iwave,nwave)
++      subroutine gencw(msg,wpm0,freqcw,samfac,TRPeriod,iwave,nwave)
+ 
++C  Generates array iwave() containing an audio signal corresponding
++C  to an EME CW message.
++
+       parameter (NMAX=150*11025)
+-      character msg*22,word12*22,word3*22
++      character*22 msg,word12,word3,s1,s2,s3
+       integer*2 iwave(NMAX)
+       integer TRPeriod
+-
+-      integer*1 idat(5000),idat1(460),idat2(200)
++      integer*1 idat(5000),idat1(460),idat2(200),idat3(200)
+       real*8 dt,t,twopi,pha,dpha,tdit,samfac
+       data twopi/6.283185307d0/
+ 
+-      nwords=0
+-      do i=2,22
+-         if(msg(i-1:i).eq.'  ') go to 10
+-         if(msg(i:i).eq.' ') then
+-            nwords=nwords+1
+-            j=j0
+-            j0=i+1
+-         endif
+-      enddo
+- 10   ntype=1                          !Call1+Call2, CQ+Call
+-      word12=msg
+-      if(nwords.eq.3) then
+-         word3=msg(j:j0-1)
+-         word12(j-1:)='                      '
+-         ntype=3                       !BC+RO, BC+RRR, BC+73
+-         if(word3.eq.'OOO') ntype=2    !BC+OOO
+-      endif
++      call msgtype(msg,ntype,nrpt1,nrpt2,s1,s2)
++      call morse(s1,idat1,nz1)         !Encode string 1
++      nz2=0
++      if(ntype.ge.2) call morse(s2,idat2,nz2)   !Encode string 2
++      s3='KK'
++      call morse(s3,idat3,nz3)         !Encode 'KK'
+ 
+-      tdit=1.2d0/wpm                   !Key-down dit time, seconds
+-      call morse(word12,idat1,nmax1) !Encode part 1 of msg
+-      t1=tdit*nmax1                    !Time for part1, once
+-      nrpt1=TRPeriod/t1                !Repetitions of part 1
+-      if(ntype.eq.2) nrpt1=0.75*TRPeriod/t1
+-      if(ntype.eq.3) nrpt1=1
+-      t1=nrpt1*t1                      !Total time for part 1
+-      nrpt2=0
+-      t2=0.
+-      if(ntype.ge.2) then
+-         call morse(word3,idat2,nmax2) !Encode part 2
+-         t2=tdit*nmax2                 !Time for part 2, once
+-         nrpt2=(TRPeriod-t1)/t2        !Repetitions of part 2
+-         t2=nrpt2*t2                   !Total time for part 2
++      b4=58.0*wpm0/1.2
++      b3=0.75*b4
++      b1=0.25*b4
++
++      nr1=1
++      nr2=0
++      if(nrpt1.eq.100) then
++         nr1=nint((b4-nz3)/nz1)
++      else if(nrpt1.eq.1) then
++         nr2=nint((b4-nz1-nz3)/nz2)
++      else if(nrpt1.eq.75) then
++         nr1=nint(b3/nz1)
++         nr2=nint((b4-nr1*nz1-nz3)/nz2)
+       endif
+-
++      nbits=nr1*nz1 + nr2*nz2 + nz3
++      
+       j=0
+-      do n=1,nrpt1
+-         do i=1,nmax1
++      do n=1,nr1
++         do i=1,nz1
+             j=j+1
+             idat(j)=idat1(i)
+          enddo
+       enddo
+-      do n=1,nrpt2
+-         do i=1,nmax2
+-            j=j+1
+-            idat(j)=idat2(i)
++      if(nr2.gt.0) then
++         do n=1,nr2
++            do i=1,nz2
++               j=j+1
++               idat(j)=idat2(i)
++            enddo
+          enddo
++      endif
++
++      do i=1,nz3
++         j=j+1
++         idat(j)=idat3(i)
+       enddo
++      jz=j
++      do i=jz+1,5000
++         idat(j)=0
++      enddo
+ 
++      wpm=wpm0 * nbits/b4
++      tdit=1.2d0/wpm                   !Key-down dit time, seconds
+       dt=1.d0/(11025.d0*samfac)
+-      nwave=j*tdit/dt
++      nwave=jz*tdit/dt
+       pha=0.
+       dpha=twopi*freqcw*dt
+       t=0.
+       s=0.
+       u=wpm/(11025*0.03)
++      j0=1
++      nsign=1
+       do i=1,nwave
+          t=t+dt
+          pha=pha+dpha
+-         j=t/tdit + 1
+-!         iwave(i)=0
+-!         if(idat(j).ne.0) iwave(i)=nint(32767.d0*sin(pha))
++         j=nint(t/tdit) + 1
+          s=s + u*(idat(j)-s)
+-         iwave(i)=nint(s*32767.d0*sin(pha))
++         if(idat(j0).eq.0 .and. idat(j).ne.0) nsign=-nsign
++         iwave(i)=nsign*nint(s*32767.d0*sin(pha))
++         j0=j
+       enddo
++      do i=nwave+1,NMAX
++         iwave(i)=0
++      enddo
++      nwave=nwave+11025
+ 
+       return
+       end
+ 
+-      include 'gencwid.f'
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-07-23 01:44:00 UTC (rev 511)
++++ trunk/wsjt.py	2007-07-31 19:19:43 UTC (rev 512)
+@@ -1171,12 +1171,12 @@
+         tx6.insert(0,t.upper())
+         altmsg=0
+     elif mode.get()[:2]==&quot;CW&quot;:
+-        tx1.insert(0,ToRadio.get() + &quot; &quot;+options.MyCall.get())
+-        tx2.insert(0,tx1.get()+&quot; OOO&quot;)
+-        tx3.insert(0,tx1.get()+&quot; RO&quot;)
+-        tx4.insert(0,tx1.get()+&quot; RRR&quot;)
+-        tx5.insert(0,tx1.get()+&quot; 73&quot;)
+-        tx6.insert(0,&quot;CQ &quot; + options.MyCall.get())
++        tx1.insert(0,&quot;[&quot; + ToRadio.get() + &quot; &quot; +options.MyCall.get() + &quot;]&quot;)
++        tx2.insert(0,tx1.get()+&quot; [OOO]&quot;)
++        tx3.insert(0,ToRadio.get() + &quot; &quot; + options.MyCall.get()+&quot; [RO]&quot;)
++        tx4.insert(0,ToRadio.get() + &quot; &quot; + options.MyCall.get()+&quot; [RRR]&quot;)
++        tx5.insert(0,ToRadio.get() + &quot; &quot; + options.MyCall.get()+&quot; [73]&quot;)
++        tx6.insert(0,&quot;[CQ &quot; + options.MyCall.get() + &quot;]&quot;)
+     
+ #------------------------------------------------------ GenAltMsgs
+ def GenAltMsgs(event=NONE):
+
+Modified: trunk/wsjtgen.F90
+===================================================================
+--- trunk/wsjtgen.F90	2007-07-23 01:44:00 UTC (rev 511)
++++ trunk/wsjtgen.F90	2007-07-31 19:19:43 UTC (rev 512)
+@@ -161,7 +161,8 @@
+ 
+   if(mode(1:2).eq.'CW') then
+ !  We're in CW mode
+-     wpm=15.
++!     wpm=15.
++     wpm=20.
+      freqcw=800.
+      call gencw(msg,wpm,freqcw,samfacout,TRPeriod,iwave,nwave)
+      goto 900
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000196.html">[WSJT-SVN] r511 - branches/map65
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

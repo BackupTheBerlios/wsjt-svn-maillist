@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r534 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r534%20-%20trunk&In-Reply-To=%3C200709191645.l8JGj97l009687%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000218.html">
+   <LINK REL="Next"  HREF="000220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r534 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r534%20-%20trunk&In-Reply-To=%3C200709191645.l8JGj97l009687%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r534 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 19 18:45:09 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000218.html">[WSJT-SVN] r533 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000220.html">[WSJT-SVN] r535 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#219">[ date ]</a>
+              <a href="thread.html#219">[ thread ]</a>
+              <a href="subject.html#219">[ subject ]</a>
+              <a href="author.html#219">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-19 18:45:01 +0200 (Wed, 19 Sep 2007)
+New Revision: 534
+
+Modified:
+   trunk/decode24.f
+   trunk/decode3.F90
+   trunk/gen24.f
+   trunk/wsjt.py
+Log:
+Improved JT2 decoding; removed some diagnostic prints.
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-19 14:09:13 UTC (rev 533)
++++ trunk/decode24.f	2007-09-19 16:45:01 UTC (rev 534)
+@@ -23,6 +23,8 @@
+       logical first
+       double complex cz
+       include 'avecom.h'
++      integer*1 sym0
++      common/tst99/ sym0(216)
+       equivalence (i1,i4)
+       data first/.true./
+       data npr2/
+@@ -37,6 +39,7 @@
+ 
+       rewind 41
+       rewind 42
++      rewind 43
+ 
+       if(first) then
+          call genmet(mode,mettab)
+@@ -44,7 +47,7 @@
+          dt=2.d0/11025          !Sample interval (2x downsampled data)
+          df=11025.d0/2520.d0
+          nsym=206
+-         amp=1
++         amp=4
+          first=.false.
+       endif
+ 
+@@ -100,20 +103,31 @@
+       delta=15
+       limit=10000
+       ncycles=0
++      symbol(207)=-128
++      do i=1,207
++         i1=symbol(i)
++         ierr=0
++         if(i4.ge.128 .and. sym0(i).eq.0) ierr=i4-127
++         if(i4.lt.128 .and. sym0(i).eq.1) ierr=i4-128
++         write(43,3009) i,sym0(i),i4,ierr
++ 3009    format(4i5)
++      enddo
++
+       ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,
+      +     delta,limit)
+-      print*,'Decode24  ncount:',ncount,ncycles
++!      print*,'Decode24  ncount:',ncount,ncycles
++
+       write(c72,1100) (data1(i),i=1,9)
+  1100 format(9b8.8)
+-      print*,c72
++!      print*,c72
+       read(c72,1102) data4
+  1102 format(12b6)
+-      write(*,3001) (data1(i),i=1,9),(data4(i),i=1,12)
+- 3001 format('Decode24:'9(1x,z2),2x,12(1x,z2))
++!      write(*,3001) (data1(i),i=1,9),(data4(i),i=1,12)
++! 3001 format('Decode24:'9(1x,z2),2x,12(1x,z2))
+ 
+       decoded='                      '
+       if(ncount.ge.0) call unpackmsg(data4,decoded)
+-      print*,decoded
++!      print*,decoded
+ 
+ !      call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2007-09-19 14:09:13 UTC (rev 533)
++++ trunk/decode3.F90	2007-09-19 16:45:01 UTC (rev 534)
+@@ -53,7 +53,7 @@
+   if(nblank.ne.0) call blanker(d2d,jz)
+ 
+   nseg=1
+-  if(mode(1:4).eq.'JT65') then
++  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7) then
+      i=index(FileID,'.')-3
+      if(FileID(i:i).eq.'1'.or.FileID(i:i).eq.'3'.or.FileID(i:i).eq.'5'  &amp;
+           .or.FileID(i:i).eq.'7'.or.FileID(i:i).eq.'9') nseg=2
+@@ -94,7 +94,7 @@
+   
+   nclearave=0
+   nagain=0
+-  if(mode(1:4).eq.'JT65') then
++  if(mode(1:4).eq.'JT65' .or. nmode.eq.6 .or. nmode.eq.7) then
+      call pix2d65(d2d,jz)
+   else if(mode.eq.'FSK441') then
+      nz=s2(1,1)
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-09-19 14:09:13 UTC (rev 533)
++++ trunk/gen24.f	2007-09-19 16:45:01 UTC (rev 534)
+@@ -15,6 +15,7 @@
+       integer*1 data0(13),symbol(216)
+       logical first
+       include 'prcom2.f'
++      common/tst99/ symbol
+       data first/.true./
+       save
+ 
+@@ -32,10 +33,10 @@
+       call chkmsg(message,cok,nspecial,flip)
+       call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
+       call entail(dgen,data0)
+-      write(*,3001) (data0(i),i=1,9),(dgen(i),i=1,12)
+- 3001 format('Gen24:   ',9(1x,z2),2x,12(1x,z2))
+       call unpackmsg(dgen,msgsent)
+-      print*,msgsent
++!      write(*,3001) (data0(i),i=1,9),(dgen(i),i=1,12)
++! 3001 format('Gen24:   ',9(1x,z2),2x,12(1x,z2))
++!      print*,msgsent
+       nbytes=(72+31+7)/8
+       call encode(data0,nbytes,symbol(2))    !Convolutional encoding
+       symbol(1)=0                            !Reference phase
+@@ -99,8 +100,8 @@
+       enddo
+  20   nmsg=i
+ 
+-      write(*,3002) (symbol(i),i=1,207)
+- 3002 format(70i1)
++!      write(*,3002) (symbol(i),i=1,207)
++! 3002 format(70i1)
+ 
+       return
+       end
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-09-19 14:09:13 UTC (rev 533)
++++ trunk/wsjt.py	2007-09-19 16:45:01 UTC (rev 534)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000218.html">[WSJT-SVN] r533 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000220.html">[WSJT-SVN] r535 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#219">[ date ]</a>
+              <a href="thread.html#219">[ thread ]</a>
+              <a href="subject.html#219">[ subject ]</a>
+              <a href="author.html#219">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

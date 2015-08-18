@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2359 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2359%20-%20branches/wspr&In-Reply-To=%3C20110225212504.9B9B9481393%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002050.html">
+   <LINK REL="Next"  HREF="002052.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2359 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2359%20-%20branches/wspr&In-Reply-To=%3C20110225212504.9B9B9481393%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2359 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Feb 25 22:25:04 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002050.html">[WSJT-SVN] r2358 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002052.html">[WSJT-SVN] r2360 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2051">[ date ]</a>
+              <a href="thread.html#2051">[ thread ]</a>
+              <a href="subject.html#2051">[ subject ]</a>
+              <a href="author.html#2051">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-25 22:25:04 +0100 (Fri, 25 Feb 2011)
+New Revision: 2359
+
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/calibrate.f90
+   branches/wspr/ccf.f90
+Log:
+Improvements to ccf program.
+Testing a possible split so that ccf ==&gt; calibrate + ccf1 
+(Maybe a bad idea??)
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2011-02-25 18:49:26 UTC (rev 2358)
++++ branches/wspr/Makefile.in	2011-02-25 21:25:04 UTC (rev 2359)
+@@ -18,7 +18,7 @@
+ FFLAGS += -fbounds-check
+ 
+ all:	wspr wsprcode fmt fmtave fcal fmeasure wspr0 hftoa ccf wwv \
+-	t1 calibrate
++	t1 calibrate ccf1
+ build:	wspr
+ 
+ wspr:	WsprMod/w.so
+@@ -149,6 +149,12 @@
+ calibrate: $(OBJS8)
+ 	$(FC) -o calibrate $(FFLAGS) $(OBJS8) -lfftw3f -lsamplerate
+ 
++OBJS9 = ccf1.o read_wav.o averms.o four2a.o thnix_stub.o db.o ffa.o \
++        fold1pps.o resample.o
++
++ccf1:   $(OBJS9)
++	$(FC) -o ccf1 $(FFLAGS) $(OBJS9) -lfftw3f -lsamplerate
++
+ install: WsprMod/w.so
+ 	${RM} -rf build/
+ 	${PYTHON} setup.py install
+
+Modified: branches/wspr/calibrate.f90
+===================================================================
+--- branches/wspr/calibrate.f90	2011-02-25 18:49:26 UTC (rev 2358)
++++ branches/wspr/calibrate.f90	2011-02-25 21:25:04 UTC (rev 2359)
+@@ -23,7 +23,7 @@
+   integer resample
+   complex cxx(0:NHMAX)
+   complex z1
+-  complex cal(350)
++  complex cal(35)
+   equivalence (xx,cxx)
+ 
+   nargs=iargc()
+@@ -115,8 +115,8 @@
+   call four2a(xx,ip,1,-1,0)                 !FFT of 1 PPS profile
+ 
+   cal=0.
+-  do j=6,350                                 !Compute calibration array
+-     i=10*j
++  do j=1,35                                 !Compute calibration array
++     i=100*j
+      z1=0.01*sum(cxx(i-50:i+49))
+      cal(j)=z1
+      s1=real(z1)**2 + aimag(z1)**2
+@@ -125,11 +125,12 @@
+ 1030 format(i6,2f10.3)
+   enddo
+ 
++  print*,xxa(1:3)
+   call averms(xxa,npts,ave,rms,xmax)                 !Get ave, rms
+   fac=100.0
+   if(xmax.gt.200.0) fac=20000.0/xmax
+   id(:npts)=fac*xxa(:npts)
+-  write(14) tsec,fkhz,mycall,mygrid,mode,ctime,cdate,ip,npts,          &amp;
++  write(14) tsec,fkhz,mycall,mygrid,mode,ctime,cdate,ip,npts,fac,      &amp;
+        prof(:ip),cal,id(:npts)
+ 
+ 999 end program calibrate
+
+Modified: branches/wspr/ccf.f90
+===================================================================
+--- branches/wspr/ccf.f90	2011-02-25 18:49:26 UTC (rev 2358)
++++ branches/wspr/ccf.f90	2011-02-25 21:25:04 UTC (rev 2359)
+@@ -14,7 +14,15 @@
+   integer resample
+   real xx1(NFFTMAX),xx2(NFFTMAX),xx(NFFTMAX),xx1pps(NFFTMAX)
+   real xx1a(NFFTMAX),xx2a(NFFTMAX)
++  real ccf1(-100:100),ccf2(-100:100)
+   real rfil(0:NHMAX)
++
++  character cdate*8                          !CCYYMMDD
++  character ctime*10                         !HHMMSS.SSS
++  character*4 mode1,mode2
++  character*6 call1,call2,grid1,grid2
++  real*8 fkhz,tsec
++
+   complex c1(0:NHMAX),c2(0:NHMAX),cc(0:NHMAX)
+   complex z1,z2
+   complex cal1(35),cal2(35)
+@@ -36,16 +44,22 @@
+   call getarg(4,file2)
+   open(12,file=file1,access='stream',status='old')
+   call read_wav(12,id1,npts1,nfs1,nch1)       !Read data from disk
+-  close(12)
++  read(12) tsec,fkhz,call1,grid1,mode1,ctime      !Get header info
++  cdate='?'
++  read(12,end=1) cdate
++1 close(12)
++
+   open(12,file=file2,access='stream',status='old')
+   call read_wav(12,id2,npts2,nfs2,nch2)
+-  close(12)
++  read(12) tsec,fkhz,call2,grid2,mode2,ctime      !Get header info
++  cdate='?'
++  read(12,end=2) cdate
++2  close(12)
+ 
+   open(32,file='ccfprof.dat',status='unknown')
+   open(33,file='ccfcal.dat',status='unknown')
+   open(34,file='ccf.out',status='unknown')
+ 
+-
+   if(nfs1.ne.nfs2) then
+      print*,'Mismatched sample rates:',nfs1,nfs2
+      go to 999
+@@ -72,9 +86,12 @@
+   call fold1pps(x1,npts,ip1,ip2,prof1,p1,pk1,ipk1)  !Find sample rates
+   call fold1pps(x2,npts,ip1,ip2,prof2,p2,pk2,ipk2)
+ 
+-  write(*,1010) 1,nfs,nch1,npts1,ave1,rms1,xmax1,p1,pk1,ipk1
+-  write(*,1010) 2,nfs,nch2,npts2,ave2,rms2,xmax2,p2,pk2,ipk2
+-1010 format('File',i2,':',i6,i3,i9,3f8.1,f11.4,f8.1,i6)
++  write(*,1010) call1,grid1,cdate,ctime(:6),ave1,rms1,xmax1
++  write(*,1010) call2,grid2,cdate,ctime(:6),ave2,rms2,xmax2
++1010 format(a6,2x,a6,2x,'UTC: ',a8,1x,a6,'  Ave:',f8.1,'  Rms:',    &amp;
++          f8.1,'  Max:',f8.1)
++  write(*,1011) fkhz,mode1,float(npts1)/nfs
++1011 format('Freq:',f10.3,' kHz   Mode: ',a4,'   Duration:',f6.1' s')
+ 
+ ! Resample ntype: 0=best, 1=sinc_medium, 2=sinc_fast, 3=hold, 4=linear
+   ntype=1
+@@ -212,10 +229,12 @@
+ 
+   call four2a(cc,nfft,1,1,-1)               !Inverse FFT ==&gt; CCF of signal
+ 
+-  do i=-50,50
++  do i=-100,100
+      j=i
+      if(j.le.0) j=i+nfft
+-     write(34,1110) 1000.0*i*dt,xx1pps(j),xx(j) !Write CCFs to disk
++     ccf1(i)=xx1pps(j)
++     ccf2(i)=xx(j)
++     write(34,1110) 1000.0*i*dt,ccf1(i),ccf2(i)       !Write CCFs to disk
+ 1110 format(f10.3,2f12.6)
+   enddo
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002050.html">[WSJT-SVN] r2358 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002052.html">[WSJT-SVN] r2360 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2051">[ date ]</a>
+              <a href="thread.html#2051">[ thread ]</a>
+              <a href="subject.html#2051">[ subject ]</a>
+              <a href="author.html#2051">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

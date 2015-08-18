@@ -1,0 +1,923 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3512 - in branches/wsjtx: . logbook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3512%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130731112942.C00C4BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003203.html">
+   <LINK REL="Next"  HREF="003205.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3512 - in branches/wsjtx: . logbook</H1>
+    <B>vk3acf at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3512%20-%20in%20branches/wsjtx%3A%20.%20logbook&In-Reply-To=%3C20130731112942.C00C4BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3512 - in branches/wsjtx: . logbook">vk3acf at scm.berlios.de
+       </A><BR>
+    <I>Wed Jul 31 13:29:42 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003203.html">[WSJT-SVN] r3511 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003205.html">[WSJT-SVN] r3513 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3204">[ date ]</a>
+              <a href="thread.html#3204">[ thread ]</a>
+              <a href="subject.html#3204">[ subject ]</a>
+              <a href="author.html#3204">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: vk3acf
+Date: 2013-07-31 13:29:42 +0200 (Wed, 31 Jul 2013)
+New Revision: 3512
+
+Added:
+   branches/wsjtx/logbook/
+   branches/wsjtx/logbook/adif.cpp
+   branches/wsjtx/logbook/adif.h
+   branches/wsjtx/logbook/countriesworked.cpp
+   branches/wsjtx/logbook/countriesworked.h
+   branches/wsjtx/logbook/countrydat.cpp
+   branches/wsjtx/logbook/countrydat.h
+   branches/wsjtx/logbook/logbook.cpp
+   branches/wsjtx/logbook/logbook.h
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/psk_reporter.cpp
+   branches/wsjtx/wsjtx.pro
+Log:
+First version of DXCC entity and worked B4 status
+
+Added: branches/wsjtx/logbook/adif.cpp
+===================================================================
+--- branches/wsjtx/logbook/adif.cpp	                        (rev 0)
++++ branches/wsjtx/logbook/adif.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,112 @@
++#include &quot;adif.h&quot;
++
++#include &lt;QFile&gt;
++#include &lt;QTextStream&gt;
++
++/*
++&lt;CALL:4&gt;W1XT&lt;BAND:3&gt;20m&lt;FREQ:6&gt;14.076&lt;GRIDSQUARE:4&gt;DM33&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-21&lt;RST_SENT:3&gt;-14&lt;QSO_DATE:8&gt;20110422&lt;TIME_ON:4&gt;0417&lt;TIME_OFF:4&gt;0424&lt;TX_PWR:1&gt;4&lt;COMMENT:34&gt;1st JT65A QSO.   Him: mag loop 20W&lt;STATION_CALLSIGN:6&gt;VK3ACF&lt;MY_GRIDSQUARE:6&gt;qf22lb&lt;eor&gt;
++&lt;CALL:6&gt;IK1SOW&lt;BAND:3&gt;20m&lt;FREQ:6&gt;14.076&lt;GRIDSQUARE:4&gt;JN35&lt;MODE:4&gt;JT65&lt;RST_RCVD:3&gt;-19&lt;RST_SENT:3&gt;-11&lt;QSO_DATE:8&gt;20110422&lt;TIME_ON:4&gt;0525&lt;TIME_OFF:4&gt;0533&lt;TX_PWR:1&gt;3&lt;STATION_CALLSIGN:6&gt;VK3ACF&lt;MY_GRIDSQUARE:6&gt;qf22lb&lt;eor&gt;
++*/
++
++void ADIF::init(QString filename)
++{
++    _filename = filename;
++    _data.clear(); 
++}
++
++QString ADIF::_extractField(const QString line, const QString fieldName)
++{
++    int s1 = line.indexOf(fieldName,0,Qt::CaseInsensitive);
++    if (s1 &gt;=0)
++    {
++      int s2 = line.indexOf('&gt;',s1);
++      if (s2 &gt;= 0)
++      {
++          int flsi = s1+fieldName.length();
++          int flsl = s2-flsi;
++          if (flsl&gt;0)
++          {
++              QString fieldLengthString = line.mid(flsi,flsl);
++              int fieldLength = fieldLengthString.toInt();
++              QString field = line.mid(s2+1,fieldLength);
++              return field;
++          }
++       }
++    }     
++    return &quot;&quot;;
++}
++
++
++
++void ADIF::load()
++{
++    _data.clear();
++    QFile inputFile(_filename);
++    if (inputFile.open(QIODevice::ReadOnly))
++    {
++       QTextStream in(&amp;inputFile);
++       while ( !in.atEnd() )
++       {
++          QString line = in.readLine();
++		  QSO q;
++		  q.call = _extractField(line,&quot;CALL:&quot;);
++		  q.band = _extractField(line,&quot;BAND:&quot;);
++		  q.mode = _extractField(line,&quot;MODE:&quot;);
++		  q.date = _extractField(line,&quot;QSO_DATE:&quot;);
++		  if (q.call != &quot;&quot;)
++			_data &lt;&lt; q;
++		}	
++		inputFile.close();
++	}
++}
++
++
++void ADIF::add(const QString call)
++{
++    QSO q;
++    q.call = call;
++    q.band = &quot;&quot;;     //TODO
++    q.mode = &quot;JT9&quot;;  //TODO
++    q.date = &quot;&quot;;     //TODO
++    _data &lt;&lt; q;
++}
++
++// return true if in the log same band and mode (where JT65 == JT9)
++bool ADIF::match(const QString call, const QString band, const QString mode)
++{
++	QSO q;
++	foreach(q,_data)
++	{
++      if (call.compare(q.call) == 0)   //TODO handle multiple log entries from same call, should this be a hash table rather than a list?
++      {
++		if ((band.compare(q.band) == 0) || (band==&quot;&quot;) || (q.band==&quot;&quot;))
++		{
++			if ( 
++			     (
++			       ((mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
++			       &amp;&amp;
++			       ((q.mode.compare(&quot;JT65&quot;,Qt::CaseInsensitive)==0) || (q.mode.compare(&quot;JT9&quot;,Qt::CaseInsensitive)==0))
++			     )
++			     || (mode.compare(q.mode)==0)
++			    ) 
++            return true;
++         }
++       }
++     }     
++    return false;
++}    
++
++QList&lt;QString&gt; ADIF::getCallList()
++{
++    QList&lt;QString&gt; p;
++    QSO q;
++    foreach(q,_data)
++      p &lt;&lt; q.call;
++    return p;
++}   
++    
++int ADIF::getCount()
++{
++    return _data.length();
++}   
++    
+
+Added: branches/wsjtx/logbook/adif.h
+===================================================================
+--- branches/wsjtx/logbook/adif.h	                        (rev 0)
++++ branches/wsjtx/logbook/adif.h	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,40 @@
++/*
++ * Reads an ADIF log file into memory
++ * Searches log for call, band and mode
++ * VK3ACF July 2013
++ */
++
++
++#ifndef __ADIF_H
++#define __ADIF_H
++
++
++#include &lt;QtGui&gt;
++
++
++class ADIF
++{
++	public:
++        void init(QString filename);
++		void load();
++        void add(const QString call);
++        bool match(const QString call, const QString band, const QString mode);
++        QList&lt;QString&gt; getCallList();
++		int getCount();
++		
++		
++	private:
++		struct QSO
++		{
++		  QString call,band,mode,date;
++		};		  
++
++		QList&lt;QSO&gt; _data;
++		QString _filename;
++		
++        QString _extractField(const QString line, const QString fieldName);
++};
++
++
++#endif
++
+
+Added: branches/wsjtx/logbook/countriesworked.cpp
+===================================================================
+--- branches/wsjtx/logbook/countriesworked.cpp	                        (rev 0)
++++ branches/wsjtx/logbook/countriesworked.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,42 @@
++#include &quot;countriesworked.h&quot;
++
++void CountriesWorked::init(const QStringList countryNames)
++{
++    _data.clear();
++    foreach(QString name,countryNames)
++      _data.insert(name,false);
++}
++
++void CountriesWorked::setAsWorked(const QString countryName)
++{
++    if (_data.contains(countryName))
++      _data.insert(countryName,true);
++}     
++      
++bool CountriesWorked::getHasWorked(const QString countryName)
++{  
++    if (_data.contains(countryName))
++      return _data.value(countryName);  
++
++    return false;
++}
++    
++int CountriesWorked::getWorkedCount()
++{
++    int count = 0;
++	foreach (bool value,_data)
++		if (value)
++			count += 1;
++    return count;
++}
++    
++int CountriesWorked::getSize()
++{
++    return _data.count();
++}
++    
++    
++        
++    
++    
++      
+
+Added: branches/wsjtx/logbook/countriesworked.h
+===================================================================
+--- branches/wsjtx/logbook/countriesworked.h	                        (rev 0)
++++ branches/wsjtx/logbook/countriesworked.h	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,26 @@
++/*
++ * maintains a list of country names that have been worked
++ * VK3ACF July 2013
++ */
++
++#ifndef __COUNTRIESWORKDED_H
++#define __COUNTRIESWORKDED_H
++
++#include &lt;QtGui&gt;
++
++
++class CountriesWorked
++{
++	public:
++        void init(const QStringList countryNames);
++        void setAsWorked(const QString countryName);
++        bool getHasWorked(const QString countryName);
++		int getWorkedCount();
++		int getSize();
++		
++	private:
++		QHash&lt;QString, bool&gt; _data;
++};
++
++#endif
++
+
+Added: branches/wsjtx/logbook/countrydat.cpp
+===================================================================
+--- branches/wsjtx/logbook/countrydat.cpp	                        (rev 0)
++++ branches/wsjtx/logbook/countrydat.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,128 @@
++/*
++#Sov Mil Order of Malta:   15:  28:  EU:   41.90:   -12.43:    -1.0:  1A:
++    #1A;
++#Spratly Islands:          26:  50:  AS:    9.88:  -114.23:    -8.0:  1S:
++    #1S,9M0,BV9S;
++#Monaco:                   14:  27:  EU:   43.73:    -7.40:    -1.0:  3A:
++    #3A;
++#Heard Island:             39:  68:  AF:  -53.08:   -73.50:    -5.0:  VK0H:
++    #=VK0IR;
++#Macquarie Island:         30:  60:  OC:  -54.60:  -158.88:   -10.0:  VK0M:
++    #=VK0KEV;
++#Cocos-Keeling:            29:  54:  OC:  -12.15:   -96.82:    -6.5:  VK9C:
++    #AX9C,AX9Y,VH9C,VH9Y,VI9C,VI9Y,VJ9C,VJ9Y,VK9C,VK9Y,VL9C,VL9Y,VM9C,VM9Y,
++    #VN9C,VN9Y,VZ9C,VZ9Y,=VK9AA;
++*/
++
++
++#include &quot;countrydat.h&quot;
++#include &lt;QFile&gt;
++#include &lt;QTextStream&gt;
++
++
++void CountryDat::init(const QString filename)
++{
++    _filename = filename;
++    _data.clear();
++}
++
++QString CountryDat::_extractName(const QString line)
++{
++    int s1 = line.indexOf(':');
++    QString name = line.mid(0,s1);
++    return name;
++}
++
++void CountryDat::_removeBrackets(QString &amp;line, const QString a, const QString b)
++{
++    int s1 = line.indexOf(a);
++    while (s1 &gt;= 0)
++    {
++      int s2 = line.indexOf(b);
++      line = line.mid(0,s1) + line.mid(s2+1,-1);
++      s1 = line.indexOf(a);
++    }
++}    
++
++QStringList CountryDat::_extractPrefix(QString &amp;line, bool &amp;more)
++{
++    line = line.remove(&quot; \n&quot;);
++    line = line.replace(&quot;=&quot;,&quot;&quot;);
++    line = line.replace(&quot; &quot;,&quot;&quot;);
++
++    _removeBrackets(line,&quot;(&quot;,&quot;)&quot;);
++    _removeBrackets(line,&quot;[&quot;,&quot;]&quot;);
++    _removeBrackets(line,&quot;&lt;&quot;,&quot;&gt;&quot;);
++    _removeBrackets(line,&quot;~&quot;,&quot;~&quot;);
++
++    int s1 = line.indexOf(';');
++    more = true;
++    if (s1 &gt;= 0)
++    {
++      line = line.mid(0,s1);
++      more = false;
++    }
++
++    QStringList r = line.split(',');
++
++    return r;
++}
++
++
++void CountryDat::load()
++{
++    _data.clear(); //dictionary was = {}
++    _countryNames.clear(); //used by countriesWorked
++  
++    QFile inputFile(_filename);
++    if (inputFile.open(QIODevice::ReadOnly))
++    {
++       QTextStream in(&amp;inputFile);
++       while ( !in.atEnd() )
++       {
++          QString line1 = in.readLine();
++          if ( !in.atEnd() )
++          {
++            QString line2 = in.readLine();
++              
++            QString name = _extractName(line1);
++            _countryNames &lt;&lt; name; 
++            bool more = true;
++			QStringList prefixs;
++			while (more)
++			{
++			  QStringList p = _extractPrefix(line2,more);
++			  prefixs += p;
++			  if (more)
++				line2 = in.readLine();
++             }
++			
++			QString p;	
++			foreach(p,prefixs)
++            {
++                if (p.length() &gt; 0)
++                    _data.insert(p,name);
++			}  
++          }
++       }
++    inputFile.close();
++    }
++}
++
++// return country name else &quot;&quot;
++QString CountryDat::find(QString prefix)
++{
++  	while(prefix.length() &gt;= 1)
++  	{
++	  if (_data.contains(prefix))
++	  {
++	    QString country = _data.value(prefix);
++	    return country;
++	   }
++	   prefix = prefix.left(prefix.length()-1);
++	 }
++	 return &quot;&quot;;
++}	   
++
++      
++
+
+Added: branches/wsjtx/logbook/countrydat.h
+===================================================================
+--- branches/wsjtx/logbook/countrydat.h	                        (rev 0)
++++ branches/wsjtx/logbook/countrydat.h	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,32 @@
++/*
++ * Reads cty.dat file
++ * Establishes a map between prefixes and their country names
++ * VK3ACF July 2013
++ */
++
++
++#ifndef __COUNTRYDAT_H
++#define __COUNTRYDAT_H
++
++#include &lt;QtGui&gt;
++
++
++class CountryDat
++{
++	public:
++        void init(const QString filename);
++		void load();
++        QString find(QString prefix); // return country name or &quot;&quot;
++		QStringList  getCountryNames() { return _countryNames; };
++   
++	private:
++        QString _extractName(const QString line);
++        void _removeBrackets(QString &amp;line, const QString a, const QString b);
++        QStringList _extractPrefix(QString &amp;line, bool &amp;more);
++		
++        QString _filename;
++		QStringList _countryNames;
++		QHash&lt;QString, QString&gt; _data;
++};
++
++#endif
+
+Added: branches/wsjtx/logbook/logbook.cpp
+===================================================================
+--- branches/wsjtx/logbook/logbook.cpp	                        (rev 0)
++++ branches/wsjtx/logbook/logbook.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,70 @@
++#include &quot;logbook.h&quot;
++
++
++void LogBook::init()
++{
++    const QString logFilename = &quot;wsjtx_log.adi&quot;;    //TODO get from user
++    const QString countryDataFilename = &quot;cty.dat&quot;;  //TODO get from user
++
++    _countries.init(countryDataFilename);
++    _countries.load();
++
++    _worked.init(_countries.getCountryNames());
++
++    _log.init(logFilename);
++    _log.load();
++
++    _setAlreadyWorkedFromLog();
++
++
++    int QSOcount = _log.getCount();
++    int count = _worked.getWorkedCount();
++    qDebug() &lt;&lt; QSOcount &lt;&lt; &quot;QSOs and&quot; &lt;&lt; count &lt;&lt; &quot;countries worked in file&quot; &lt;&lt; logFilename;
++}
++
++
++void LogBook::_setAlreadyWorkedFromLog()
++{
++  QList&lt;QString&gt; calls = _log.getCallList();
++  QString c;
++  foreach(c,calls)
++  {
++      QString countryName = _countries.find(c);
++      if (countryName.length() &gt; 0)
++      {
++          _worked.setAsWorked(countryName);
++          //qDebug() &lt;&lt; countryName &lt;&lt; &quot; worked &quot; &lt;&lt; c;
++      }
++  }
++}
++
++void LogBook::match(/*in*/const QString call,
++                  /*out*/ QString &amp;countryName,
++                          bool &amp;callWorkedBefore,
++                          bool &amp;countryWorkedBefore)
++{
++    if (call.length() &gt; 0)
++    {
++        QString currentMode = &quot;JT9&quot;; // JT65 == JT9 in ADIF::match()
++        QString currentBand = &quot;&quot;;  // match any band
++        callWorkedBefore = _log.match(call,currentBand,currentMode);
++        countryName = _countries.find(call);
++        if (countryName.length() &gt; 0)  //  country was found
++          countryWorkedBefore = _worked.getHasWorked(countryName);
++        else
++        {
++          countryName = &quot;where?&quot;; //error: prefix not found
++          countryWorkedBefore = false;
++        }
++    }
++    qDebug() &lt;&lt; &quot;Logbook:&quot; &lt;&lt; call &lt;&lt; &quot;:&quot; &lt;&lt; countryName &lt;&lt; &quot;Cty B4:&quot; &lt;&lt; countryWorkedBefore &lt;&lt; &quot;call B4:&quot; &lt;&lt; callWorkedBefore;
++}
++
++void LogBook::addAsWorked(const QString call)
++{
++    qDebug() &lt;&lt; &quot;adding &quot; &lt;&lt; call &lt;&lt; &quot; as worked&quot;;
++    _log.add(call);
++    QString countryName = _countries.find(call);
++    if (countryName.length() &gt; 0)
++        _worked.setAsWorked(countryName);
++}
+
+Added: branches/wsjtx/logbook/logbook.h
+===================================================================
+--- branches/wsjtx/logbook/logbook.h	                        (rev 0)
++++ branches/wsjtx/logbook/logbook.h	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -0,0 +1,35 @@
++/*
++ * From an ADIF file and cty.dat, get a call's DXCC entity and its worked before status
++ * VK3ACF July 2013
++ */
++
++#ifndef LOGBOOK_H
++#define LOGBOOK_H
++
++
++#include &lt;QtGui&gt;
++
++#include &quot;countrydat.h&quot;
++#include &quot;countriesworked.h&quot;
++#include &quot;adif.h&quot;
++
++class LogBook
++{
++public:
++    void init();
++    void match(/*in*/ const QString call,
++              /*out*/ QString &amp;countryName,
++                      bool &amp;callWorkedBefore,
++                      bool &amp;countryWorkedBefore);
++    void addAsWorked(const QString call);
++
++private:
++   CountryDat _countries;
++   CountriesWorked _worked;
++   ADIF _log;
++
++   void _setAlreadyWorkedFromLog();
++
++};
++
++#endif // LOGBOOK_H
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-31 00:03:26 UTC (rev 3511)
++++ branches/wsjtx/mainwindow.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -182,6 +182,7 @@
+   m_promptToLog=false;
+   m_blankLine=false;
+   m_insertBlank=false;
++  m_displayDXCCEntity=false;
+   m_clearCallGrid=false;
+   m_bMiles=false;
+   m_decodedText2=false;
+@@ -353,6 +354,8 @@
+   psk_Reporter-&gt;setLocalStation(m_myCall,m_myGrid, m_antDescription[m_band], &quot;WSJT-X r&quot; + rev.mid(6,4) );
+ #endif
+ 
++  m_logBook.init();
++
+   ui-&gt;label_9-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+   ui-&gt;label_10-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+   ui-&gt;labUTC-&gt;setStyleSheet( \
+@@ -464,6 +467,7 @@
+   settings.setValue(&quot;BandIndex&quot;,m_band);
+   settings.setValue(&quot;PromptToLog&quot;,m_promptToLog);
+   settings.setValue(&quot;InsertBlank&quot;,m_insertBlank);
++  settings.setValue(&quot;DXCCEntity&quot;,m_displayDXCCEntity);
+   settings.setValue(&quot;ClearCallGrid&quot;,m_clearCallGrid);
+   settings.setValue(&quot;Miles&quot;,m_bMiles);
+   settings.setValue(&quot;GUItab&quot;,ui-&gt;tabWidget-&gt;currentIndex());
+@@ -607,6 +611,8 @@
+   ui-&gt;actionPrompt_to_log_QSO-&gt;setChecked(m_promptToLog);
+   m_insertBlank=settings.value(&quot;InsertBlank&quot;,false).toBool();
+   ui-&gt;actionBlank_line_between_decoding_periods-&gt;setChecked(m_insertBlank);
++  m_displayDXCCEntity=settings.value(&quot;DXCCEntity&quot;,false).toBool();
++  ui-&gt;actionEnable_DXCC_entity-&gt;setChecked(m_displayDXCCEntity);
+   m_clearCallGrid=settings.value(&quot;ClearCallGrid&quot;,false).toBool();
+   ui-&gt;actionClear_DX_Call_and_Grid_after_logging-&gt;setChecked(m_clearCallGrid);
+   m_bMiles=settings.value(&quot;Miles&quot;,false).toBool();
+@@ -1473,6 +1479,44 @@
+       if(m_myCall!=&quot;&quot; and t.indexOf(&quot; &quot;+m_myCall+&quot; &quot;)&gt;0) bg=&quot;#ff6666&quot;; //red
+       bool bQSO=abs(t.mid(14,4).toInt() - g_pWideGraph-&gt;rxFreq()) &lt;= 10;
+       QString t1=t.replace(&quot;\n&quot;,&quot;&quot;).mid(0,t.length()-4);
++
++      // if enabled add the DXCC entity and B4 status to the end of the preformated text line t1
++      int cqi = t.indexOf(&quot; CQ &quot;);
++      if (m_displayDXCCEntity &amp;&amp; (cqi &gt;= 0))
++      {
++          // extract the CQer's call   TODO: does this work with all call formats?  What about 'CQ DX'?
++          int s1 = 4 + t.indexOf(&quot; CQ &quot;);
++          int s2 = t.indexOf(&quot; &quot;,s1);
++          QString call = t.mid(s1,s2-s1);
++          QString countryName;
++          bool callWorkedBefore;
++          bool countryWorkedBefore;
++          m_logBook.match(/*in*/call,/*out*/countryName,callWorkedBefore,countryWorkedBefore);
++
++          t1 = t1.left(36);  // reduce trailing white space  TODO: hardcoded char count
++
++          if (!countryWorkedBefore) // therefore not worked call either
++          {
++              t1 += &quot;!&quot;;
++              bg = &quot;#66ff66&quot;; // strong green
++          }
++          else
++              if (!callWorkedBefore) // but have worked the country
++              {
++                  t1 += &quot;~&quot;;
++                  bg = &quot;#76cd76&quot;; // mid green
++              }
++              else
++              {
++                  t1 += &quot; &quot;;  // have worked this call before
++                  bg=&quot;#9cc79c&quot;; // pale green
++              }
++          if (countryName.length()&gt;10)  //TODO: hardcoded width. Depends on font and window size/layout
++              countryName = countryName.left(1)+&quot;.&quot;+countryName.right(8);  //abreviate the first word to the first letter, show remaining right most chars
++          t1 += countryName;
++      }
++
++
+       QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+           bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t1 + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+       bool b65=t1.indexOf(&quot;#&quot;)==19;
+@@ -1489,10 +1533,9 @@
+       }
+ 
+       if(jt9com_.nagain==0) {
+-        if(t.indexOf(&quot; CQ &quot;)&gt;0) bg=&quot;#66ff66&quot;;                          //green
+         if(m_myCall!=&quot;&quot; and t.indexOf(&quot; &quot;+m_myCall+&quot; &quot;)&gt;0) bg=&quot;#ff6666&quot;; //red
+         QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
+-            bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t1 + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
++                bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t1 + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+         cursor = ui-&gt;decodedTextBrowser-&gt;textCursor();
+         cursor.movePosition(QTextCursor::End);
+         bf = cursor.blockFormat();
+@@ -2506,6 +2549,7 @@
+     m_saveComments=logDlg-&gt;m_saveComments;
+     m_txPower=logDlg-&gt;m_txPower;
+     m_logComments=logDlg-&gt;m_comments;
++    m_logBook.addAsWorked(m_hisCall);
+     if(m_clearCallGrid) {
+       m_hisCall=&quot;&quot;;
+       ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+@@ -2775,6 +2819,13 @@
+   m_insertBlank=checked;
+ }
+ 
++void MainWindow::on_actionEnable_DXCC_entity_triggered(bool checked)
++{
++  m_displayDXCCEntity=checked;
++  if (checked)
++      m_logBook.init();  // re-read the log and cty.dat files
++}
++
+ void MainWindow::on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked)
+ {
+   m_clearCallGrid=checked;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-07-31 00:03:26 UTC (rev 3511)
++++ branches/wsjtx/mainwindow.h	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -13,6 +13,7 @@
+ #include &quot;psk_reporter.h&quot;
+ #include &quot;rigclass.h&quot;
+ #include &quot;signalmeter.h&quot;
++#include &quot;logbook/logbook.h&quot;
+ 
+ #ifdef WIN32
+ #include &quot;PSKReporter.h&quot;
+@@ -134,6 +135,7 @@
+   void stopTx2();
+   void on_actionPrompt_to_log_QSO_triggered(bool checked);
+   void on_actionBlank_line_between_decoding_periods_triggered(bool checked);
++  void on_actionEnable_DXCC_entity_triggered(bool checked);
+   void on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked);
+   void on_actionDisplay_distance_in_miles_triggered(bool checked);
+   void on_pbCallCQ_clicked();
+@@ -243,6 +245,7 @@
+     bool    m_promptToLog;
+     bool    m_blankLine;
+     bool    m_insertBlank;
++    bool    m_displayDXCCEntity;
+     bool    m_clearCallGrid;
+     bool    m_bMiles;
+     bool    m_decodedText2;
+@@ -344,7 +347,9 @@
+     QString       *mykey_jt9;
+     PSK_Reporter *psk_Reporter;
+     SignalMeter *signalMeter;
++    LogBook m_logBook;
+ 
++
+ //---------------------------------------------------- private functions
+     void readSettings();
+     void writeSettings();
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-07-31 00:03:26 UTC (rev 3511)
++++ branches/wsjtx/mainwindow.ui	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -1314,7 +1314,7 @@
+                   &lt;string/&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -1348,7 +1348,7 @@
+                   &lt;bool&gt;true&lt;/bool&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -1379,7 +1379,7 @@
+                   &lt;string/&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -1540,7 +1540,7 @@
+                   &lt;string/&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -1688,7 +1688,7 @@
+                   &lt;string/&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -1719,7 +1719,7 @@
+                   &lt;string/&gt;
+                  &lt;/property&gt;
+                  &lt;attribute name=&quot;buttonGroup&quot;&gt;
+-                  &lt;string&gt;buttonGroup&lt;/string&gt;
++                  &lt;string notr=&quot;true&quot;&gt;buttonGroup&lt;/string&gt;
+                  &lt;/attribute&gt;
+                 &lt;/widget&gt;
+                &lt;/item&gt;
+@@ -2202,7 +2202,7 @@
+      &lt;x&gt;0&lt;/x&gt;
+      &lt;y&gt;0&lt;/y&gt;
+      &lt;width&gt;760&lt;/width&gt;
+-     &lt;height&gt;21&lt;/height&gt;
++     &lt;height&gt;22&lt;/height&gt;
+     &lt;/rect&gt;
+    &lt;/property&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuFile&quot;&gt;
+@@ -2245,6 +2245,7 @@
+     &lt;addaction name=&quot;action_73TxDisable&quot;/&gt;
+     &lt;addaction name=&quot;actionRunaway_Tx_watchdog&quot;/&gt;
+     &lt;addaction name=&quot;actionTx2QSO&quot;/&gt;
++    &lt;addaction name=&quot;actionEnable_DXCC_entity&quot;/&gt;
+     &lt;addaction name=&quot;separator&quot;/&gt;
+     &lt;addaction name=&quot;menuAdvanced&quot;/&gt;
+    &lt;/widget&gt;
+@@ -2855,6 +2856,14 @@
+     &lt;string&gt;Gray1&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionEnable_DXCC_entity&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Show DXCC entity and B4 status&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/psk_reporter.cpp
+===================================================================
+--- branches/wsjtx/psk_reporter.cpp	2013-07-31 00:03:26 UTC (rev 3511)
++++ branches/wsjtx/psk_reporter.cpp	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -95,10 +95,10 @@
+         txInfoData_h += &quot;0000&quot;;
+         txInfoData_h.replace(&quot;50E3llll&quot;, &quot;50E3&quot; + QString(&quot;%1&quot;).arg(txInfoData_h.length()/2,4,16,QChar('0')));
+         report_h = header_h + m_rxInfoDescriptor_h + m_txInfoDescriptor_h + rxInfoData_h + txInfoData_h;
+-        qDebug() &lt;&lt; &quot;Sending Report TX: &quot;;
++        //qDebug() &lt;&lt; &quot;Sending Report TX: &quot;;
+     } else {
+         report_h = header_h + m_rxInfoDescriptor_h + rxInfoData_h;
+-        qDebug() &lt;&lt; &quot;Sending Report RX: &quot;;
++        //qDebug() &lt;&lt; &quot;Sending Report RX: &quot;;
+     }
+ 
+     report_h.replace(&quot;000Allll&quot;, &quot;000A&quot; + QString(&quot;%1&quot;).arg(report_h.length()/2,4,16,QChar('0')));
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-07-31 00:03:26 UTC (rev 3511)
++++ branches/wsjtx/wsjtx.pro	2013-07-31 11:29:42 UTC (rev 3512)
+@@ -16,7 +16,7 @@
+ TEMPLATE = app
+ #DEFINES = QT4
+ DEFINES = QT5
+-DEFINES += QAUDIO_INPUT
++#DEFINES += QAUDIO_INPUT
+ 
+ win32 {
+ DEFINES += WIN32
+@@ -41,7 +41,11 @@
+     getfile.cpp displaytext.cpp getdev.cpp logqso.cpp \
+     psk_reporter.cpp rigclass.cpp \
+     signalmeter.cpp \
+-    meterwidget.cpp
++    meterwidget.cpp \
++    logbook/logbook.cpp \
++    logbook/countrydat.cpp \
++    logbook/countriesworked.cpp \
++    logbook/adif.cpp
+ 
+ win32 {
+ SOURCES += killbyname.cpp
+@@ -52,7 +56,11 @@
+             commons.h sleep.h displaytext.h logqso.h \
+             psk_reporter.h rigclass.h \
+     signalmeter.h \
+-    meterwidget.h
++    meterwidget.h \
++    logbook/logbook.h \
++    logbook/countrydat.h \
++    logbook/countriesworked.h \
++    logbook/adif.h
+ 
+ # (Is the following really needed???)
+ #DEFINES += __cplusplus
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003203.html">[WSJT-SVN] r3511 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003205.html">[WSJT-SVN] r3513 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3204">[ date ]</a>
+              <a href="thread.html#3204">[ thread ]</a>
+              <a href="subject.html#3204">[ subject ]</a>
+              <a href="author.html#3204">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

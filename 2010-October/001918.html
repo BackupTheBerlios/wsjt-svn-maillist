@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2226 - in wsjt7a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2226%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20101025174652.B5FEB480198%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001917.html">
+   <LINK REL="Next"  HREF="001919.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2226 - in wsjt7a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2226%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20101025174652.B5FEB480198%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2226 - in wsjt7a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Oct 25 19:46:52 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001917.html">[WSJT-SVN] r2225 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001919.html">[WSJT-SVN] r2227 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-10-25 19:46:52 +0200 (Mon, 25 Oct 2010)
+New Revision: 2226
+
+Modified:
+   wsjt7a/CALL3.TXT
+   wsjt7a/WsjtMod/options.py
+   wsjt7a/fivehz.f90
+   wsjt7a/ftn_init.f90
+   wsjt7a/gcom2.f90
+   wsjt7a/ptt.c
+   wsjt7a/wsjt.py
+Log:
+Enable choice of DTR or RTS for PTT.
+
+
+Modified: wsjt7a/CALL3.TXT
+===================================================================
+--- wsjt7a/CALL3.TXT	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/CALL3.TXT	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -5,6 +5,7 @@
+ 2I0BIW,IO64PF,,,MI3IYA,,Yaesu ft-847,06/07
+ 2M0EXD,IO88FO,,,,,,04/04
+ 3B9C,MH10QG,EME,,,,,01/03
++3D2LR,RH92,EME,,
+ 3DA0HL,KG53MS,EME,,EXPEDITION,,,03/07
+ 3V8BB,JM56ER,EME,,,,,06/02
+ 3V8SS,JM55GX,EME,,Expedition,,144: 16JXX and 1kw,12/05
+
+Modified: wsjt7a/WsjtMod/options.py
+===================================================================
+--- wsjt7a/WsjtMod/options.py	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/WsjtMod/options.py	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -157,7 +157,17 @@
+ 
+ Pmw.alignlabels(widgets)
+ mycall.component('entry').focus_set()
+-f1=Frame(g1.interior(),width=100,height=20)
++
++f0=Frame(g1.interior(),width=100,height=15)
++ndtr=IntVar()
++Label(f0,text='PTT line:  ').pack(side=LEFT)
++rb7=Radiobutton(f0,text='DTR',value=1,variable=ndtr)
++rb8=Radiobutton(f0,text='RTS',value=0,variable=ndtr)
++rb7.pack(anchor=W,side=LEFT,padx=2,pady=2)
++rb8.pack(anchor=W,side=LEFT,padx=2,pady=2)
++f0.pack()
++
++f1=Frame(g1.interior(),width=100,height=15)
+ mileskm=IntVar()
+ Label(f1,text='Distance unit:').pack(side=LEFT)
+ rb5=Radiobutton(f1,text='mi',value=0,variable=mileskm)
+@@ -239,7 +249,6 @@
+     widget.pack(padx=10,pady=2)
+ Pmw.alignlabels(widgets)
+ 
+-
+ g1.pack(side=LEFT,fill=BOTH,expand=1,padx=6,pady=6)
+ g2.pack(side=LEFT,fill=BOTH,expand=1,padx=6,pady=6)
+ g3.pack(side=LEFT,fill=BOTH,expand=1,padx=6,pady=6)
+
+Modified: wsjt7a/fivehz.f90
+===================================================================
+--- wsjt7a/fivehz.f90	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/fivehz.f90	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -76,7 +76,7 @@
+ ! When s6 has wrapped back to zero, start a new cycle
+      if(s6.lt.s6z) then
+         TxOK=0                              !Lower TxOK
+-        i1=ptt(nport,pttport,1,iptt)        !Raise PTT
++        i1=ptt(nport,pttport,1,ndtr,iptt)   !Raise PTT
+         call wsjtgen                        !Generate the waveform
+         t1a=s6
+         n3=1
+@@ -103,7 +103,7 @@
+ 
+ !     if(n3.eq.3 .and. s6.gt.s6z) then
+      if(n3.eq.3 .and. s6.gt.3.2) then
+-        i1=ptt(nport,pttport,0,iptt)        !Lower PTT
++        i1=ptt(nport,pttport,0,ndtr,iptt)        !Lower PTT
+         t4a=s6
+         n3=4
+ !        if(ndebug.gt.0) write(*,3001) n3,s6,s6-t3a,' Lower PTT'
+@@ -186,12 +186,12 @@
+ ! Switch PTT line and TxOK appropriately
+   if(lauto.eq.1) then
+      if(txtime .and. iptt.eq.0 .and.          &amp;
+-          mute.eq.0) i1=ptt(nport,pttport,1,iptt)        !Raise PTT
+-     if(.not.txtime .or. mute.eq.1) TxOK=0               !Lower TxOK
++          mute.eq.0) i1=ptt(nport,pttport,1,ndtr,iptt)        !Raise PTT
++     if(.not.txtime .or. mute.eq.1) TxOK=0                    !Lower TxOK
+   else
+      if(mantx.eq.1 .and. iptt.eq.0 .and.      &amp;
+-          mute.eq.0) i2=ptt(nport,pttport,1,iptt)        !Raise PTT
+-     if(mantx.eq.0 .or. mute.eq.1) TxOK=0                !Lower TxOK
++          mute.eq.0) i2=ptt(nport,pttport,1,ndtr,iptt)        !Raise PTT
++     if(mantx.eq.0 .or. mute.eq.1) TxOK=0                     !Lower TxOK
+   endif
+ 
+ ! Calculate Tx waveform as needed
+@@ -212,7 +212,7 @@
+   if(nc0a.lt.5) nc0a=5
+   if(TxOK.eq.0 .and. TxOKz.eq.1 .and. iptt.eq.1) nc0=-nc0a-1
+   if(nc0.le.0) nc0=nc0+1
+-  if(nc0.eq.0) i3=ptt(nport,pttport,0,iptt)
++  if(nc0.eq.0) i3=ptt(nport,pttport,0,ndtr,iptt)
+ 
+   if(iptt.eq.0 .and.TxOK.eq.0) then
+      sending=&quot;                      &quot;
+
+Modified: wsjt7a/ftn_init.f90
+===================================================================
+--- wsjt7a/ftn_init.f90	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/ftn_init.f90	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -34,7 +34,8 @@
+ 
+   call cs_init
+   call cs_lock('ftn_init')
+-  i=ptt(nport,pttport,0,iptt)                       !Clear the PTT line
++  i=ptt(nport,pttport,0,1,iptt)                       !Clear DTR line
++  i=ptt(nport,pttport,0,0,iptt)                       !Clear RTS line
+   addpfx='    '
+ 
+   do i=80,1,-1
+
+Modified: wsjt7a/gcom2.f90
+===================================================================
+--- wsjt7a/gcom2.f90	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/gcom2.f90	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -50,6 +50,7 @@
+ integer nforce         !Force decoding of questionable data  GUI,Decoder
+ integer nfrange        !Frequency range of main display         GUI
+ integer nport          !Requested COM port number               GUI
++integer ndtr           !DTR=1, RTS=0                            GUI
+ integer mousedf        !Mouse-selected freq offset, DF          GUI
+ integer neme           !EME calls only in deep search?          GUI
+ integer nsked          !Sked mode for deep search?              GUI
+@@ -109,7 +110,7 @@
+      ntxboth,nmsg,                                                    &amp;
+      nsave,nadd5,dftolerance,LDecoded,rxdone,monitoring,nzap,         &amp;
+      nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
+-     mode4,ndebug,nport,mousedf,                                      &amp;
++     mode4,ndebug,nport,ndtr,mousedf,                                 &amp;
+      neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf,       &amp;
+      shok,sendingsh,d2a(ND2MAX),d2b(ND2MAX),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nfsam,nlines,nflat,      &amp;
+
+Modified: wsjt7a/ptt.c
+===================================================================
+--- wsjt7a/ptt.c	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/ptt.c	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -1,7 +1,7 @@
+ #include &lt;windows.h&gt;
+ #include &lt;stdio.h&gt;
+ 
+-int ptt_(int *nport, char *unused, int *ntx, int *iptt)
++int ptt_(int *nport, char *unused, int *ntx, int *ndtr, int *iptt)
+ {
+   static HANDLE hFile;
+   static int open=0, nhold=0;
+@@ -35,15 +35,19 @@
+   }
+ 
+   if(*ntx &amp;&amp; open) {
+-    EscapeCommFunction(hFile,3);
+-    EscapeCommFunction(hFile,5);
++    if(*ndtr) 
++      EscapeCommFunction(hFile,5);              //set DTR
++    else
++      EscapeCommFunction(hFile,3);              //set RTS
+     *iptt=1;
+   }
+ 
+   else {
+-    EscapeCommFunction(hFile,4);
+-    EscapeCommFunction(hFile,6);
+-    EscapeCommFunction(hFile,9);
++    if(*ndtr) 
++      EscapeCommFunction(hFile,6);              //clear DTR
++    else
++      EscapeCommFunction(hFile,4);              //clear RTS
++    EscapeCommFunction(hFile,9);              //clear BREAK
+     if(nhold==0)  {
+       i00=CloseHandle(hFile);
+       open=0;
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-10-22 17:24:39 UTC (rev 2225)
++++ wsjt7a/wsjt.py	2010-10-25 17:46:52 UTC (rev 2226)
+@@ -1958,6 +1958,7 @@
+     Audio.gcom2.dftolerance=ntol[itol]
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
++    Audio.gcom2.ndtr=options.ndtr.get()
+     if mode.get()=='CW':
+         Audio.gcom2.ntdecode=56
+     else:
+@@ -2657,6 +2658,7 @@
+                 Audio.gcom2.nport=0
+             Audio.gcom2.pttport=(options.PttPort.get()+(' '*80))[:80]
+         elif key == 'Mileskm': options.mileskm.set(value)
++        elif key == 'nDTR': options.ndtr.set(value)
+         elif key == 'MsgStyle': options.ireport.set(value)
+         elif key == 'Region': options.iregion.set(value)
+         elif key == 'AudioIn':
+@@ -2788,6 +2790,7 @@
+ f.write(&quot;IDinterval &quot; + str(options.IDinterval.get()) + &quot;\n&quot;)
+ f.write(&quot;PttPort &quot; + str(options.PttPort.get()) + &quot;\n&quot;)
+ f.write(&quot;Mileskm &quot; + str(options.mileskm.get()) + &quot;\n&quot;)
++f.write(&quot;nDTR &quot; + str(options.ndtr.get()) + &quot;\n&quot;)
+ f.write(&quot;MsgStyle &quot; + str(options.ireport.get()) + &quot;\n&quot;)
+ f.write(&quot;Region &quot; + str(options.iregion.get()) + &quot;\n&quot;)
+ f.write(&quot;AudioIn &quot; + options.DevinName.get() + &quot;\n&quot;)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001917.html">[WSJT-SVN] r2225 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001919.html">[WSJT-SVN] r2227 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

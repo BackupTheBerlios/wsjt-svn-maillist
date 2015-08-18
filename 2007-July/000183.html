@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r498 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r498%20-%20branches/map65&In-Reply-To=%3C200707121425.l6CEPCfM003977%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000182.html">
+   <LINK REL="Next"  HREF="000184.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r498 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r498%20-%20branches/map65&In-Reply-To=%3C200707121425.l6CEPCfM003977%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r498 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 12 16:25:12 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000182.html">[WSJT-SVN] r497 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000184.html">[WSJT-SVN] r499 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#183">[ date ]</a>
+              <a href="thread.html#183">[ thread ]</a>
+              <a href="subject.html#183">[ subject ]</a>
+              <a href="author.html#183">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-12 16:25:08 +0200 (Thu, 12 Jul 2007)
+New Revision: 498
+
+Added:
+   branches/map65/getdphi.f90
+Modified:
+   branches/map65/Makefile.in
+   branches/map65/map65a.F90
+   branches/map65/plrr.f90
+   branches/map65/sec_midn.F90
+Log:
+Added &quot;getdphi&quot; to do least-squares solution for Dphi.
+Updated Makefile.in
+Commented out Linux calls to usleep in sleep_msec, makes it hang.
+Removed duplicate code from plrr.f90.
+
+
+Modified: branches/map65/Makefile.in
+===================================================================
+--- branches/map65/Makefile.in	2007-07-11 19:47:36 UTC (rev 497)
++++ branches/map65/Makefile.in	2007-07-12 14:25:08 UTC (rev 498)
+@@ -47,7 +47,7 @@
+ 	runqqq.F90 fivehz.F90 flushqqq.F90 \
+ 	rfile.f90 rfile3a.f90 spec.f90 map65a.F90 display.F90 \
+ 	getfile.F90 getfile2.F90 recvpkt.F90 savetf2.F90 \
+-	symspec.f90 sec_midn.F90
++	symspec.f90 sec_midn.F90 getdphi.f90
+ 
+ SRCS2F77 = indexx.f gen65.f chkmsg.f \
+ 	gentone.f gencwid.f set.f db.f pctile.f sort.f ssort.f \
+
+Added: branches/map65/getdphi.f90
+===================================================================
+--- branches/map65/getdphi.f90	2007-07-11 19:47:36 UTC (rev 497)
++++ branches/map65/getdphi.f90	2007-07-12 14:25:08 UTC (rev 498)
+@@ -0,0 +1,18 @@
++subroutine getdphi(qphi)
++
++  real qphi(12)
++
++  s=0.
++  c=0.
++  do i=1,12
++     th=i*30/57.2957795
++     s=s+qphi(i)*sin(th)
++     c=c+qphi(i)*cos(th)
++  enddo
++
++  dphi=57.2957795*atan2(s,c)
++  write(11,1010) nint(dphi)
++1010 format('Best-fit Dphi =',i4,' deg')
++
++  return
++  end
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-11 19:47:36 UTC (rev 497)
++++ branches/map65/map65a.F90	2007-07-12 14:25:08 UTC (rev 498)
+@@ -15,6 +15,7 @@
+   character decoded*22,blank*22
+   include 'spcom.f90'
+   real short(3,NFFT)                 !SNR dt ipol for potential shorthands
++  real qphi(12)
+   include 'gcom2.f90'
+   include 'datcom.f90'
+   data blank/'                      '/
+@@ -249,6 +250,7 @@
+                  write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,nqual
+ 1010             format(i3,i5,i4,i5.4,f5.1,i4,2x,a22,i5,i4,i4)
+               else
++		 qphi(iloop)=sig(k,10)
+                  write(11,1010) nkHz,ndf,npol,nutc,dt,nsync2,decoded,nkv,  &amp;
+                       nqual,30*iloop
+                  write(27,1011) 30*iloop,nkHz,ndf,npol,nutc,  &amp;
+@@ -267,6 +269,7 @@
+         iloop=iloop+1
+         go to 2
+      endif
++     if(ndphi.eq.1 .and.iloop.eq.12) call getdphi(qphi)
+      if(nqd.eq.1) then
+         write(11,*) '$EOF'
+         call flushqqq(11)
+
+Modified: branches/map65/plrr.f90
+===================================================================
+--- branches/map65/plrr.f90	2007-07-11 19:47:36 UTC (rev 497)
++++ branches/map65/plrr.f90	2007-07-12 14:25:08 UTC (rev 498)
+@@ -40,17 +40,4 @@
+ 
+ end program plrr
+ 
+-! To compile: % gfortran -o plrr plrr.f90 plrr_subs.c
+-
+-
+-real function sec_midn()
+-  real*8 sec8,hrtime
+-  sec_midn=secnds(0.0)
+-  return
+-end function sec_midn
+-
+-subroutine sleep_msec(n)
+-  use dflib
+-  call sleepqq(n)
+-  return
+-end subroutine sleep_msec
++! To compile: % gfortran -o plrr plrr.f90 sec_midn.F90 plrr_subs.c
+
+Modified: branches/map65/sec_midn.F90
+===================================================================
+--- branches/map65/sec_midn.F90	2007-07-11 19:47:36 UTC (rev 497)
++++ branches/map65/sec_midn.F90	2007-07-12 14:25:08 UTC (rev 498)
+@@ -21,7 +21,8 @@
+ #ifdef Win32
+   call sleepqq(n)
+ #else
+-  call usleep(min(1,1000*n))
++!m=min(1,n)
++!  call usleep(m)
+ #endif
+ 
+   return
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000182.html">[WSJT-SVN] r497 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000184.html">[WSJT-SVN] r499 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#183">[ date ]</a>
+              <a href="thread.html#183">[ thread ]</a>
+              <a href="subject.html#183">[ subject ]</a>
+              <a href="author.html#183">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3377 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3377%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130612140547.673E9BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003068.html">
+   <LINK REL="Next"  HREF="003070.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3377 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3377%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130612140547.673E9BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3377 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jun 12 16:05:47 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003068.html">[WSJT-SVN] r3376 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003070.html">[WSJT-SVN] r3378 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3069">[ date ]</a>
+              <a href="thread.html#3069">[ thread ]</a>
+              <a href="subject.html#3069">[ subject ]</a>
+              <a href="author.html#3069">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-12 16:05:46 +0200 (Wed, 12 Jun 2013)
+New Revision: 3377
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/extract.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+Correct a flaw in jt65a that suppressed some automatic decodes.
+Change extract() so that BM algorithm is always tried first, then KV.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/extract.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-11 22:57:14 UTC (rev 3376)
++++ branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-12 14:05:46 UTC (rev 3377)
+@@ -4,8 +4,9 @@
+   character decoded*22
+   integer era(51),dat4(12),indx(64)
+   integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
+-  logical first,ltext
+-  data first/.true./,nsec1/0/
++  logical nokv,ltext
++  data nokv/.false./,nsec1/0/
++  data nbm/0/,nkv/0/
+   save
+ 
+   nfail=0
+@@ -35,70 +36,73 @@
+   call interleave63(mrsym,-1)
+   call interleave63(mrprob,-1)
+ 
+-  ndec=1                             !1 for KV, 0 for BM
+-  nemax=30                           !Max BM erasures
++! Decode using Berlekamp-Massey algorithm
++  nemax=30                                         !Max BM erasures
++  call indexx(63,mrprob,indx)
++  do i=1,nemax
++     j=indx(i)
++     if(mrprob(j).gt.120) then
++        ne2=i-1
++        go to 2
++     endif
++     era(i)=j-1
++  enddo
++  ne2=nemax
++2 decoded='                      '
++  do nerase=0,ne2,2
++     call rs_decode(mrsym,era,nerase,dat4,ncount)
++     if(ncount.ge.0) then
++        call unpackmsg(dat4,decoded)
++        nbm=nbm+1
++        if(iand(dat4(10),8).ne.0) ltext=.true.
++        go to 900
++     endif
++  enddo
++
++! Berlekamp-Massey algorithm failed, try Koetter-Vardy
++
+   maxe=8                             !Max KV errors in 12 most reliable symbols
+   xlambda=10.0
++  call graycode65(mr2sym,63,-1)
++  call interleave63(mr2sym,-1)
++  call interleave63(mr2prob,-1)
+ 
+-  if(ndec.eq.1) then
+-     call graycode65(mr2sym,63,-1)
+-     call interleave63(mr2sym,-1)
+-     call interleave63(mr2prob,-1)
+-
+-     nsec1=nsec1+1
+-     write(22,rec=1) nsec1,xlambda,maxe,200,mrsym,mrprob,mr2sym,mr2prob
+-     call flush(22)
++  nsec1=nsec1+1
++  write(22,rec=1) nsec1,xlambda,maxe,200,mrsym,mrprob,mr2sym,mr2prob
++  call flush(22)
+ !         call timer('kvasd   ',0)
+ !#ifdef UNIX
+ !         iret=system('./kvasd -q &gt; dev_null')
+ !#else
+-     iret=system('kvasd -q &gt; dev_null')
++  iret=system('kvasd -q &gt; dev_null')
+ !#endif
+ !         call timer('kvasd   ',1)
+-     if(iret.ne.0) then
+-        if(first) write(*,1000) iret
+-1000    format('Error in KV decoder, or no KV decoder present.'/     &amp;
+-             'Return code:',i8,'.  Will use BM algorithm.')
+-        ndec=0
+-        first=.false.
+-        go to 20
+-     endif
++  if(iret.ne.0) then
++     if(.not.nokv) write(*,1000) 
++1000 format('Error in KV decoder, or no KV decoder present.')
++     nokv=.true.
++     go to 900
++  endif
+ 
+-     read(22,rec=2) nsec2,ncount,dat4
+-     j=nsec2                !Silence compiler warning
+-     decoded='                      '
+-     ltext=.false.
+-     if(ncount.ge.0) then
+-        call unpackmsg(dat4,decoded)     !Unpack the user message
+-        if(iand(dat4(10),8).ne.0) ltext=.true.
+-        do i=2,12
+-           if(dat4(i).ne.dat4(1)) go to 20
+-        enddo
+-        write(13,*) 'Bad decode?',nhist,nfail,ipk,' ',dat4,decoded
+-        ncount=-1           !Suppress supposedly bogus decodes
+-        decoded='                      '
+-     endif
++  read(22,rec=2) nsec2,ncount,dat4
++  j=nsec2                !Silence compiler warning
++  decoded='                      '
++  ltext=.false.
++  if(ncount.ge.0) then
++     call unpackmsg(dat4,decoded)     !Unpack the user message
++     nkv=nkv+1
++     if(iand(dat4(10),8).ne.0) ltext=.true.
++!     do i=2,12
++!        if(dat4(i).ne.dat4(1)) go to 900
++!     enddo
++!     write(13,*) 'Bad decode?',nhist,nfail,ipk,' ',dat4,decoded
++!     ncount=-1           !Suppress supposedly bogus decodes
++!     decoded='                      '
+   endif
+-20 if(ndec.eq.0) then
+-     call indexx(63,mrprob,indx)
+-     do i=1,nemax
+-        j=indx(i)
+-        if(mrprob(j).gt.120) then
+-           ne2=i-1
+-           go to 2
+-        endif
+-        era(i)=j-1
+-     enddo
+-     ne2=nemax
+-2    decoded='                      '
+-     do nerase=0,ne2,2
+-        call rs_decode(mrsym,era,nerase,dat4,ncount)
+-        if(ncount.ge.0) then
+-           call unpackmsg(dat4,decoded)
+-           go to 900
+-        endif
+-     enddo
+-  endif
+ 
+-900 return
++900 continue
++  write(38,*) nbm,nkv
++  call flush(38)
++
++  return
+ end subroutine extract
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-11 22:57:14 UTC (rev 3376)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-12 14:05:46 UTC (rev 3377)
+@@ -39,6 +39,7 @@
+ 
+      do i=ia,ib                               !Search over freq range
+         if(savg(i).lt.thresh0 .or. done(i)) cycle
++        if(done(i)) cycle
+         freq=i*df
+ 
+         call timer('ccf65   ',0)
+@@ -52,16 +53,17 @@
+         thresh1=1.0
+ !  Use lower thresh1 at fQSO
+         if(nqd.eq.1 .and. ntol.le.100) thresh1=0.
++
+ !  Is sync1 above threshold?
+         if(sync1.lt.thresh1) cycle
+ 
+ !  Keep only the best candidate within ftol.
+-        if(freq-freq0.lt.ftol .or. sync1.lt.sync10) cycle
++!        if(freq-freq0.lt.ftol .or. sync1.lt.sync10) cycle
++        if(freq-freq0.lt.ftol) cycle
++
+         nflip=nint(flipk)
+-        f0=i*df                   !Freq of detected sync tone (0-5000 Hz)
+-
+         call timer('decode1a',0)
+-        call decode1a(dd,npts,newdat,f0,nflip,mode65,nqd,   &amp;
++        call decode1a(dd,npts,newdat,freq,nflip,mode65,nqd,   &amp;
+              nutc,ntol,sync2,a,dt,nkv,nhist,decoded)
+         call timer('decode1a',1)
+ 
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-11 22:57:14 UTC (rev 3376)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-12 14:05:46 UTC (rev 3377)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003068.html">[WSJT-SVN] r3376 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003070.html">[WSJT-SVN] r3378 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3069">[ date ]</a>
+              <a href="thread.html#3069">[ thread ]</a>
+              <a href="subject.html#3069">[ subject ]</a>
+              <a href="author.html#3069">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2920 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2920%20-%20branches/wsprx&In-Reply-To=%3C20130110174253.01C7455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002611.html">
+   <LINK REL="Next"  HREF="002613.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2920 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2920%20-%20branches/wsprx&In-Reply-To=%3C20130110174253.01C7455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2920 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 10 18:42:52 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002611.html">[WSJT-SVN] r2919 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002613.html">[WSJT-SVN] r2921 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2612">[ date ]</a>
+              <a href="thread.html#2612">[ thread ]</a>
+              <a href="subject.html#2612">[ subject ]</a>
+              <a href="author.html#2612">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-10 18:42:52 +0100 (Thu, 10 Jan 2013)
+New Revision: 2920
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+   branches/wsprx/mainwindow.ui
+Log:
+Add a Stop Tx button.
+Always receive when not transmitting.
+Update Tx Audio frequency in SoundOutThread, whenever it changes.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-10 16:56:54 UTC (rev 2919)
++++ branches/wsprx/mainwindow.cpp	2013-01-10 17:42:52 UTC (rev 2920)
+@@ -48,7 +48,6 @@
+   QActionGroup* modeGroup = new QActionGroup(this);
+   ui-&gt;actionWSPR_2-&gt;setActionGroup(modeGroup);
+   ui-&gt;actionWSPR_15-&gt;setActionGroup(modeGroup);
+-  ui-&gt;actionWSPR_30-&gt;setActionGroup(modeGroup);
+ 
+   QActionGroup* saveGroup = new QActionGroup(this);
+   ui-&gt;actionNone-&gt;setActionGroup(saveGroup);
+@@ -807,6 +806,7 @@
+   lab2-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab2-&gt;setText(&quot;WSPR-2&quot;);
+   ui-&gt;actionWSPR_2-&gt;setChecked(true);
++  stopTx();
+ }
+ 
+ void MainWindow::on_actionWSPR_15_triggered()
+@@ -822,6 +822,7 @@
+   lab2-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
+   lab2-&gt;setText(&quot;WSPR-15&quot;);
+   ui-&gt;actionWSPR_15-&gt;setChecked(true);
++  stopTx();
+ }
+ 
+ void MainWindow::on_inGain_valueChanged(int n)
+@@ -889,6 +890,7 @@
+     m_sec0=nsec;
+   }
+ 
++//No need for the following code???
+   if(m_txFreq != m_txFreq0) {
+     QString t;
+     t.sprintf(&quot; %4d&quot;,m_txFreq);
+@@ -966,19 +968,23 @@
+       startTx();
+     } else {
+ //Start a normal Rx sequence
+-      m_receiving=true;
+-      soundInThread.setReceiving(true);
+-      //m_rxtime=hhmm
+-      m_ntr=1;
+-      m_rxnormal=true;
+-      loggit(&quot;Start Rx&quot;);
+-      //    startRx();
+-      m_nrx=m_nrx-1;
+-      m_switching=false;
++      startRx();
+     }
+   }
+ }
+ 
++void MainWindow::startRx()
++{
++  m_receiving=true;
++  soundInThread.setReceiving(true);
++  //m_rxtime=hhmm
++  m_ntr=1;
++  m_rxnormal=true;
++  loggit(&quot;Start Rx&quot;);
++  m_nrx=m_nrx-1;
++  m_switching=false;
++}
++
+ double MainWindow::tsec()
+ {
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+@@ -1080,6 +1086,7 @@
+   ui-&gt;TuneButton-&gt;setStyleSheet(&quot;&quot;);
+   ptt(m_pttPort,itx,&amp;m_iptt);                   //Lower PTT
+   loggit(&quot;Stop Tx&quot;);
++  startRx();
+ }
+ 
+ void MainWindow::on_cbIdle_toggled(bool b)
+@@ -1147,8 +1154,14 @@
+ void MainWindow::on_sbTxAudio_valueChanged(int n)
+ {
+   m_txFreq=n;
++  soundOutThread.setTxFreq(m_txFreq);
+   double x=ui-&gt;dialFreqLineEdit-&gt;text().toDouble()+0.000001*m_txFreq;
+   QString t;
+   t.sprintf(&quot;%.6f&quot;,x);
+   ui-&gt;txFreqLineEdit-&gt;setText(t);
+ }
++
++void MainWindow::on_stopTxButton_clicked()
++{
++  stopTx();
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-10 16:56:54 UTC (rev 2919)
++++ branches/wsprx/mainwindow.h	2013-01-10 17:42:52 UTC (rev 2920)
+@@ -82,6 +82,8 @@
+   void on_bandComboBox_currentIndexChanged(int n);
+   void on_sbTxAudio_valueChanged(int n);
+ 
++  void on_stopTxButton_clicked();
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -194,7 +196,7 @@
+     void updateStatusBar();
+     void msgBox(QString t);
+     void oneSec();
+-//    void startRx();
++    void startRx();
+     void startTx();
+     double tsec();
+     void ba2msg(QByteArray ba, char* message);
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-10 16:56:54 UTC (rev 2919)
++++ branches/wsprx/mainwindow.ui	2013-01-10 17:42:52 UTC (rev 2920)
+@@ -594,6 +594,19 @@
+             &lt;/property&gt;
+            &lt;/widget&gt;
+           &lt;/item&gt;
++          &lt;item&gt;
++           &lt;widget class=&quot;QPushButton&quot; name=&quot;stopTxButton&quot;&gt;
++            &lt;property name=&quot;maximumSize&quot;&gt;
++             &lt;size&gt;
++              &lt;width&gt;70&lt;/width&gt;
++              &lt;height&gt;16777215&lt;/height&gt;
++             &lt;/size&gt;
++            &lt;/property&gt;
++            &lt;property name=&quot;text&quot;&gt;
++             &lt;string&gt;Stop Tx&lt;/string&gt;
++            &lt;/property&gt;
++           &lt;/widget&gt;
++          &lt;/item&gt;
+          &lt;/layout&gt;
+         &lt;/item&gt;
+        &lt;/layout&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002611.html">[WSJT-SVN] r2919 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002613.html">[WSJT-SVN] r2921 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2612">[ date ]</a>
+              <a href="thread.html#2612">[ thread ]</a>
+              <a href="subject.html#2612">[ subject ]</a>
+              <a href="author.html#2612">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

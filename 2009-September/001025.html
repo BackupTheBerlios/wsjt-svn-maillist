@@ -1,0 +1,1307 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1332 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1332%20-%20branches/wsjt8a&In-Reply-To=%3C200909111828.n8BISdgA028380%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001024.html">
+   <LINK REL="Next"  HREF="001026.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1332 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1332%20-%20branches/wsjt8a&In-Reply-To=%3C200909111828.n8BISdgA028380%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1332 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 11 20:28:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001024.html">[WSJT-SVN] r1330 - branches/wsjt8/quest
+</A></li>
+        <LI>Next message: <A HREF="001026.html">[WSJT-SVN] r1334 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1025">[ date ]</a>
+              <a href="thread.html#1025">[ thread ]</a>
+              <a href="subject.html#1025">[ subject ]</a>
+              <a href="author.html#1025">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-09-11 20:28:28 +0200 (Fri, 11 Sep 2009)
+New Revision: 1332
+
+Added:
+   branches/wsjt8a/chdec.f90
+   branches/wsjt8a/chenc.f90
+   branches/wsjt8a/packbits.f
+   branches/wsjt8a/pk30.f90
+   branches/wsjt8a/pk48.f90
+   branches/wsjt8a/pk78.f90
+   branches/wsjt8a/pkcall.f90
+   branches/wsjt8a/pkgrid.f90
+   branches/wsjt8a/pktext.f90
+   branches/wsjt8a/unpackbits.f
+   branches/wsjt8a/unpkcall.f90
+   branches/wsjt8a/unpkgrid.f90
+   branches/wsjt8a/unpktext.f90
+Removed:
+   branches/wsjt8a/WSJT592.iss
+   branches/wsjt8a/WSJT_Quick_Reference.pdf
+   branches/wsjt8a/WSJT_Source_Code.txt
+   branches/wsjt8a/WSJT_User_600.pdf
+   branches/wsjt8a/WSPR_mode.pdf
+Modified:
+   branches/wsjt8a/Makefile.in
+   branches/wsjt8a/decode_rs.c
+   branches/wsjt8a/init_rs.c
+   branches/wsjt8a/int.h
+   branches/wsjt8a/wrapkarn.c
+Log:
+Many updates, cleanups, etc.
+
+
+Modified: branches/wsjt8a/Makefile.in
+===================================================================
+--- branches/wsjt8a/Makefile.in	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/Makefile.in	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -17,18 +17,21 @@
+ # WSJT specific Fortran flags
+ #FFLAGS += -Wall -Wno-precision-loss -fbounds-check -fno-second-underscore -fPIC
+ 
++all:	WsjtMod/Audio.so WSJT8codes
+ Audio:	WsjtMod/Audio.so
+ 
+-# The default rules
+-.c.o:
+-	${CC} ${CPPFLAGS} ${CFLAGS} -c -o ${&lt;:.c=.o} $&lt;
++# Default rules
++%.o: %.c
++	${CC} ${CFLAGS} -c $&lt;
++%.o: %.f
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.F
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.f90
++	${FC} ${FFLAGS} -c $&lt;
++%.o: %.F90
++	${FC} ${FFLAGS} -c $&lt;
+ 
+-.f.o:
+-	${FC} ${CPPFLAGS} ${FFLAGS} -c -o ${&lt;:.f=.o} $&lt;
+-
+-.F90.o:
+-	${FC} ${CPPFLAGS} ${FFLAGS} -c -o ${&lt;:.F90=.o} $&lt;
+-
+ OS=@OS@
+ FC=@FC@
+ FCV=@FCV@
+@@ -40,6 +43,12 @@
+ RM	?= @RM@
+ F2PY	= @F2PY@
+ 
++OBJS1 = WSJT8codes.o srcenc.o srcdec.o parse.o msgtrim.o packcall.o \
++	packgrid.o nchar.o grid2deg.o pkcall.o pkgrid.o pktext.o \
++	unpkcall.o unpkgrid.o deg2grid.o unpktext.o \
++	pk30.o pk48.o pk78.o packpfx.o unpackpfx.o \
++	hash.o nhash.o chenc.o chdec.o packbits.o unpackbits.o \
++	wrapkarn.o init_rs_int.o encode_rs_int.o decode_rs_int.o 
+ 
+ F2PYONLY = ftn_init ftn_quit audio_init spec getfile azdist0 astro0 chkt0
+ 
+@@ -85,8 +94,6 @@
+ OBJS3C  = ${SRCS3C:.c=.o}
+ AUDIOSRCS =	a2d.f90 jtaudio.c start_threads.c resample.c
+ 
+-all:	WsjtMod/Audio.so wsjt8
+-
+ build:	WsjtMod/Audio.so
+ 
+ WsjtMod/Audio.so: $(OBJS2C) $(OBJS3C) $(OBJS2F77) $(SRCS2F90) $(AUDIOSRCS)
+@@ -108,13 +115,15 @@
+ 	--tk --onefile wsjt8.py
+ wsjt8.py: wsjt.py
+ 	cp wsjt.py wsjt8.py
++WSJT8codes: $(OBJS1)
++	$(FC) -o WSJT8codes $(OBJS1)
+ 
+ init_rs_int.o: init_rs.c
+-	$(CC) $(CFLAGS) -c -DBIGSYM=1 -o init_rs_int.o init_rs.c
++	$(CC) ${CFLAGS} -c -DBIGSYM=1 -o $@ $^
+ encode_rs_int.o: encode_rs.c
+-	$(CC) $(CFLAGS) -c -DBIGSYM=1 -o encode_rs_int.o encode_rs.c
++	$(CC) ${CFLAGS} -c -DBIGSYM=1 -o $@ $^
+ decode_rs_int.o: decode_rs.c
+-	$(CC) $(CFLAGS) -c -DBIGSYM=1 -o decode_rs_int.o decode_rs.c
++	$(CC) ${CFLAGS} -c -DBIGSYM=1 -o $@ $^
+ 
+ cutil.o: cutil.c
+ 	$(CC) $(CFLAGS) -c -DSTARNIX=1 cutil.c
+
+Deleted: branches/wsjt8a/WSJT592.iss
+===================================================================
+--- branches/wsjt8a/WSJT592.iss	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/WSJT592.iss	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -1,24 +0,0 @@
+-[Setup]
+-AppName=WSJT
+-AppVerName=WSJT Version 5.9.2 r77
+-AppCopyright=Copyright (C) 2001-2005 by Joe Taylor, K1JT
+-DefaultDirName={pf}\WSJT6
+-DefaultGroupName=WSJT6
+-
+-[Files]
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\WSJT6.EXE&quot;;         DestDir: &quot;{app}&quot;
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\README_592.TXT&quot;;    DestDir: &quot;{app}&quot;
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\wsjt.ico&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\TSKY.DAT&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\libsamplerate.dll&quot;; DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\kvasd.exe&quot;;         DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\wsjtrc.win&quot;;        DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\k1jt\svn\wsjt\release-5.9.2\Tutorial_592.txt&quot;;  DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\k1jt\python\wsjt\rxwav\samples\W8WN_010809_110400.WAV&quot;;  DestDir: &quot;{app}\RxWav\Samples\&quot;; Flags: onlyifdoesntexist
+-
+-[Icons]
+-Name: &quot;{group}\WSJT6&quot;;        Filename: &quot;{app}\WSJT6.EXE&quot;; WorkingDir: {app}
+-Name: &quot;{userdesktop}\WSJT6&quot;;  Filename: &quot;{app}\WSJT6.EXE&quot;; WorkingDir: {app}
+-
+-
+
+Deleted: branches/wsjt8a/WSJT_Quick_Reference.pdf
+===================================================================
+(Binary files differ)
+
+Deleted: branches/wsjt8a/WSJT_Source_Code.txt
+===================================================================
+--- branches/wsjt8a/WSJT_Source_Code.txt	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/WSJT_Source_Code.txt	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -1,290 +0,0 @@
+-			WSJT DEVELOPMENT OVERVIEW
+-			-------------------------
+-
+-1  Introduction
+-----------------------------------------------------------------------
+-WSJT is a computer program designed to facilitate Amateur Radio
+-communication under extreme weak-signal conditions.  Three very
+-different coding and modulation methods are provided: one for
+-communication by &quot;meteor scatter&quot; techniques on the VHF bands; one for
+-meteor and ionospheric scatter, primarily on the 6 meter band; and one
+-for the very challenging EME (Earth-Moon-Earth) path.
+-
+-
+-2  Program Overview
+-----------------------------------------------------------------------
+-WSJT's user interface is written in Python.  The major Python
+-source-code files include:
+-
+-1. wsjt.py     Defines the main-screen GUI for user interactions;
+-               acts as &quot;traffic cop&quot; for orchestrating all
+-               event-driven and time-shared activities.
+-
+-2. specjt.py   Provides real-time display of received signals as 
+-               two-dimensional &quot;waterfall&quot; spectra.
+-
+-3. options.py  Provides entry fields for user-defined parameters.
+-
+-4. astro.py    Displays astronomical data for sun, moon, sky
+-               temperature, etc.
+-
+-Smaller Python files serve various utility purposes.
+-
+-Both wsjt.py and specjt.py make calls to external procedures compiled
+-from Fortran and C.  A variety of global data is shared among modules
+-through common blocks defined in Fortran.  The Python code runs in a
+-single thread, although timers make the functions of the several main
+-modules appear concurrent.  Fortran routines create additional threads
+-to be used for soundcard I/O and the decoding of received messages.
+-
+-As a small part of its overall task, the decoder for JT65 invokes an
+-external program named KVASD.EXE or KVASD, located in the main
+-WSJT directory.  If this program is present it uses information on
+-received 64-FSK symbols and attempts to decipher it according to a
+-Reed Solomon (63,12) code, using the algebraic soft-decision algorithm
+-of Koetter and Vardy.  If KVASD is not present, WSJT uses its own
+-internal hard-decision Reed Solomon decoder instead.  Interprocess
+-communication between WSJT and KVASD takes place through a shared disk
+-file.  KVASD is not an integral part of WSJT.  Its algorithm is
+-patented, and the source code is the property of CodeVector
+-Technologies, LLC.  However, compiled versions of KVASD may be freely
+-used in conjunction with WSJT for the purposes of amateur radio
+-weak-signal communication.
+-
+-
+-3  Some Functional Details
+-----------------------------------------------------------------------
+-WSJT execution starts at the top of Python file wsjt.py.  The
+-other Python modules are loaded and executed as needed.  Fortran
+-routines are called to start a high-priority thread to handle
+-continuous A/D and D/A streams, and a background thread to decode
+-received or previously recorded signals.  The top-level Python
+-code determines the overall state of program operation, e.g.,
+-Idle, Monitoring, or Transmitting.  In normal usage the operator
+-puts the program into Auto mode, resulting in a timed sequence of
+-alternating transmission and reception intervals.
+-
+-
+-4  Other Open-Source Software used in WSJT
+-----------------------------------------------------------------------
+-WSJT 5.9 uses the following open source libraries:
+-
+-  1. FFTW, by Matteo Frigo and Steven Johnson, for computing Fourier
+-     transforms
+-
+-  2. PortAudio, by Ross Bencina and Phil Burk, for audio I/O
+-
+-  3. &quot;Secret Rabbit Code&quot; or &quot;libsamplerate&quot;, by Erik de Castro, for
+-     accomplishing band-limited resampling of data
+-
+-  4. RS, by Phil Karn, KA9Q, for Reed Solomon encoding and
+-     hard-decision decoding.
+-
+-
+-5  Platform-Dependent Notes
+-----------------------------------------------------------------------
+-The Python code should run on any supported Python platform.  Most of
+-the remaining code can be compiled for Linux, FreeBSD, unix, or OS/X,
+-as well as Windows.  Platform-dependent versions of FFTW, PortAudio,
+-and libsamplerate may need to be installed.
+-
+-Methods are provided for creating additional threads and setting their
+-runtime priorities in Windows, Linux, and FreeBSD.
+-
+-
+-6  Partial List of Functions and Subroutines, and their purposes
+-----------------------------------------------------------------------
+-   Routines for audio startup, decoding, display computations
+-     blanker.f90  Noise blanker
+-     fivehz.f90   Called by PortAudio callback
+-     flat2.f      Flatten the spectrum for waterfall display
+-     pix2d65.f90  Computes pixels for waterfall display
+-     pix2d.f90    Computes pixels for waterfall display
+-     runqqq.f90   Executes another process
+-
+-   wsjtgen.f90    Generates Tx waveforms
+-     abc441.f90   Part of FSK441 generator
+-     gen65.f      Generate JT65 waveform
+-       chkmsg.f   Check a JT65 message for presence of 'OOO'
+-       encode65.f Encode a JT65 message
+-       getpfx1.f  Handle extra DXCC prefixes
+-       getpfx2.f   ...
+-       graycode.f Convert binary to/from Gray code
+-       nchar.f    Convert number, letter, space to 0-36
+-       packcall.f Routines for JT65 source encoding
+-       packdxcc.f  ...
+-       packgrid.f  ...
+-       packmsg.f   ...
+-       packtext.f  ...
+-       pfx.f       ...
+-     gen6m.f	  Generate JT6M waveform
+-       gentone.f  Generate tone for JT6M message
+-     gencw.f	  Generate CW waveform
+-       morse.f    Convert ascii to morse dits
+-     gencwid.f	  Generate a CW ID message
+-     grid2k.f     Convert grid locator to integer
+-     interleave63.f Interleave JT65 symbols
+-
+-   gcom1.f90      Global commons for sharing data among Fortran routines
+-   gcom2.f90	  and between Fortran and Python
+-   gcom3.f90
+-   gcom4.f90
+-
+-   makedate.f90   Gererates makedate_sub.f90
+-
+-   Astronomical calculations:
+-
+-   astro.f        Computes Az, El, Doppler for Sun, Moon, etc.
+-   astropak.f	  &quot;Includes&quot; for astro supoport routines
+-     azdist.f     Computes azimuth, distance, etc., between two locators
+-     coord.f      Spherical trig utility
+-     dcoord.f     Spherical trig utility in double precision
+-     deg2grid.f   Convert lat/long (degrees) to grid locator
+-     dot.f        Compute dot product
+-     ftsky.f      Get sky temperature from data file
+-     geocentric.f Convert geodetic to geocentric coords
+-     GeoDist.f	  Compute azimuth and distance between two locators
+-     grid2deg.f	  Convert grid locator to lat/long
+-     moon2.f	  Compute moon location at specified date and time
+-     MoonDop.f    Compute lunar doppler shift and related quantities
+-     sun.f	  Compure sun location at specified date and time
+-     toxyz.f      Convert between polar and cartesian coords
+-
+-   Utilities:
+-     db.f	  Compute decibels from ratio
+-     gasdev.f     Generate Gaussian random numbers
+-     igray.f      Gray code
+-     indexx.f     Sort routine
+-     set.f	  Move, add, zero, ...
+-     pctile.f     Sort an array and get specified percentile
+-     ran1.f       Uniform random numbers
+-     rfile2.f     Read a binary file (Linux)
+-     sort.f       Sort an array
+-
+-   FFTs:
+-     fftw3.f      Fortran definitions for FFTW
+-     four2a.f     Wrapper to make FFTW look like four2
+-     four2.f      FFT in Fortran (a;ternative to using FFTW)
+-     ps.f         Compute power spectrum
+-     xfft.f       Real to complex FFT wrapper
+-
+-       
+-   Routines for Decoding:
+-     wsjt1.f      Top-level decoding routine; handles FSK441 especially
+-       avesp2.f   Computes average spectrum
+-       bzap.f     Find and remove birdies
+-       detect.f   Measure power in FSK441 tones
+-       flatten.f  Flatten the spectrum
+-       longx.f    Decode normal FSK441 messages
+-       lpf1.f     Quick-and-dirty lowpass filter
+-       mtdecode.f Multi-tone decoding
+-       ping.f     Find pings
+-       s2shape.f  Flatten the 2d spectrum
+-       smooth.f   Smooth by boxcar averaging
+-       spec2d.f   Compute 2d spectrum for FSK441
+-       stdecode.f Decode FSK441 shorthand messages
+-       sync.f     Synchronize FSK441 data
+-
+-     wsjt65.f     JT65 decoder
+-       afc65.f	  AFC for JT65
+-       avemsg65.f Decode average message
+-       decode65.f Decode JT65 message
+-       deep65.f   Deep search decoder
+-       demod64a.f Compute probabilities of transmitted symbols
+-       extract.f  Extract message from JT65 symbol probabilities
+-       flat1.f    Flatten the passband
+-       getsnr.f   Compute snr or shorthand message
+-       k2grid.f   Convert integer to 4-digit grid locator
+-       limit.f    Clipper for JT65
+-       peakup.f   Interpolate to find fractional-bin peak
+-       setup65.f  Initialize pseudorandom sync vector
+-       short65.f  Detect JT65 shorthand messages
+-       slope.f    Remove a straight-line slope
+-       spec2d65.f Compute 2d spectrum for JT65
+-       spec441.f  Compute spectra for FSK441 decoding
+-       sync65.f   Synchronize a JT65 signal
+-       unpackcall.f Unpack JT65 message parts ...
+-       unpackgrid.f   ...
+-       unpackmsg.f    ...
+-       unpacktext.f   ...
+-       xcor.f     Compute cross-correlation for JT65 sync
+-
+-     decode6m.f	  Decode JT65 signal
+-       syncf0.f   First frequency sync
+-       syncf1.f   Second freq sync
+-       synct.f    First time sync
+-     avemsg6m.f   Get average JT65 message
+-
+-   JT65code.f	  Program to illustrate and test JT65 coding
+-
+-   Hard-Decision Reed Solomon Codec
+-     decode_rs.c  Decoder
+-     encode_rs.c  Encoder
+-     init_rs.c    Initialization routine
+-     wrapkarn.c   Wapper for Fortran
+-
+-   cutil.c        Fortran wrappers for some basic C functions
+-   jtaudio.c      Audio I/O, calls PortAudio routines
+-   padevsub.c     Select desired audio device
+-   ptt.c          PTT via serial port DTR/RTS
+-   ptt_linux.c    Ditto for Linux (dummy at present)
+-   resample.c     Wrapper for resample routine
+-   start_threads.c Start audio and decoder threads
+-
+-
+-7  Compiling Instructions
+-----------------------------------------------------------------------
+-Scripts are provided for compiling WSJT in both Windows and Linux.
+-They are presently set up to use Compaq Visual Fortran (v6.6) and
+-Microsoft C (v6.0) in Windows, and g95 and gcc in Linux.  My
+-installation has Python 2.3.  Additional tools include f2py, which
+-compiles Fortran and C to make Python extensions; the Python Imaging
+-Library; Numeric Python; and the SciPy distribution utilities.
+-
+-Linux  Windows  Function
+--------------------------------------------------------------------
+-   g0  g0.bat   Compiles the hard-decision Reed Solomon Decoder
+-		Needs to be done only once.
+-   g1  g1.bat   Compiles the remaining Fortran and C to produce Python
+-		extension module audio.pyd (Windows) or audio.so
+-		(Linux).
+-   g2  g2.bat   Uses McMillan Installer to create an f2py specification 
+-		file, wsjt.spec
+-   g3  g3.bat	Uses Installer to produce a distributable file WSJT6.EXE
+-		(Windows).
+-   g99 g99.bat  Runs all of the g[0-3] scripts.
+-
+-These steps produce a distributable file WSJT6.EXE (Windows) or wsjt6
+-(Linux) that contains all necessary software components, so that the
+-end user does not need to install Python or any of its other
+-extensions, or the compilers.
+-
+-A configuration script and Makefile facility is also provided.
+-Assuming that all of the pre-requisites are properly installed, WSJT
+-can now be compiled in Windows as follows:
+-
+-  C&gt; copy Makefile.win Makefile
+-  C&gt; nmake
+-
+-In Linux or FreeBSD, do the following:
+-
+-  $ ./configure
+-  $ make
+-
+-
+-8a  Present status (January 17, 2006)
+-----------------------------------------------------------------------
+-
+-WSJT version 5.9.2 (built from SVN revision 115) has been released for
+-Windows.  It is is fully functional in Linux and BSD, as well, but
+-presently need to be compiled locally.  In due course we plan to
+-provide distributions for standard *nix distributions.
+-
+-8b  Present status (June 7, 2008)
+-
+-The latest stable working version of WSJT in svn is 789. The head of the
+-tree might work, it might also burn down your house. You have been warned!
+-Bug reports are welcome, but please read BUGS so we have something
+-to work with.
+-
+-
+
+Deleted: branches/wsjt8a/WSJT_User_600.pdf
+===================================================================
+(Binary files differ)
+
+Deleted: branches/wsjt8a/WSPR_mode.pdf
+===================================================================
+(Binary files differ)
+
+Added: branches/wsjt8a/chdec.f90
+===================================================================
+--- branches/wsjt8a/chdec.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/chdec.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,20 @@
++subroutine chdec(cmode,nbit,gsym,iu)
++
++! Decode channel symbols to recover source-encoded user message
++
++  character*5 cmode
++  integer gsym(63)
++  integer iu(3)
++  integer era(63)
++  integer dat4(13)
++  integer*1 dbits(96)
++
++  nerase=0
++  call rs_decode(gsym,era,nerase,dat4,ncount)
++  dbits=0
++  call unpackbits(dat4,13,6,dbits)
++  call packbits(dbits,3,32,iu)
++
++  return
++end subroutine chdec
++
+
+Added: branches/wsjt8a/chenc.f90
+===================================================================
+--- branches/wsjt8a/chenc.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/chenc.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,27 @@
++subroutine chenc(cmode,nbit,iu,gsym)
++
++! Apply FEC and generate channel symbols
++
++  character*5 cmode
++  integer iu(3)
++  integer iu6(13)
++  integer*1 iu6a(96)
++  integer gsym(63)
++  character*96 line
++
++  if(cmode.eq.'JT64 ') then
++     mm=6
++     nq=64
++     nn=63
++     nfz=3
++     kk=13
++     if(nbit.eq.30) kk=5
++     if(nbit.eq.48) kk=8
++     call rs_init(mm,nq,nn,kk,nfz)                 !Initialize Karn codec
++     call unpackbits(iu,3,32,iu6a)
++     call packbits(iu6a,13,6,iu6)
++     call rs_encode(iu6,gsym)                      !Encode 
++  endif
++
++  return
++end subroutine chenc
+
+Modified: branches/wsjt8a/decode_rs.c
+===================================================================
+--- branches/wsjt8a/decode_rs.c	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/decode_rs.c	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -6,8 +6,12 @@
+ #ifdef DEBUG
+ #include &lt;stdio.h&gt;
+ #endif
++
+ #include &lt;string.h&gt;
++
++#define NULL ((void *)0)
+ #define	min(a,b)	((a) &lt; (b) ? (a) : (b))
++
+ #ifdef FIXED
+ #include &quot;fixed.h&quot;
+ #elif defined(BIGSYM)
+
+Modified: branches/wsjt8a/init_rs.c
+===================================================================
+--- branches/wsjt8a/init_rs.c	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/init_rs.c	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -12,6 +12,9 @@
+ #else
+ #include &quot;char.h&quot;
+ #endif
++
++#define NULL ((void *)0)
++
+ void FREE_RS(void *p){
+   struct rs *rs = (struct rs *)p;
+ 
+
+Modified: branches/wsjt8a/int.h
+===================================================================
+--- branches/wsjt8a/int.h	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/int.h	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -19,7 +19,7 @@
+   int pad;        /* Padding bytes in shortened block */
+ };
+ 
+-static int modnn(struct rs *rs,int x){
++static inline int modnn(struct rs *rs,int x){
+   while (x &gt;= rs-&gt;nn) {
+     x -= rs-&gt;nn;
+     x = (x &gt;&gt; rs-&gt;mm) + (x &amp; rs-&gt;nn);
+@@ -33,8 +33,7 @@
+ #define ALPHA_TO (rs-&gt;alpha_to) 
+ #define INDEX_OF (rs-&gt;index_of)
+ #define GENPOLY (rs-&gt;genpoly)
+-//#define NROOTS (rs-&gt;nroots)
+-#define NROOTS (51)
++#define NROOTS (rs-&gt;nroots)
+ #define FCR (rs-&gt;fcr)
+ #define PRIM (rs-&gt;prim)
+ #define IPRIM (rs-&gt;iprim)
+
+Added: branches/wsjt8a/packbits.f
+===================================================================
+--- branches/wsjt8a/packbits.f	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/packbits.f	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,21 @@
++      subroutine packbits(dbits,nsymd,m0,sym)
++
++C  Pack 0s and 1s from dbits() into sym() with m0 bits per word.
++C  NB: nsymd is the number of packed output words.
++
++      integer sym(nsymd)
++      integer*1 dbits(*)
++
++      k=0
++      do i=1,nsymd
++         n=0
++         do j=1,m0
++            k=k+1
++            m=dbits(k)
++            n=ior(ishft(n,1),m)
++         enddo
++         sym(i)=n
++      enddo
++
++      return
++      end
+
+Added: branches/wsjt8a/pk30.f90
+===================================================================
+--- branches/wsjt8a/pk30.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pk30.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,56 @@
++subroutine pk30(w,nw,nt1,nbit,nc1,n2)
++
++  parameter (NBASE=37*36*10*27*27*27)
++  character*14 w(7)
++  integer nt1(7)
++
++! 30-bit messages
++  if(nw.le.2) then
++     if(w(1).eq.'CQ' .and. nt1(2).eq.1) then
++        call pkcall(w(2),nc1,ntext1)
++        n2=0
++        nbit=30
++     else if(w(1).eq.'DE' .and. nt1(2).eq.1) then
++        call pkcall(w(2),nc1,ntext1)
++        n2=1
++        nbit=30
++     else if(nt1(1).eq.1 .and. w(2).eq.'OOO') then
++        call pkcall(w(1),nc1,ntext1)
++        n2=2
++        nbit=30
++     else if(nt1(1).eq.1 .and. w(2).eq.'RO') then
++        call pkcall(w(1),nc1,ntext1)
++        n2=3
++        nbit=30
++     else if(w(1).eq.'GRID?') then
++        nc1=NBASE + 1003 + 1
++        n2=0
++        nbit=30
++     else if(nt1(1).eq.4) then
++        n2=0
++        nbit=30
++        call pkgrid(w(1),ngph,ntext1)
++        nc1=NBASE + 1003 + 100 + ngph
++        ngph=-1
++     else if(w(1).eq.'BEST') then
++        read(w(2),*,err=10,end=10) ndb
++        if(ndb.lt.-30) ndb=-30
++        if(ndb.gt.30) ndb=30
++        nc1=NBASE + 1003 + 1 + 31 + ndb
++        n2=0
++        nbit=30
++     endif
++  else if(nw.eq.3 .and. w(1).eq.'RRR' .and. W(2).eq.'TNX' .and.       &amp;
++       w(3).eq.'73') then
++     nc1=NBASE + 1003 + 1 + 31 + 31
++     n2=0
++     nbit=30
++  else if(nw.eq.3 .and. w(1).eq.'TNX' .and. W(2).eq.'73' .and.       &amp;
++       w(3).eq.'GL') then
++     nc1=NBASE + 1003 + 1 + 31 + 32
++     n2=0
++     nbit=30
++  endif
++
++10  return
++end subroutine pk30
+
+Added: branches/wsjt8a/pk48.f90
+===================================================================
+--- branches/wsjt8a/pk48.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pk48.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,77 @@
++subroutine pk48(w,nw,nt1,pfx,sfx,nbit,nc1,ngph,n5)
++
++  parameter (NBASE2=37*37*36)
++  character*14 w(7)
++  character pfx*3,sfx*1,c1*6
++  character*8 opname
++  integer nt1(7)
++
++! 48-bit messages
++  if(w(1).eq.'CQ' .and. nt1(2).eq.1 .and. nt1(3).eq.4) then
++     n5=0
++     call pkcall(w(2),nc1,ntext1)
++     call pkgrid(w(3),ngph,ntext1)
++  else if(w(1).eq.'QRZ' .and. nt1(2).eq.1) then
++     n5=0
++     call pkcall(w(2),nc1,ntext1)
++     ngph=32527
++  else if(w(1).eq.'CQ' .and. nt1(2).eq.15 .and. nt1(3).eq.1) then
++     n5=2
++     call pkcall(w(3),nc1,ntext1)
++     read(w(2),*) n
++     ngph=61000 + n - 32768
++  else if(w(1).eq.'CQ' .and. nt1(2).eq.2) then
++     call packpfx(w(2),nc1,ngph,nadd)
++     n5=1+nadd
++  else if(nt1(1).eq.3 .and. nt1(2).eq.1) then
++     n5=3
++     i1=index(w(1),'&gt;')
++     call hash(w(1)(2:i1-1),i1-2,ngph)
++     call pkcall(w(2),nc1,ntext1)
++     if(w(3).eq.'RRR') n5=19
++  else if(w(1).eq.'DE' .and.  nt1(2).eq.2) then
++     call packpfx(w(2),nc1,ngph,nadd)
++     n5=4+nadd
++     if(w(3).eq.'OOO') n5=10+nadd
++     if(w(3).eq.'RO')  n5=16+nadd
++     if(w(3).eq.'RRR') n5=23+nadd
++  else if(w(1).eq.'DE' .and. nt1(2).eq.1 .and. nt1(3).eq.4) then
++     n5=6
++     call pkcall(w(2),nc1,ntext1)
++     call pkgrid(w(3),ngph,ntext1)
++     if(w(4).eq.'OOO') n5=12
++     if(w(4).eq.'RO') n5=18
++  else if(nt1(1).eq.1 .and. nt1(2).eq.3) then
++     call pkcall(w(1),nc1,ntext1)
++     i1=index(w(2),'&gt;')
++     call hash(w(2)(2:i1-1),i1-2,ngph)
++     if(w(3).eq.'OOO') n5=7
++     if(w(3).eq.'RO') n5=13
++     if(w(3).eq.'RRR') n5=20
++  else if(nt1(1).eq.2 .and. w(2).eq.'OOO') then
++     call packpfx(w(1),nc1,ngph,nadd)
++     n5=8+nadd
++  else if(nt1(1).eq.2 .and. w(2).eq.'RO') then
++     call packpfx(w(1),nc1,ngph,nadd)
++     n5=14+nadd
++  else if(nt1(1).eq.2 .and. w(2).eq.'RRR') then
++     call packpfx(w(1),nc1,ngph,nadd)
++     n5=21+nadd
++  endif
++
++!  if(w(1).eq.'73' .and. w(2).eq.'DE' .and. nt1(3).eq.1 .and.     &amp;
++!       nt1(4).eq.4) n5=25
++!  if(w(1).eq.'73' .and. w(2).eq.'DE' .and. nt1(3).eq.2) n5=26      !or 27
++!  if(w(1).eq.'TNX' .and. w(3).eq.'73' .and. w(4).eq.'GL') then
++!     opname=w(2)
++!     n5=28
++!  endif
++!  if(w(1).eq.'OP' .and. w(3).eq.'73' .and. w(4).eq.'GL') then
++!     opname=w(2)
++!     n5=29
++!  endif
++
++  if(n5.ge.0) nbit=48
++
++  return
++end subroutine pk48
+
+Added: branches/wsjt8a/pk78.f90
+===================================================================
+--- branches/wsjt8a/pk78.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pk78.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,37 @@
++subroutine pk78(msg,w,nw,nt1,nc1,nc2,ngph,n2,n5,iu)
++
++  character*24 msg
++  character*14 w(7)
++  integer nt1(7),iu(3)
++
++! 78-bit messages
++  n2=0
++  n5=0
++
++  if(nt1(1).eq.1 .and. nt1(2).eq.1) then
++     call pkcall(w(1),nc1,ntext1)
++     call pkcall(w(2),nc2,ntext2)
++     if(nw.ge.3 .and. w(3).ne.'OOO') then
++        call pkgrid(w(3),ngph,ntext3)
++     else
++        call pkgrid('    ',ngph,ntext3)
++     endif
++     n2=0
++  else if(nt1(1).eq.2 .and. nt1(2).eq.1) then
++     call packpfx(w(1),nc1,ngph,nadd)
++     call pkcall(w(2),nc2,ntext2)
++     n2=1
++     n5=4*nadd
++  else if(nt1(1).eq.1 .and. nt1(2).eq.2) then
++     call pkcall(w(1),nc1,ntext1)
++     call packpfx(w(2),nc2,ngph,nadd)
++     n2=2
++     n5=4*nadd
++  else
++     n5=1
++     call pktext(msg,iu)
++  endif
++  if(n5.ne.1 .and. w(nw).eq.'OOO') n5=n5+2
++
++  return
++end subroutine pk78
+
+Added: branches/wsjt8a/pkcall.f90
+===================================================================
+--- branches/wsjt8a/pkcall.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pkcall.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,78 @@
++subroutine pkcall(callsign,ncall,ntext)
++
++! Pack a valid callsign into a 28-bit integer.
++
++  parameter (NBASE=37*36*10*27*27*27)
++  character callsign*6,c*1,tmp*6,digit*10
++  data digit/'0123456789'/
++
++  ntext=0
++
++! Work-around for Swaziland prefix:
++  if(callsign(1:4).eq.'3DA0') callsign='3D0'//callsign(5:6)
++
++  if(callsign(1:3).eq.'CQ ') then
++     ncall=NBASE + 1
++     if(callsign(4:4).ge.'0' .and. callsign(4:4).le.'9' .and.              &amp;
++          callsign(5:5).ge.'0' .and. callsign(5:5).le.'9' .and.            &amp;
++          callsign(6:6).ge.'0' .and. callsign(6:6).le.'9') then
++        nfreq=100*(ichar(callsign(4:4))-48) +                              &amp;
++             10*(ichar(callsign(5:5))-48) +                                &amp;
++             ichar(callsign(6:6))-48
++        ncall=NBASE + 3 + nfreq
++     endif
++     go to 999
++  else if(callsign(1:4).eq.'QRZ ') then
++     ncall=NBASE + 2
++     go to 999
++  endif
++
++  tmp='      '
++  if(callsign(3:3).ge.'0' .and. callsign(3:3).le.'9') then
++     tmp=callsign
++  else if(callsign(2:2).ge.'0' .and. callsign(2:2).le.'9') then
++     if(callsign(6:6).ne.' ') then
++        ntext=1
++        go to 999
++     endif
++     tmp=' '//callsign
++  else
++     ntext=1
++     go to 999
++  endif
++
++  do i=1,6
++     c=tmp(i:i)
++     if(c.ge.'a' .and. c.le.'z')                                    &amp;
++          tmp(i:i)=char(ichar(c)-ichar('a')+ichar('A'))
++  enddo
++
++  n1=0
++  if((tmp(1:1).ge.'A'.and.tmp(1:1).le.'Z').or.tmp(1:1).eq.' ') n1=1
++  if(tmp(1:1).ge.'0' .and. tmp(1:1).le.'9') n1=1
++  n2=0
++  if(tmp(2:2).ge.'A' .and. tmp(2:2).le.'Z') n2=1
++  if(tmp(2:2).ge.'0' .and. tmp(2:2).le.'9') n2=1
++  n3=0
++  if(tmp(3:3).ge.'0' .and. tmp(3:3).le.'9') n3=1
++  n4=0
++  if((tmp(4:4).ge.'A'.and.tmp(4:4).le.'Z').or.tmp(4:4).eq.' ') n4=1
++  n5=0
++  if((tmp(5:5).ge.'A'.and.tmp(5:5).le.'Z').or.tmp(5:5).eq.' ') n5=1
++  n6=0
++  if((tmp(6:6).ge.'A'.and.tmp(6:6).le.'Z').or.tmp(6:6).eq.' ') n6=1
++  
++  if(n1+n2+n3+n4+n5+n6 .ne. 6) then
++     ntext=1
++     go to 999 
++  endif
++
++  ncall=nchar(tmp(1:1))
++  ncall=36*ncall+nchar(tmp(2:2))
++  ncall=10*ncall+nchar(tmp(3:3))
++  ncall=27*ncall+nchar(tmp(4:4))-10
++  ncall=27*ncall+nchar(tmp(5:5))-10
++  ncall=27*ncall+nchar(tmp(6:6))-10
++  
++999  return
++end subroutine pkcall
+
+Added: branches/wsjt8a/pkgrid.f90
+===================================================================
+--- branches/wsjt8a/pkgrid.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pkgrid.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,53 @@
++subroutine pkgrid(grid,ng,ntext)
++
++  parameter (NGBASE=180*180)
++  character*4 grid
++
++  ntext=0
++  if(grid.eq.'    ') then                     !Blank grid is OK
++     ng=NGBASE + 1
++     go to 100
++  endif
++
++!  Test for numerical signal report
++  if(grid(1:1).eq.'-' .or. grid(1:1).eq.'+') then
++     n=10*(ichar(grid(2:2))-48) + ichar(grid(3:3)) - 48
++     if(grid(3:3).eq.' ') n=ichar(grid(2:2))-48
++     if(grid(1:1).eq.'-') n=-n
++     if(n.lt.-30) n=-30
++     if(n.gt.30) n=30
++     ng=NGBASE+1+31+n
++     go to 100
++  else if(grid(1:2).eq.'R-' .or. grid(1:2).eq.'R+') then
++     n=10*(ichar(grid(3:3))-48) + ichar(grid(4:4)) - 48
++     if(grid(4:4).eq.' ') n=ichar(grid(3:3))-48
++     if(grid(2:2).eq.'-') n=-n
++     if(n.lt.-30) n=-30
++     if(n.gt.30) n=30
++     ng=NGBASE+1+92+n
++     go to 100
++  else if(grid(1:2).eq.'RO') then
++     ng=NGBASE+1+123
++     go to 100
++  else if(grid(1:3).eq.'RRR') then
++     ng=NGBASE+1+124
++     go to 100
++  else if(grid(1:2).eq.'73') then
++     ng=NGBASE+1+125
++     go to 100
++  endif
++  
++  if(grid(1:1).lt.'A' .or. grid(1:1).gt.'R') ntext=1
++  if(grid(2:2).lt.'A' .or. grid(2:2).gt.'R') ntext=1
++  if(grid(3:3).lt.'0' .or. grid(3:3).gt.'9') ntext=1
++  if(grid(4:4).lt.'0' .or. grid(4:4).gt.'9') ntext=1
++  if(ntext.ne.0) go to 100
++
++  call grid2deg(grid//'mm',dlong,dlat)
++  long=dlong
++  lat=dlat+ 90.0
++  ng=((long+180)/2)*180 + lat
++  go to 100
++
++100 return
++end subroutine pkgrid
+
+Added: branches/wsjt8a/pktext.f90
+===================================================================
+--- branches/wsjt8a/pktext.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/pktext.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,42 @@
++subroutine pktext(msg,iu)
++
++  character*24 msg
++  integer iu(3)
++  integer*8 n1,n1z
++  character*45 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +-./?@#$'/
++  common/txtcom/n1a,n1b
++  equivalence(n1a,n1)
++
++  n2=0
++  n1=0
++
++  do i=1,10                               !First 5 characters in n1
++     do j=1,45                            !Get character code
++        if(msg(i:i).eq.c(j:j)) go to 10
++     enddo
++     j=37
++10   n1=45*n1 + (j-1)
++  enddo
++
++  do i=11,14                              !Characters 11-14 in n2
++     do j=1,45                            !Get character code
++        if(msg(i:i).eq.c(j:j)) go to 20
++     enddo
++     j=37
++20   n2=45*n2 + (j-1)
++  enddo
++
++! We now have 55 bits in n1 and 22 bits in n2
++
++  n1z=n1
++  n1=ishft(n1,9) + ishft(n2,-13)
++  iu(1)=n1a
++  iu(2)=n1b
++  m13=2**13 - 1
++  iu(3)=iand(n2,m13)                      !13 bits from n2
++  iu(3)=2*iu(3)+1                         !Shift left and insert free-text bit
++  iu(3)=ishft(iu(3),18)
++
++  return
++end subroutine pktext
+
+Added: branches/wsjt8a/unpackbits.f
+===================================================================
+--- branches/wsjt8a/unpackbits.f	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/unpackbits.f	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,24 @@
++      subroutine unpackbits(sym,nsymd,m0,dbits)
++
++C  Unpack bits from sym() into dbits(), one bit per byte.
++C  NB: nsymd is the number of input words, and m0 their length.
++C  there will be m0*nsymd output bytes, each 0 or 1.
++
++      integer sym(nsymd)
++      integer*1 dbits(*)
++      integer*1 n1
++      equivalence (n,n1)
++
++      k=0
++      do i=1,nsymd
++         mask=ishft(1,m0-1)
++         do j=1,m0
++            k=k+1
++            dbits(k)=0
++            if(iand(mask,sym(i)).ne.0) dbits(k)=1
++            mask=ishft(mask,-1)
++         enddo
++      enddo
++
++      return
++      end
+
+Added: branches/wsjt8a/unpkcall.f90
+===================================================================
+--- branches/wsjt8a/unpkcall.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/unpkcall.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,37 @@
++subroutine unpkcall(ncall,word)
++
++  character word*12,c*37
++
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ '/
++
++  n=ncall
++!  word='......'
++  word= ''
++  if(n.eq.0) go to 999                    !Not a callsign
++  if(n.ge.262177560) go to 999            !Plain text message ...
++  i=mod(n,27)+11
++  word(6:6)=c(i:i)
++  n=n/27
++  i=mod(n,27)+11
++  word(5:5)=c(i:i)
++  n=n/27
++  i=mod(n,27)+11
++  word(4:4)=c(i:i)
++  n=n/27
++  i=mod(n,10)+1
++  word(3:3)=c(i:i)
++  n=n/10
++  i=mod(n,36)+1
++  word(2:2)=c(i:i)
++  n=n/36
++  i=n+1
++  word(1:1)=c(i:i)
++  do i=1,4
++     if(word(i:i).ne.' ') go to 10
++  enddo
++  go to 999
++10 word=word(i:)
++
++999 if(word(1:3).eq.'3D0') word='3DA0'//word(4:)
++  return
++end subroutine unpkcall
+
+Added: branches/wsjt8a/unpkgrid.f90
+===================================================================
+--- branches/wsjt8a/unpkgrid.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/unpkgrid.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,48 @@
++subroutine unpkgrid(ng,grid)
++
++  parameter (NGBASE=180*180)
++  character grid*4,grid6*6,digit*10
++  data digit/'0123456789'/
++
++  grid='    '
++  if(ng.ge.32400) go to 10
++  dlat=mod(ng,180)-90
++  dlong=(ng/180)*2 - 180 + 2
++  call deg2grid(dlong,dlat,grid6)
++  grid=grid6(1:4) !XXX explicitly truncate this -db
++  go to 100
++
++10 n=ng-NGBASE-1
++  if(n.ge.1 .and.n.le.30) then
++     nn=31-n
++     grid(1:1)='-'
++     grid(2:2)=char(48+nn/10)
++     grid(3:3)=char(48+mod(nn,10))
++  else if(n.ge.31 .and.n.le.61) then
++     nn=n-31
++     grid(1:1)='+'
++     grid(2:2)=char(48+nn/10)
++     grid(3:3)=char(48+mod(nn,10))
++  else if(n.ge.62 .and.n.le.91) then
++     nn=92-n
++     grid(1:2)='R-'
++     grid(3:3)=char(48+nn/10)
++     grid(4:4)=char(48+mod(nn,10))
++  else if(n.ge.92 .and.n.le.122) then
++     nn=n-92
++     grid(1:1)='+'
++     grid(2:2)=char(48+nn/10)
++     grid(3:3)=char(48+mod(nn,10))
++  else if(n.eq.123) then
++     grid='RO'
++  else if(n.eq.124) then
++     grid='RRR'
++  else if(n.eq.125) then
++     grid='73'
++  else if(n.eq.126) then
++     grid='QRZ'
++  endif
++  
++100 return
++end subroutine unpkgrid
++
+
+Added: branches/wsjt8a/unpktext.f90
+===================================================================
+--- branches/wsjt8a/unpktext.f90	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/unpktext.f90	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -0,0 +1,33 @@
++subroutine unpktext(iu,msg)
++
++  character*24 msg
++  integer iu(3)
++  integer*8 n1,n45
++  character*45 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +-./?@#$'/
++  common/txtcom/n1a,n1b
++  equivalence(n1a,n1)
++
++  n1a=iu(1)
++  n1b=iu(2)                                !n1 now holds 64 bits
++  n2=iand(n1a,511)
++  n1=ishft(n1,-9)                          !n1 now holds 55 bits
++  n2=ishft(n2,13) + ishft(iu(3),-19)
++  ntext=iand(ishft(iu(3),-18),1)
++
++  n45=45
++  do i=10,1,-1
++     j=mod(n1,n45) + 1
++     msg(i:i)=c(j:j)
++     n1=n1/45
++  enddo
++
++  do i=14,11,-1
++     j=mod(n2,45) + 1
++     msg(i:i)=c(j:j)
++     n2=n2/45
++  enddo
++  msg(15:24) = '          '
++
++  return
++end subroutine unpktext
+
+Modified: branches/wsjt8a/wrapkarn.c
+===================================================================
+--- branches/wsjt8a/wrapkarn.c	2009-09-11 14:00:41 UTC (rev 1331)
++++ branches/wsjt8a/wrapkarn.c	2009-09-11 18:28:28 UTC (rev 1332)
+@@ -1,41 +1,43 @@
+-#include &lt;math.h&gt;
+ #include &lt;stdio.h&gt;
+-#include &lt;float.h&gt;
+-#include &lt;limits.h&gt;
+-#include &lt;stdlib.h&gt;
+ #include &quot;rs.h&quot;
+ 
+ void *rs;
+-static int first=1;
++static int nn,kk,nroots,npad;
+ 
+ #ifdef CVF
++void __stdcall RS_INIT(int *mm, int *nq, int *nn0, int *kk0, int *nfz)
++#else
++void rs_init_(int *mm, int *nq, int *nn0, int *kk0, int *nfz)
++#endif
++{
++  nn=*nn0;
++  kk=*kk0;
++  nroots=nn-kk;
++  npad=*nq-1-nn;
++  rs=init_rs_int(*mm,0x43,*nfz,1,nroots,npad);
++}
++
++#ifdef CVF
+ void __stdcall RS_ENCODE(int *dgen, int *sent)
+ #else
+ void rs_encode_(int *dgen, int *sent)
+ #endif
+-
+      // Encode JT65 data dgen[12], producing sent[63].
+ {
+-  int dat1[12];
+-  int b[51];
++  int dat1[23];
++  int b[63];
+   int i;
+ 
+-  if(first) {
+-    // Initialize the JT65 codec
+-    rs=init_rs_int(6,0x43,3,1,51,0);
+-    first=0;
+-  }
+-
+   // Reverse data order for the Karn codec.
+-  for(i=0; i&lt;12; i++) {
+-    dat1[i]=dgen[11-i];
++  for(i=0; i&lt;kk; i++) {
++    dat1[i]=dgen[kk-1-i];
+   }
+   // Compute the parity symbols
+   encode_rs_int(rs,dat1,b);
+ 
+   // Move parity symbols and data into sent[] array, in reverse order.
+-  for (i = 0; i &lt; 51; i++) sent[50-i] = b[i];
+-  for (i = 0; i &lt; 12; i++) sent[i+51] = dat1[11-i];
++  for (i = 0; i &lt; nroots; i++) sent[nroots-1-i] = b[i];
++  for (i = 0; i &lt; kk; i++) sent[i+nroots] = dat1[kk-1-i];
+ }
+ 
+ #ifdef CVF
+@@ -43,7 +45,6 @@
+ #else
+ void rs_decode_(int *recd0, int *era0, int *numera0, int *decoded, int *nerr)
+ #endif
+-
+      // Decode JT65 received data recd0[63], producing decoded[12].
+      // Erasures are indicated in era0[numera].  The number of corrected
+      // errors is *nerr.  If the data are uncorrectable, *nerr=-1 is
+@@ -54,30 +55,11 @@
+   int era_pos[50];
+   int recd[63];
+ 
+-  if(first) {
+-    rs=init_rs_int(6,0x43,3,1,51,0);
+-    first=0;
+-  }
+-
+   numera=*numera0;
+-  for(i=0; i&lt;12; i++) recd[i]=recd0[62-i];
+-  for(i=0; i&lt;51; i++) recd[12+i]=recd0[50-i];
++  for(i=0; i&lt;kk; i++) recd[i]=recd0[nn-1-i];
++  for(i=0; i&lt;nroots; i++) recd[kk+i]=recd0[nroots-1-i];
+   if(numera) 
+     for(i=0; i&lt;numera; i++) era_pos[i]=era0[i];
+   *nerr=decode_rs_int(rs,recd,era_pos,numera);
+-  for(i=0; i&lt;12; i++) decoded[i]=recd[11-i];
++  for(i=0; i&lt;kk; i++) decoded[i]=recd[kk-1-i];
+ }
+-
+-
+-#ifndef CVF
+-void rs_encode__(int *dgen, int *sent)
+-{
+-	rs_encode_(dgen, sent);
+-}
+-
+-void rs_decode__(int *recd0, int *era0, int *numera0, int *decoded, int *nerr)
+-{
+-	rs_decode_(recd0, era0, numera0, decoded, nerr);
+-}
+-#endif
+-
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001024.html">[WSJT-SVN] r1330 - branches/wsjt8/quest
+</A></li>
+	<LI>Next message: <A HREF="001026.html">[WSJT-SVN] r1334 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1025">[ date ]</a>
+              <a href="thread.html#1025">[ thread ]</a>
+              <a href="subject.html#1025">[ subject ]</a>
+              <a href="author.html#1025">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

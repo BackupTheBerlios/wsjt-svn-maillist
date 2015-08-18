@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3266 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3266%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130514142902.2976755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002957.html">
+   <LINK REL="Next"  HREF="002959.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3266 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3266%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130514142902.2976755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3266 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue May 14 16:29:02 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002957.html">[WSJT-SVN] r3265 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002959.html">[WSJT-SVN] r3267 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2958">[ date ]</a>
+              <a href="thread.html#2958">[ thread ]</a>
+              <a href="subject.html#2958">[ subject ]</a>
+              <a href="author.html#2958">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-14 16:29:01 +0200 (Tue, 14 May 2013)
+New Revision: 3266
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/downsam9.f90
+   branches/wsjtx/lib/softsym.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Temporary code, to aid with a series of tests of the JT9 decoder.  
+This commit will serve as a benchmark for comparison with new code to
+be written.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-05-14 00:22:22 UTC (rev 3265)
++++ branches/wsjtx/lib/decoder.f90	2013-05-14 14:29:01 UTC (rev 3266)
+@@ -21,6 +21,12 @@
+   common/tracer/limtrace,lu
+   save
+ 
++  call system_clock(iclock0,iclock_rate,iclock_max)           !###
++  nfreqs0=0
++  nfreqs1=0
++  ndecodes0=0
++  ndecodes1=0
++
+   call timer('decoder ',0)
+ 
+   open(13,file='decoded.txt',status='unknown')
+@@ -112,11 +118,18 @@
+              (ccfred(i).lt.ccfred(i+1))) cycle
+         if(nqd.eq.1 .or.                                                   &amp;
+            (ccfred(i).ge.ccflim .and. abs(f-fgood).gt.10.0*df8)) then
++
++           if(nqd.eq.0) nfreqs0=nfreqs0+1
++           if(nqd.eq.1) nfreqs1=nfreqs1+1
++
+            call timer('softsym ',0)
+            fpk=1000.0 + df3*(i-1)
+-           c1(1:npts8)=conjg(c0(1:npts8))
+-           call softsym(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
+-                i1SoftSymbols)
++!           c1(1:npts8)=conjg(c0(1:npts8))
++!           call softsym(c1,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
++!                i1SoftSymbols)
++           call softsym(c0,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,freq,   &amp;
++                drift,i1SoftSymbols)
++
+            call timer('softsym ',1)
+ 
+            call timer('decode9 ',0)
+@@ -129,11 +142,19 @@
+            if(nsync.gt.10) nsync=10
+            nsnr=nint(snrdb)
+            ndrift=nint(drift/df3)
++
++           write(38,3002) nutc,freq,ccfred(i),nlim,msg
++3002       format(i4.4,2f8.1,i9,2x,a22)
++
+            if(msg.ne.'                      ') then
++              if(nqd.eq.0) ndecodes0=ndecodes0+1
++              if(nqd.eq.1) ndecodes1=ndecodes1+1
++
+               write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+               write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+ !              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
+ !1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
++
+               iaa=max(1,i-3)
+               ibb=min(NSMAX,i+11)
+               fgood=f
+@@ -158,5 +179,12 @@
+   call timer('decoder ',1)
+   if(nstandalone.eq.0) call timer('decoder ',101)
+ 
++  call system_clock(iclock,iclock_rate,iclock_max)
++  write(39,3001) nutc,nfreqs1,nfreqs0,ndecodes1,ndecodes0,       &amp;
++       float(iclock-iclock0)/iclock_rate
++3001 format(5i8,f10.3)
++  call flush(38)
++  call flush(39)
++
+   return
+ end subroutine decoder
+
+Modified: branches/wsjtx/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx/lib/downsam9.f90	2013-05-14 00:22:22 UTC (rev 3265)
++++ branches/wsjtx/lib/downsam9.f90	2013-05-14 14:29:01 UTC (rev 3266)
+@@ -1,4 +1,4 @@
+-subroutine downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2)     
++subroutine downsam9(c0,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
+ 
+ !Downsample to nspsd samples per symbol, info centered at fpk
+ 
+@@ -7,29 +7,36 @@
+   complex c1(0:NMAX-1)
+   complex c2(0:4096-1)
+   real s(1000)
++  save
+ 
+-  fac=1.e-4
+-  c1(0:npts8-1)=fac*c0                     !Copy c0 into c1
+-  do i=1,npts8-1,2
+-     c1(i)=-c1(i)
+-  enddo
+-  c1(npts8:)=0.                            !Zero the rest of c1
+   nfft1=128*nsps8                          !Forward FFT length
+   nh1=nfft1/2
+   df1=1500.0/nfft1
+-  call four2a(c1,nfft1,1,-1,1)             !Forward FFT
+ 
+-  nadd=1.0/df1
+-  j=250/df1
+-  s=0.
+-  do i=1,1000
+-     do n=1,nadd
+-        j=j+1
+-        s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
++  if(newdat.eq.1) then
++     fac=1.e-4
++     do i=0,npts8-1,2
++        c1(i)=fac*conjg(c0(i))
++        c1(i+1)=-fac*conjg(c0(i+1))
+      enddo
+-  enddo
+-  call pctile(s,1000,40,avenoise)
+-  
++     c1(npts8:)=0.                            !Zero the rest of c1
++     call four2a(c1,nfft1,1,-1,1)             !Forward FFT
++     
++     nadd=1.0/df1
++     j=250/df1
++     s=0.
++     do i=1,1000
++        do n=1,nadd
++           j=j+1
++           s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
++        enddo
++!        write(37,3001) i+1000,s(i),db(s(i)),nadd
++!3001    format(i5,2f12.3,i8)
++     enddo
++     call pctile(s,1000,40,avenoise)
++     newdat=0
++  endif
++
+   ndown=nsps8/16                           !Downsample factor
+   nfft2=nfft1/ndown                        !Backward FFT length
+   nh2=nfft2/2
+
+Modified: branches/wsjtx/lib/softsym.f90
+===================================================================
+--- branches/wsjtx/lib/softsym.f90	2013-05-14 00:22:22 UTC (rev 3265)
++++ branches/wsjtx/lib/softsym.f90	2013-05-14 14:29:01 UTC (rev 3266)
+@@ -1,4 +1,4 @@
+-subroutine softsym(c0,npts8,nsps8,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
++subroutine softsym(c0,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
+      i1SoftSymbols)
+ 
+ ! Compute the soft symbols
+@@ -16,7 +16,7 @@
+   ndown=nsps8/nspsd
+ 
+ ! Mix, low-pass filter, and downsample to 16 samples per symbol
+-  call downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2)
++  call downsam9(c0,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
+ 
+   call peakdt9(c2,nz2,nsps8,nspsd,c3,nz3,xdt)  !Find DT
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-14 00:22:22 UTC (rev 3265)
++++ branches/wsjtx/mainwindow.cpp	2013-05-14 14:29:01 UTC (rev 3266)
+@@ -1,4 +1,4 @@
+-//---------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002957.html">[WSJT-SVN] r3265 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002959.html">[WSJT-SVN] r3267 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2958">[ date ]</a>
+              <a href="thread.html#2958">[ thread ]</a>
+              <a href="subject.html#2958">[ subject ]</a>
+              <a href="author.html#2958">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

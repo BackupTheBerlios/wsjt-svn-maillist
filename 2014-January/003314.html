@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3621 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3621%20-%20branches/wsprx&In-Reply-To=%3C20140107195117.8201D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003313.html">
+   <LINK REL="Next"  HREF="003315.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3621 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3621%20-%20branches/wsprx&In-Reply-To=%3C20140107195117.8201D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3621 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan  7 20:51:17 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003313.html">[WSJT-SVN] r3620 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003315.html">[WSJT-SVN] r3622 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3314">[ date ]</a>
+              <a href="thread.html#3314">[ thread ]</a>
+              <a href="subject.html#3314">[ subject ]</a>
+              <a href="author.html#3314">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-07 20:51:17 +0100 (Tue, 07 Jan 2014)
+New Revision: 3621
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/wsprnet.cpp
+   branches/wsprx/wsprnet.h
+   branches/wsprx/wsprx.iss
+Log:
+Send &quot;mode=2&quot; or &quot;mode=15&quot; to WSPRnet.org.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2014-01-07 17:14:59 UTC (rev 3620)
++++ branches/wsprx/mainwindow.cpp	2014-01-07 19:51:17 UTC (rev 3621)
+@@ -18,7 +18,7 @@
+ 
+ WideGraph* g_pWideGraph = NULL;
+ 
+-QString ver=&quot;0.8&quot;;
++QString ver=&quot;0.9&quot;;
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSPR-X   v&quot; + ver + &quot;  r&quot; + rev.mid(6,4) +
+                               &quot;    by K1JT&quot;;
+@@ -879,6 +879,7 @@
+                     m_myGrid,
+                     rfreq,
+                     tfreq,
++                    m_mode,
+                     QString::number(m_TxOK ? m_pctx : 0),
+                     QString::number(m_dBm),
+                     Version,
+
+Modified: branches/wsprx/wsprnet.cpp
+===================================================================
+--- branches/wsprx/wsprnet.cpp	2014-01-07 17:14:59 UTC (rev 3620)
++++ branches/wsprx/wsprnet.cpp	2014-01-07 19:51:17 UTC (rev 3621)
+@@ -16,22 +16,26 @@
+   connect( uploadTimer, SIGNAL(timeout()), this, SLOT(work()));
+ }
+ 
+-void WSPRNet::upload(QString call, QString grid, QString rfreq, QString tfreq, QString tpct, QString dbm, QString version, QString fileName)
++void WSPRNet::upload(QString call, QString grid, QString rfreq, QString tfreq,
++                     QString mode, QString tpct, QString dbm, QString version,
++                     QString fileName)
+ {
+     m_call = call;
+     m_grid = grid;
+     m_rfreq = rfreq;
+     m_tfreq = tfreq;
++    m_mode = mode;
+     m_tpct = tpct;
+     m_dbm = dbm;
+     m_vers = version;
+     m_file = fileName;
+ 
+-    //qDebug() &lt;&lt; &quot;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&quot;;
++//    qDebug() &lt;&lt; &quot;mode: &quot; &lt;&lt; m_mode;
+ 
+     // Open the wsprd.out file
+     QFile wsprdOutFile(fileName);
+-    if (!wsprdOutFile.open(QIODevice::ReadOnly | QIODevice::Text) || wsprdOutFile.size() == 0) {
++    if (!wsprdOutFile.open(QIODevice::ReadOnly | QIODevice::Text) ||
++            wsprdOutFile.size() == 0) {
+         urlQueue.enqueue( wsprNetUrl + urlEncodeNoSpot());
+         m_uploadType = 1;
+         uploadTimer-&gt;start(200);
+@@ -152,8 +156,10 @@
+     queryString += &quot;tqrg=&quot; + m_tfreq + &quot;&amp;&quot;;
+     queryString += &quot;dbm=&quot; + m_dbm + &quot;&amp;&quot;;
+     queryString += &quot;version=&quot; +  m_vers;
++    if(m_mode==&quot;WSPR-2&quot;) queryString += &quot;mode=2&quot;;
++    if(m_mode==&quot;WSPR-15&quot;) queryString += &quot;mode=15&quot;;
+ 
+-    //qDebug() &lt;&lt; queryString;
++    qDebug() &lt;&lt; queryString;
+ 
+     return queryString;;
+ }
+
+Modified: branches/wsprx/wsprnet.h
+===================================================================
+--- branches/wsprx/wsprnet.h	2014-01-07 17:14:59 UTC (rev 3620)
++++ branches/wsprx/wsprnet.h	2014-01-07 19:51:17 UTC (rev 3621)
+@@ -9,7 +9,9 @@
+ Q_OBJECT
+ public:
+     explicit WSPRNet(QObject *parent = 0);
+-    void upload(QString call, QString grid, QString rfreq, QString tfreq, QString tpct, QString dbm, QString version, QString fileName);
++    void upload(QString call, QString grid, QString rfreq, QString tfreq,
++                QString mode, QString tpct, QString dbm, QString version,
++                QString fileName);
+     static bool decodeLine(QString line, QHash&lt;QString,QString&gt; &amp;query);
+ 
+ signals:
+@@ -22,7 +24,7 @@
+ private:
+     QNetworkAccessManager *networkManager;
+     QString wsprNetUrl;
+-    QString m_call, m_grid, m_rfreq, m_tfreq, m_tpct, m_dbm, m_vers, m_file;
++    QString m_call, m_grid, m_rfreq, m_tfreq, m_mode, m_tpct, m_dbm, m_vers, m_file;
+     QQueue&lt;QString&gt; urlQueue;
+     QTimer *uploadTimer;
+     int m_urlQueueSize;
+
+Modified: branches/wsprx/wsprx.iss
+===================================================================
+--- branches/wsprx/wsprx.iss	2014-01-07 17:14:59 UTC (rev 3620)
++++ branches/wsprx/wsprx.iss	2014-01-07 19:51:17 UTC (rev 3621)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsprx
+-AppVerName=wsprx Version 0.8 r3058
++AppVerName=wsprx Version 0.8 r3575
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsprx
+ DefaultGroupName=wsprx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003313.html">[WSJT-SVN] r3620 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003315.html">[WSJT-SVN] r3622 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3314">[ date ]</a>
+              <a href="thread.html#3314">[ thread ]</a>
+              <a href="subject.html#3314">[ subject ]</a>
+              <a href="author.html#3314">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

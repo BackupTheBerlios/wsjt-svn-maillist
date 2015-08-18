@@ -1,0 +1,615 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2599 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2599%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120926152043.7A69E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002289.html">
+   <LINK REL="Next"  HREF="002292.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2599 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2599%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120926152043.7A69E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2599 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Sep 26 17:20:43 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002289.html">[WSJT-SVN] r2598 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002292.html">[WSJT-SVN] r2600 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2291">[ date ]</a>
+              <a href="thread.html#2291">[ thread ]</a>
+              <a href="subject.html#2291">[ subject ]</a>
+              <a href="author.html#2291">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-26 17:20:43 +0200 (Wed, 26 Sep 2012)
+New Revision: 2599
+
+Modified:
+   branches/wsjtx/getfile.cpp
+   branches/wsjtx/getfile.h
+   branches/wsjtx/libm65/symspecx.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/widegraph.cpp
+Log:
+More progress toward JT8 mode.
+
+
+Modified: branches/wsjtx/getfile.cpp
+===================================================================
+--- branches/wsjtx/getfile.cpp	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/getfile.cpp	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -4,14 +4,14 @@
+ #include &lt;stdlib.h&gt;
+ #include &lt;math.h&gt;
+ 
+-void getfile(QString fname, bool xpol, int dbDgrd)
++void getfile(QString fname, int ntrperiod)
+ {
+ 
+   char name[80];
+   strcpy(name,fname.toAscii());
+   FILE* fp=fopen(name,&quot;rb&quot;);
+ 
+-  int npts=30*48000;
++  int npts=ntrperiod*12000;
+   memset(jt8com_.d2,0,2*npts);
+ 
+   if(fp != NULL) {
+@@ -19,10 +19,11 @@
+     fread(jt8com_.d2,1,44,fp);
+     int nrd=fread(jt8com_.d2,2,npts,fp);
+     fclose(fp);
++    for(int i=0; i&lt;npts; i++) jt8com_.d2[i]/=100;
+   }
+ }
+ 
+-void savewav(QString fname)
++void savewav(QString fname, int ntrperiod)
+ {
+   struct {
+     char ariff[4];
+@@ -40,7 +41,7 @@
+     int ndata;
+   } hdr;
+ 
+-  int npts=30*48000;
++  int npts=ntrperiod*12000;
+ //  qint16* buf=(qint16*)malloc(2*npts);
+   char name[80];
+   strcpy(name,fname.toAscii());
+@@ -64,8 +65,8 @@
+     hdr.lenfmt=16;
+     hdr.nfmt2=1;
+     hdr.nchan2=1;
+-    hdr.nsamrate=48000;
+-    hdr.nbytesec=2*48000;
++    hdr.nsamrate=12000;
++    hdr.nbytesec=2*12000;
+     hdr.nbytesam2=2;
+     hdr.nbitsam2=16;
+     hdr.adata[0]='d';
+
+Modified: branches/wsjtx/getfile.h
+===================================================================
+--- branches/wsjtx/getfile.h	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/getfile.h	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -5,8 +5,8 @@
+ #include &lt;QDebug&gt;
+ #include &quot;commons.h&quot;
+ 
+-void getfile(QString fname, bool xpol, int dbDgrd);
+-void savetf2(QString fname);
++void getfile(QString fname, int ntrperiod);
++void savetf2(QString fname, int ntrperiod);
+ float gran();
+ 
+ #endif // GETFILE_H
+
+Modified: branches/wsjtx/libm65/symspecx.f90
+===================================================================
+--- branches/wsjtx/libm65/symspecx.f90	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/libm65/symspecx.f90	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -69,17 +69,17 @@
+   nzh=min(nint(500.0/df),2200)
+   nz=2*nzh
+   i0=nint(1500.0/df) - nzh
+-!  rewind 71
++  rewind 71
+   do i=1,nz
+      sx=real(cx(i0+i))**2 + aimag(cx(i0+i))**2
+-     sx=1.e-5*sx
++     sx=1.e-8*sx
+      s(i)=sx
+      savg(i)=savg(i) + sx
+      if(ihsym.le.184) ss(ihsym,i)=sx
+-!     write(71,3001) (i-1)*df,savg(i)
+-!3001 format(f12.6,e12.3)
++     write(71,3001) (i0+i-1)*df,savg(i),db(savg(i))
++3001 format(f12.6,2f12.3)
+   enddo
+-!  flush(71)
++  flush(71)
+ 
+   nkhz=100
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/mainwindow.cpp	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -102,7 +102,6 @@
+   m_loopall=false;
+   m_startAnother=false;
+   m_saveAll=false;
+-  m_onlyEME=false;
+   m_sec0=-1;
+   m_palette=&quot;CuteSDR&quot;;
+   m_RxLog=1;                     //Write Date and Time to RxLog
+@@ -110,7 +109,6 @@
+   m_NB=false;
+   m_mode=&quot;JT8-1&quot;;
+   m_TRperiod=60;
+-  m_colors=&quot;000066ff0000ffff00969696646464&quot;;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -168,7 +166,6 @@
+     if(line.length()&lt;=0) break;
+     t=line.mid(18,12);
+     callsign=t.mid(0,t.indexOf(&quot;,&quot;));
+-    m_worked[callsign]=true;
+   }
+   f.close();
+ 
+@@ -221,28 +218,12 @@
+   settings.setValue(&quot;MyGrid&quot;,m_myGrid);
+   settings.setValue(&quot;IDint&quot;,m_idInt);
+   settings.setValue(&quot;PTTport&quot;,m_pttPort);
+-  settings.setValue(&quot;Xpol&quot;,m_xpol);
+-  settings.setValue(&quot;XpolX&quot;,m_xpolx);
+   settings.setValue(&quot;SaveDir&quot;,m_saveDir);
+-  settings.setValue(&quot;AzElDir&quot;,m_azelDir);
+   settings.setValue(&quot;DXCCpfx&quot;,m_dxccPfx);
+-  settings.setValue(&quot;Timeout&quot;,m_timeout);
+-  settings.setValue(&quot;IQamp&quot;,m_IQamp);
+-  settings.setValue(&quot;IQphase&quot;,m_IQphase);
+-  settings.setValue(&quot;ApplyIQcal&quot;,m_applyIQcal);
+-  settings.setValue(&quot;dPhi&quot;,m_dPhi);
+-  settings.setValue(&quot;Fcal&quot;,m_fCal);
+-  settings.setValue(&quot;Fadd&quot;,m_fAdd);
+-  settings.setValue(&quot;NetworkInput&quot;, m_network);
+-  settings.setValue(&quot;FSam96000&quot;, m_fs96000);
+   settings.setValue(&quot;SoundInIndex&quot;,m_nDevIn);
+   settings.setValue(&quot;paInDevice&quot;,m_paInDevice);
+   settings.setValue(&quot;SoundOutIndex&quot;,m_nDevOut);
+   settings.setValue(&quot;paOutDevice&quot;,m_paOutDevice);
+-  settings.setValue(&quot;IQswap&quot;,m_IQswap);
+-  settings.setValue(&quot;Plus10dB&quot;,m_10db);
+-  settings.setValue(&quot;InitIQplus&quot;,m_initIQplus);
+-  settings.setValue(&quot;UDPport&quot;,m_udpPort);
+   settings.setValue(&quot;PaletteCuteSDR&quot;,ui-&gt;actionCuteSDR-&gt;isChecked());
+   settings.setValue(&quot;PaletteLinrad&quot;,ui-&gt;actionLinrad-&gt;isChecked());
+   settings.setValue(&quot;PaletteAFMHot&quot;,ui-&gt;actionAFMHot-&gt;isChecked());
+@@ -251,17 +232,9 @@
+   settings.setValue(&quot;SaveNone&quot;,ui-&gt;actionNone-&gt;isChecked());
+   settings.setValue(&quot;SaveAll&quot;,ui-&gt;actionSave_all-&gt;isChecked());
+   settings.setValue(&quot;NDepth&quot;,m_ndepth);
+-  settings.setValue(&quot;NEME&quot;,m_onlyEME);
+   settings.setValue(&quot;KB8RQ&quot;,m_kb8rq);
+   settings.setValue(&quot;NB&quot;,m_NB);
+   settings.setValue(&quot;NBslider&quot;,m_NBslider);
+-  settings.setValue(&quot;GainX&quot;,(double)m_gainx);
+-  settings.setValue(&quot;GainY&quot;,(double)m_gainy);
+-  settings.setValue(&quot;PhaseX&quot;,(double)m_phasex);
+-  settings.setValue(&quot;PhaseY&quot;,(double)m_phasey);
+-  settings.setValue(&quot;Mult570&quot;,m_mult570);
+-  settings.setValue(&quot;Cal570&quot;,m_cal570);
+-  settings.setValue(&quot;Colors&quot;,m_colors);
+   settings.endGroup();
+ }
+ 
+@@ -309,7 +282,6 @@
+   ui-&gt;NBslider-&gt;setValue(m_NBslider);
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,0).toInt();
+-  m_onlyEME=settings.value(&quot;NEME&quot;,false).toBool();
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
+   settings.endGroup();
+ 
+@@ -362,17 +334,6 @@
+     g_pWideGraph-&gt;dataSink2(s,nkhz,ihsym,m_diskData,lstrong);
+   }
+ 
+-  if(nadj == 10) {
+-    if(m_xpol) {
+-      t.sprintf(&quot;Amp: %6.4f %6.4f   Phase: %6.4f %6.4f&quot;,
+-                m_gainx,m_gainy,m_phasex,m_phasey);
+-    } else {
+-      t.sprintf(&quot;Amp: %6.4f   Phase: %6.4f&quot;,m_gainx,m_phasex);
+-    }
+-    ui-&gt;decodedTextBrowser-&gt;append(t);
+-    m_adjustIQ=0;
+-  }
+-
+   //Average over specified number of spectra
+   if (n==0) {
+     for (int i=0; i&lt;NFFT; i++)
+@@ -408,7 +369,7 @@
+     if(m_saveAll and !m_diskData) {
+       QString fname=m_saveDir + &quot;/&quot; + t.date().toString(&quot;yyMMdd&quot;) + &quot;_&quot; +
+           t.time().toString(&quot;hhmm&quot;) + &quot;.wav&quot;;
+-      *future2 = QtConcurrent::run(savewav, fname);
++      *future2 = QtConcurrent::run(savewav, fname, m_TRperiod);
+       watcher2-&gt;setFuture(*future2);
+     }
+   }
+@@ -429,7 +390,6 @@
+   dlg.m_idInt=m_idInt;
+   dlg.m_pttPort=m_pttPort;
+   dlg.m_saveDir=m_saveDir;
+-  dlg.m_azelDir=m_azelDir;
+   dlg.m_dxccPfx=m_dxccPfx;
+   dlg.m_nDevIn=m_nDevIn;
+   dlg.m_nDevOut=m_nDevOut;
+@@ -703,8 +663,7 @@
+   if(fname != &quot;&quot;) {
+     m_path=fname;
+     int i;
+-    i=fname.indexOf(&quot;.iq&quot;) - 11;
+-    if(m_xpol) i=fname.indexOf(&quot;.tf2&quot;) - 11;
++    i=fname.indexOf(&quot;.wav&quot;) - 11;
+     if(i&gt;=0) {
+       lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #66ff66}&quot;);
+       lab1-&gt;setText(&quot; &quot; + fname.mid(i,15) + &quot; &quot;);
+@@ -712,7 +671,7 @@
+     on_stopButton_clicked();
+     m_diskData=true;
+     int dbDgrd=0;
+-    *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd);
++    *future1 = QtConcurrent::run(getfile, fname, m_TRperiod);
+     watcher1-&gt;setFuture(*future1);
+   }
+ }
+@@ -739,7 +698,7 @@
+       m_diskData=true;
+       int dbDgrd=0;
+       if(m_myCall==&quot;K1JT&quot; and m_idInt&lt;0) dbDgrd=m_idInt;
+-      *future1 = QtConcurrent::run(getfile, fname, m_xpol, dbDgrd);
++      *future1 = QtConcurrent::run(getfile, fname, m_TRperiod);
+       watcher1-&gt;setFuture(*future1);
+       return;
+     }
+@@ -754,13 +713,10 @@
+ 
+ void MainWindow::diskDat()                                   //diskDat()
+ {
+-  int kstep=2048;
+-  int nsteps;
++  int kstep=m_nsps/2;
+   m_diskData=true;
+ 
+-  nsteps=29.8*48000/kstep;
+-
+-  for(int n=1; n&lt;nsteps; n++) {              // Do the half-symbol FFTs
++  for(int n=1; n&lt;=184; n++) {              // Do the half-symbol FFTs
+     int k=(n+1)*kstep;
+     dataSink(k);
+     if(n%10 == 0) qApp-&gt;processEvents();   //Keep the GUI responsive
+@@ -803,11 +759,6 @@
+   m_kb8rq = !m_kb8rq;
+ }
+ 
+-void MainWindow::on_actionOnly_EME_calls_triggered()          //EME calls only
+-{
+-  m_onlyEME = ui-&gt;actionOnly_EME_calls-&gt;isChecked();
+-}
+-
+ void MainWindow::on_actionNo_shorthands_if_Tx1_triggered()
+ {
+   stub();
+@@ -1119,9 +1070,6 @@
+                                                           //doubleClickOnCall
+ void MainWindow::doubleClickOnCall(QString hiscall, bool ctrl)
+ {
+-  if(m_worked[hiscall]) {
+-    msgBox(&quot;Possible dupe: &quot; + hiscall + &quot; already in log.&quot;);
+-  }
+   ui-&gt;dxCallEntry-&gt;setText(hiscall);
+   QString t = ui-&gt;decodedTextBrowser-&gt;toPlainText();   //Full contents
+   int i2=ui-&gt;decodedTextBrowser-&gt;textCursor().position();
+@@ -1216,78 +1164,6 @@
+ 
+ void MainWindow::on_addButton_clicked()                       //Add button
+ {
+-  if(ui-&gt;dxGridEntry-&gt;text()==&quot;&quot;) {
+-    msgBox(&quot;Please enter a valid grid locator.&quot;);
+-    return;
+-  }
+-  m_call3Modified=false;
+-  QString hiscall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
+-  QString hisgrid=ui-&gt;dxGridEntry-&gt;text().trimmed();
+-  QString newEntry=hiscall + &quot;,&quot; + hisgrid;
+-
+-  int ret = QMessageBox::warning(this, &quot;Add&quot;,
+-       newEntry + &quot;\n&quot; + &quot;Is this station known to be active on EME?&quot;,
+-       QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+-  if(ret==QMessageBox::Yes) {
+-    newEntry += &quot;,EME,,&quot;;
+-  } else {
+-    newEntry += &quot;,,,&quot;;
+-  }
+-  QString call3File = m_appDir + &quot;/CALL3.TXT&quot;;
+-  QFile f1(call3File);
+-  if(!f1.open(QIODevice::ReadOnly | QIODevice::Text)) {
+-    msgBox(&quot;Cannot open &quot; + call3File);
+-    return;
+-  }
+-  QString tmpFile = m_appDir + &quot;/CALL3.TMP&quot;;
+-  QFile f2(tmpFile);
+-  if(!f2.open(QIODevice::WriteOnly | QIODevice::Text)) {
+-    msgBox(&quot;Cannot open &quot; + tmpFile);
+-    return;
+-  }
+-  QTextStream in(&amp;f1);
+-  QTextStream out(&amp;f2);
+-  QString hc=hiscall;
+-  QString hc1=&quot;&quot;;
+-  QString hc2=&quot;&quot;;
+-  QString s;
+-  do {
+-    s=in.readLine();
+-    hc1=hc2;
+-    if(s.mid(0,2)==&quot;//&quot;) {
+-      out &lt;&lt; s + &quot;\n&quot;;
+-    } else {
+-      int i1=s.indexOf(&quot;,&quot;);
+-      hc2=s.mid(0,i1);
+-      if(hc&gt;hc1 &amp;&amp; hc&lt;hc2) {
+-        out &lt;&lt; newEntry + &quot;\n&quot;;
+-        m_call3Modified=true;
+-      } else if(hc==hc2) {
+-        QString t=s + &quot;\n\n is already in CALL3.TXT\n&quot; +
+-            &quot;Do you wish to replace it?&quot;;
+-        int ret = QMessageBox::warning(this, &quot;Add&quot;,t,
+-             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+-        if(ret==QMessageBox::Yes) {
+-          out &lt;&lt; newEntry + &quot;\n&quot;;
+-          m_call3Modified=true;
+-        }
+-      } else {
+-        out &lt;&lt; s + &quot;\n&quot;;
+-      }
+-    }
+-  } while(!s.isNull());
+-
+-  f1.close();
+-  if(hc&gt;hc1 &amp;&amp; !m_call3Modified)
+-    out &lt;&lt; newEntry + &quot;\n&quot;;
+-  if(m_call3Modified) {
+-    QFile f0(m_appDir + &quot;/CALL3.OLD&quot;);
+-    if(f0.exists()) f0.remove();
+-    QFile f1(m_appDir + &quot;/CALL3.TXT&quot;);
+-    f1.rename(m_appDir + &quot;/CALL3.OLD&quot;);
+-    f2.rename(m_appDir + &quot;/CALL3.TXT&quot;);
+-    f2.close();
+-  }
+ }
+ 
+ void MainWindow::msgtype(QString t, QLineEdit* tx)                //msgtype()
+@@ -1402,7 +1278,6 @@
+   QTextStream out(&amp;f);
+   out &lt;&lt; logEntry;
+   f.close();
+-  m_worked[m_hisCall]=true;
+ }
+ 
+ /*
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/mainwindow.h	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -68,7 +68,6 @@
+   void on_actionDelete_all_wav_files_in_SaveDir_triggered();
+   void on_actionFind_Delta_Phi_triggered();
+   void on_actionF4_sets_Tx6_triggered();
+-  void on_actionOnly_EME_calls_triggered();
+   void on_actionNo_shorthands_if_Tx1_triggered();
+   void on_actionNo_Deep_Search_triggered();
+   void on_actionNormal_Deep_Search_triggered();
+@@ -129,32 +128,20 @@
+     qint32  m_ntx;
+     qint32  m_pttPort;
+     qint32  m_timeout;
+-    qint32  m_dPhi;
+-    qint32  m_fCal;
+     qint32  m_txFreq;
+     qint32  m_setftx;
+     qint32  m_ndepth;
+     qint32  m_sec0;
+     qint32  m_RxLog;
+     qint32  m_nutc0;
+-    qint32  m_mode65;
+     qint32  m_nrx;
+     qint32  m_hsym0;
+     qint32  m_paInDevice;
+     qint32  m_paOutDevice;
+-    qint32  m_udpPort;
+     qint32  m_NBslider;
+-    qint32  m_adjustIQ;
+-    qint32  m_applyIQcal;
+-    qint32  m_mult570;
+     qint32  m_TRperiod;
+     qint32  m_nsps;
+ 
+-    double  m_fAdd;
+-    double  m_IQamp;
+-    double  m_IQphase;
+-    double  m_cal570;
+-
+     bool    m_monitoring;
+     bool    m_transmitting;
+     bool    m_diskData;
+@@ -165,24 +152,12 @@
+     bool    m_txMute;
+     bool    m_restart;
+     bool    m_killAll;
+-    bool    m_xpol;
+-    bool    m_xpolx;
+-    bool    m_call3Modified;
+     bool    m_startAnother;
+     bool    m_saveAll;
+-    bool    m_onlyEME;
+     bool    m_widebandDecode;
+     bool    m_kb8rq;
+     bool    m_NB;
+-    bool    m_fs96000;
+-    bool    m_IQswap;
+-    bool    m_10db;
+-    bool    m_initIQplus;
+ 
+-    float   m_gainx;
+-    float   m_gainy;
+-    float   m_phasex;
+-    float   m_phasey;
+     float   m_pctZap;
+ 
+     QRect   m_wideGraphGeom;
+@@ -202,7 +177,6 @@
+     QFutureWatcher&lt;void&gt;* watcher2;
+ 
+     QProcess proc_m65;
+-    QProcess proc_qthid;
+ 
+     QString m_path;
+     QString m_pbdecoding_style1;
+@@ -214,15 +188,11 @@
+     QString m_hisGrid;
+     QString m_appDir;
+     QString m_saveDir;
+-    QString m_azelDir;
+     QString m_dxccPfx;
+     QString m_palette;
+     QString m_dateTime;
+     QString m_mode;
+-    QString m_colors;
+ 
+-    QHash&lt;QString,bool&gt; m_worked;
+-
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+ 
+@@ -239,8 +209,8 @@
+     void stub();
+ };
+ 
+-extern void getfile(QString fname, bool xpol, int idInt);
+-extern void savewav(QString fname);
++extern void getfile(QString fname, int ntrperiod);
++extern void savewav(QString fname, int ntrperiod);
+ extern int killbyname(const char* progName);
+ extern void getDev(int* numDevices,char hostAPI_DeviceName[][50],
+                    int minChan[], int maxChan[],
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/mainwindow.ui	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -29,7 +29,7 @@
+    &lt;string notr=&quot;true&quot;/&gt;
+   &lt;/property&gt;
+   &lt;widget class=&quot;QWidget&quot; name=&quot;centralWidget&quot;&gt;
+-   &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++   &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+     &lt;property name=&quot;geometry&quot;&gt;
+      &lt;rect&gt;
+       &lt;x&gt;10&lt;/x&gt;
+@@ -1284,14 +1284,6 @@
+     &lt;string&gt;F4 sets Tx6&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+-  &lt;action name=&quot;actionOnly_EME_calls&quot;&gt;
+-   &lt;property name=&quot;checkable&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
+-   &lt;/property&gt;
+-   &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Only EME calls&lt;/string&gt;
+-   &lt;/property&gt;
+-  &lt;/action&gt;
+   &lt;action name=&quot;actionNo_shorthands_if_Tx1&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-09-26 00:48:49 UTC (rev 2598)
++++ branches/wsjtx/widegraph.cpp	2012-09-26 15:20:43 UTC (rev 2599)
+@@ -78,7 +78,7 @@
+   int nbpp = ui-&gt;widePlot-&gt;binsPerPixel();
+   static int n=0;
+   static int nkhz0=-999;
+-  static int ntrz=0;
++  static int ntr0=0;
+ 
+   df = 12000.0/m_nsps;
+   if(nkhz != nkhz0) {
+@@ -126,7 +126,7 @@
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int ntr = (ms/1000) % m_TRperiod;
+ 
+-    if((ndiskdata &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!ndiskdata &amp;&amp; ntr&lt;ntrz)) {
++    if((ndiskdata &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!ndiskdata &amp;&amp; ntr&lt;ntr0)) {
+       for (int i=0; i&lt;2048; i++) {
+         swide[i] = 1.e30;
+       }
+@@ -134,7 +134,7 @@
+         splot[i] = 1.e30;
+       }
+     }
+-    ntrz=ntr;
++    ntr0=ntr;
+     ui-&gt;widePlot-&gt;draw(swide,i0,splot);
+   }
+ }
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002289.html">[WSJT-SVN] r2598 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002292.html">[WSJT-SVN] r2600 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2291">[ date ]</a>
+              <a href="thread.html#2291">[ thread ]</a>
+              <a href="subject.html#2291">[ subject ]</a>
+              <a href="author.html#2291">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

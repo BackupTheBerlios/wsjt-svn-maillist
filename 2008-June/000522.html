@@ -1,0 +1,277 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r834 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r834%20-%20trunk&In-Reply-To=%3C200806041459.m54ExKGN030290%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000521.html">
+   <LINK REL="Next"  HREF="000523.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r834 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r834%20-%20trunk&In-Reply-To=%3C200806041459.m54ExKGN030290%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r834 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun  4 16:59:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000521.html">[WSJT-SVN] r833 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000523.html">[WSJT-SVN] r835 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#522">[ date ]</a>
+              <a href="thread.html#522">[ thread ]</a>
+              <a href="subject.html#522">[ subject ]</a>
+              <a href="author.html#522">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-06-04 16:59:16 +0200 (Wed, 04 Jun 2008)
+New Revision: 834
+
+Added:
+   trunk/gen64.f90
+Modified:
+   trunk/Makefile.CVF
+   trunk/wsjt.py
+   trunk/wsjtgen.F90
+Log:
+Added a (partially complete) gen64 for a JT64 mode.
+
+
+Modified: trunk/Makefile.CVF
+===================================================================
+--- trunk/Makefile.CVF	2008-06-03 21:31:39 UTC (rev 833)
++++ trunk/Makefile.CVF	2008-06-04 14:59:16 UTC (rev 834)
+@@ -33,7 +33,7 @@
+ 	wsjtgen.f90 runqqq.f90 fivehz.f90 msgparms.f90 chkt0.f90 \
+ 	genwspr.f90 wqencode.f90 wqdecode.f90 packpfx.f90 unpackpfx.f90 \
+ 	hash.f90 packprop.f90 unpackprop.f90 packname.f90 unpackname.f90 \
+-	packtext2.f90 unpacktext2.f90 wsjtwspr.f90
++	packtext2.f90 unpacktext2.f90 wsjtwspr.f90 gen64.f90
+ 
+ SRCS2F77 = wsjt1.f avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+ 	stdecode.f indexx.f s2shape.f flat2.f gen65.f gen24.f entail.f \
+
+Added: trunk/gen64.f90
+===================================================================
+--- trunk/gen64.f90	2008-06-03 21:31:39 UTC (rev 833)
++++ trunk/gen64.f90	2008-06-04 14:59:16 UTC (rev 834)
+@@ -0,0 +1,104 @@
++subroutine gen64(message,mode64,samfac,ntxdf,iwave,nwave,  &amp;
++     sendingsh,msgsent,nmsg)
++
++! Encodes a JT64 message into a wavefile.
++
++  parameter (NMAX=60*11025)     !Max length of wave file
++  character*22 message          !Message to be generated
++  character*22 msgsent          !Message as it will be received
++  real*8 t,dt,phi,f,f0,dfgen,dphi,twopi,samfac,tsymbol
++  integer*2 iwave(NMAX)  !Generated wave file
++  integer dgen(12)
++  integer sent(63)
++  integer sendingsh
++  integer ic6(6)
++  integer isync(63)
++  data ic6/0,1,4,3,5,2/,idum/-1/
++  data twopi/6.283185307d0/
++  save
++
++! Set up the JT64 sync pattern
++! Insert the 6x6 Costas array 3 times, shifted upward by 0, 6, and 12 bins.
++  isync=-1
++  do n=1,3
++     i0=11
++     if(n.eq.2) i0=28
++     if(n.eq.3) i0=46
++     do i=1,6
++        isync(i0+i)=ic6(i) + 6*(n-1)
++     enddo
++  enddo
++
++  nspecial=0
++  if(nspecial.eq.0) then
++!         call wqencode(message,ntype,data0)
++
++! Must do rs_init for RS(45,9)
++!         call rs_encode(dgen,sent)
++
++! Temporary: correct sync plus random data
++     do i=1,63
++        if(isync(i).lt.0) then
++           call random_number(x)
++           sent(i)=63.99999*x
++        else
++           sent(i)=isync(i)
++        endif
++     enddo
++
++     tsymbol=8192.d0/11025.d0
++     nsym=63                            !Symbols per transmission
++  else
++     tsymbol=16384.d0/11025.d0
++     nsym=32
++     sendingsh=1                         !Flag for shorthand message
++  endif
++
++! Set up necessary constants
++  dt=1.0/(samfac*11025.0)
++  f0=118*11025.d0/1024 + ntxdf
++  dfgen=mode64*11025.0/4096.0
++  t=0.d0
++  phi=0.d0
++  k=0
++  j0=0
++  ndata=(nsym*11025.d0*samfac*tsymbol)/2
++  ndata=2*ndata
++  do i=1,ndata
++     t=t+dt
++     j=int(t/tsymbol) + 1                    !Symbol number, 1-63
++     if(j.ne.j0) then
++        f=f0
++        if(nspecial.ne.0) f=f0+10*nspecial*dfgen
++        if(nspecial.eq.0) then
++           k=k+1
++           f=f0+(sent(k))*dfgen
++        endif
++        dphi=twopi*dt*f
++        j0=j
++     endif
++     phi=phi+dphi
++     iwave(i)=32767.0*sin(phi)
++  enddo
++
++  do j=1,5512                !Put another 0.5 sec of silence at end
++     i=i+1
++     iwave(i)=0
++  enddo
++  nwave=i
++!      call unpackmsg(dgen,msgsent)
++!      if(flip.lt.0.0) then
++!         do i=22,1,-1
++!            if(msgsent(i:i).ne.' ') goto 10
++!         enddo
++! 10      msgsent=msgsent(1:i)//' OOO'
++!      endif
++  msgsent=message
++  do i=22,1,-1
++     if(msgsent(i:i).ne.' ') goto 20
++  enddo
++20 nmsg=i
++
++  return
++end subroutine gen64
++
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-06-03 21:31:39 UTC (rev 833)
++++ trunk/wsjt.py	2008-06-04 14:59:16 UTC (rev 834)
+@@ -641,6 +641,13 @@
+         mode.set(&quot;JT65C&quot;)
+         ModeJT65()
+ 
++#------------------------------------------------------ ModeJT64A
++def ModeJT64A(event=NONE):
++    if g.mode != &quot;JT64A&quot;:
++        if lauto: toggleauto()
++        mode.set(&quot;JT64A&quot;)
++        ModeJT65()
++
+ #------------------------------------------------------ ModeJT6M
+ def ModeJT6M(event=NONE):
+     global slabel,isync,isync6m,itol
+@@ -1656,7 +1663,7 @@
+     lab3.configure(text=t)
+     if mode.get() != g.mode or first:
+         if mode.get()==&quot;FSK441&quot;:
+-            msg2.configure(bg='yellow')
++            msg2.configure(bg='#FFFF00')
+         elif mode.get()[:4]==&quot;JT65&quot;:
+             msg2.configure(bg='#00FFFF')
+         elif mode.get()==&quot;JT6M&quot;:
+@@ -1665,6 +1672,8 @@
+             msg2.configure(bg='#00FF00')
+         elif mode.get()==&quot;WSPR&quot;:
+             msg2.configure(bg='#FF8888')
++        elif mode.get()[:4]==&quot;JT64&quot;:
++            msg2.configure(bg='#CCFFFF')
+         elif mode.get()==&quot;JT2&quot;:
+             msg2.configure(bg='#8888FF')
+         elif mode.get()[:3]==&quot;JT4&quot;:
+@@ -1957,6 +1966,7 @@
+ modemenu.add_radiobutton(label = 'JT4F', variable=mode, command = ModeJT4F)
+ modemenu.add_radiobutton(label = 'JT4G', variable=mode, command = ModeJT4G)
+ modemenu.add_radiobutton(label = 'WSPR', variable=mode, command = ModeWSPR)
++modemenu.add_radiobutton(label = 'JT64A', variable=mode, command = ModeJT64A)
+ #modemenu.add_radiobutton(label = 'Echo', variable=mode, command = ModeEcho,
+ #                         state=DISABLED)
+ 
+
+Modified: trunk/wsjtgen.F90
+===================================================================
+--- trunk/wsjtgen.F90	2008-06-03 21:31:39 UTC (rev 833)
++++ trunk/wsjtgen.F90	2008-06-04 14:59:16 UTC (rev 834)
+@@ -118,7 +118,9 @@
+   LTone=2
+ 
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or.                  &amp;
+-       mode(1:3).eq.'JT4' .or. mode(1:4).eq.'WSPR') then
++       mode(1:3).eq.'JT4' .or. mode(1:4).eq.'WSPR' .or.                &amp;
++       mode(1:4).eq.'JT64') then
++
+      if(mode(1:4).eq.'JT65') then
+ !  We're in JT65 mode.
+         if(mode(5:5).eq.'A') mode65=1
+@@ -128,9 +130,15 @@
+              msgsent,nmsg0)
+      else if(mode(1:4).eq.'WSPR') then
+         call genwspr(msg,samfacout,ntxdf,iwave,nwave,msgsent)
+-     else
++     else if(mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4' ) then
+         call gen24(msg,mode,mode4,samfacout,ntxdf,iwave,nwave,sendingsh,     &amp;
+              msgsent,nmsg0)
++     else if(mode(1:4).eq.'JT64') then
++        mode64=1
++        call gen64(msg,mode64,samfacout,ntxdf,iwave,nwave,sendingsh,   &amp;
++             msgsent,nmsg0)
++     else
++        stop 'Unknown Tx mode requested.'
+      endif
+ 
+      if(lcwid) then
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000521.html">[WSJT-SVN] r833 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000523.html">[WSJT-SVN] r835 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#522">[ date ]</a>
+              <a href="thread.html#522">[ thread ]</a>
+              <a href="subject.html#522">[ subject ]</a>
+              <a href="author.html#522">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

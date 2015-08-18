@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2017 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2017%20-%20wsjt7a&In-Reply-To=%3C20100721202856.E078C480B05%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001708.html">
+   <LINK REL="Next"  HREF="001710.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2017 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2017%20-%20wsjt7a&In-Reply-To=%3C20100721202856.E078C480B05%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2017 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 21 22:28:56 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001708.html">[WSJT-SVN] r2016 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001710.html">[WSJT-SVN] r2018 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1709">[ date ]</a>
+              <a href="thread.html#1709">[ thread ]</a>
+              <a href="subject.html#1709">[ subject ]</a>
+              <a href="author.html#1709">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-21 22:28:56 +0200 (Wed, 21 Jul 2010)
+New Revision: 2017
+
+Modified:
+   wsjt7a/decodems.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/setupms.f90
+   wsjt7a/wsjt.py
+Log:
+This is the first usable JTMS decoder.  It works pretty 
+well on the K1JT signal recorded by N5SIX.
+
+
+Modified: wsjt7a/decodems.f90
+===================================================================
+--- wsjt7a/decodems.f90	2010-07-21 13:43:57 UTC (rev 2016)
++++ wsjt7a/decodems.f90	2010-07-21 20:28:56 UTC (rev 2017)
+@@ -11,6 +11,7 @@
+   real s(NZ)
+   real fs(56)
+   real sm(0:63)
++  real r(40000)
+   complex c(NZ)
+   complex cw(56,0:63)                   !Complex waveforms for codewords
+   complex cwb(56)                       !Complex waveform for 'space'
+@@ -75,28 +76,44 @@
+ ! Should have a test here to reject non-JTMS signals
+ 
+ ! We know DF, now find character sync.
+-  fs=0.
++  r=0.
++  rmax=0.
+   do i1=1,npts-55
+      z=0.
++     ss=0.
+      do i=1,56
++        ss=ss + abs(cdat(i+i1-1))
+         z=z + cdat(i+i1-1)*conjg(cwb(i))
+      enddo
+-     z=0.001*z
+-     j=mod(i1-1,56)+1
+-     ss=abs(z)
+-     fs(j)=fs(j)+ss
++     r(i1)=abs(z)/ss
++     if(r(i1).gt.0.85) then
++        j=mod(i1-1,56)+1
++        if(r(i1).gt.rmax) then
++           rmax=r(i1)
++           jpk=j
++        endif
++!        write(51,3009) i1,j,r(i1)
++!3009    format(2i5,f12.3)
++     endif
+   enddo
+ 
+-  smax=0.
+-  do j=1,56
+-     if(fs(j).gt.smax) then
+-        smax=fs(j)
+-        i1=j
++  i1=jpk-1
++  if(i1.lt.1) i1=i1+56
++
++  acfmax=0.
++  acf0=dot_product(r(1:npts),r(1:npts))
++  do k=8,28*56
++     fac=float(npts)/(npts-k)
++     acf=fac*dot_product(r(1:npts),r(1+k:npts+k))/acf0
++     if(acf.gt.acfmax) then
++        acfmax=acf
++        kpk=k
+      endif
++!     write(52,3008) k/56.0,acf
++!3008 format(2f12.3)
+   enddo
++!  print*,jpk,kpk,kpk/56.0
+ 
+-!  rewind 51
+-
+   msg=' '
+   nchar=(npts-55-i1)/56
+   if(nchar.gt.400) nchar=400
+@@ -126,7 +143,7 @@
+      endif
+      msg(j:j)=cc(kpk:kpk)
+      if(kpk.eq.58) msg(j:j)=' '
+-     if(smax/smax2.lt.1.05) msg(j:j)=' '               !Threshold test
++!     if(smax/smax2.lt.1.05) msg(j:j)=' '               !Threshold test
+ !     write(51,3007) j,smax,phapk,phapk+6.283185307
+ !3007 format(i5,3f12.3)
+   enddo
+@@ -139,6 +156,7 @@
+ 
+   if(nline.le.99) nline=nline+1
+   tping(nline)=t2
++!  write(*,1110) cfile6,t2,mswidth,ndb,nrpt,ndf,msg28
+   write(line(nline),1110) cfile6,t2,mswidth,ndb,nrpt,ndf,msg28
+ 1110 format(a6,f5.1,i5,i3,1x,i2.2,i5,5x,a28,f8.1,f6.2,i3,a2)
+ 
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-07-21 13:43:57 UTC (rev 2016)
++++ wsjt7a/mtdecode.f	2010-07-21 20:28:56 UTC (rev 2017)
+@@ -117,6 +117,8 @@
+          t2=tstart + dt*(istart-1)
+ 
+          if(mode.eq.8) then
++!            write(75) cfile6,t2,mswidth,int(peak),nrpt,jjz,
++!     +      (dat(jj+j),j=1,jjz)
+             call decodems(dat(jj),jjz,cfile6,t2,mswidth,int(peak),
+      +           nrpt,nfreeze,DFTolerance,MouseDF)
+             go to 100
+
+Modified: wsjt7a/setupms.f90
+===================================================================
+--- wsjt7a/setupms.f90	2010-07-21 13:43:57 UTC (rev 2016)
++++ wsjt7a/setupms.f90	2010-07-21 20:28:56 UTC (rev 2017)
+@@ -45,7 +45,7 @@
+         enddo
+      enddo
+   enddo
+-  cwb=cw(1:56,57)
++  cwb=cw(1:56,58)
+ 
+   return
+ end subroutine setupms
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-21 13:43:57 UTC (rev 2016)
++++ wsjt7a/wsjt.py	2010-07-21 20:28:56 UTC (rev 2017)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001708.html">[WSJT-SVN] r2016 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001710.html">[WSJT-SVN] r2018 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1709">[ date ]</a>
+              <a href="thread.html#1709">[ thread ]</a>
+              <a href="subject.html#1709">[ subject ]</a>
+              <a href="author.html#1709">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

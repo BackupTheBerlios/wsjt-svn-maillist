@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3186 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3186%20-%20branches/wsjtx&In-Reply-To=%3C20130416201526.4E04255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002877.html">
+   <LINK REL="Next"  HREF="002879.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3186 - branches/wsjtx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3186%20-%20branches/wsjtx&In-Reply-To=%3C20130416201526.4E04255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3186 - branches/wsjtx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 16 22:15:26 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002877.html">[WSJT-SVN] r3185 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002879.html">[WSJT-SVN] r3187 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2878">[ date ]</a>
+              <a href="thread.html#2878">[ thread ]</a>
+              <a href="subject.html#2878">[ subject ]</a>
+              <a href="author.html#2878">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-04-16 22:15:25 +0200 (Tue, 16 Apr 2013)
+New Revision: 3186
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/psk_reporter.cpp
+Log:
+Initial tests with new PSK Reporter interface. Only on UNIX for now.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-16 19:26:07 UTC (rev 3185)
++++ branches/wsjtx/mainwindow.cpp	2013-04-16 20:15:25 UTC (rev 3186)
+@@ -286,6 +286,12 @@
+     }
+   }
+ #endif
++
++#ifdef unix
++  psk_Reporter = new PSK_Reporter(this);
++  psk_Reporter-&gt;setLocalStation(m_myCall,m_myGrid, &quot;WSJT-X r&quot; + rev.mid(6,4) );
++#endif
++
+   ui-&gt;label_9-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+   ui-&gt;label_10-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+ 
+@@ -649,6 +655,11 @@
+       }
+     }
+ #endif
++
++#ifdef unix
++    psk_Reporter-&gt;setLocalStation(m_myCall,m_myGrid, &quot;WSJT-X r&quot; + rev.mid(6,4) );
++#endif
++
+     m_pskReporter=dlg.m_pskReporter;
+     m_After73=dlg.m_After73;
+ 
+@@ -1331,6 +1342,22 @@
+         }
+       }
+ #endif
++
++#ifdef unix
++      if(b and !m_diskData) {
++          int i1=msg.indexOf(&quot; &quot;);
++          QString c2=msg.mid(i1+1);
++          int i2=c2.indexOf(&quot; &quot;);
++          QString g2=c2.mid(i2+1,4);
++          c2=c2.mid(0,i2);
++          QString grid;
++          if(gridOK(g2)) grid = g2;
++          int nHz=t.mid(22,4).toInt();
++          QString freq = QString::number(1000000.0*m_dialFreq + nHz + 0.5);
++          QString snr= QString::number(t.mid(10,3).toInt());
++          psk_Reporter-&gt;addRemoteStation(c2,grid,freq,&quot;JT9&quot;,snr,QString::number(QDateTime::currentDateTime().toTime_t()));
++      }
++#endif
+     }
+   }
+ }
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-16 19:26:07 UTC (rev 3185)
++++ branches/wsjtx/mainwindow.h	2013-04-16 20:15:25 UTC (rev 3186)
+@@ -6,6 +6,7 @@
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
++#include &quot;psk_reporter.h&quot;
+ 
+ #ifdef WIN32
+ #include &quot;PSKReporter.h&quot;
+@@ -315,6 +316,8 @@
+ 
+     QSharedMemory *mem_jt9;
+ 
++    PSK_Reporter *psk_Reporter;
++
+ //---------------------------------------------------- private functions
+     void readSettings();
+     void writeSettings();
+
+Modified: branches/wsjtx/psk_reporter.cpp
+===================================================================
+--- branches/wsjtx/psk_reporter.cpp	2013-04-16 19:26:07 UTC (rev 3185)
++++ branches/wsjtx/psk_reporter.cpp	2013-04-16 20:15:25 UTC (rev 3186)
+@@ -2,7 +2,6 @@
+ // Implemented by Edson Pereira PY2SDR
+ //
+ // Reports will be sent in batch mode every 5 minutes.
+-// If there are no spots to be sent, a report will be sent with only the receiver station info.
+ 
+ #include &quot;psk_reporter.h&quot;
+ 
+@@ -37,7 +36,6 @@
+ 
+     reportTimer = new QTimer(this);
+     connect(reportTimer, SIGNAL(timeout()), this, SLOT(sendReport()));
+-    reportTimer-&gt;start(5*60*1000); // 5 minutes;
+ }
+ 
+ void PSK_Reporter::setLocalStation(QString call, QString gridSquare, QString programInfo)
+@@ -45,6 +43,7 @@
+     m_rxCall = call;
+     m_rxGrid = gridSquare;
+     m_progId = programInfo;
++    reportTimer-&gt;start(5*60*1000); // 5 minutes;
+ }
+ 
+ void PSK_Reporter::addRemoteStation(QString call, QString grid, QString freq, QString mode, QString snr, QString time )
+@@ -61,6 +60,9 @@
+ 
+ void PSK_Reporter::sendReport()
+ {
++    if (m_spotQueue.isEmpty())
++        return;
++
+     // Header
+     QString header_h = m_header_h;
+     header_h.replace(&quot;tttttttt&quot;, QString(&quot;%1&quot;).arg(QDateTime::currentDateTime().toTime_t(),8,16,QChar('0')));
+@@ -75,24 +77,21 @@
+     rxInfoData_h += &quot;0000&quot;;
+     rxInfoData_h.replace(&quot;50E2llll&quot;, &quot;50E2&quot; + QString(&quot;%1&quot;).arg(rxInfoData_h.length()/2,4,16,QChar('0')));
+ 
+-    // Sender information
+-    QString txInfoData_h;
+-    if (!m_spotQueue.isEmpty()) {
+-        txInfoData_h = &quot;50E3llll&quot;;
+-        while (!m_spotQueue.isEmpty()) {
+-            QHash&lt;QString,QString&gt; spot = m_spotQueue.dequeue();
+-            qDebug() &lt;&lt; spot;
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;call&quot;].length(),2,16,QChar('0')) + spot[&quot;call&quot;].toUtf8().toHex();
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;freq&quot;].toLongLong(),8,16,QChar('0'));
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;snr&quot;].toInt(),1,16,QChar('0')).mid(14,2);
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;mode&quot;].length(),2,16,QChar('0')) + spot[&quot;mode&quot;].toUtf8().toHex();
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;grid&quot;].length(),2,16,QChar('0')) + spot[&quot;grid&quot;].toUtf8().toHex();
+-            txInfoData_h += QString(&quot;%1&quot;).arg(1,2,16,QChar('0'));;
+-            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;time&quot;].toInt(),8,16,QChar('0'));
+-        }
+-        txInfoData_h += &quot;0000&quot;;
+-        txInfoData_h.replace(&quot;50E3llll&quot;, &quot;50E3&quot; + QString(&quot;%1&quot;).arg(txInfoData_h.length()/2,4,16,QChar('0')));
++    // Sender information        
++    QString txInfoData_h = &quot;50E3llll&quot;;
++    while (!m_spotQueue.isEmpty()) {
++        QHash&lt;QString,QString&gt; spot = m_spotQueue.dequeue();
++        qDebug() &lt;&lt; spot;
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;call&quot;].length(),2,16,QChar('0')) + spot[&quot;call&quot;].toUtf8().toHex();
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;freq&quot;].toLongLong(),8,16,QChar('0'));
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;snr&quot;].toInt(),1,16,QChar('0')).mid(14,2);
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;mode&quot;].length(),2,16,QChar('0')) + spot[&quot;mode&quot;].toUtf8().toHex();
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;grid&quot;].length(),2,16,QChar('0')) + spot[&quot;grid&quot;].toUtf8().toHex();
++        txInfoData_h += QString(&quot;%1&quot;).arg(1,2,16,QChar('0'));;
++        txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;time&quot;].toInt(),8,16,QChar('0'));
+     }
++    txInfoData_h += &quot;0000&quot;;
++    txInfoData_h.replace(&quot;50E3llll&quot;, &quot;50E3&quot; + QString(&quot;%1&quot;).arg(txInfoData_h.length()/2,4,16,QChar('0')));
+ 
+     // Build report
+     QString report_h = header_h + m_rxInfoDescriptor_h + m_txInfoDescriptor_h + rxInfoData_h + txInfoData_h;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002877.html">[WSJT-SVN] r3185 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002879.html">[WSJT-SVN] r3187 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2878">[ date ]</a>
+              <a href="thread.html#2878">[ thread ]</a>
+              <a href="subject.html#2878">[ subject ]</a>
+              <a href="author.html#2878">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

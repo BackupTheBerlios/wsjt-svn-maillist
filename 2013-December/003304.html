@@ -1,0 +1,283 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3611 - branches/wsjtx_w
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3611%20-%20branches/wsjtx_w&In-Reply-To=%3C20131221173534.06D0D55B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003303.html">
+   <LINK REL="Next"  HREF="003305.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3611 - branches/wsjtx_w</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3611%20-%20branches/wsjtx_w&In-Reply-To=%3C20131221173534.06D0D55B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3611 - branches/wsjtx_w">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Dec 21 18:35:33 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003303.html">[WSJT-SVN] r3610 - branches/wsjtx_w
+</A></li>
+        <LI>Next message: <A HREF="003305.html">[WSJT-SVN] r3612 - branches/wsjtx_w
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3304">[ date ]</a>
+              <a href="thread.html#3304">[ thread ]</a>
+              <a href="subject.html#3304">[ subject ]</a>
+              <a href="author.html#3304">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-12-21 18:35:33 +0100 (Sat, 21 Dec 2013)
+New Revision: 3611
+
+Added:
+   branches/wsjtx_w/astro.cpp
+   branches/wsjtx_w/astro.h
+   branches/wsjtx_w/astro.ui
+Modified:
+   branches/wsjtx_w/mainwindow.cpp
+Log:
+Add the astro.* files.
+
+
+Added: branches/wsjtx_w/astro.cpp
+===================================================================
+--- branches/wsjtx_w/astro.cpp	                        (rev 0)
++++ branches/wsjtx_w/astro.cpp	2013-12-21 17:35:33 UTC (rev 3611)
+@@ -0,0 +1,107 @@
++#include &quot;astro.h&quot;
++#include &quot;ui_astro.h&quot;
++#include &lt;QDebug&gt;
++#include &lt;QFile&gt;
++#include &lt;QMessageBox&gt;
++#include &lt;stdio.h&gt;
++#include &quot;commons.h&quot;
++
++Astro::Astro(QWidget *parent) :
++  QWidget(parent),
++  ui(new Ui::Astro)
++{
++  ui-&gt;setupUi(this);
++  ui-&gt;astroTextBrowser-&gt;setStyleSheet(
++        &quot;QTextBrowser { background-color : cyan; color : black; }&quot;);
++  ui-&gt;astroTextBrowser-&gt;clear();
++}
++
++Astro::~Astro()
++{
++    delete ui;
++}
++
++void Astro::astroUpdate(QDateTime t, QString mygrid, QString hisgrid,
++                        int fQSO, int nsetftx, int ntxFreq, QString azelDir)
++{
++  static int ntxFreq0=-99;
++  static bool astroBusy=false;
++  char cc[300];
++  double azsun,elsun,azmoon,elmoon,azmoondx,elmoondx;
++  double ramoon,decmoon,dgrd,poloffset,xnr,techo;
++  int ntsky,ndop,ndop00;
++  QString date = t.date().toString(&quot;yyyy MMM dd&quot;);
++  QString utc = t.time().toString();
++  int nyear=t.date().year();
++  int month=t.date().month();
++  int nday=t.date().day();
++  int nhr=t.time().hour();
++  int nmin=t.time().minute();
++  double sec=t.time().second() + 0.001*t.time().msec();
++  int isec=sec;
++  double uth=nhr + nmin/60.0 + sec/3600.0;
++//  int nfreq=(int)datcom_.fcenter;
++  int nfreq=10368;
++  if(nfreq&lt;10 or nfreq &gt; 50000) nfreq=144;
++
++  if(!astroBusy) {
++    astroBusy=true;
++
++    astrosub_(&amp;nyear, &amp;month, &amp;nday, &amp;uth, &amp;nfreq, mygrid.toLatin1(),
++            hisgrid.toLatin1(), &amp;azsun, &amp;elsun, &amp;azmoon, &amp;elmoon,
++            &amp;azmoondx, &amp;elmoondx, &amp;ntsky, &amp;ndop, &amp;ndop00,&amp;ramoon, &amp;decmoon,
++            &amp;dgrd, &amp;poloffset, &amp;xnr, &amp;techo, 6, 6);
++    astroBusy=false;
++  }
++
++  sprintf(cc,
++          &quot;Az:    %6.1f\n&quot;
++          &quot;El:    %6.1f\n&quot;
++          &quot;MyDop: %6d\n&quot;
++          &quot;Delay: %6.2f\n&quot;
++          &quot;DxAz:  %6.1f\n&quot;
++          &quot;DxEl:  %6.1f\n&quot;
++          &quot;DxDop: %6d\n&quot;
++          &quot;Dec:   %6.1f\n&quot;
++          &quot;SunAz: %6.1f\n&quot;
++          &quot;SunEl: %6.1f\n&quot;
++          &quot;Freq:  %6d\n&quot;
++          &quot;Tsky:  %6d\n&quot;
++          &quot;MNR:   %6.1f\n&quot;
++          &quot;Dgrd:  %6.1f&quot;,
++          azmoon,elmoon,ndop00,techo,azmoondx,elmoondx,ndop,decmoon,
++          azsun,elsun,nfreq,ntsky,xnr,dgrd);
++  ui-&gt;astroTextBrowser-&gt;setText(&quot; &quot;+ date + &quot;\nUTC: &quot; + utc + &quot;\n&quot; + cc);
++
++  QString fname=azelDir+&quot;/azel.dat&quot;;
++  QFile f(fname);
++  if(!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
++    QMessageBox mb;
++    mb.setText(&quot;Cannot open &quot; + fname);
++    mb.exec();
++    return;
++  }
++  int ndiff=0;
++  if(ntxFreq != ntxFreq0) ndiff=1;
++  ntxFreq0=ntxFreq;
++  QTextStream out(&amp;f);
++  sprintf(cc,&quot;%2.2d:%2.2d:%2.2d,%5.1f,%5.1f,Moon\n&quot;
++          &quot;%2.2d:%2.2d:%2.2d,%5.1f,%5.1f,Sun\n&quot;
++          &quot;%2.2d:%2.2d:%2.2d,%5.1f,%5.1f,Source\n&quot;
++          &quot;%4d,%6d,Doppler\n&quot;
++          &quot;%3d,%1d,fQSO\n&quot;
++          &quot;%3d,%1d,fQSO2\n&quot;,
++          nhr,nmin,isec,azmoon,elmoon,
++          nhr,nmin,isec,azsun,elsun,
++          nhr,nmin,isec,0.0,0.0,
++          nfreq,ndop,
++          fQSO,nsetftx,
++          ntxFreq,ndiff);
++  out &lt;&lt; cc;
++  f.close();
++}
++
++void Astro::setFontSize(int n)
++{
++  ui-&gt;astroTextBrowser-&gt;setFontPointSize(n);
++}
+
+Added: branches/wsjtx_w/astro.h
+===================================================================
+--- branches/wsjtx_w/astro.h	                        (rev 0)
++++ branches/wsjtx_w/astro.h	2013-12-21 17:35:33 UTC (rev 3611)
+@@ -0,0 +1,35 @@
++#ifndef ASTRO_H
++#define ASTRO_H
++
++#include &lt;QWidget&gt;
++#include &lt;QDateTime&gt;
++
++namespace Ui {
++  class Astro;
++}
++
++class Astro : public QWidget
++{
++  Q_OBJECT
++
++public:
++  explicit Astro(QWidget *parent = 0);
++  void astroUpdate(QDateTime t, QString mygrid, QString hisgrid,
++                   int fQSO, int nsetftx, int ntxFreq, QString azelDir);
++  void setFontSize(int n);
++  ~Astro();
++
++private:
++    Ui::Astro *ui;
++};
++
++extern &quot;C&quot; {
++  void astrosub_(int* nyear, int* month, int* nday, double* uth, int* nfreq,
++     const char* mygrid, const char* hisgrid, double* azsun,
++     double* elsun, double* azmoon, double* elmoon, double* azmoondx,
++     double* elmoondx, int* ntsky, int* ndop, int* ndop00,
++     double* ramoon, double* decmoon, double* dgrd, double* poloffset,
++     double* xnr, double* techo, int len1, int len2);
++}
++
++#endif // ASTRO_H
+
+Added: branches/wsjtx_w/astro.ui
+===================================================================
+--- branches/wsjtx_w/astro.ui	                        (rev 0)
++++ branches/wsjtx_w/astro.ui	2013-12-21 17:35:33 UTC (rev 3611)
+@@ -0,0 +1,37 @@
++&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
++&lt;ui version=&quot;4.0&quot;&gt;
++ &lt;class&gt;Astro&lt;/class&gt;
++ &lt;widget class=&quot;QWidget&quot; name=&quot;Astro&quot;&gt;
++  &lt;property name=&quot;geometry&quot;&gt;
++   &lt;rect&gt;
++    &lt;x&gt;0&lt;/x&gt;
++    &lt;y&gt;0&lt;/y&gt;
++    &lt;width&gt;262&lt;/width&gt;
++    &lt;height&gt;483&lt;/height&gt;
++   &lt;/rect&gt;
++  &lt;/property&gt;
++  &lt;property name=&quot;windowTitle&quot;&gt;
++   &lt;string&gt;Form&lt;/string&gt;
++  &lt;/property&gt;
++  &lt;widget class=&quot;QTextBrowser&quot; name=&quot;astroTextBrowser&quot;&gt;
++   &lt;property name=&quot;geometry&quot;&gt;
++    &lt;rect&gt;
++     &lt;x&gt;0&lt;/x&gt;
++     &lt;y&gt;10&lt;/y&gt;
++     &lt;width&gt;256&lt;/width&gt;
++     &lt;height&gt;451&lt;/height&gt;
++    &lt;/rect&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;font&quot;&gt;
++    &lt;font&gt;
++     &lt;family&gt;Courier New&lt;/family&gt;
++     &lt;pointsize&gt;20&lt;/pointsize&gt;
++     &lt;weight&gt;75&lt;/weight&gt;
++     &lt;bold&gt;true&lt;/bold&gt;
++    &lt;/font&gt;
++   &lt;/property&gt;
++  &lt;/widget&gt;
++ &lt;/widget&gt;
++ &lt;resources/&gt;
++ &lt;connections/&gt;
++&lt;/ui&gt;
+
+Modified: branches/wsjtx_w/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_w/mainwindow.cpp	2013-12-20 20:30:47 UTC (rev 3610)
++++ branches/wsjtx_w/mainwindow.cpp	2013-12-21 17:35:33 UTC (rev 3611)
+@@ -1,4 +1,4 @@
+-//----------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003303.html">[WSJT-SVN] r3610 - branches/wsjtx_w
+</A></li>
+	<LI>Next message: <A HREF="003305.html">[WSJT-SVN] r3612 - branches/wsjtx_w
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3304">[ date ]</a>
+              <a href="thread.html#3304">[ thread ]</a>
+              <a href="subject.html#3304">[ subject ]</a>
+              <a href="author.html#3304">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

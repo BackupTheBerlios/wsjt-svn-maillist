@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2981 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2981%20-%20trunk&In-Reply-To=%3C20130126180129.1B84355B13%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002672.html">
+   <LINK REL="Next"  HREF="002674.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2981 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2981%20-%20trunk&In-Reply-To=%3C20130126180129.1B84355B13%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2981 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jan 26 19:01:28 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002672.html">[WSJT-SVN] r2980 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002674.html">[WSJT-SVN] r2982 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2673">[ date ]</a>
+              <a href="thread.html#2673">[ thread ]</a>
+              <a href="subject.html#2673">[ subject ]</a>
+              <a href="author.html#2673">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-26 19:01:28 +0100 (Sat, 26 Jan 2013)
+New Revision: 2981
+
+Modified:
+   trunk/decode24.f90
+   trunk/deep24.f90
+   trunk/wsjt.py
+   trunk/wsjt24.f90
+Log:
+Re-scale deep24 &quot;qual&quot; slightly.
+Use measured sync width to set starting value of ich in decode24.
+Correct a flaw in defining &quot;submode&quot;.
+Move ave message 1 column rightward.
+Don't generate shorthand messages in JT4.
+
+
+Modified: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-25 19:52:44 UTC (rev 2980)
++++ trunk/decode24.f90	2013-01-26 18:01:28 UTC (rev 2981)
+@@ -1,4 +1,4 @@
+-subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,     &amp;
++subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,  &amp;
+   hisgrid,decoded,ncount,deepbest,qbest,ichbest,submode)
+ 
+ ! Decodes JT65 data, assuming that DT and DF have already been determined.
+@@ -37,14 +37,13 @@
+   mode0=mode
+   twopi=8*atan(1.d0)
+   dt=2.d0/11025             !Sample interval (2x downsampled data)
+-  df=11025.d0/2520.d0
++  df=11025.d0/2520.d0       !Tone separation for JT4A mode
+   nsym=206
+   amp=15
+   istart=nint(dtx/dt)              !Start index for synced FFTs
+   if(istart.lt.0) istart=0
+   nchips=0
+-  ich=0
+-  qbest=0.
++  qbest=-1.e30
+   deepmsg='                      '
+   ichbest=-1
+ 
+@@ -55,6 +54,11 @@
+   phi=0.d0
+   phi1=0.d0
+ 
++  nw=0.5*width/df
++  do ich=1,7
++     if(nch(ich).ge.nw) exit
++  enddo
++
+ 40 ich=ich+1
+   nchips=nch(ich)
+   nspchip=1260/nchips
+@@ -113,19 +117,18 @@
+      ichbest=ich
+   endif
+ 
+-  if(ncount.ge.0) go to 100
++  if(ncount.ge.0) then
++     ichbest=ich
++     go to 100
++  endif
+   if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+ 
+-100 continue
+-
+-  if(ncount.lt.0) then
++100 if(ncount.lt.0) then
+      decoded=deepbest
+-     submode=char(ichar('A')+ichbest-1)
+      qual=qbest
+   endif
+-
++  submode=char(ichar('A')+ichbest-1)
+   ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)  !Save data for message averaging
+-  if(ichbest.lt.1) ichbest=1
+ 
+   return
+ end subroutine decode24
+
+Modified: trunk/deep24.f90
+===================================================================
+--- trunk/deep24.f90	2013-01-25 19:52:44 UTC (rev 2980)
++++ trunk/deep24.f90	2013-01-26 18:01:28 UTC (rev 2981)
+@@ -150,7 +150,7 @@
+ ! ### pain because of the way F2PY wants to run the compile step.
+ 
+ 
+-  bias=1.1*p2
++  bias=1.15*p2                                !### 1.1 ?
+ !  if(mode65.eq.1) bias=max(1.12*p2,0.335)
+ !  if(mode65.eq.2) bias=max(1.08*p2,0.405)
+ !  if(mode65.ge.4) bias=max(1.04*p2,0.505)
+@@ -172,5 +172,9 @@
+           decoded(i:i)=char(ichar(decoded(i:i))-32)
+   enddo
+ 
++!  write(71,3000) p1,p2,qual,decoded
++!3000 format(3f8.1,2x,a22)
++!  call flush(71)
++
+   return
+ end subroutine deep24
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-25 19:52:44 UTC (rev 2980)
++++ trunk/wsjt.py	2013-01-26 18:01:28 UTC (rev 2981)
+@@ -240,7 +240,10 @@
+     if mode.get()=='Diana':
+         report.delete(0,END)
+         report.insert(0,'OOO')
+-    dbl_click_call(t,t1,'OOO',event)
++    if mode.get()[:3]=='JT4':
++        dbl_click3_text(event)
++    else:
++        dbl_click_call(t,t1,'OOO',event)
+ 
+ #------------------------------------------------------ dbl_click3_text
+ def dbl_click3_text(event):
+@@ -1322,6 +1325,9 @@
+ #------------------------------------------------------ GenStdMsgs
+ def GenStdMsgs(event=NONE):
+     global altmsg,MyCall0,addpfx0,ToRadio0
++    if mode.get()[:3]=='JT4':
++        GenAltMsgs()
++        return
+     t=ToRadio.get().upper().strip()
+     ToRadio.delete(0,99)
+     ToRadio.insert(0,t)
+@@ -1341,7 +1347,7 @@
+         if tx3.get()=='ROOO':
+             tx3.delete(0,END)
+             tx3.insert(0,'RO')
+-    elif mode.get()[:4]=='JT65' or mode.get()[:3]=='JT4':
++    elif mode.get()[:4]=='JT65':
+         if options.MyCall.get()!= MyCall0 or \
+                options.addpfx.get()!= addpfx0 or ToRadio.get()!=ToRadio0:
+             MyCall0=options.MyCall.get()
+@@ -1399,12 +1405,22 @@
+         for m in (tx1, tx2, tx3, tx4, tx5, tx6):
+             m.delete(0,99)
+         t=ToRadio.get() + &quot; &quot;+options.MyCall.get()
+-        tx1.insert(0,t.upper())
+-        tx2.insert(0,tx1.get()+&quot; OOO&quot;)
+-        tx3.insert(0,tx1.get()+&quot; RO&quot;)
+-        tx4.insert(0,tx1.get()+&quot; RRR&quot;)
+-        tx5.insert(0,&quot;TNX 73 GL &quot;)
+-        tx6.insert(0,tx6alt.upper())
++        t=t.upper()
++        tx2.insert(0,t+&quot; OOO&quot;)
++        tx3.insert(0,t+&quot; RO&quot;)
++        tx4.insert(0,t+&quot; RRR&quot;)
++        tx5.insert(0,t+&quot; 73&quot;)
++        t=t + &quot; &quot; + options.MyGrid.get()[:4].upper()
++        tx1.insert(0,t)
++        if mode.get()[:3]=='JT4':
++            t0=&quot;CQ &quot; + options.MyCall.get().upper()
++            Audio.gcom2.t0msg=(t0+' '*22)[:22]
++            nplain,naddon,ndiff=Audio.chkt0()
++            if nplain==0 and naddon==0 and ndiff==0:
++                t0=t0 + &quot; &quot;+options.MyGrid.get()[:4]
++            tx6.insert(0,t0.upper())
++        else:
++            tx6.insert(0,tx6alt.upper())
+         altmsg=1
+ 
+ #------------------------------------------------------ setmsg
+
+Modified: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-25 19:52:44 UTC (rev 2980)
++++ trunk/wsjt24.f90	2013-01-26 18:01:28 UTC (rev 2981)
+@@ -95,7 +95,7 @@
+      cooo='O ?'
+   endif
+ 
+-  call decode24(dat,npts,dtx,dfx,flip,mode,mode4,mycall,hiscall,        &amp;
++  call decode24(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,    &amp;
+        hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
+ 
+ 200 kvqual=0
+@@ -150,13 +150,13 @@
+   call cs_lock('wsjt24  ')
+   if(ns1.ge.1) then                            !Write the average line
+      if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,nc1,nqual1
+-1021 format(a6,i3,i4,'/',i1,20x,a19,i7,i5)
++1021 format(a6,i3,i4,'/',i1,21x,a19,i7,i5)
+      if(ns1.ge.10 .and. nsave.le.99) write(ave1,1022) cfile6,        &amp;
+           1,nused1,ns1,avemsg1,nc1,nqual1
+-1022 format(a6,i3,i4,'/',i2,19x,a19,i7,i5)
++1022 format(a6,i3,i4,'/',i2,20x,a19,i7,i5)
+      if(ns1.ge.100) write(ave1,1023) cfile6,1,nused1,ns1,            &amp;
+           avemsg1,nc1,nqual1
+-1023 format(a6,i3,i4,'/',i3,18x,a19,i7,i5)
++1023 format(a6,i3,i4,'/',i3,19x,a19,i7,i5)
+      if(lcum .and. (avemsg1.ne.'                  '))                &amp;
+           write(21,1011) ave1
+      ns10=ns1
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002672.html">[WSJT-SVN] r2980 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002674.html">[WSJT-SVN] r2982 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2673">[ date ]</a>
+              <a href="thread.html#2673">[ thread ]</a>
+              <a href="subject.html#2673">[ subject ]</a>
+              <a href="author.html#2673">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

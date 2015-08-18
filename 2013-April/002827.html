@@ -1,0 +1,672 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3135 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3135%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130408183121.BA4B155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002826.html">
+   <LINK REL="Next"  HREF="002828.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3135 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3135%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130408183121.BA4B155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3135 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Apr  8 20:31:21 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002826.html">[WSJT-SVN] r3134 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002828.html">[WSJT-SVN] r3136 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2827">[ date ]</a>
+              <a href="thread.html#2827">[ thread ]</a>
+              <a href="subject.html#2827">[ subject ]</a>
+              <a href="author.html#2827">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-08 20:31:21 +0200 (Mon, 08 Apr 2013)
+New Revision: 3135
+
+Modified:
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/lib/getpfx1.f
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/widegraph.ui
+Log:
+1. New controls for selecting Tx messages now functioning correctly?
+2. Double-click on decoded message sets Tx Enable.
+3. Implemented a runaway Tx watchdog.
+4. Added a spinbox for S/N report.
+5. Implemented correct message formats for compound callsigns.
+
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/devsetup.ui	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -6,8 +6,8 @@
+    &lt;rect&gt;
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+-    &lt;width&gt;548&lt;/width&gt;
+-    &lt;height&gt;521&lt;/height&gt;
++    &lt;width&gt;503&lt;/width&gt;
++    &lt;height&gt;463&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+
+Modified: branches/wsjtx/lib/getpfx1.f
+===================================================================
+--- branches/wsjtx/lib/getpfx1.f	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/lib/getpfx1.f	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -13,6 +13,7 @@
+       if(iz.lt.0) iz=12
+       islash=index(callsign(1:iz),'/')
+       k=0
++      if(k.eq.0) go to 10                             !### Always use JT65v2 ###
+       c='   '
+       if(islash.gt.0 .and. islash.le.(iz-4)) then
+ !  Add-on prefix
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/mainwindow.cpp	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -158,6 +158,7 @@
+   m_nutc0=9999;
+   m_NB=false;
+   m_mode=&quot;JT9-1&quot;;
++  m_rpt=&quot;-15&quot;;
+   m_TRperiod=60;
+   m_inGain=0;
+   m_dataAvailable=false;
+@@ -169,10 +170,8 @@
+   m_insertBlank=false;
+   m_clearCallGrid=false;
+   m_bMiles=false;
+-  //m_fMin=1000;
+   m_decodedText2=false;
+-  //ui-&gt;fMinSpinBox-&gt;setValue(m_fMin);
+-
++  m_freeText=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -227,7 +226,7 @@
+   m_pbAutoOn_style=&quot;QPushButton{background-color: red; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+-  genStdMsgs(&quot;-30&quot;);
++  genStdMsgs(m_rpt);
+   on_actionWide_Waterfall_triggered();                   //###
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+ 
+@@ -382,6 +381,8 @@
+   settings.setValue(&quot;InsertBlank&quot;,m_insertBlank);
+   settings.setValue(&quot;ClearCallGrid&quot;,m_clearCallGrid);
+   settings.setValue(&quot;Miles&quot;,m_bMiles);
++  settings.setValue(&quot;GUItab&quot;,ui-&gt;tabWidget-&gt;currentIndex());
++  settings.setValue(&quot;QuickCall&quot;,m_quickCall);
+   settings.endGroup();
+ }
+ 
+@@ -478,8 +479,12 @@
+   ui-&gt;actionBlank_line_between_decoding_periods-&gt;setChecked(m_insertBlank);
+   m_clearCallGrid=settings.value(&quot;ClearCallGrid&quot;,false).toBool();
+   ui-&gt;actionClear_DX_Call_and_Grid_after_logging-&gt;setChecked(m_clearCallGrid);
+-    m_bMiles=settings.value(&quot;Miles&quot;,false).toBool();
++  m_bMiles=settings.value(&quot;Miles&quot;,false).toBool();
+   ui-&gt;actionDisplay_distance_in_miles-&gt;setChecked(m_bMiles);
++  int n=settings.value(&quot;GUItab&quot;,0).toInt();
++  ui-&gt;tabWidget-&gt;setCurrentIndex(n);
++  m_quickCall=settings.value(&quot;QuickCall&quot;,false).toBool();
++  ui-&gt;actionDouble_click_on_call_sets_Tx_Enable-&gt;setChecked(m_quickCall);
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+     !ui-&gt;actionAFMHot-&gt;isChecked() &amp;&amp; !ui-&gt;actionBlue-&gt;isChecked()) {
+@@ -687,11 +692,9 @@
+   m_auto = !m_auto;
+   if(m_auto) {
+     ui-&gt;autoButton-&gt;setStyleSheet(m_pbAutoOn_style);
+-//    ui-&gt;autoButton-&gt;setText(&quot;Auto is ON&quot;);
+   } else {
+     btxok=false;
+     ui-&gt;autoButton-&gt;setStyleSheet(&quot;&quot;);
+-//    ui-&gt;autoButton-&gt;setText(&quot;Auto is OFF&quot;);
+     on_monitorButton_clicked();
+   }
+ }
+@@ -734,13 +737,13 @@
+     break;
+   case Qt::Key_G:
+     if(e-&gt;modifiers() &amp; Qt::AltModifier) {
+-      genStdMsgs(&quot;-30&quot;);
++      genStdMsgs(m_rpt);
+       break;
+     }
+   case Qt::Key_L:
+     if(e-&gt;modifiers() &amp; Qt::ControlModifier) {
+       lookup();
+-      genStdMsgs(&quot;-30&quot;);
++      genStdMsgs(m_rpt);
+       break;
+     }
+   }
+@@ -1362,8 +1365,8 @@
+     int ichk=0,itext=0;
+     genjt9_(message,&amp;ichk,msgsent,itone,&amp;itext,len1,len1);
+     msgsent[22]=0;
+-    lab5-&gt;setText(&quot;Last Tx:  &quot; + QString::fromAscii(msgsent));
+     QString t=QString::fromAscii(msgsent);
++    lab5-&gt;setText(&quot;Last Tx:  &quot; + t);
+     if(m_restart) {
+       QFile f(&quot;ALL.TXT&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+@@ -1421,6 +1424,17 @@
+       nc1++;
+   }
+   if(nc1 == 0) {
++    QString t=QString::fromAscii(msgsent);
++    if(t==m_msgSent0) {
++      m_repeatMsg++;
++      if(m_repeatMsg&gt;5) {
++        msgBox(&quot;Runaway Tx watchdog&quot;);
++        m_repeatMsg=0;
++      }
++    } else {
++      m_repeatMsg=0;
++      m_msgSent0=t;
++    }
+     ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
+     m_monitoring=false;
+     soundInThread.setMonitoring(false);
+@@ -1430,11 +1444,10 @@
+     f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+     QTextStream out(&amp;f);
+     out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
+-        &lt;&lt; &quot;  Transmitting:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
++        &lt;&lt; &quot;  Transmitting:  &quot; &lt;&lt; t &lt;&lt; endl;
+     f.close();
+   }
+ 
+-//###
+   if(!btxok &amp;&amp; btxok0 &amp;&amp; m_iptt==1) stopTx();
+ 
+ // If btxok was just lowered, start a countdown for lowering PTT
+@@ -1532,23 +1545,12 @@
+       if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
+       soundOutThread.setTxSNR(snr);
+       soundOutThread.start(QThread::HighPriority);
+-       //qDebug() &lt;&lt; &quot;soundOutThread.start()&quot;;
+     }
+-
+-    ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
++    ui-&gt;xThermo-&gt;setValue(0.0);                         //Set Thermo to zero
+     m_monitoring=false;
+     soundInThread.setMonitoring(false);
+     btxok=true;
+     m_transmitting=true;
+-/*
+-    QFile f(&quot;ALL.TXT&quot;);
+-    f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+-    QTextStream out(&amp;f);
+-    out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;hhmm&quot;)
+-        &lt;&lt; &quot;  Transmitting:  &quot; &lt;&lt; QString::fromAscii(msgsent) &lt;&lt; endl;
+-    f.close();
+-*/
+-    m_transmitting=true;
+   }
+ }
+ 
+@@ -1702,6 +1704,7 @@
+   if(nr&gt;=-9 and nr&lt;=-1) rpt=&quot;-0&quot; + rpt.mid(1);
+   if(nr&gt;=0 and nr&lt;=9) rpt=&quot;+0&quot; + rpt;
+   if(nr&gt;=10) rpt=&quot;+&quot; + rpt;
++  ui-&gt;rptSpinBox-&gt;setValue(rpt.toInt());
+   genStdMsgs(rpt);
+   if(t2.indexOf(m_myCall)&gt;0) {
+     m_ntx=2;
+@@ -1718,14 +1721,21 @@
+       m_ntx=7;
+     }
+   }
++  if(m_quickCall) {
++    m_auto=true;
++    ui-&gt;autoButton-&gt;setStyleSheet(m_pbAutoOn_style);
++  }
+ }
+ 
+ void MainWindow::genStdMsgs(QString rpt)                       //genStdMsgs()
+ {
+-  QString hiscall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
+-  ui-&gt;dxCallEntry-&gt;setText(hiscall);
+-  QString t0=hiscall + &quot; &quot; + m_myCall + &quot; &quot;;
++  QString hisCall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
++  ui-&gt;dxCallEntry-&gt;setText(hisCall);
++  QString hisBase=baseCall(hisCall);
++  QString myBase=baseCall(m_myCall);
++  QString t0=hisBase + &quot; &quot; + myBase + &quot; &quot;;
+   QString t=t0 + m_myGrid.mid(0,4);
++  if(myBase!=m_myCall) t=&quot;DE &quot; + m_myCall + &quot; &quot; + m_myGrid.mid(0,4);
+   msgtype(t, ui-&gt;tx1);
+   if(rpt == &quot;&quot;) {
+     t=t+&quot; OOO&quot;;
+@@ -1741,6 +1751,7 @@
+     t=t0 + &quot;RRR&quot;;
+     msgtype(t, ui-&gt;tx4);
+     t=t0 + &quot;73&quot;;
++    if(myBase!=m_myCall) t=&quot;DE &quot; + m_myCall + &quot; 73&quot;;
+     msgtype(t, ui-&gt;tx5);
+   }
+ 
+@@ -1751,10 +1762,19 @@
+   m_rpt=rpt;
+ }
+ 
++QString MainWindow::baseCall(QString t)
++{
++  int n1=t.indexOf(&quot;/&quot;);
++  if(n1&lt;0) return t;
++  int n2=t.length()-n1-1;
++  if(n2&gt;=n1) return t.mid(n1+1);
++  return t.mid(0,n1);
++}
++
+ void MainWindow::lookup()                                       //lookup()
+ {
+-  QString hiscall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
+-  ui-&gt;dxCallEntry-&gt;setText(hiscall);
++  QString hisCall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
++  ui-&gt;dxCallEntry-&gt;setText(hisCall);
+   QString call3File = m_appDir + &quot;/CALL3.TXT&quot;;
+   QFile f(call3File);
+   if(!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+@@ -1770,7 +1790,7 @@
+       break;
+      }
+     QString t=QString(c);
+-    if(t.indexOf(hiscall)==0) {
++    if(t.indexOf(hisCall)==0) {
+       int i1=t.indexOf(&quot;,&quot;);
+       QString hisgrid=t.mid(i1+1,6);
+       i1=hisgrid.indexOf(&quot;,&quot;);
+@@ -1798,9 +1818,9 @@
+     return;
+   }
+   m_call3Modified=false;
+-  QString hiscall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
++  QString hisCall=ui-&gt;dxCallEntry-&gt;text().toUpper().trimmed();
+   QString hisgrid=ui-&gt;dxGridEntry-&gt;text().trimmed();
+-  QString newEntry=hiscall + &quot;,&quot; + hisgrid;
++  QString newEntry=hisCall + &quot;,&quot; + hisgrid;
+ 
+ //  int ret = QMessageBox::warning(this, &quot;Add&quot;,
+ //       newEntry + &quot;\n&quot; + &quot;Is this station known to be active on EME?&quot;,
+@@ -1833,7 +1853,7 @@
+   }
+   QTextStream in(&amp;f1);
+   QTextStream out(&amp;f2);
+-  QString hc=hiscall;
++  QString hc=hisCall;
+   QString hc1=&quot;&quot;;
+   QString hc2=&quot;AAAAAA&quot;;
+   QString s;
+@@ -1991,7 +2011,7 @@
+ 
+ void MainWindow::on_genStdMsgsPushButton_clicked()         //genStdMsgs button
+ {
+-  genStdMsgs(&quot;-30&quot;);
++  genStdMsgs(m_rpt);
+ }
+ 
+ void MainWindow::on_logQSOButton_clicked()                 //Log QSO button
+@@ -2327,53 +2347,78 @@
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx6-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_pbAnswerCaller_clicked()
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx2-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_pbSendRRR_clicked()
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx4-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_pbAnswerCQ_clicked()
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx1-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_pbSendReport_clicked()
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx3-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_pbSend73_clicked()
+ {
+   genStdMsgs(m_rpt);
+   ui-&gt;genMsg-&gt;setText(ui-&gt;tx5-&gt;text());
++  m_ntx=7;
++  if(m_freeText) m_ntx=8;
+ }
+ 
+ void MainWindow::on_rbGenMsg_toggled(bool checked)
+ {
+   m_freeText=false;
++  m_ntx=7;
++  if(m_transmitting) m_restart=true;
+ }
+ 
+ void MainWindow::on_rbFreeText_toggled(bool checked)
+ {
+   m_freeText=true;
+-  m_ntx=7;
++  m_ntx=8;
++  if(m_transmitting) m_restart=true;
++
+ }
+ 
+ void MainWindow::on_freeTextMsg_editingFinished()
+ {
+   QString t=ui-&gt;freeTextMsg-&gt;text();
+   msgtype(t, ui-&gt;freeTextMsg);
+-  m_ntx=8;
+-  qDebug() &lt;&lt; m_ntx;
+ }
++
++void MainWindow::on_actionDouble_click_on_call_sets_Tx_Enable_triggered(bool checked)
++{
++  m_quickCall=checked;
++}
++
++void MainWindow::on_rptSpinBox_valueChanged(int n)
++{
++  m_rpt=QString::number(n);
++  genStdMsgs(m_rpt);
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/mainwindow.h	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -132,30 +132,19 @@
+   void on_bandComboBox_currentIndexChanged(int index);
+   void on_actionPrompt_to_log_QSO_triggered(bool checked);
+   void on_actionBlank_line_between_decoding_periods_triggered(bool checked);
+-  //void on_fMinSpinBox_valueChanged(int n);
+-  //void on_fMaxSpinBox_valueChanged(int n);
+-
+   void on_actionClear_DX_Call_and_Grid_after_logging_triggered(bool checked);
+-
+   void on_actionDisplay_distance_in_miles_triggered(bool checked);
+-
+   void on_pbCallCQ_clicked();
+-
+   void on_pbAnswerCaller_clicked();
+-
+   void on_pbSendRRR_clicked();
+-
+   void on_pbAnswerCQ_clicked();
+-
+   void on_pbSendReport_clicked();
+-
+   void on_pbSend73_clicked();
+-
+   void on_rbGenMsg_toggled(bool checked);
+-
+   void on_rbFreeText_toggled(bool checked);
+-
+   void on_freeTextMsg_editingFinished();
++  void on_actionDouble_click_on_call_sets_Tx_Enable_triggered(bool checked);
++  void on_rptSpinBox_valueChanged(int n);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -205,6 +194,7 @@
+     qint32  m_COMportOpen;
+     qint32  m_iptt;
+     qint32  m_band;
++    qint32  m_repeatMsg;
+ 
+     bool    m_monitoring;
+     bool    m_transmitting;
+@@ -241,6 +231,7 @@
+     bool    m_bMiles;
+     bool    m_decodedText2;
+     bool    m_freeText;
++    bool    m_quickCall;
+ 
+     char    m_decoded[80];
+ 
+@@ -277,6 +268,7 @@
+     QString m_pbAutoOn_style;
+     QString m_myCall;
+     QString m_myGrid;
++    QString m_baseCall;
+     QString m_hisCall;
+     QString m_hisGrid;
+     QString m_appDir;
+@@ -294,6 +286,7 @@
+     QString m_catPort;
+     QString m_handshake;
+     QString m_cmnd;
++    QString m_msgSent0;
+ 
+     QStringList m_macro;
+     QStringList m_dFreq;
+@@ -317,6 +310,7 @@
+     void freeText();
+     bool gridOK(QString g);
+     QString rig_command();
++    QString baseCall(QString t);
+ };
+ 
+ extern void getfile(QString fname, int ntrperiod);
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/mainwindow.ui	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -643,8 +643,8 @@
+           &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+-            &lt;width&gt;43&lt;/width&gt;
+-            &lt;height&gt;200&lt;/height&gt;
++            &lt;width&gt;40&lt;/width&gt;
++            &lt;height&gt;180&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;borderWidth&quot; stdset=&quot;0&quot;&gt;
+@@ -675,13 +675,13 @@
+           &lt;property name=&quot;minimumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;0&lt;/width&gt;
+-            &lt;height&gt;200&lt;/height&gt;
++            &lt;height&gt;180&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;maximumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;16777215&lt;/width&gt;
+-            &lt;height&gt;200&lt;/height&gt;
++            &lt;height&gt;180&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;minimum&quot;&gt;
+@@ -1318,15 +1318,21 @@
+           &lt;property name=&quot;minimumSize&quot;&gt;
+            &lt;size&gt;
+             &lt;width&gt;0&lt;/width&gt;
+-            &lt;height&gt;260&lt;/height&gt;
++            &lt;height&gt;230&lt;/height&gt;
+            &lt;/size&gt;
+           &lt;/property&gt;
++          &lt;property name=&quot;tabPosition&quot;&gt;
++           &lt;enum&gt;QTabWidget::West&lt;/enum&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;tabShape&quot;&gt;
++           &lt;enum&gt;QTabWidget::Triangular&lt;/enum&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;currentIndex&quot;&gt;
+            &lt;number&gt;0&lt;/number&gt;
+           &lt;/property&gt;
+           &lt;widget class=&quot;QWidget&quot; name=&quot;tab&quot;&gt;
+            &lt;attribute name=&quot;title&quot;&gt;
+-            &lt;string&gt;WSJT Traditional&lt;/string&gt;
++            &lt;string&gt;1&lt;/string&gt;
+            &lt;/attribute&gt;
+            &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+             &lt;property name=&quot;geometry&quot;&gt;
+@@ -1743,7 +1749,7 @@
+           &lt;/widget&gt;
+           &lt;widget class=&quot;QWidget&quot; name=&quot;tab_2&quot;&gt;
+            &lt;attribute name=&quot;title&quot;&gt;
+-            &lt;string&gt;New Message Controls&lt;/string&gt;
++            &lt;string&gt;2&lt;/string&gt;
+            &lt;/attribute&gt;
+            &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget_1&quot;&gt;
+             &lt;property name=&quot;geometry&quot;&gt;
+@@ -1829,6 +1835,38 @@
+           &lt;/widget&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
++        &lt;item row=&quot;4&quot; column=&quot;7&quot;&gt;
++         &lt;widget class=&quot;QSpinBox&quot; name=&quot;rptSpinBox&quot;&gt;
++          &lt;property name=&quot;sizePolicy&quot;&gt;
++           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++            &lt;horstretch&gt;0&lt;/horstretch&gt;
++            &lt;verstretch&gt;0&lt;/verstretch&gt;
++           &lt;/sizepolicy&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;50&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;minimum&quot;&gt;
++           &lt;number&gt;-50&lt;/number&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;maximum&quot;&gt;
++           &lt;number&gt;49&lt;/number&gt;
++          &lt;/property&gt;
++          &lt;property name=&quot;value&quot;&gt;
++           &lt;number&gt;-15&lt;/number&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item row=&quot;3&quot; column=&quot;7&quot;&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_8&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Report&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
+        &lt;/layout&gt;
+       &lt;/item&gt;
+      &lt;/layout&gt;
+@@ -1873,6 +1911,7 @@
+     &lt;addaction name=&quot;actionBlank_line_between_decoding_periods&quot;/&gt;
+     &lt;addaction name=&quot;actionClear_DX_Call_and_Grid_after_logging&quot;/&gt;
+     &lt;addaction name=&quot;actionDisplay_distance_in_miles&quot;/&gt;
++    &lt;addaction name=&quot;actionDouble_click_on_call_sets_Tx_Enable&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuView&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -1943,7 +1982,7 @@
+   &lt;/action&gt;
+   &lt;action name=&quot;actionDeviceSetup&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+     &lt;string&gt;Options&lt;/string&gt;
+@@ -2390,6 +2429,14 @@
+     &lt;string&gt;Display distance in miles&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionDouble_click_on_call_sets_Tx_Enable&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Double-click on call sets Tx Enable&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2013-04-08 01:50:49 UTC (rev 3134)
++++ branches/wsjtx/widegraph.ui	2013-04-08 18:31:21 UTC (rev 3135)
+@@ -80,7 +80,7 @@
+           &lt;bool&gt;true&lt;/bool&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;FFT B/P&lt;/string&gt;
++          &lt;string&gt;FFT Bins/Pixel&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;margin&quot;&gt;
+           &lt;number&gt;2&lt;/number&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002826.html">[WSJT-SVN] r3134 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002828.html">[WSJT-SVN] r3136 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2827">[ date ]</a>
+              <a href="thread.html#2827">[ thread ]</a>
+              <a href="subject.html#2827">[ subject ]</a>
+              <a href="author.html#2827">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

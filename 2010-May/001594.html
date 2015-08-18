@@ -1,0 +1,420 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1902 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1902%20-%20branches/wsjt8a&In-Reply-To=%3C201005041622.o44GMTXF009922%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001593.html">
+   <LINK REL="Next"  HREF="001595.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1902 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1902%20-%20branches/wsjt8a&In-Reply-To=%3C201005041622.o44GMTXF009922%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1902 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue May  4 18:22:29 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001593.html">[WSJT-SVN] r1901 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001595.html">[WSJT-SVN] r1903 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1594">[ date ]</a>
+              <a href="thread.html#1594">[ thread ]</a>
+              <a href="subject.html#1594">[ subject ]</a>
+              <a href="author.html#1594">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-05-04 18:22:21 +0200 (Tue, 04 May 2010)
+New Revision: 1902
+
+Modified:
+   branches/wsjt8a/genms.f90
+   branches/wsjt8a/iscat.f90
+   branches/wsjt8a/synciscat.f90
+   branches/wsjt8a/syncms.f90
+   branches/wsjt8a/wsjt.py
+   branches/wsjt8a/wsjt1.f90
+   branches/wsjt8a/wsjtms.f90
+Log:
+Correct the reported DF for shorthand decodes in ISCAT mode.
+Implement shorthand Tx in JTMS mode.
+Fix pick-to-decode bug in wsjtms.
+Add ndepth test to JTMS decoder.
+Display ping width in seconds.
+Remove Darwin tests for tearoff menus.
+
+
+Modified: branches/wsjt8a/genms.f90
+===================================================================
+--- branches/wsjt8a/genms.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/genms.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -26,6 +26,29 @@
+ ! Remove source encoding, recover the human-readable message.
+   call srcdec(cmode,nbit,iu,msgsent)
+ 
++  if(nbit.eq.2) then
++     nsps=128
++     f0=937.5d0
++     f1=f0 + 375*iand(3,ishft(iu(1),-30))
++     nrpt=30.0*12000.0/(2*nsps)
++     k=0
++     do irpt=1,nrpt
++        dphi=twopi*f0*dt
++        do i=1,nsps
++           k=k+1
++           phi=phi+dphi
++           iwave(k)=nint(32767.0*sin(phi))
++        enddo
++        dphi=twopi*f1*dt
++        do i=1,nsps
++           k=k+1
++           phi=phi+dphi
++           iwave(k)=nint(32767.0*sin(phi))
++        enddo
++     enddo
++     go to 900
++  endif
++
+ ! Append the encoded data after the 32-bit sync vector
+   ndata=2*(nbit+12)
+   nsync=32
+@@ -58,7 +81,7 @@
+      enddo
+   enddo
+ 
+-  iwave(k+1:)=0
++900 iwave(k+1:)=0
+   nwave=k
+ 
+   if(txsnrdb.lt.40.d0) then
+
+Modified: branches/wsjt8a/iscat.f90
+===================================================================
+--- branches/wsjt8a/iscat.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/iscat.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -32,7 +32,8 @@
+ 
+ ! Establish sync or find a shorthand message
+         call synciscat(dat(i0),jza,i0,dofft,DFTolerance,NFreeze,MouseDF,   &amp;
+-             dtx,dfx,snrx,isync,isbest,ccfblue,ccfred,s2,ps0,short,kshort)
++             dtx,dfx,snrx,isync,isbest,ccfblue,ccfred,s2,ps0,short,        &amp;
++             dfshort,kshort)
+         if(len.eq.2) isync=isync-1
+         if(len.eq.1) isync=isync-2
+         if(isync.lt.0) isync=0
+@@ -44,6 +45,7 @@
+            c1='*'
+            call extract(s2,nadd,isbest,ncount,decoded,ndec)
+         else if(short.gt.5.0) then
++           jdf=nint(dfshort)
+            if(kshort.eq.1) decoded='RO'
+            if(kshort.eq.2) decoded='RRR'
+            if(kshort.eq.3) decoded='73'
+
+Modified: branches/wsjt8a/synciscat.f90
+===================================================================
+--- branches/wsjt8a/synciscat.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/synciscat.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -1,5 +1,5 @@
+ subroutine synciscat(dat,jz,i00,dofft,DFTolerance,NFreeze,MouseDF,dtx,dfx,  &amp;
+-     snrx,isync,isbest,ccfblue,ccfred,s2,ps0,short,kshort)
++     snrx,isync,isbest,ccfblue,ccfred,s2,ps0,short,dfshort,kshort)
+ 
+ ! Synchronize ISCAT data, finding best-fit DT, DF, snrx, isync, etc.
+ 
+@@ -235,7 +235,8 @@
+ 
+   isync=max(0.0,snrsync)
+   f=ishort*df
+-  if(f.ge.fa .and. f.le.fb .and. isync.eq.0 .and. short.gt.5.0) dfx=ishort*df-f0
++  dfshort=f-f0
++  if(f.lt.fa .or. f.gt.fb) short=0.
+ 
+   return
+ end subroutine synciscat
+
+Modified: branches/wsjt8a/syncms.f90
+===================================================================
+--- branches/wsjt8a/syncms.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/syncms.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -1,4 +1,4 @@
+-subroutine syncms(dat,jz,NFreeze,MouseDF,DFTolerance,snrsync,dfx,     &amp;
++subroutine syncms(dat,jz,NFreeze,MouseDF,DFTolerance,ndepth,snrsync,dfx,     &amp;
+      lagbest,isbest,nerr,metric,decoded)
+ 
+   parameter (MAXSAM=65536)           !Max number of samples in ping
+@@ -227,8 +227,13 @@
+            endif
+         enddo
+         
+-        if(nbit.ne.0 .and. nerr.le.6) then
++        minmet=10*(nbit+12)
++        maxerr=6
++        if(ndepth.ge.2) then
+            minmet=9*(nbit+12)
++           maxerr=8
++        endif
++        if(nbit.ne.0 .and. nerr.le.maxerr) then
+            call decodems(nbit,gsym,metric,iu)
+            if(metric.ge.minmet) then
+               cmode='JTMS'
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/wsjt.py	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------S------------------------------------------------- WSJT8
++#----------------------------------------------------------------------- WSJT8
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -1625,17 +1625,11 @@
+    mbar = Menu(root)
+    root.config(menu=mbar)
+ 
+-# Tearoff menus make less sense under darwin
+-use_tearoff = (sys.platform != 'darwin')
+-
+ #------------------------------------------------------ File Menu
+-if (sys.platform != 'darwin'):
+-   filebutton = Menubutton(mbar, text = 'File')
+-   filebutton.pack(side = LEFT)
+-   filemenu = Menu(filebutton, tearoff=0)
+-   filebutton['menu'] = filemenu
+-else:
+-   filemenu = Menu(mbar, tearoff=0)
++filebutton = Menubutton(mbar, text = 'File')
++filebutton.pack(side = LEFT)
++filemenu = Menu(filebutton)
++filebutton['menu'] = filemenu
+ filemenu.add('command', label = 'Open', command = openfile, \
+              accelerator='Ctrl+O')
+ filemenu.add('command', label = 'Open next in directory', command = opennext, \
+@@ -1654,13 +1648,10 @@
+     mbar.add_cascade(label=&quot;File&quot;, menu=filemenu)
+ 
+ #------------------------------------------------------ Setup menu
+-if (sys.platform != 'darwin'):
+-   setupbutton = Menubutton(mbar, text = 'Setup')
+-   setupbutton.pack(side = LEFT)
+-   setupmenu = Menu(setupbutton, tearoff=0)
+-   setupbutton['menu'] = setupmenu
+-else:   
+-   setupmenu = Menu(mbar, tearoff=0)
++setupbutton = Menubutton(mbar, text = 'Setup')
++setupbutton.pack(side = LEFT)
++setupmenu = Menu(setupbutton)
++setupbutton['menu'] = setupmenu
+ setupmenu.add('command', label = 'Options', command = options1, \
+               accelerator='F2')
+ setupmenu.add_separator()
+@@ -1678,13 +1669,10 @@
+     mbar.add_cascade(label=&quot;Setup&quot;, menu=setupmenu)
+ 
+ #------------------------------------------------------ View menu
+-if (sys.platform != 'darwin'):
+-    viewbutton=Menubutton(mbar,text='View')
+-    viewbutton.pack(side=LEFT)
+-    viewmenu=Menu(viewbutton,tearoff=0)
+-    viewbutton['menu']=viewmenu
+-else:    
+-    viewmenu=Menu(mbar,tearoff=0)
++viewbutton=Menubutton(mbar,text='View')
++viewbutton.pack(side=LEFT)
++viewmenu=Menu(viewbutton)
++viewbutton['menu']=viewmenu
+ viewmenu.add('command', label = 'SpecJT', command = showspecjt, \
+              accelerator='F10')
+ viewmenu.add('command', label = 'Astronomical data', command = astro1, \
+@@ -1694,13 +1682,10 @@
+     mbar.add_cascade(label=&quot;View&quot;, menu=viewmenu)
+ 
+ #------------------------------------------------------ Mode menu
+-if (sys.platform != 'darwin'):
+-    modebutton = Menubutton(mbar, text = 'Mode')
+-    modebutton.pack(side = LEFT)
+-    modemenu = Menu(modebutton, tearoff=0)
+-    modebutton['menu'] = modemenu
+-else:    
+-    modemenu = Menu(mbar, tearoff=use_tearoff)
++modebutton = Menubutton(mbar, text = 'Mode')
++modebutton.pack(side = LEFT)
++modemenu = Menu(modebutton)
++modebutton['menu'] = modemenu
+ 
+ # To enable menu item 0:
+ # modemenu.entryconfig(0,state=NORMAL)
+@@ -1723,14 +1708,27 @@
+ if (sys.platform == 'darwin'):
+     mbar.add_cascade(label=&quot;Mode&quot;, menu=modemenu)
+ 
++#------------------------------------------------------ Decode menu
++decodebutton = Menubutton(mbar, text = 'Decode')
++decodebutton.pack(side = LEFT)
++decodemenu = Menu(decodebutton)
++decodebutton['menu'] = decodemenu
++decodemenu.JTMS=Menu(decodemenu)
++decodemenu.JTMS.add_radiobutton(label = 'Normal',
++                                variable=ndepth, value=1)
++decodemenu.JTMS.add_radiobutton(label = 'Aggressive',
++                                variable=ndepth, value=2)
++
++decodemenu.add_cascade(label = 'JTMS',menu=decodemenu.JTMS)
++
++if (sys.platform == 'darwin'):
++    mbar.add_cascade(label=&quot;Decode&quot;, menu=decodemenu)
++
+ #------------------------------------------------------ Save menu
+-if (sys.platform != 'darwin'):
+-    savebutton = Menubutton(mbar, text = 'Save')
+-    savebutton.pack(side = LEFT)
+-    savemenu = Menu(savebutton, tearoff=use_tearoff)
+-    savebutton['menu'] = savemenu
+-else:    
+-    savemenu = Menu(mbar, tearoff=use_tearoff)
++savebutton = Menubutton(mbar, text = 'Save')
++savebutton.pack(side = LEFT)
++savemenu = Menu(savebutton)
++savebutton['menu'] = savemenu
+ nsave=IntVar()
+ savemenu.add_radiobutton(label = 'None', variable=nsave,value=0)
+ savemenu.add_radiobutton(label = 'Save decoded', variable=nsave,value=1)
+@@ -1742,13 +1740,10 @@
+     mbar.add_cascade(label=&quot;Save&quot;, menu=savemenu)
+ 
+ #------------------------------------------------------ Band menu
+-if (sys.platform != 'darwin'):
+-    bandbutton = Menubutton(mbar, text = 'Band')
+-    bandbutton.pack(side = LEFT)
+-    bandmenu = Menu(bandbutton, tearoff=use_tearoff)
+-    bandbutton['menu'] = bandmenu
+-else:    
+-    bandmenu = Menu(mbar, tearoff=use_tearoff)
++bandbutton = Menubutton(mbar, text = 'Band')
++bandbutton.pack(side = LEFT)
++bandmenu = Menu(bandbutton)
++bandbutton['menu'] = bandmenu
+ nfreq=IntVar()
+ bandmenu.add_radiobutton(label = '1.8', variable=nfreq,value=2)
+ bandmenu.add_radiobutton(label = '3.5', variable=nfreq,value=4)
+@@ -1774,13 +1769,10 @@
+     mbar.add_cascade(label=&quot;Band&quot;, menu=bandmenu)
+ 
+ #------------------------------------------------------ Help menu
+-if (sys.platform != 'darwin'):
+-   helpbutton = Menubutton(mbar, text = 'Help')
+-   helpbutton.pack(side = LEFT)
+-   helpmenu = Menu(helpbutton, tearoff=0)
+-   helpbutton['menu'] = helpmenu
+-else:   
+-   helpmenu = Menu(mbar, tearoff=0)
++helpbutton = Menubutton(mbar, text = 'Help')
++helpbutton.pack(side = LEFT)
++helpmenu = Menu(helpbutton)
++helpbutton['menu'] = helpmenu
+ helpmenu.add('command', label = 'Keyboard shortcuts', command = shortcuts, \
+              accelerator='F1')
+ helpmenu.add('command', label = 'Special mouse commands', \
+
+Modified: branches/wsjt8a/wsjt1.f90
+===================================================================
+--- branches/wsjt8a/wsjt1.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/wsjt1.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -157,7 +157,7 @@
+ ! JTMS mode
+      if(jz.lt.12000) go to 900
+      call wsjtms(dat,jz,istart,cfile6,MinSigdB,NFreeze,MouseDF,         &amp;
+-          DFTolerance,pick,NSyncOK,s2,ps0,psavg)
++          DFTolerance,pick,ndepth,NSyncOK,s2,ps0,psavg)
+ 
+   else if(mode(1:5).eq.'ISCAT') then
+ ! Iscat mode:
+
+Modified: branches/wsjt8a/wsjtms.f90
+===================================================================
+--- branches/wsjt8a/wsjtms.f90	2010-05-02 13:08:06 UTC (rev 1901)
++++ branches/wsjt8a/wsjtms.f90	2010-05-04 16:22:21 UTC (rev 1902)
+@@ -1,11 +1,11 @@
+ subroutine wsjtms(dat,jz,istart,cfile6,MinSigdB,NFreeze,MouseDF,        &amp;
+-     DFTolerance,pick,NSyncOK,s2,ps0,psavg)
++     DFTolerance,pick,ndepth,NSyncOK,s2,ps0,psavg)
+ 
+   parameter (NZMAX=3100)
+-  real dat(jz)                      !Raw audio data
++  real dat(360000)                      !Raw audio data
+   real dat2(65536)
+   integer DFTolerance
+-  real ps0(431)           !Spectrum of best ping  (###correct dimension?###)
++  real ps0(431)            !Spectrum of best ping  (###correct dimension?###)
+   real s2(64,NZMAX)        !2D spectral array
+   logical pick
+   character*6 cfile6
+@@ -122,12 +122,11 @@
+         jz2=max(jjz,6000)
+         if(jz2.gt.65536) jz2=65536
+         if(jz2.gt.jz) jz2=jz
+-!        print*,jj,jz2,jz,jjz,tstart,width
+         sq=dot_product(dat(jj:jj+jz2-1),dat(jj:jj+jz2-1))
+         rms=sqrt(sq/1000.0)
+         fac=1.0/rms
+         dat2(1:jz2)=fac*dat(jj:jj+jz2-1)
+-        call syncms(dat2,jz2,NFreeze,MouseDF,DFTolerance,snrsync,   &amp;
++        call syncms(dat2,jz2,NFreeze,MouseDF,DFTolerance,ndepth,snrsync,   &amp;
+              dfx,lagbest,isbest,nerr,metric,decoded)
+         if(decoded.eq.'                        ') go to 30
+ !        nsnr=db(snrsync) - 26.0
+@@ -141,13 +140,12 @@
+         if(nsnr.ge.9) nrpt=nrpt+1
+         c1=' '
+         if(nsnr.ge.2 .and. isbest.ne.0) c1='*'
+-        wmsg=width/0.1413
+         call cs_lock('wsjtms')
+-        write(11,1010) cfile6,dtx,wmsg,nsnr,nrpt,ndf,isbest,c1,    &amp;
++        write(11,1010) cfile6,dtx,width,nsnr,nrpt,ndf,isbest,c1,    &amp;
+              decoded,nerr,metric
+         write(21,1010) cfile6,dtx,wmsg,nsnr,nrpt,ndf,isbest,c1,    &amp;
+              decoded,nerr,metric
+-1010    format(a6,f6.1,f5.1,i4,i4,i6,i3,a1,2x,a24,i7,i5)
++1010    format(a6,f5.1,f6.2,i4,i4,i6,i3,a1,2x,a24,i7,i5)
+         call cs_unlock
+      endif
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001593.html">[WSJT-SVN] r1901 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001595.html">[WSJT-SVN] r1903 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1594">[ date ]</a>
+              <a href="thread.html#1594">[ thread ]</a>
+              <a href="subject.html#1594">[ subject ]</a>
+              <a href="author.html#1594">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

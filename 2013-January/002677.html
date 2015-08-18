@@ -1,0 +1,359 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2986 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2986%20-%20trunk&In-Reply-To=%3C20130128211016.84D5355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002678.html">
+   <LINK REL="Next"  HREF="002679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2986 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2986%20-%20trunk&In-Reply-To=%3C20130128211016.84D5355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2986 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jan 28 22:10:16 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002678.html">[WSJT-SVN] r2985 - branches/wsprx/lib
+</A></li>
+        <LI>Next message: <A HREF="002679.html">[WSJT-SVN] r2987 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2677">[ date ]</a>
+              <a href="thread.html#2677">[ thread ]</a>
+              <a href="subject.html#2677">[ subject ]</a>
+              <a href="author.html#2677">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-28 22:10:15 +0100 (Mon, 28 Jan 2013)
+New Revision: 2986
+
+Modified:
+   trunk/avemsg4.f90
+   trunk/decode24.f90
+   trunk/ftn_init.f90
+   trunk/ftn_quit.f90
+   trunk/timer.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt24.f90
+   trunk/wsjt9.iss
+Log:
+Temporary addition of calls to timer(), for use in optimizing the
+program for speed.
+
+
+Modified: trunk/avemsg4.f90
+===================================================================
+--- trunk/avemsg4.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/avemsg4.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -38,10 +38,12 @@
+   if(ns.gt.0) sym=sym/ns
+ 
+   nadd=nused*mode4
++  call timer('extr4b  ',0)
+   do k=1,7
+      call extract4(sym(1,k),nadd,ncount,decoded)     !Do the KV decode
+      if(ncount.ge.0 .or. nch(k).ge.mode4) exit
+   enddo
++  call timer('extr4b  ',1)
+   if(ncount.lt.0) decoded='                      '
+ 
+   nqual=0
+@@ -51,6 +53,7 @@
+      qbest=0.
+      neme=1
+ 
++     call timer('deep24b ',0)
+      do k=1,7
+         call deep24(sym(2,k),neme,flipx,mycall,hiscall,hisgrid,deepmsg,qual)
+         if(qual.gt.qbest) then
+@@ -60,6 +63,7 @@
+         endif
+         if(nch(k).ge.mode4) exit
+      enddo
++     call timer('deep24b ',1)
+      deepmsg=deepbest
+      qual=qbest
+      nqual=qbest
+
+Modified: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/decode24.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -107,11 +107,15 @@
+      endif
+   enddo
+   
++  call timer('extr4a  ',0)
+   call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
++  call timer('extr4a  ',1)
+ 
+   qual=0.                                    !Now try deep search
+   neme=1
++  call timer('deep24a ',0)
+   call deep24(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++  call timer('deep24a ',1)
+   if(qual.gt.qbest) then
+      qbest=qual
+      deepbest=deepmsg
+
+Modified: trunk/ftn_init.f90
+===================================================================
+--- trunk/ftn_init.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/ftn_init.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -31,7 +31,13 @@
+   integer*2 nsky
+   common/sky/ nsky(360,180)
+   common/mtxcom/mtx,ltrace,mtxstate,csub0
++  common/tracer/ limtrace,lu
+ 
++  limtrace=0
++  lu=26
++  open(26,file='timer.out',status='unknown')
++  call timer('wsjt    ',0)
++
+   call cs_init
+   call cs_lock('ftn_init')
+   iflag=1
+
+Modified: trunk/ftn_quit.f90
+===================================================================
+--- trunk/ftn_quit.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/ftn_quit.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -2,5 +2,8 @@
+ !f2py threadsafe
+   call four2a(a,-1,-1,1,1)
+   call cs_destroy
++  call timer('wsjt    ',1)
++  call timer('wsjt    ',101)
++
+   return
+ end subroutine ftn_quit
+
+Modified: trunk/timer.f90
+===================================================================
+--- trunk/timer.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/timer.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -6,34 +6,35 @@
+ 
+   character*8 dname,name(50),space,ename
+   character*16 sname
+-  logical first,on(50)
++  logical on(50)
+   real ut(50),ut0(50),dut(50),tt(2)
+   integer ncall(50),nlevel(50),nparent(50)
+   integer onlevel(0:10)
+   common/tracer/ limtrace,lu
+-  data first/.true./,eps/0.000001/,ntrace/0/
++  data eps/0.000001/,ntrace/0/
+   data level/0/,nmax/0/,space/'        '/
+   data limtrace/0/,lu/-1/
+   save
+ 
++  if(limtrace.lt.0) go to 999
+   if(lu.lt.1) lu=6
+-  if(k.gt.1) go to 40	!Check for &quot;all done&quot; (k&gt;1)
++  if(k.gt.1) go to 40                        !Check for &quot;all done&quot; (k&gt;1)
+   onlevel(0)=0
+ 
+-  do n=1,nmax				!Check for existing name
++  do n=1,nmax                                !Check for existing name
+      if(name(n).eq.dname) go to 20
+   enddo
+ 
+-  nmax=nmax+1				!This is a new one
++  nmax=nmax+1                                !This is a new one
+   n=nmax
+   ncall(n)=0
+   on(n)=.false.
+   ut(n)=eps
+   name(n)=dname
+ 
+-20 if(k.eq.0) then				!Get start times (k=0)
++20 if(k.eq.0) then                                !Get start times (k=0)
+      if(on(n)) print*,'Error in timer: ',dname,' already on.'
+-     level=level+1				!Increment the level
++     level=level+1                                !Increment the level
+      on(n)=.true.
+      ut0(n)=etime(tt)
+      ncall(n)=ncall(n)+1
+@@ -45,7 +46,7 @@
+      nparent(n)=onlevel(level-1)
+      onlevel(level)=n
+ 
+-  else if(k.eq.1) then	!Get stop times and accumulate sums. (k=1)
++  else if(k.eq.1) then        !Get stop times and accumulate sums. (k=1)
+      if(on(n)) then
+         on(n)=.false.
+         ut1=etime(tt)
+@@ -56,8 +57,8 @@
+ 
+   ntrace=ntrace+1
+   if(ntrace.lt.limtrace) write(lu,1020) ntrace,dname,k,level,nparent(n)
+-1020 format(i5,': ',a8,3i5)
+-  return
++1020 format(i8,': ',a8,3i5)
++  go to 998
+ 
+ ! Write out the timer statistics
+ 
+@@ -96,6 +97,14 @@
+ 
+   write(lu,1070) sum,sumf
+ 1070 format(/36x,f10.2,f6.2)
++  nmax=0
++  eps=0.000001
++  ntrace=0
++  level=0
++  space='        '
++  onlevel(0)=0
+ 
+-  return
++998 flush(lu)
++
++999 return
+ end subroutine timer
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/wsjt.py	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/wsjt1.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -50,6 +50,7 @@
+   common/extcom/ntdecode
+   save
+ 
++  call timer('wsjt1   ',0)
+   lcum=.true.
+   jz=jz0
+   ntdecode=ntdecode0
+@@ -230,11 +231,13 @@
+ 
+ ! Offset data by about 1 s.
+      jztest=165000
++     call timer('wsjt24  ',0)
+      if(jz.ge.jztest) call wsjt24(dat,jz,cfile6,                        &amp;
+           NClearAve,MinSigdB,DFTolerance,NFreeze,mode,mode4,            &amp;
+           mycall,hiscall,hisgrid,                                       &amp;
+           Nseg,MouseDF2,NAgain,ndepth,idf,lumsg,lcum,nspecial,ndf,      &amp;
+           NSyncOK,ccf,psavg,ndiag)
++     call timer('wsjt24  ',1)
+      goto 900
+   endif
+ 
+@@ -332,6 +335,7 @@
+ 901 call flush(11)
+   call flush(12)
+   call flush(21)
++  call timer('wsjt1   ',1)
+ 
+   return
+ end subroutine wsjt1
+
+Modified: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/wsjt24.f90	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -57,10 +57,14 @@
+   endif
+ 
+ ! Attempt to synchronize: look for sync pattern, get DF and DT.
++  call timer('sync24  ',0)
+   call sync24(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
+        mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
++  call timer('sync24  ',1)
+ 
++  call timer('snr4    ',0)
+   call snr4(ccfblue,snrsync,snrx)          !### New calc of sync, snr ###
++  call timer('snr4    ',1)
+   
+   csync=' '
+   decoded='                      '
+@@ -95,8 +99,10 @@
+      cooo='O ?'
+   endif
+ 
++  call timer('decode24',0)
+   call decode24(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,    &amp;
+        hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
++  call timer('decode24',1)
+ 
+ 200 kvqual=0
+   if(ncount.ge.0) kvqual=1
+@@ -134,10 +140,12 @@
+ 1011 format(a77)
+   call cs_unlock
+ 
++  call timer('avemsg4 ',0)
+   if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
+        avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,ns1,ncount1)
+   if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
+        avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,ns2,ncount2)
++  call timer('avemsg4 ',1)
+   nqual1=qual1
+   nqual2=qual2
+ ! if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
+
+Modified: trunk/wsjt9.iss
+===================================================================
+--- trunk/wsjt9.iss	2013-01-28 20:44:51 UTC (rev 2985)
++++ trunk/wsjt9.iss	2013-01-28 21:10:15 UTC (rev 2986)
+@@ -1,7 +1,7 @@
+ [Setup]
+ AppName=WSJT
+-AppVerName=WSJT Version 9.3 r2983
+-AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
++AppVerName=WSJT Version 9.4 r2982
++AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSJT9
+ DefaultGroupName=WSJT9
+ 
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002678.html">[WSJT-SVN] r2985 - branches/wsprx/lib
+</A></li>
+	<LI>Next message: <A HREF="002679.html">[WSJT-SVN] r2987 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2677">[ date ]</a>
+              <a href="thread.html#2677">[ thread ]</a>
+              <a href="subject.html#2677">[ subject ]</a>
+              <a href="author.html#2677">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

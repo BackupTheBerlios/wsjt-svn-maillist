@@ -1,0 +1,447 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r800 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r800%20-%20trunk&In-Reply-To=%3C200805281811.m4SIBA00031343%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000487.html">
+   <LINK REL="Next"  HREF="000489.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r800 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r800%20-%20trunk&In-Reply-To=%3C200805281811.m4SIBA00031343%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r800 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 28 20:11:10 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000487.html">[WSJT-SVN] r799 - in trunk: . WsjtMod portaudio-v19/pablio	portaudio-v19/test
+</A></li>
+        <LI>Next message: <A HREF="000489.html">[WSJT-SVN] r801 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#488">[ date ]</a>
+              <a href="thread.html#488">[ thread ]</a>
+              <a href="subject.html#488">[ subject ]</a>
+              <a href="author.html#488">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-28 20:11:03 +0200 (Wed, 28 May 2008)
+New Revision: 800
+
+Added:
+   trunk/hash.f90
+   trunk/pack50.f
+   trunk/packname.f90
+   trunk/packpfx.f90
+   trunk/packprop.f90
+   trunk/packtext2.f90
+   trunk/unpack50.f
+   trunk/unpackname.f90
+   trunk/unpackpfx.f90
+   trunk/unpackprop.f90
+   trunk/unpacktext2.f90
+Log:
+New routines for WSPR mode.
+
+
+Added: trunk/hash.f90
+===================================================================
+--- trunk/hash.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/hash.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,15 @@
++subroutine hash(string,len,ihash)
++
++  parameter (MASK15=32767)
++  character*(*) string
++  integer*1 ic(12)
++
++     do i=1,len
++        ic(i)=ichar(string(i:i))
++     enddo
++     i=nhash(ic,len,146)
++     ihash=iand(i,MASK15)
++
++!     print*,'C',ihash,len,string
++  return
++end subroutine hash
+
+Added: trunk/pack50.f
+===================================================================
+--- trunk/pack50.f	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/pack50.f	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,27 @@
++      subroutine pack50(n1,n2,dat)
++
++      integer*1 dat(11),i1
++      equivalence (i1,i4)
++
++      i4=iand(ishft(n1,-20),255)                !8 bits
++      dat(1)=i1
++      i4=iand(ishft(n1,-12),255)                 !8 bits
++      dat(2)=i1
++      i4=iand(ishft(n1, -4),255)                 !8 bits
++      dat(3)=i1
++      i4=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
++      dat(4)=i1
++      i4=iand(ishft(n2,-10),255)                 !8 bits
++      dat(5)=i1
++      i4=iand(ishft(n2, -2),255)                 !8 bits
++      dat(6)=i1
++      i4=64*iand(n2,3)                           !2 bits
++      dat(7)=i1
++      dat(8)=0
++      dat(8)=0
++      dat(10)=0
++      dat(11)=0
++
++      return
++      end
++
+
+Added: trunk/packname.f90
+===================================================================
+--- trunk/packname.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/packname.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,23 @@
++subroutine packname(name,len,n1,n2)
++
++  character*9 name
++  real*8 dn
++
++  dn=0
++  do i=1,len
++     n=ichar(name(i:i))
++     if(n.ge.97 .and. n.le.122) n=n-32
++     dn=27*dn + n-64
++  enddo
++  if(len.lt.9) then
++     do i=len+1,9
++        dn=27*dn
++     enddo
++  endif
++
++  n2=mod(dn,32768.d0)
++  dn=dn/32768.d0
++  n1=dn
++
++  return
++end subroutine packname
+
+Added: trunk/packpfx.f90
+===================================================================
+--- trunk/packpfx.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/packpfx.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,51 @@
++subroutine packpfx(call1,n1,ng,nadd)
++
++  character*12 call1,call0
++  character*3 pfx
++  logical text
++
++  i1=index(call1,'/')
++  if(call1(i1+2:i1+2).eq.' ') then
++! Single-character add-on suffix (maybe also fourth suffix letter?)
++     call0=call1(:i1-1)
++     call packcall(call0,n1,text)
++     nadd=1
++     nc=ichar(call1(i1+1:i1+1))
++     if(nc.ge.48 .and. nc.le.57) then
++        n=nc-48
++     else if(nc.ge.65 .and. nc.le.90) then
++        n=nc-65+10
++     else
++        n=38
++     endif
++     nadd=1
++     ng=60000-32768+n
++  else
++! Prefix of 1 to 3 characters
++     pfx=call1(:i1-1)
++     if(pfx(3:3).eq.' ') pfx=' '//pfx
++     if(pfx(3:3).eq.' ') pfx=' '//pfx
++     call0=call1(i1+1:)
++     call packcall(call0,n1,text)
++
++     ng=0
++     do i=1,3
++        nc=ichar(pfx(i:i))
++        if(nc.ge.48 .and. nc.le.57) then
++           n=nc-48
++        else if(nc.ge.65 .and. nc.le.90) then
++           n=nc-65+10
++        else
++           n=36
++        endif
++        ng=37*ng + n
++     enddo
++     nadd=0
++     if(ng.ge.32768) then
++        ng=ng-32768
++        nadd=1
++     endif
++  endif
++
++  return
++end subroutine packpfx
+
+Added: trunk/packprop.f90
+===================================================================
+--- trunk/packprop.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/packprop.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,36 @@
++subroutine packprop(k,muf,ccur,cxp,n1)
++
++! Pack propagation indicators into a 21-bit number.
++
++! k      k-index, 0-9; 10=&quot;N/A&quot;
++! muf    muf, 2-60 MHz; 0=N/A, 1=&quot;none&quot;, 61=&quot;&gt;60 MHz&quot;
++! ccur   up to two current events, each indicated by single
++!        or double letter.
++! cxp    zero or one expected event, indicated by single or
++!        double letter
++
++  character ccur*4,cxp*2
++
++  j=ichar(ccur(1:1))-64
++  if(j.lt.0) j=0
++  n1=j
++  do i=2,4
++     if(ccur(i:i).eq.' ') go to 10
++     if(ccur(i:i).eq.ccur(i-1:i-1)) then
++        n1=n1+26
++     else
++        j=ichar(ccur(i:i))-64
++        if(j.lt.0) j=0
++        n1=53*n1 + j
++     endif
++  enddo
++
++10 j=ichar(cxp(1:1))-64
++  if(j.lt.0) j=0
++  if(cxp(2:2).eq.cxp(1:1)) j=j+26
++  n1=53*n1 + j
++  n1=11*n1 + k
++  n1=62*n1 + muf
++
++  return
++end subroutine packprop
+
+Added: trunk/packtext2.f90
+===================================================================
+--- trunk/packtext2.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/packtext2.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,22 @@
++subroutine packtext2(msg,n1,ng)
++
++  character*8 msg
++  real*8 dn
++  character*41 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
++
++  dn=0.
++  do i=1,8
++     do j=1,41
++        if(msg(i:i).eq.c(j:j)) go to 10
++     enddo
++     j=37
++10   j=j-1                                !Codes should start at zero
++     dn=41.d0*dn + j
++  enddo
++
++  ng=mod(dn,32768.d0)
++  n1=(dn-ng)/32768.d0
++
++  return
++end subroutine packtext2
+
+Added: trunk/unpack50.f
+===================================================================
+--- trunk/unpack50.f	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/unpack50.f	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,26 @@
++      subroutine unpack50(dat,n1,n2)
++
++      integer*1 dat(11),i1
++      equivalence (i1,i4)
++
++      i4=0
++      i1=dat(1)
++      n1=ishft(i4,20)
++      i1=dat(2)
++      n1=n1 + ishft(i4,12)
++      i1=dat(3)
++      n1=n1 + ishft(i4,4)
++      i1=dat(4)
++      n1=n1 + iand(ishft(i4,-4),15)
++
++      n2=ishft(iand(i4,15),18)
++      i1=dat(5)
++      n2=n2 + ishft(i4,10)
++      i1=dat(6)
++      n2=n2 + ishft(i4,2)
++      i1=dat(7)
++      n2=n2 + iand(ishft(i4,-6),3)
++
++      return
++      end
++
+
+Added: trunk/unpackname.f90
+===================================================================
+--- trunk/unpackname.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/unpackname.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,20 @@
++subroutine unpackname(n1,n2,name,len)
++
++  character*9 name
++  real*8 dn
++
++  dn=32768.d0*n1 + n2
++  len=0
++  do i=9,1,-1
++     j=mod(dn,27.d0)
++     if(j.ge.1) then
++        name(i:i)=char(64+j)
++        len=len+1
++     else
++        name(i:i)=' '
++     endif
++     dn=dn/27.d0
++  enddo
++
++  return
++end subroutine unpackname
+
+Added: trunk/unpackpfx.f90
+===================================================================
+--- trunk/unpackpfx.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/unpackpfx.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,35 @@
++subroutine unpackpfx(ng,call1)
++
++  character*12 call1
++  character*3 pfx
++
++  if(ng.lt.60000) then
++! Add-on prefix of 1 to 3 characters
++     n=ng
++     do i=3,1,-1
++        nc=mod(n,37)
++        if(nc.ge.0 .and. nc.le.9) then
++           pfx(i:i)=char(nc+48)
++        else if(nc.ge.10 .and. nc.le.35) then
++           pfx(i:i)=char(nc+55)
++        else
++           pfx(i:i)=' '
++        endif
++        n=n/37
++     enddo
++     call1=pfx//'/'//call1
++     if(call1(1:1).eq.' ') call1=call1(2:)
++     if(call1(1:1).eq.' ') call1=call1(2:)
++  else
++! Add-on suffix, one character
++     i1=index(call1,' ')
++     nc=ng-60000
++     if(nc.ge.0 .and. nc.le.9) then
++        call1=call1(:i1-1)//'/'//char(nc+48)
++     else if(nc.ge.10 .and. nc.le.35) then
++        call1=call1(:i1-1)//'/'//char(nc+55)
++     endif
++  endif
++
++  return
++end subroutine unpackpfx
+
+Added: trunk/unpackprop.f90
+===================================================================
+--- trunk/unpackprop.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/unpackprop.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,28 @@
++subroutine unpackprop(n1,k,muf,ccur,cxp)
++
++  character ccur*4,cxp*2
++
++  muf=mod(n1,62)
++  n1=n1/62
++
++  k=mod(n1,11)
++  n1=n1/11
++
++  j=mod(n1,53)
++  n1=n1/53
++  if(j.eq.0) cxp='*'
++  if(j.ge.1 .and. j.le.26) cxp=char(64+j)
++  if(j.gt.26) cxp=char(64+j-26)//char(64+j-26)
++
++  j=mod(n1,53)
++  n1=n1/53
++  if(j.eq.0) ccur(2:2)='*'
++  if(j.ge.1 .and. j.le.26) ccur(2:2)=char(64+j)
++  if(j.gt.26) ccur(2:3)=char(64+j-26)//char(64+j-26)
++  j=n1
++  if(j.eq.0) ccur(1:1)='*'
++  if(j.ge.1 .and. j.le.26) ccur(1:1)=char(64+j)
++  if(j.gt.26) ccur=char(64+j-26)//char(64+j-26)//ccur(2:3)
++
++  return
++end subroutine unpackprop
+
+Added: trunk/unpacktext2.f90
+===================================================================
+--- trunk/unpacktext2.f90	2008-05-28 18:09:28 UTC (rev 799)
++++ trunk/unpacktext2.f90	2008-05-28 18:11:03 UTC (rev 800)
+@@ -0,0 +1,17 @@
++subroutine unpacktext2(n1,ng,msg)
++
++  character*22 msg
++  real*8 dn
++  character*41 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
++
++  msg='                      '
++  dn=32768.d0*n1 + ng
++  do i=8,1,-1
++     j=mod(dn,41.d0)
++     msg(i:i)=c(j+1:j+1)
++     dn=dn/41.d0
++  enddo
++
++  return
++end subroutine unpacktext2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000487.html">[WSJT-SVN] r799 - in trunk: . WsjtMod portaudio-v19/pablio	portaudio-v19/test
+</A></li>
+	<LI>Next message: <A HREF="000489.html">[WSJT-SVN] r801 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#488">[ date ]</a>
+              <a href="thread.html#488">[ thread ]</a>
+              <a href="subject.html#488">[ subject ]</a>
+              <a href="author.html#488">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

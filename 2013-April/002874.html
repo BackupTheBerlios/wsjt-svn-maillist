@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3182 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3182%20-%20branches/wsjtx&In-Reply-To=%3C20130416192253.7CB7355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002873.html">
+   <LINK REL="Next"  HREF="002875.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3182 - branches/wsjtx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3182%20-%20branches/wsjtx&In-Reply-To=%3C20130416192253.7CB7355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3182 - branches/wsjtx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 16 21:22:53 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002873.html">[WSJT-SVN] r3181 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002875.html">[WSJT-SVN] r3183 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2874">[ date ]</a>
+              <a href="thread.html#2874">[ thread ]</a>
+              <a href="subject.html#2874">[ subject ]</a>
+              <a href="author.html#2874">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-04-16 21:22:53 +0200 (Tue, 16 Apr 2013)
+New Revision: 3182
+
+Modified:
+   branches/wsjtx/psk_reporter.cpp
+   branches/wsjtx/psk_reporter.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Added class for PSK Reporter. Still need to wire class to mainwindow.cpp
+
+
+Modified: branches/wsjtx/psk_reporter.cpp
+===================================================================
+--- branches/wsjtx/psk_reporter.cpp	2013-04-16 18:33:38 UTC (rev 3181)
++++ branches/wsjtx/psk_reporter.cpp	2013-04-16 19:22:53 UTC (rev 3182)
+@@ -1,6 +1,114 @@
++// KISS Interface for posting spots to PSK Reporter web site
++// Implemented by Edson Pereira PY2SDR
++//
++// Reports will be sent in batch mode every 5 minutes.
++// If there are no spots to be sent, a report will be sent with only the receiver station info.
++
+ #include &quot;psk_reporter.h&quot;
+ 
+ PSK_Reporter::PSK_Reporter(QObject *parent) :
+-    QObject(parent)
++    QObject(parent),
++    m_sequenceNumber(0)
+ {
++    m_header_h = &quot;000Allllttttttttssssssssiiiiiiii&quot;;
++
++    // We use 50E2 and 50E3 for link Id
++    m_rxInfoDescriptor_h = &quot;0003002450E200030000&quot;
++                           &quot;8002FFFF0000768F&quot; // 2. Rx Call
++                           &quot;8004FFFF0000768F&quot; // 4. Rx Grid
++                           &quot;8008FFFF0000768F&quot; // 8. Rx Soft
++                           &quot;0000&quot;;
++
++    m_txInfoDescriptor_h = &quot;0002003C50E30007&quot;
++                           &quot;8001FFFF0000768F&quot; // 1. Tx Call
++                           &quot;800500040000768F&quot; // 5. Tx Freq
++                           &quot;800600010000768F&quot; // 6. Tx snr
++                           &quot;800AFFFF0000768F&quot; // 10. Tx Mode
++                           &quot;8003FFFF0000768F&quot; // 3. Tx Grid
++                           &quot;800B00010000768F&quot; // 11. Tx info src
++                           &quot;00960004&quot;;        // Tx time
++
++
++    qsrand(QDateTime::currentDateTime().toTime_t());
++    m_randomId_h = QString(&quot;%1&quot;).arg(qrand(),8,16,QChar('0'));
++
++    m_udpSocket = new QUdpSocket(this);
++    m_udpSocket-&gt;bind(QHostAddress::LocalHost,14739); // Force udp source port
++
++    reportTimer = new QTimer(this);
++    connect(reportTimer, SIGNAL(timeout()), this, SLOT(sendReport()));
++    reportTimer-&gt;start(5*60*1000); // 5 minutes;
+ }
++
++void PSK_Reporter::setLocalStation(QString call, QString gridSquare, QString programInfo)
++{
++    m_rxCall = call;
++    m_rxGrid = gridSquare;
++    m_progId = programInfo;
++}
++
++void PSK_Reporter::addRemoteStation(QString call, QString grid, QString freq, QString mode, QString snr, QString time )
++{
++    QHash&lt;QString,QString&gt; spot;
++    spot[&quot;call&quot;] = call;
++    spot[&quot;grid&quot;] = grid;
++    spot[&quot;snr&quot;] = snr;
++    spot[&quot;freq&quot;] = freq;
++    spot[&quot;mode&quot;] = mode;
++    spot[&quot;time&quot;] = time;
++    m_spotQueue.enqueue(spot);
++}
++
++void PSK_Reporter::sendReport()
++{
++    // Header
++    QString header_h = m_header_h;
++    header_h.replace(&quot;tttttttt&quot;, QString(&quot;%1&quot;).arg(QDateTime::currentDateTime().toTime_t(),8,16,QChar('0')));
++    header_h.replace(&quot;ssssssss&quot;, QString(&quot;%1&quot;).arg(++m_sequenceNumber,8,16,QChar('0')));
++    header_h.replace(&quot;iiiiiiii&quot;, m_randomId_h);
++
++    // Receiver information
++    QString rxInfoData_h = &quot;50E2llll&quot;;
++    rxInfoData_h += QString(&quot;%1&quot;).arg(m_rxCall.length(),2,16,QChar('0')) + m_rxCall.toUtf8().toHex();
++    rxInfoData_h += QString(&quot;%1&quot;).arg(m_rxGrid.length(),2,16,QChar('0')) + m_rxGrid.toUtf8().toHex();
++    rxInfoData_h += QString(&quot;%1&quot;).arg(m_progId.length(),2,16,QChar('0')) + m_progId.toUtf8().toHex();
++    rxInfoData_h += &quot;0000&quot;;
++    rxInfoData_h.replace(&quot;50E2llll&quot;, &quot;50E2&quot; + QString(&quot;%1&quot;).arg(rxInfoData_h.length()/2,4,16,QChar('0')));
++
++    // Sender information
++    QString txInfoData_h;
++    if (!m_spotQueue.isEmpty()) {
++        txInfoData_h = &quot;50E3llll&quot;;
++        while (!m_spotQueue.isEmpty()) {
++            QHash&lt;QString,QString&gt; spot = m_spotQueue.dequeue();
++            qDebug() &lt;&lt; spot;
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;call&quot;].length(),2,16,QChar('0')) + spot[&quot;call&quot;].toUtf8().toHex();
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;freq&quot;].toLongLong(),8,16,QChar('0'));
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;snr&quot;].toInt(),1,16,QChar('0')).mid(14,2);
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;mode&quot;].length(),2,16,QChar('0')) + spot[&quot;mode&quot;].toUtf8().toHex();
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;grid&quot;].length(),2,16,QChar('0')) + spot[&quot;grid&quot;].toUtf8().toHex();
++            txInfoData_h += QString(&quot;%1&quot;).arg(1,2,16,QChar('0'));;
++            txInfoData_h += QString(&quot;%1&quot;).arg(spot[&quot;time&quot;].toInt(),8,16,QChar('0'));
++        }
++        txInfoData_h += &quot;0000&quot;;
++        txInfoData_h.replace(&quot;50E3llll&quot;, &quot;50E3&quot; + QString(&quot;%1&quot;).arg(txInfoData_h.length()/2,4,16,QChar('0')));
++    }
++
++    // Build report
++    QString report_h = header_h + m_rxInfoDescriptor_h + m_txInfoDescriptor_h + rxInfoData_h + txInfoData_h;
++    report_h.replace(&quot;000Allll&quot;, &quot;000A&quot; + QString(&quot;%1&quot;).arg(report_h.length()/2,4,16,QChar('0')));
++    QByteArray report = QByteArray::fromHex(report_h.toUtf8());
++
++    // Get IP address for pskreporter.info and send report via UDP
++    QHostInfo info = QHostInfo::fromName(&quot;pskreporter.info&quot;);
++    m_udpSocket-&gt;writeDatagram(report,info.addresses().at(0),14739);
++
++    qDebug() &lt;&lt; header_h;
++    qDebug() &lt;&lt; m_rxInfoDescriptor_h;
++    qDebug() &lt;&lt; m_txInfoDescriptor_h;
++    qDebug() &lt;&lt; rxInfoData_h;
++    qDebug() &lt;&lt; txInfoData_h;
++    qDebug() &lt;&lt; report.toHex();
++}
++
++
+
+Modified: branches/wsjtx/psk_reporter.h
+===================================================================
+--- branches/wsjtx/psk_reporter.h	2013-04-16 18:33:38 UTC (rev 3181)
++++ branches/wsjtx/psk_reporter.h	2013-04-16 19:22:53 UTC (rev 3182)
+@@ -1,18 +1,41 @@
+ #ifndef PSK_REPORTER_H
+ #define PSK_REPORTER_H
+ 
+-#include &lt;QObject&gt;
++#include &lt;QtCore&gt;
++#include &lt;QUdpSocket&gt;
++#include &lt;QHostInfo&gt;
+ 
+ class PSK_Reporter : public QObject
+ {
+     Q_OBJECT
+ public:
+     explicit PSK_Reporter(QObject *parent = 0);
++    void setLocalStation(QString call, QString grid, QString programInfo);
++    void addRemoteStation(QString call, QString grid, QString freq, QString mode, QString snr, QString time);
+     
+ signals:
+     
+ public slots:
+-    
++    void sendReport();
++
++private:
++    QString m_header_h;
++    QString m_rxInfoDescriptor_h;
++    QString m_txInfoDescriptor_h;
++    QString m_randomId_h;
++    QString m_linkId_h;
++
++    QString m_rxCall;
++    QString m_rxGrid;
++    QString m_progId;
++
++    QQueue&lt; QHash&lt;QString,QString&gt; &gt; m_spotQueue;
++
++    QUdpSocket *m_udpSocket;
++
++    QTimer *reportTimer;
++
++    int m_sequenceNumber;
+ };
+ 
+ #endif // PSK_REPORTER_H
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-04-16 18:33:38 UTC (rev 3181)
++++ branches/wsjtx/wsjtx.pro	2013-04-16 19:22:53 UTC (rev 3182)
+@@ -59,8 +59,7 @@
+ unix {
+ INCLUDEPATH += $$quote(/usr/include/qwt-qt4)
+ LIBS += ../wsjtx/lib/libjt9.a
+-LIBS += /usr/lib/libqwt.so
+-LIBS += -lportaudio -lgfortran -lfftw3f
++LIBS += -lportaudio -lgfortran -lfftw3f -lqwt-qt4
+ }
+ 
+ win32 {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002873.html">[WSJT-SVN] r3181 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002875.html">[WSJT-SVN] r3183 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2874">[ date ]</a>
+              <a href="thread.html#2874">[ thread ]</a>
+              <a href="subject.html#2874">[ subject ]</a>
+              <a href="author.html#2874">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

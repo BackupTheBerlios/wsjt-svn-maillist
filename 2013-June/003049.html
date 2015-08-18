@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3357%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608120305.A62FD55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003048.html">
+   <LINK REL="Next"  HREF="003050.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3357%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608120305.A62FD55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jun  8 14:03:05 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003048.html">[WSJT-SVN] r3356 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003050.html">[WSJT-SVN] r3358 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3049">[ date ]</a>
+              <a href="thread.html#3049">[ thread ]</a>
+              <a href="subject.html#3049">[ subject ]</a>
+              <a href="author.html#3049">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-08 14:03:05 +0200 (Sat, 08 Jun 2013)
+New Revision: 3357
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/extract.f90
+   branches/wsjtx_k1jt_p1/lib/jt65.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+Cleaning up and optimizing the JT65 decoder.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/extract.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-08 11:31:53 UTC (rev 3356)
++++ branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-08 12:03:05 UTC (rev 3357)
+@@ -35,7 +35,7 @@
+   call interleave63(mrsym,-1)
+   call interleave63(mrprob,-1)
+ 
+-  ndec=1
++  ndec=0                                !1 for KV, 0 for BM
+   nemax=30                              !Was 200 (30)
+   maxe=8
+   xlambda=13.0                          !Was 12
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 11:31:53 UTC (rev 3356)
++++ branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 12:03:05 UTC (rev 3357)
+@@ -26,7 +26,7 @@
+   ntol=50
+   nfa=500
+   nfb=2500
+-  nfqso=1500
++  nfqso=933
+   nagain=0
+   ndiskdat=1
+ 
+@@ -59,8 +59,8 @@
+ 
+   call timer('jt65    ',1)
+   call timer('jt65    ',101)
+-  call four2a(a,-1,1,1,1)
+-  call filbig(a,-1,1,0.0,0,0,0,0,0)
++  call four2a(a,-1,1,1,1)                  !Free the memory used for plans
++  call filbig(a,-1,1,0.0,0,0,0,0,0)        ! (ditto)
+   go to 999
+ 
+ 998 print*,'Cannot open file:'
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-08 11:31:53 UTC (rev 3356)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-08 12:03:05 UTC (rev 3357)
+@@ -8,6 +8,7 @@
+   real dd(NZMAX)
+   real*4 ss(322,NSZ)
+   real*4 savg(NSZ)
++  logical done(NSZ)
+   real a(5)
+   character decoded*22
+   save
+@@ -15,10 +16,11 @@
+   call symspec65(dd,npts,ss,nhsym,savg)    !Get normalized symbol spectra
+ 
+   df=12000.0/NFFT                     !df = 12000.0/16384 = 0.732 Hz
+-  ftol=10.0                           !Frequency tolerance (Hz)
++  ftol=15.0                           !Frequency tolerance (Hz)
+   mode65=1
++  done=.false.
+ 
+-  do nqd=0,0,-1
++  do nqd=1,0,-1
+      if(nqd.eq.1) then                !Quick decode, at fQSO
+         fa=nfqso - ntol
+         fb=nfqso + ntol
+@@ -34,8 +36,8 @@
+      thresh0=1.5
+ 
+      do i=ia,ib                               !Search over freq range
++        if(savg(i).lt.thresh0 .or. done(i)) cycle
+         freq=i*df
+-        if(savg(i).lt.thresh0) cycle
+ 
+         call timer('ccf65   ',0)
+         call ccf65(ss(1,i),nhsym,savg(i),sync1,dt,flipk,syncshort,snr2,dt2)
+@@ -61,21 +63,22 @@
+              nutc,ntol,sync2,a,dt,nkv,nhist,decoded)
+         call timer('decode1a',1)
+ 
+-        nfreq=nint(freq)
+-
+-        s2db=10.0*log10(sync2) - 40             !### empirical ###
+-        nsync2=nint(s2db)
+-        if(decoded(1:4).eq.'RO  ' .or. decoded(1:4).eq.'RRR  ' .or.  &amp;
+-             decoded(1:4).eq.'73  ') nsync2=nint(1.33*s2db + 2.0)
+-
+-        write(*,1010) nutc,nsync2,dt,nfreq,decoded,nflip,newdat
+-1010    format(i4.4,i6,f6.1,i6,2x,a22,3x,2i3)
++        if(decoded.ne.'                      ') then
++           nfreq=nint(freq)
++           s2db=10.0*log10(sync2) - 40             !### empirical ###
++           nsync2=nint(s2db)
++           write(*,1010) nutc,nsync2,dt,nfreq,decoded,nflip,newdat
++1010       format(i4.4,i6,f6.1,i6,2x,a22,3x,2i3)
++           freq0=freq
++           sync10=sync1
++           i2=min(NSZ,i+10)                !### ??? ###
++           done(i:i2)=.true.
++        endif
+      enddo
+      if(nagain.eq.1) go to 999
+   enddo
+ 
+-999 close(23)
+-  nagain=0
++999 nagain=0
+ 
+   return
+ end subroutine jt65a
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 11:31:53 UTC (rev 3356)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 12:03:05 UTC (rev 3357)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003048.html">[WSJT-SVN] r3356 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003050.html">[WSJT-SVN] r3358 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3049">[ date ]</a>
+              <a href="thread.html#3049">[ thread ]</a>
+              <a href="subject.html#3049">[ subject ]</a>
+              <a href="author.html#3049">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

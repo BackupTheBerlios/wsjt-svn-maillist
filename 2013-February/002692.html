@@ -1,0 +1,844 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3000 - trunk/jt4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3000%20-%20trunk/jt4&In-Reply-To=%3C20130220205322.80A0A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002691.html">
+   <LINK REL="Next"  HREF="002693.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3000 - trunk/jt4</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3000%20-%20trunk/jt4&In-Reply-To=%3C20130220205322.80A0A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3000 - trunk/jt4">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Feb 20 21:53:22 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002691.html">[WSJT-SVN] r2999 - trunk/jt4
+</A></li>
+        <LI>Next message: <A HREF="002693.html">[WSJT-SVN] r3001 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2692">[ date ]</a>
+              <a href="thread.html#2692">[ thread ]</a>
+              <a href="subject.html#2692">[ subject ]</a>
+              <a href="author.html#2692">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-20 21:53:22 +0100 (Wed, 20 Feb 2013)
+New Revision: 3000
+
+Added:
+   trunk/jt4/fano232r.f90
+   trunk/jt4/sim14.f90
+Modified:
+   trunk/jt4/Makefile
+   trunk/jt4/encode4.f90
+   trunk/jt4/fano232.f90
+   trunk/jt4/getmu.f90
+   trunk/jt4/jt4code.f90
+   trunk/jt4/simjt4.f90
+Log:
+Optimizations of JT4 decoders.
+
+
+Modified: trunk/jt4/Makefile
+===================================================================
+--- trunk/jt4/Makefile	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/Makefile	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -20,14 +20,16 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libjt.a jt4metrics.exe simsync.exe jt4code.exe simjt4.exe fskprob.exe
++all:    libjt.a jt4metrics.exe simsync.exe jt4code.exe simjt4.exe \
++	fskprob.exe sim14.exe
+ 
+ OBJS1 = chkmsg.o deg2grid.o encode232.o encode4.o entail.o fano232.o \
+ 	getmet4.o getpfx1.o getpfx2.o gran.o grid2deg.o grid2k.o \
+ 	interleave4.o k2grid.o nchar.o packcall.o packgrid.o packmsg.o \
+ 	packtext.o unpackcall.o unpackgrid.o unpackmsg.o unpacktext.o \
+ 	interleave4a.o getmu.o bessi.o bessi0.o bessi1.o derf.o \
+-	gammp.o gcf.o gser.o gammln.o factrl.o pdfChisq.o
++	gammp.o gcf.o gser.o gammln.o factrl.o pdfChisq.o fano232r.o \
++	ex28.o
+ 
+ libjt.a: $(OBJS1)
+ 	ar cr libjt.a $(OBJS1) 
+@@ -53,6 +55,10 @@
+ fskprob.exe: $(OBJS6)
+ 	$(FC) -o fskprob.exe $(FFLAGS) $(OBJS6) libjt.a 
+ 
++OBJS7 = sim14.o libjt.a 
++sim14.exe: $(OBJS7)
++	$(FC) -o sim14.exe $(FFLAGS) $(OBJS7) libjt.a 
++
+ .PHONY : clean
+ 
+ clean:
+
+Modified: trunk/jt4/encode4.f90
+===================================================================
+--- trunk/jt4/encode4.f90	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/encode4.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -5,7 +5,7 @@
+   character*22 message          !Message to be generated
+   character*3 cok               !'   ' or 'OOO'
+   integer dgen
+-  integer*1 data0(13),symbol(216)
++  integer*1 data0(13),symbol(206)
+   logical text
+   common/jt4com1/dgen(13)
+ 
+
+Modified: trunk/jt4/fano232.f90
+===================================================================
+--- trunk/jt4/fano232.f90	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/fano232.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -14,119 +14,118 @@
+ ! These were the &quot;node&quot; structure in Karn's C code:
+   integer nstate(0:MAXBITS-1)      !Encoder state of next node
+   integer gamma(0:MAXBITS-1)       !Cumulative metric to this node
+-  integer metrics(0:3,0:MAXBITS-1) !Metrics indexed by all possible Tx syms
++  integer metrics(0:3,0:MAXBITS-1) !Metric increments indexed by Tx/Rx syms
+   integer tm(0:1,0:MAXBITS-1)      !Sorted metrics for current hypotheses
+-  integer ii(0:MAXBITS-1)          !Current branch being tested
++  integer ii(0:MAXBITS-1)          !Current branch being tested (0 or 1)
+ 
+   logical noback
+   include 'conv232.f90'            !Polynomials defined here
+ 
+ ! Compute all possible branch metrics for each symbol pair.
+ ! This is the only place we actually look at the raw input symbols
+-  do np=0,nbits-1
+-     j=2*np
++  do k=0,nbits-1
++     j=2*k
+      n=2*nadd
+-     call getmu(sym(0,j),sym(1,j),n,amp,mu0j0,mu1j0)
+-     call getmu(sym(0,j+1),sym(1,j+1),n,amp,mu0j1,mu1j1)
+-     metrics(0,np)=mu0j0 + mu0j1
+-     metrics(1,np)=mu0j0 + mu1j1
+-     metrics(2,np)=mu1j0 + mu0j1
+-     metrics(3,np)=mu1j0 + mu1j1
++     call getmu(sym(0,j),sym(1,j),n,amp,mu0j0,mu1j0)        !POLY1
++     call getmu(sym(0,j+1),sym(1,j+1),n,amp,mu0j1,mu1j1)    !POLY2
++     metrics(0,k)=mu0j0 + mu0j1   !Tx=0, Rx=0  (### ??? ###)
++     metrics(1,k)=mu0j0 + mu1j1   !Tx=0, Rx=1
++     metrics(2,k)=mu1j0 + mu0j1   !Tx=1, Rx=0
++     metrics(3,k)=mu1j0 + mu1j1   !Tx=1, Rx=1
+   enddo
+ 
+-  np=0
+-  nstate(np)=0
++  k=0
++  nstate(k)=0
+ 
+-  n=iand(nstate(np),npoly1)                  !Compute and sort branch metrics 
++  n=iand(nstate(k),npoly1)                   !Compute and sort branch metrics 
+   n=ieor(n,ishft(n,-16))                     !from the root node
+   lsym=partab(iand(ieor(n,ishft(n,-8)),255))
+-  n=iand(nstate(np),npoly2)
++  n=iand(nstate(k),npoly2)
+   n=ieor(n,ishft(n,-16))
+   lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
+-  m0=metrics(lsym,np)
+-  m1=metrics(ieor(3,lsym),np)
++  m0=metrics(lsym,k)
++  m1=metrics(ieor(3,lsym),k)
+   if(m0.gt.m1) then
+-     tm(0,np)=m0                             !0-branch has better metric
+-     tm(1,np)=m1
++     tm(0,k)=m0                             !0-branch has better metric
++     tm(1,k)=m1
+   else
+-     tm(0,np)=m1                             !1-branch is better
+-     tm(1,np)=m0
+-     nstate(np)=nstate(np) + 1               !Set low bit
++     tm(0,k)=m1                             !1-branch is better
++     tm(1,k)=m0
++     nstate(k)=nstate(k) + 1                !Set low bit
+   endif
+ 
+-  ii(np)=0                                   !Start with best branch
+-  gamma(np)=0
++  ii(k)=0                                   !Start with best branch
++  gamma(k)=0
+   nt=0
+ 
+-  do i=1,nbits*maxcycles                     !Start the Fano decoder
+-!     write(71,3001) i,np,nstate(np),gamma(np),tm(0:1,np),ii(np)
++  do i=1,nbits*maxcycles                    !Start the Fano decoder
++!     write(71,3001) i,k,nstate(k),gamma(k),tm(0:1,k),ii(k)
+ !3001 format(i9,i4,1x,b32.32,i5,2i5,i2)
+-     ibit=iand(nstate(np),1)
+-     ierr=0
+-     if(np.le.71 .and. ibit.ne.imsg(np+1)) ierr=1
+-!     write(71,3001) i,np,ibit,ierr,gamma(np),tm(0:1,np),ii(np)
++!     write(71,3001) i,k,ibit,ierr,gamma(k),tm(0:1,k),ii(k)
+ !3001 format(i9,i4,2i3,i5,2i5,i3)
+-     ngamma=gamma(np) + tm(ii(np),np)        !Look forward
+-     if(np.le.71 .and. iknown(np+1)) then
+-        if(ierr.eq.0) then
+-           ngamma=ngamma + 10
++     ngamma=gamma(k) + tm(ii(k),k)          !Look forward
++
++     if(k.le.71 .and. iknown(k+1)) then     !Account for &quot;known&quot; bits
++        ibit=iand(nstate(k),1)              !Present bit value
++        if(k.le.71 .and. ibit.eq.imsg(k+1)) then
++           ngamma=ngamma + 12               !Present bit is correct
+         else
+-           ngamma=ngamma - 20
++           ngamma=ngamma - 24               !Present bit is wrong
+         endif
+      endif
+ 
+      if(ngamma.ge.nt) then
+ ! Node is acceptable.  If first time visiting this node, tighten threshold:
+-        if(gamma(np).lt.(nt+ndelta)) nt=nt + ndelta * ((ngamma-nt)/ndelta)
+-        gamma(np+1)=ngamma                   !Move forward
+-        nstate(np+1)=ishft(nstate(np),1)
+-        np=np+1
+-        if(np.eq.nbits-1) go to 100          !We're done!
++        if(gamma(k).lt.(nt+ndelta)) nt=nt + ndelta * ((ngamma-nt)/ndelta)
++        gamma(k+1)=ngamma                  !Move forward
++        nstate(k+1)=ishft(nstate(k),1)
++        k=k+1
++        if(k.eq.nbits-1) go to 100         !We're done!
+ 
+-        n=iand(nstate(np),npoly1)
++        n=iand(nstate(k),npoly1)
+         n=ieor(n,ishft(n,-16))
+         lsym=partab(iand(ieor(n,ishft(n,-8)),255))
+-        n=iand(nstate(np),npoly2)
++        n=iand(nstate(k),npoly2)
+         n=ieor(n,ishft(n,-16))
+         lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
+             
+-        if(np.ge.nbits-31) then
+-           tm(0,np)=metrics(lsym,np)      !We're in the tail, now all zeros
+-           tm(1,np)=0                     !Added for plots: not used
++        if(k.ge.nbits-31) then
++           tm(0,k)=metrics(lsym,k)         !We're in the tail, now all zeros
++           tm(1,k)=0                       !Added for plots: not used
+         else
+-           m0=metrics(lsym,np)
+-           m1=metrics(ieor(3,lsym),np)
++           m0=metrics(lsym,k)
++           m1=metrics(ieor(3,lsym),k)
+            if(m0.gt.m1) then
+-              tm(0,np)=m0                 !0-branch has better metric
+-              tm(1,np)=m1
++              tm(0,k)=m0                   !0-branch has better metric
++              tm(1,k)=m1
+            else
+-              tm(0,np)=m1                 !1-branch is better
+-              tm(1,np)=m0
+-              nstate(np)=nstate(np) + 1   !Set low bit
++              tm(0,k)=m1                   !1-branch is better
++              tm(1,k)=m0
++              nstate(k)=nstate(k) + 1      !Set low bit
+            endif
+         endif
+-        ii(np)=0                          !Start with best branch
++        ii(k)=0                            !Start with best branch
+      else
+         do while(.true.)
+-           noback=.false.                 !Threshold violated, can't go forward
+-           if(np.eq.0) noback=.true.
+-           if(np.gt.0) then
+-              if(gamma(np-1).lt.nt) noback=.true.
++           noback=.false.                  !Threshold violated, can't go forward
++           if(k.eq.0) noback=.true.
++           if(k.gt.0) then
++              if(gamma(k-1).lt.nt) noback=.true.
+            endif
+ 
+            if(noback) then               !Can't back up, either
+               nt=nt-ndelta               !Relax threshold and look forward again
+-              if(ii(np).ne.0) then
+-                 ii(np)=0
+-                 nstate(np)=ieor(nstate(np),1)
++              if(ii(k).ne.0) then
++                 ii(k)=0
++                 nstate(k)=ieor(nstate(k),1)
+               endif
+               exit
+            endif
+ 
+-           np=np-1                       !Back up
+-           if(np.lt.(nbits-31) .and. ii(np).ne.1) then
+-              ii(np)=ii(np)+1            !Search the next best branch
+-              nstate(np)=ieor(nstate(np),1)
++           k=k-1                         !Back up
++           if(k.lt.(nbits-31) .and. ii(k).ne.1) then
++              ii(k)=ii(k)+1              !Search the next best branch
++              nstate(k)=ieor(nstate(k),1)
+               exit
+            endif
+         enddo
+@@ -134,13 +133,13 @@
+   enddo
+   i=nbits*maxcycles
+   
+-100 metric=gamma(np)                       !Final path metric
+-  nbytes=(nbits+7)/8                       !Copy decoded data to user's buffer
+-  np=7
++100 metric=gamma(k)                      !Final path metric
++  nbytes=(nbits+7)/8                     !Copy decoded data to user's buffer
++  k=7
+   do j=1,nbytes-1
+-     i4a=nstate(np)
++     i4a=nstate(k)
+      dat(j)=i4a
+-     np=np+8
++     k=k+8
+   enddo
+   dat(nbytes)=0
+   ncycles=i+1
+
+Added: trunk/jt4/fano232r.f90
+===================================================================
+--- trunk/jt4/fano232r.f90	                        (rev 0)
++++ trunk/jt4/fano232r.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -0,0 +1,159 @@
++subroutine fano232r(sym,nadd,amp,iknown,imsg,nbits,ndelta,maxcycles,   &amp;
++     dat,ncycles,metric,ierr)
++
++! Sequential decoder for K=32, r=1/2 convolutional code using 
++! the Fano algorithm.  Translated from C routine by Phil Karn, KA9Q.
++
++  parameter (MAXBITS=103)
++  parameter (MAXBYTES=(MAXBITS+7)/8)
++  real*4  sym(0:1,0:205)
++  real*4  symr(0:1,0:205)
++  integer imsg(72)
++  logical iknown(72)
++  integer*1 dat(MAXBYTES)          !Decoded user data, 8 bits per byte
++
++! These were the &quot;node&quot; structure in Karn's C code:
++  integer nstate(0:MAXBITS-1)      !Encoder state of next node
++  integer gamma(0:MAXBITS-1)       !Cumulative metric to this node
++  integer metrics(0:3,0:MAXBITS-1) !Metric increments indexed by Tx/Rx syms
++  integer tm(0:1,0:MAXBITS-1)      !Sorted metrics for current hypotheses
++  integer ii(0:MAXBITS-1)          !Current branch being tested (0 or 1)
++
++  logical noback
++  include 'conv232.f90'            !Polynomials defined here
++
++  symr(0:1,0:205)=sym(0:1,205:0:-1)    !Get sym in reverse order
++  npoly1r=0
++  npoly2r=0
++  do i=0,31                                           !Make bit-reversed polys
++     if(btest(npoly1,i)) npoly1r=ibset(npoly1r,31-i)
++     if(btest(npoly2,i)) npoly2r=ibset(npoly2r,31-i)
++  enddo
++
++! Compute all possible branch metrics for each symbol pair.
++! This is the only place we actually look at the raw input symbols
++  do k=0,nbits-1
++     j=2*k
++     n=2*nadd
++     call getmu(symr(0,j),symr(1,j),n,amp,mu0j0,mu1j0)        !POLY1
++     call getmu(symr(0,j+1),symr(1,j+1),n,amp,mu0j1,mu1j1)    !POLY2
++     metrics(0,k)=mu0j0 + mu0j1   !Tx=0, Rx=0  (### ??? ###)
++     metrics(1,k)=mu0j0 + mu1j1   !Tx=0, Rx=1
++     metrics(2,k)=mu1j0 + mu0j1   !Tx=1, Rx=0
++     metrics(3,k)=mu1j0 + mu1j1   !Tx=1, Rx=1
++  enddo
++
++  k=0
++  nstate(k)=0
++
++  n=iand(nstate(k),npoly1r)                   !Compute and sort branch metrics 
++  n=ieor(n,ishft(n,-16))                     !from the root node
++  lsym=partab(iand(ieor(n,ishft(n,-8)),255))
++  n=iand(nstate(k),npoly2r)
++  n=ieor(n,ishft(n,-16))
++  lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
++  m0=metrics(lsym,k)
++  m1=metrics(ieor(3,lsym),k)
++  if(m0.gt.m1) then
++     tm(0,k)=m0                             !0-branch has better metric
++     tm(1,k)=m1
++  else
++     tm(0,k)=m1                             !1-branch is better
++     tm(1,k)=m0
++     nstate(k)=nstate(k) + 1                !Set low bit
++  endif
++
++  ii(k)=0                                   !Start with best branch
++  gamma(k)=0
++  nt=0
++
++  do i=1,nbits*maxcycles                    !Start the Fano decoder
++!     write(71,3001) i,k,nstate(k),gamma(k),tm(0:1,k),ii(k)
++!3001 format(i9,i4,1x,b32.32,i5,2i5,i2)
++!     write(71,3001) i,k,ibit,ierr,gamma(k),tm(0:1,k),ii(k)
++!3001 format(i9,i4,2i3,i5,2i5,i3)
++     ngamma=gamma(k) + tm(ii(k),k)          !Look forward
++
++     if(k.le.71 .and. iknown(k+1)) then     !Account for &quot;known&quot; bits
++        ibit=iand(nstate(k),1)              !Present bit value
++        if(k.le.71 .and. ibit.eq.imsg(k+1)) then
++           ngamma=ngamma + 12               !Present bit is correct
++        else
++           ngamma=ngamma - 24               !Present bit is wrong
++        endif
++     endif
++
++     if(ngamma.ge.nt) then
++! Node is acceptable.  If first time visiting this node, tighten threshold:
++        if(gamma(k).lt.(nt+ndelta)) nt=nt + ndelta * ((ngamma-nt)/ndelta)
++        gamma(k+1)=ngamma                  !Move forward
++        nstate(k+1)=ishft(nstate(k),1)
++        k=k+1
++        if(k.eq.nbits-1) go to 100         !We're done!
++
++        n=iand(nstate(k),npoly1r)
++        n=ieor(n,ishft(n,-16))
++        lsym=partab(iand(ieor(n,ishft(n,-8)),255))
++        n=iand(nstate(k),npoly2r)
++        n=ieor(n,ishft(n,-16))
++        lsym=lsym+lsym+partab(iand(ieor(n,ishft(n,-8)),255))
++            
++        if(k.ge.nbits-31) then
++           tm(0,k)=metrics(lsym,k)         !We're in the tail, now all zeros
++           tm(1,k)=0                       !Added for plots: not used
++        else
++           m0=metrics(lsym,k)
++           m1=metrics(ieor(3,lsym),k)
++           if(m0.gt.m1) then
++              tm(0,k)=m0                   !0-branch has better metric
++              tm(1,k)=m1
++           else
++              tm(0,k)=m1                   !1-branch is better
++              tm(1,k)=m0
++              nstate(k)=nstate(k) + 1      !Set low bit
++           endif
++        endif
++        ii(k)=0                            !Start with best branch
++     else
++        do while(.true.)
++           noback=.false.                  !Threshold violated, can't go forward
++           if(k.eq.0) noback=.true.
++           if(k.gt.0) then
++              if(gamma(k-1).lt.nt) noback=.true.
++           endif
++
++           if(noback) then               !Can't back up, either
++              nt=nt-ndelta               !Relax threshold and look forward again
++              if(ii(k).ne.0) then
++                 ii(k)=0
++                 nstate(k)=ieor(nstate(k),1)
++              endif
++              exit
++           endif
++
++           k=k-1                         !Back up
++           if(k.lt.(nbits-31) .and. ii(k).ne.1) then
++              ii(k)=ii(k)+1              !Search the next best branch
++              nstate(k)=ieor(nstate(k),1)
++              exit
++           endif
++        enddo
++     endif
++  enddo
++  i=nbits*maxcycles
++  
++100 metric=gamma(k)                      !Final path metric
++  nbytes=(nbits+7)/8                     !Copy decoded data to user's buffer
++  k=7
++  do j=1,nbytes-1
++     i4a=nstate(k)
++     dat(j)=i4a
++     k=k+8
++  enddo
++  dat(nbytes)=0
++  ncycles=i+1
++  ierr=0
++  if(i.ge.maxcycles*nbits) ierr=-1
++
++  return
++end subroutine fano232r
+
+Modified: trunk/jt4/getmu.f90
+===================================================================
+--- trunk/jt4/getmu.f90	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/getmu.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -3,7 +3,7 @@
+   parameter (NMAX=100)
+   real*8 pdfChisq,p0,p1,ps0,ps1,pn0,pn1,x
+   real log2
+-  common/pspncom/ps(0:NMAX),pn(0:NMAX),scale
++  common/scalecom/scale
+   log2(x)=log(x)/log(2.0)
+ 
+   ps0=pdfChisq(n*s0,n,amp)
+
+Modified: trunk/jt4/jt4code.f90
+===================================================================
+--- trunk/jt4/jt4code.f90	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/jt4code.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -7,19 +7,23 @@
+   character*22 msg0,msg,decoded
+   character*72 c72
+   integer   dgen(12)
+-  integer*1 data0(13),symbol(216)
++  integer*1 symbol(206)
++  integer*1 data0(13)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+-  integer   data4a(9)                   !Decoded data (8-bit bytes)
+-  integer   data4(12)                   !Decoded data (6-bit bytes)
+-  integer mettab(0:255,0:1)             !Metric table
++  integer data4a(9)                   !Decoded data (8-bit bytes)
++  integer data4(12)                   !Decoded data (6-bit bytes)
+   integer ncode(206)
++  integer iknown(72)
++  integer imsg(72)
++  real*4  sym(0:1,206)
++  common/scalecom/scale
+ 
+   nargs=iargc()
+   if(nargs.ne.1) then
+      print*,'Usage: JT65code &quot;message&quot;'
+      go to 999
+   endif
+-  call getmet4(7,mettab)
++!  call getmet4(7,mettab)
+   call getarg(1,msg0)                     !Get message from command line
+   msg=msg0
+ 
+@@ -32,26 +36,33 @@
+ 1040 format('Packed message, 6-bit symbols: ',12i3) !Display packed symbols
+ 
+   call encode4(msg,ncode)
+-  symbol(1:206)=ncode
+-
+-  write(*,1050) symbol(1:206)
++  symbol=ncode
++  write(*,1050) symbol
+ 1050 format('Channel symbols:',50i1/                              &amp;
+             ('                ',50i1))
+ 
+   call interleave4(symbol,-1)         !Remove interleaving
+ 
+   do i=1,206
+-     if(symbol(i).eq.1) then
+-        symbol(i)=-118
++     if(symbol(i).eq.0) then
++        sym(0,i)=5.
++        sym(1,i)=1.
+      else
+-        symbol(i)=118
++        sym(1,i)=5.
++        sym(0,i)=1.
+      endif
+   enddo
+ 
++  scale=10.0
++  nadd=1
++  amp=5.0
++  iknown=0
++  imsg=0
+   nbits=72+31
+-  ndelta=50
++  ndelta=30
+   limit=100
+-  call fano232(symbol,nbits,mettab,ndelta,limit,data1,ncycles,metric,ncount)
++  call fano232(sym,nadd,amp,iknown,imsg,nbits,ndelta,limit,data1,    &amp;
++       ncycles,metric,ncount)
+   nlim=ncycles/nbits
+ 
+   if(ncount.ge.0) then
+@@ -67,6 +78,8 @@
+      call unpackmsg(data4,decoded)
+      write(*,1060) decoded
+ 1060 format('Decoded message: ',a22)
++  else
++     print*,'Error: Fano decoder failed.'
+   endif
+ 
+ 999 end program jt4code
+
+Added: trunk/jt4/sim14.f90
+===================================================================
+--- trunk/jt4/sim14.f90	                        (rev 0)
++++ trunk/jt4/sim14.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -0,0 +1,163 @@
++program sim14
++
++  parameter (NMAX=100)
++  real*4 sym(0:1,206)
++  real*8 sum0,sum1,sumcycles
++  character arg*12,c72*72
++  character*22 msg,decoded
++  integer icode(206)
++  integer imsg(72)
++  logical iknown(72)
++  integer*1 data1(13)                   !Decoded data (8-bit bytes)
++  integer   data4a(9)                   !Decoded data (8-bit bytes)
++  integer   data4(12)                   !Decoded data (6-bit bytes)
++  common/scalecom/scale
++  common/jt4com1/imsg6(12)
++
++  nargs=iargc()
++  if(nargs.ne.8) then
++     print*,'Usage: simjt4 nadd scale ndelta limit known snr amp iters'
++     print*,'               1    10.0   30   10000   0    0   3   100'
++     go to 999
++  endif
++
++  call getarg(1,arg)
++  read(arg,*) nadd
++  call getarg(2,arg)
++  read(arg,*) scale
++  call getarg(3,arg)
++  read(arg,*) ndelta
++  call getarg(4,arg)
++  read(arg,*) limit
++  call getarg(5,arg)
++  read(arg,*) known
++  call getarg(6,arg)
++  read(arg,*) snrdb
++  call getarg(7,arg)
++  read(arg,*) amp
++  call getarg(8,arg)
++  read(arg,*) iters
++
++  iknown=.false.
++  if(known.gt.0) then
++     xi=1.0
++     do i=1,known
++        iknown(int(xi))=.true.
++        xi=xi + 72.0/known
++     enddo
++  else if(known.lt.0) then
++     iknown(15:58)=.true.
++  endif
++
++  write(*,1010) 
++1010 format(/                                                              &amp;
++  ' EsNo  EbNo  db65   false   fcopy  cycles   ber   ave0   ave1   time'/  &amp;
++  '---------------------------------------------------------------------')
++
++  msg='CQ K1JT FN20'
++  call encode4(msg,icode)
++  write(c72,1002) imsg6
++1002 format(12b6.6)
++  read(c72,1004) imsg
++1004 format(72i1)
++  read(c72,1006) n2a,n2b
++1006 format(b14,44x,b14)
++  n2=16384*n2a + n2b
++  print*,'A',n2a,n2b,n2
++
++  rate=72.0/206.0
++  nbits=72+31
++  maxlim=0
++
++  idb1=10 - nint(1.62*int(log(float(nadd))/log(2.0)))
++  idb2=-20
++  if(snrdb.ne.0.0) idb2=idb1
++  do idb=idb1,idb2,-1
++     EsNo=idb
++     if(snrdb.ne.0.0) EsNo=snrdb
++     EbNo=EsNo - 10.0*log10(rate)
++     db65=EsNo - 10.0*log10(2500.0/(nadd*11025.0/2520.0))
++     sig=sqrt(10.0**(0.1*EsNo))                !Signal level
++
++     ngood=0
++     nfalse=0
++     nbadbit=0
++     sumcycles=0.d0
++     sum0=0.d0
++     sum1=0.d0
++     ttotal=0.
++
++     do iter=1,iters
++        do j=1,206                            !Simulate received 2-FSK symbols
++           s0=0.
++           s1=0.
++           do n=1,nadd
++              x=0.707107*gran()
++              y=0.707107*gran()
++              s0=s0 + x**2 + y**2
++              x=0.707107*gran()
++              y=0.707107*gran()
++              s1=s1 + (x+sig)**2 + y**2
++           enddo
++           s0=s0/nadd
++           s1=s1/nadd
++           sum0=sum0 + min(s0,s1)
++           sum1=sum1 + max(s0,s1)
++           if(icode(j).eq.1) then
++              sym(0,j)=s0
++              sym(1,j)=s1
++           else
++              sym(0,j)=s1
++              sym(1,j)=s0
++           endif
++        enddo
++
++        nb=0
++        do j=1,206
++           if(icode(j).eq.1 .and. sym(1,j).lt.sym(0,j)) nb=nb+1
++           if(icode(j).eq.0 .and. sym(1,j).ge.sym(0,j)) nb=nb+1
++        enddo
++        call interleave4a(sym,-1)           !Remove the symbol interleaving
++
++        call cpu_time(t0)
++!        call fano232(sym,nadd,amp,iknown,imsg,nbits,ndelta,limit,    &amp;
++!             data1,ncycles,metric,ncount)
++        call ex28(sym,c72,n2)
++        call cpu_time(t1)
++        ttotal=ttotal + (t1-t0)
++        do i=1,9
++           i4=data1(i)
++           if(i4.lt.0) i4=i4+256
++           data4a(i)=i4
++        enddo
++        write(c72,1100) (data4a(i),i=1,9)
++1100    format(9b8.8)
++        read(c72,1102) data4
++1102    format(12b6)
++
++        call unpackmsg(data4,decoded)
++        write(70,3001) metric,nAvgCycles,decoded
++3001    format(2i10,2x,a22)
++        if(decoded.ne.msg) then
++           nfalse=nfalse+1
++           write(71,3001) metric,nAvgCycles,decoded
++        else
++           ngood=ngood+1
++           nbadbit=nbadbit+nb
++        endif
++     enddo
++
++     fgood=float(ngood)/iters
++     ffalse=float(nfalse)/iters
++     avecycles=sumcycles/iters
++     ber=nbadbit/((ngood+1)*206.0)
++     ave0=sum0/(iters*206.d0)
++     ave1=sum1/(iters*206.d0)
++     tavg=ttotal/iters
++     write(*,1020)  EsNo,EbNo,db65,ffalse,fgood,nint(avecycles),  &amp;
++          ber,ave0,ave1,tavg
++1020 format(f5.1,2f6.1,2f8.4,i7,4f7.3)
++     if(fgood.eq.0) exit
++  enddo
++
++999 end program sim14
+
+Modified: trunk/jt4/simjt4.f90
+===================================================================
+--- trunk/jt4/simjt4.f90	2013-02-20 15:33:34 UTC (rev 2999)
++++ trunk/jt4/simjt4.f90	2013-02-20 20:53:22 UTC (rev 3000)
+@@ -11,7 +11,7 @@
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+-  common/pspncom/ps(0:NMAX),pn(0:NMAX),scale
++  common/scalecom/scale
+   common/jt4com1/imsg6(12)
+ 
+   nargs=iargc()
+@@ -39,22 +39,20 @@
+   read(arg,*) iters
+ 
+   iknown=.false.
+-  xi=1.0
+-  do i=1,known
+-     iknown(int(xi))=.true.
+-     xi=xi + 72.0/known
+-  enddo     
++  if(known.gt.0) then
++     xi=1.0
++     do i=1,known
++        iknown(int(xi))=.true.
++        xi=xi + 72.0/known
++     enddo
++  else if(known.lt.0) then
++     iknown(15:58)=.true.
++  endif
+ 
+-  do i=0,NMAX
+-     read(13,*) x,pn(i),ps(i)
+-     if(pn(i).eq.0.0) pn(i)=1.e-6
+-     if(ps(i).eq.0.0) ps(i)=1.e-6
+-  enddo
+-
+   write(*,1010) 
+ 1010 format(/                                                              &amp;
+-  '  EsNo  EbNo  db65    false    fcopy  cycles    ber    ave0    ave1    time'/  &amp;
+-  '----------------------------------------------------------------------------')
++  ' EsNo  EbNo  db65   false   fcopy  cycles   ber   ave0   ave1   time'/  &amp;
++  '---------------------------------------------------------------------')
+ 
+   msg='CQ K1JT FN20'
+   call encode4(msg,icode)
+@@ -122,7 +120,6 @@
+              data1,ncycles,metric,ncount)
+         call cpu_time(t1)
+         ttotal=ttotal + (t1-t0)
+-
+         nAvgCycles=ncycles/nbits
+         maxlim=max(maxlim,nAvgCycles)
+         sumcycles=sumcycles+nAvgCycles
+@@ -137,8 +134,11 @@
+            read(c72,1102) data4
+ 1102       format(12b6)
+            call unpackmsg(data4,decoded)
++           write(70,3001) metric,nAvgCycles,decoded
++3001       format(2i10,2x,a22)
+            if(decoded.ne.msg) then
+               nfalse=nfalse+1
++              write(71,3001) metric,nAvgCycles,decoded
+            else
+               ngood=ngood+1
+               nbadbit=nbadbit+nb
+@@ -155,7 +155,7 @@
+      tavg=ttotal/iters
+      write(*,1020)  EsNo,EbNo,db65,ffalse,fgood,nint(avecycles),  &amp;
+           ber,ave0,ave1,tavg
+-1020 format(3f6.1,2f9.4,i7,4f8.3)
++1020 format(f5.1,2f6.1,2f8.4,i7,4f7.3)
+      if(fgood.eq.0) exit
+   enddo
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002691.html">[WSJT-SVN] r2999 - trunk/jt4
+</A></li>
+	<LI>Next message: <A HREF="002693.html">[WSJT-SVN] r3001 - trunk/jt4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2692">[ date ]</a>
+              <a href="thread.html#2692">[ thread ]</a>
+              <a href="subject.html#2692">[ subject ]</a>
+              <a href="author.html#2692">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

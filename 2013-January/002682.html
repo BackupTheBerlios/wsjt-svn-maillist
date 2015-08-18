@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2990 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2990%20-%20trunk&In-Reply-To=%3C20130129165915.DD88F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002681.html">
+   <LINK REL="Next"  HREF="002683.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2990 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2990%20-%20trunk&In-Reply-To=%3C20130129165915.DD88F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2990 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 29 17:59:15 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002681.html">[WSJT-SVN] r2989 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002683.html">[WSJT-SVN] r2991 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2682">[ date ]</a>
+              <a href="thread.html#2682">[ thread ]</a>
+              <a href="subject.html#2682">[ subject ]</a>
+              <a href="author.html#2682">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-29 17:59:15 +0100 (Tue, 29 Jan 2013)
+New Revision: 2990
+
+Modified:
+   trunk/avemsg4.f90
+   trunk/decode4.f90
+   trunk/extract4.f90
+   trunk/ftn_init.f90
+   trunk/ftn_quit.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt4.f90
+Log:
+Improve decoding speed (by up to 4 times!).
+
+
+Modified: trunk/avemsg4.f90
+===================================================================
+--- trunk/avemsg4.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/avemsg4.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -9,7 +9,7 @@
+   real sym(207,7)
+   integer nch(7)
+   data nch/1,2,4,9,18,36,72/
+-  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE),ich1,ich2
+ 
+ ! Count the available spectra for this Monitor segment (mseg=1 or 2),
+ ! and the number of spectra flagged as good.
+@@ -38,12 +38,10 @@
+   if(ns.gt.0) sym=sym/ns
+ 
+   nadd=nused*mode4
+-  call timer('extr4b  ',0)
+-  do k=1,7
++  do k=ich1,ich2
+      call extract4(sym(1,k),nadd,ncount,decoded)     !Do the KV decode
+      if(ncount.ge.0 .or. nch(k).ge.mode4) exit
+   enddo
+-  call timer('extr4b  ',1)
+   if(ncount.lt.0) decoded='                      '
+ 
+   nqual=0
+@@ -53,8 +51,7 @@
+      qbest=0.
+      neme=1
+ 
+-     call timer('deep4b  ',0)
+-     do k=1,7
++     do k=ich1,ich2
+         call deep4(sym(2,k),neme,flipx,mycall,hiscall,hisgrid,deepmsg,qual)
+         if(qual.gt.qbest) then
+            qbest=qual
+@@ -63,7 +60,6 @@
+         endif
+         if(nch(k).ge.mode4) exit
+      enddo
+-     call timer('deep4b  ',1)
+      deepmsg=deepbest
+      qual=qbest
+      nqual=qbest
+
+Modified: trunk/decode4.f90
+===================================================================
+--- trunk/decode4.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/decode4.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -18,7 +18,7 @@
+   integer mettab(0:255,0:1)             !Metric table
+   integer nch(7)
+   integer npr2(207)
+-  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
++  common/ave/ppsave(207,7,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE),ich1,ich2
+   data mode0/-999/
+   data nsum/7*0/,rsymbol/1449*0.0/
+   data npr2/                                                         &amp;
+@@ -59,75 +59,75 @@
+   do ich=1,7
+      if(nch(ich).ge.nw) exit
+   enddo
++  ich1=ich
++  do ich=1,7
++     if(nch(ich).le.mode4) ich2=ich
++  enddo
+ 
+-40 ich=ich+1
+-  nchips=nch(ich)
+-  nspchip=1260/nchips
+-  k=istart
+-  phi=0.d0
+-  phi1=0.d0
+-  fac2=1.e-8 * sqrt(float(mode4))
+-  do j=1,nsym+1
+-     if(flip.gt.0.0) then
+-        f0=1270.46 + dfx + (npr2(j)-1.5)*mode4*df
+-        f1=1270.46 + dfx + (2+npr2(j)-1.5)*mode4*df
+-     else
+-        f0=1270.46 + dfx + (1-npr2(j)-1.5)*mode4*df
+-        f1=1270.46 + dfx + (3-npr2(j)-1.5)*mode4*df
+-     endif
+-     dphi=twopi*dt*f0
+-     dphi1=twopi*dt*f1
+-     sq0=0.
+-     sq1=0.
+-     do nc=1,nchips
+-        phi=0.d0
+-        phi1=0.d0
+-        c0=0.
+-        c1=0.
+-        do i=1,nspchip
+-           k=k+1
+-           phi=phi+dphi
+-           phi1=phi1+dphi1
+-           cz=dcmplx(cos(phi),-sin(phi))
+-           cz1=dcmplx(cos(phi1),-sin(phi1))
+-           if(k.le.npts) then
+-              c0=c0 + dat(k)*cz
+-              c1=c1 + dat(k)*cz1
+-           endif
++  do ich=ich1,ich2
++     nchips=nch(ich)
++     nspchip=1260/nchips
++     k=istart
++     phi=0.d0
++     phi1=0.d0
++     fac2=1.e-8 * sqrt(float(mode4))
++     do j=1,nsym+1
++        if(flip.gt.0.0) then
++           f0=1270.46 + dfx + (npr2(j)-1.5)*mode4*df
++           f1=1270.46 + dfx + (2+npr2(j)-1.5)*mode4*df
++        else
++           f0=1270.46 + dfx + (1-npr2(j)-1.5)*mode4*df
++           f1=1270.46 + dfx + (3-npr2(j)-1.5)*mode4*df
++        endif
++        dphi=twopi*dt*f0
++        dphi1=twopi*dt*f1
++        sq0=0.
++        sq1=0.
++        do nc=1,nchips
++           phi=0.d0
++           phi1=0.d0
++           c0=0.
++           c1=0.
++           do i=1,nspchip
++              k=k+1
++              phi=phi+dphi
++              phi1=phi1+dphi1
++              cz=dcmplx(cos(phi),-sin(phi))
++              cz1=dcmplx(cos(phi1),-sin(phi1))
++              if(k.le.npts) then
++                 c0=c0 + dat(k)*cz
++                 c1=c1 + dat(k)*cz1
++              endif
++           enddo
++           sq0=sq0 + real(c0)**2 + aimag(c0)**2
++           sq1=sq1 + real(c1)**2 + aimag(c1)**2
+         enddo
+-        sq0=sq0 + real(c0)**2 + aimag(c0)**2
+-        sq1=sq1 + real(c1)**2 + aimag(c1)**2
++        sq0=fac2*sq0
++        sq1=fac2*sq1
++        rsym=amp*(sq1-sq0)
++        if(j.ge.1) then
++           rsymbol(j,ich)=rsym
++           sym(j)=rsym
++        endif
+      enddo
+-     sq0=fac2*sq0
+-     sq1=fac2*sq1
+-     rsym=amp*(sq1-sq0)
+-     if(j.ge.1) then
+-        rsymbol(j,ich)=rsym
+-        sym(j)=rsym
++     
++     call extract4(sym,nadd,ncount,decoded)     !Do the convolutional decode
++
++     qual=0.                                    !Now try deep search
++     neme=1
++     call deep4(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++     if(qual.gt.qbest) then
++        qbest=qual
++        deepbest=deepmsg
++        ichbest=ich
+      endif
++
++     if(ncount.ge.0) then
++        ichbest=ich
++        go to 100
++     endif
+   enddo
+-  
+-  call timer('extr4a  ',0)
+-  call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
+-  call timer('extr4a  ',1)
+ 
+-  qual=0.                                    !Now try deep search
+-  neme=1
+-  call timer('deep4a  ',0)
+-  call deep4(sym(2),neme,flip,mycall,hiscall,hisgrid,deepmsg,qual)
+-  call timer('deep4a  ',1)
+-  if(qual.gt.qbest) then
+-     qbest=qual
+-     deepbest=deepmsg
+-     ichbest=ich
+-  endif
+-
+-  if(ncount.ge.0) then
+-     ichbest=ich
+-     go to 100
+-  endif
+-  if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+-
+ 100 if(ncount.lt.0) then
+      decoded=deepbest
+      qual=qbest
+
+Modified: trunk/extract4.f90
+===================================================================
+--- trunk/extract4.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/extract4.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -28,7 +28,7 @@
+ 
+   nbits=72+31
+   ndelta=50
+-  limit=100000
++  limit=50000
+   ncycles=0
+   ncount=-1
+   decoded='                      '
+
+Modified: trunk/ftn_init.f90
+===================================================================
+--- trunk/ftn_init.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/ftn_init.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -31,13 +31,7 @@
+   integer*2 nsky
+   common/sky/ nsky(360,180)
+   common/mtxcom/mtx,ltrace,mtxstate,csub0
+-  common/tracer/ limtrace,lu
+ 
+-  limtrace=0
+-  lu=26
+-  open(26,file='timer.out',status='unknown')
+-  call timer('wsjt    ',0)
+-
+   call cs_init
+   call cs_lock('ftn_init')
+   iflag=1
+
+Modified: trunk/ftn_quit.f90
+===================================================================
+--- trunk/ftn_quit.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/ftn_quit.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -2,8 +2,6 @@
+ !f2py threadsafe
+   call four2a(a,-1,-1,1,1)
+   call cs_destroy
+-  call timer('wsjt    ',1)
+-  call timer('wsjt    ',101)
+ 
+   return
+ end subroutine ftn_quit
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/wsjt.py	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/wsjt1.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -50,7 +50,6 @@
+   common/extcom/ntdecode
+   save
+ 
+-  call timer('wsjt1   ',0)
+   lcum=.true.
+   jz=jz0
+   ntdecode=ntdecode0
+@@ -231,12 +230,10 @@
+ 
+ ! Offset data by about 1 s.
+      jztest=165000
+-     call timer('wsjt4   ',0)
+      if(jz.ge.jztest) call wsjt4(dat,jz,cfile6,NClearAve,MinSigdB,      &amp;
+           DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,        &amp;
+           Nseg,MouseDF2,NAgain,ndepth,idf,lumsg,lcum,nspecial,ndf,      &amp;
+           NSyncOK,ccf,psavg,ndiag)
+-     call timer('wsjt4   ',1)
+      goto 900
+   endif
+ 
+@@ -334,7 +331,6 @@
+ 901 call flush(11)
+   call flush(12)
+   call flush(21)
+-  call timer('wsjt1   ',1)
+ 
+   return
+ end subroutine wsjt1
+
+Modified: trunk/wsjt4.f90
+===================================================================
+--- trunk/wsjt4.f90	2013-01-29 16:18:41 UTC (rev 2989)
++++ trunk/wsjt4.f90	2013-01-29 16:59:15 UTC (rev 2990)
+@@ -56,14 +56,10 @@
+   endif
+ 
+ ! Attempt to synchronize: look for sync pattern, get DF and DT.
+-  call timer('sync4   ',0)
+   call sync4(dat,npts,DFTolerance,NFreeze,MouseDF,mode,             &amp;
+        mode4,dtx,dfx,snrx,snrsync,ccfblue,ccfred,flip,width)
+-  call timer('sync4   ',1)
+ 
+-  call timer('snr4    ',0)
+   call snr4(ccfblue,snrsync,snrx)          !### New calc of sync, snr ###
+-  call timer('snr4    ',1)
+   
+   csync=' '
+   decoded='                      '
+@@ -98,10 +94,8 @@
+      cooo='O ?'
+   endif
+ 
+-  call timer('decode4 ',0)
+   call decode4(dat,npts,dtx,dfx,flip,mode,mode4,width,mycall,hiscall,    &amp;
+        hisgrid,decoded,ncount,deepmsg,qual,ichbest,submode)
+-  call timer('decode4 ',1)
+ 
+ 200 kvqual=0
+   if(ncount.ge.0) kvqual=1
+@@ -139,12 +133,10 @@
+ 1011 format(a77)
+   call cs_unlock
+ 
+-  call timer('avemsg4 ',0)
+   if(nsave.ge.1) call avemsg4(1,mode4,ndepth,                        &amp;
+        avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,ns1,ncount1)
+   if(nsave.ge.1) call avemsg4(2,mode4,ndepth,                        &amp;
+        avemsg2,nused2,nq1,nq2,neme,mycall,hiscall,hisgrid,qual2,ns2,ncount2)
+-  call timer('avemsg4 ',1)
+   nqual1=qual1
+   nqual2=qual2
+ ! if(ndiag.eq.0 .and. nqual1.gt.10) nqual1=10
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002681.html">[WSJT-SVN] r2989 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002683.html">[WSJT-SVN] r2991 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2682">[ date ]</a>
+              <a href="thread.html#2682">[ thread ]</a>
+              <a href="subject.html#2682">[ subject ]</a>
+              <a href="author.html#2682">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

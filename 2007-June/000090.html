@@ -1,0 +1,223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r405 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r405%20-%20branches/map65&In-Reply-To=%3C200706221438.l5MEc8lP008401%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000089.html">
+   <LINK REL="Next"  HREF="000091.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r405 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r405%20-%20branches/map65&In-Reply-To=%3C200706221438.l5MEc8lP008401%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r405 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 22 16:38:08 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000089.html">[WSJT-SVN] r404 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000091.html">[WSJT-SVN] r406 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#90">[ date ]</a>
+              <a href="thread.html#90">[ thread ]</a>
+              <a href="subject.html#90">[ subject ]</a>
+              <a href="author.html#90">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-22 16:38:03 +0200 (Fri, 22 Jun 2007)
+New Revision: 405
+
+Modified:
+   branches/map65/Makefile.in
+   branches/map65/plrs.f90
+   branches/map65/start_portaudio.c
+Log:
+Make it compile on Linux.
+
+
+Modified: branches/map65/Makefile.in
+===================================================================
+--- branches/map65/Makefile.in	2007-06-22 12:27:46 UTC (rev 404)
++++ branches/map65/Makefile.in	2007-06-22 14:38:03 UTC (rev 405)
+@@ -38,7 +38,7 @@
+ ###
+ all:    Audio.so
+ 
+-OBJS2C   = init_rs.o encode_rs.o decode_rs.o
++OBJS2C   = init_rs.o encode_rs.o decode_rs.o plrr_subs.o
+ 
+ F2PYONLY = ftn_init ftn_quit audio_init getfile azdist0 astro0 \
+ 	spec map65a0
+@@ -47,7 +47,7 @@
+ 	decode1.F90 ftn_init.F90 ftn_quit.f90 wsjtgen.F90 \
+ 	runqqq.F90 fivehz.F90 flushqqq.F90 map65a0.f90 \
+ 	rfile.f90 rfile3a.f90 spec.f90 map65a.f90 display.F90 \
+-	getfile.F90 getfile2.F90
++	getfile.F90 getfile2.F90 recvpkt.F90
+ 
+ SRCS2F77 = indexx.f gen65.f chkmsg.f \
+ 	gentone.f gencwid.f set.f db.f pctile.f sort.f ssort.f \
+
+Modified: branches/map65/plrs.f90
+===================================================================
+--- branches/map65/plrs.f90	2007-06-22 12:27:46 UTC (rev 404)
++++ branches/map65/plrs.f90	2007-06-22 14:38:03 UTC (rev 405)
+@@ -5,18 +5,29 @@
+ 
+   integer RMODE
+   parameter(RMODE=0)
+-  parameter (NBPP=1392,NPPR=184)
+-  parameter (NBYTES=NBPP*NPPR,NZ=NBYTES/8)
+-  parameter (NRECS=1979)
++  parameter (NBPP=1392)
++  parameter (NZ=60*96000)
++  parameter (NBYTES=8*NZ)
++  parameter (NPPR=NBYTES/NBPP)
+   integer*1 userx_no,iusb
+   integer*2 nblock
+   real*8 d(NZ),buf8
+   integer fd
+   integer open,read,close
++  integer nm(11)
+   character*8 fname
+-  real*8 center_freq,dmsec,dtmspacket
+-  common/plrscom/center_freq,msec,fselect,iptr,nblock,userx_no,iusb,buf8(174)
+-!                     8        4     4      4    2       1       1    1392
++  real*8 center_freq,dmsec,dtmspacket,tmsec
++  common/plrscom/center_freq,msec2,fsample,iptr,nblock,userx_no,iusb,buf8(174)
++!                     8        4      4      4    2       1       1    1392
++  data nm/45,46,48,50,52,54,55,56,57,58,59/
++  data nblock/0/
++
++  nargs=iargc()
++  if(nargs.ne.1) then
++     print*,'Usage: plrs &lt;iters&gt;'
++     go to 999
++  endif
++
+   fname=&quot;all.tf2&quot;//char(0)
+   iters=1
+ 
+@@ -24,7 +35,7 @@
+   iusb=1
+   center_freq=144.125d0
+   dtmspacket=1000.d0*NBPP/(8.d0*96000.d0)
+-  fselect=128.0 + 1.6 + 0.220
++  fsample=96000.0
+   npkt=0
+ 
+   call setup_ssocket                       !Open a socket for multicasting
+@@ -34,7 +45,10 @@
+      dmsec=-dtmspacket
+      nsec0=time()
+ 
+-     do irec=1,NRECS
++     do ifile=1,11
++        print*,'Reading file',ifile
++        ns0=0
++        tmsec=1000*(3600*7 + 60*nm(ifile))-dtmspacket
+         nr=read(fd,d,NBYTES)
+         if(nr.ne.NBYTES) then
+            print*,'Error reading file all.tf2'
+@@ -44,21 +58,27 @@
+         k=0
+         do ipacket=1,NPPR
+            dmsec=dmsec+dtmspacket
++           tmsec=tmsec+dtmspacket
++           msec2=nint(tmsec)
+            msec=nint(dmsec)
+            do i=1,NBPP/8
+               k=k+1
+               buf8(i)=d(k)
+            enddo
++           nblock=nblock+1
+            call send_pkt(center_freq)
+            npkt=npkt+1
++              
+            if(mod(npkt,100).eq.0) then
+               nsec=time()-nsec0
+               nwait=msec-1000*nsec
+-              if(mod(npkt,1000).eq.0) write(*,1010) npkt,nsec,0.001*msec,nwait
+-1010          format('npkt:',i10,'   nsec:',i6,'   t:',f10.3,'   nwait:',i8)
+ !  Pace the data at close to its real-time rate
+               if(nwait.gt.0) call usleep(nwait*1000)
+            endif
++           ns=mod(msec2/1000,60)
++           if(ns.ne.ns0) write(*,1010) npkt,ns,0.001*msec2,nwait
++1010       format('npkt:',i10,'   ns:',i6,'   t:',f10.3,'   nwait:',i8)
++           ns0=ns
+         enddo
+      enddo
+      i=close(fd)
+
+Modified: branches/map65/start_portaudio.c
+===================================================================
+--- branches/map65/start_portaudio.c	2007-06-22 12:27:46 UTC (rev 404)
++++ branches/map65/start_portaudio.c	2007-06-22 14:38:03 UTC (rev 405)
+@@ -5,8 +5,9 @@
+ #include &lt;time.h&gt;
+ #include &lt;sys/time.h&gt;
+ 
++extern void a2d_(int *iarg);
+ extern void decode1_(int *iarg);
+-extern void a2d_(int *iarg);
++extern void recvpkt_(int *iarg);
+ 
+ int start_threads_(int *ndevin, int *ndevout, short y1[], short y2[],
+ 	int *nbuflen, int *iwrite, short iwave[],
+@@ -15,13 +16,15 @@
+ 	int *Transmitting, double *Tsec, int *ngo, int *nmode,
+ 	double tbuf[], int *ibuf, int *ndsec)
+ {
+-  pthread_t thread1,thread2;
+-  int iret1,iret2;
+-  int iarg1 = 1,iarg2 = 2;
++  pthread_t thread1,thread2,thread3;
++  int iret1,iret2,iret3;
++  int iarg1=1, iarg2=2, iarg3=3;
+ 
+  /* snd_pcm_start */
+   //  printf(&quot;start_threads: creating thread for a2d\n&quot;);
+   iret1 = pthread_create(&amp;thread1,NULL,a2d_,&amp;iarg1);
+   //  printf(&quot;start_threads: creating thread for decode1_\n&quot;);
+   iret2 = pthread_create(&amp;thread2,NULL,decode1_,&amp;iarg2);
++  //  printf(&quot;start_threads: creating thread for recvpkt_\n&quot;);
++  iret3 = pthread_create(&amp;thread3,NULL,recvpkt_,&amp;iarg3);
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000089.html">[WSJT-SVN] r404 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000091.html">[WSJT-SVN] r406 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#90">[ date ]</a>
+              <a href="thread.html#90">[ thread ]</a>
+              <a href="subject.html#90">[ subject ]</a>
+              <a href="author.html#90">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

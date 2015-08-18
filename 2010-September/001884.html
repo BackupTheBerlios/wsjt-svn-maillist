@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2192 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2192%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100928172937.0D620481080%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001883.html">
+   <LINK REL="Next"  HREF="001885.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2192 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2192%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100928172937.0D620481080%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2192 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 28 19:29:36 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001883.html">[WSJT-SVN] r2191 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001885.html">[WSJT-SVN] r2193 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1884">[ date ]</a>
+              <a href="thread.html#1884">[ thread ]</a>
+              <a href="subject.html#1884">[ subject ]</a>
+              <a href="author.html#1884">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-28 19:29:36 +0200 (Tue, 28 Sep 2010)
+New Revision: 2192
+
+Modified:
+   branches/wspr/WsprMod/iq.py
+   branches/wspr/acom1.f90
+   branches/wspr/phasetx.f90
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+Log:
+Tx phasing controls now OK; removed specjt for now.
+
+Modified: branches/wspr/WsprMod/iq.py
+===================================================================
+--- branches/wspr/WsprMod/iq.py	2010-09-28 14:31:36 UTC (rev 2191)
++++ branches/wspr/WsprMod/iq.py	2010-09-28 17:29:36 UTC (rev 2192)
+@@ -29,12 +29,12 @@
+ isc1.set(0)
+ isc2=IntVar()
+ isc2.set(0)
++isc2a=IntVar()
++isc2a.set(0)
+ isc3=IntVar()
+ isc3.set(0)
+-##isc4=IntVar()
+-##isc4.set(0)
+-##isc5=IntVar()
+-##isc5.set(0)
++isc3a=IntVar()
++isc3a.set(0)
+ 
+ #-------------------------------------------------------- Create GUI widgets
+ g1=Pmw.Group(root,tag_pyclass=None)
+@@ -70,13 +70,19 @@
+                to=0,variable=isc1,label='Tx dB')
+ sc1.pack(side=TOP,padx=4,pady=2)
+ 
+-sc2=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-               to=100,variable=isc2,label='Tx I/Q Balance')
++sc2=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-30, \
++               to=30,variable=isc2,label='Tx I/Q Balance (0.1 dB)')
+ sc2.pack(side=TOP,padx=4,pady=2)
++sc2a=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++               to=100,variable=isc2a,label='Tx I/Q Balance (0.002 dB)')
++sc2a.pack(side=TOP,padx=4,pady=2)
+ 
+-sc3=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+-               to=100,variable=isc3,label='Tx Phase')
++sc3=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-20, \
++               to=20,variable=isc3,label='Tx Phase (deg)')
+ sc3.pack(side=TOP,padx=4,pady=2)
++sc3a=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
++               to=100,variable=isc3a,label='Tx Phase (0.02 deg)')
++sc3a.pack(side=TOP,padx=4,pady=2)
+ 
+ ##sc4=Scale(g1.interior(),orient=HORIZONTAL,length=200,from_=-100, \
+ ##               to=100,variable=isc4,label='Rx I/Q Balance')
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-09-28 14:31:36 UTC (rev 2191)
++++ branches/wspr/acom1.f90	2010-09-28 17:29:36 UTC (rev 2192)
+@@ -12,7 +12,7 @@
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+        nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
+-       ntxdb,ntxbal,ntxpha,iwrite,newdat,                              &amp;
++       ntxdb,txbal,txpha,iwrite,newdat,                                &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+        pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+
+Modified: branches/wspr/phasetx.f90
+===================================================================
+--- branches/wspr/phasetx.f90	2010-09-28 14:31:36 UTC (rev 2191)
++++ branches/wspr/phasetx.f90	2010-09-28 17:29:36 UTC (rev 2192)
+@@ -1,10 +1,10 @@
+-subroutine phasetx(id2,npts,fac,ntxbal,ntxpha)
++subroutine phasetx(id2,npts,fac,txbal,txpha)
+ 
+   integer*2 id2(2,npts)
+   complex h,z
+ 
+-  pha=0.01*ntxpha/57.2957795
+-  xbal=1.0 + 0.001*ntxbal
++  pha=txpha/57.2957795
++  xbal=10.0**(0.005*txbal)
+   if(xbal.gt.1.0) then
+      b1=1.0
+      b2=1.0/xbal
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-09-28 14:31:36 UTC (rev 2191)
++++ branches/wspr/tx.f90	2010-09-28 17:29:36 UTC (rev 2192)
+@@ -122,6 +122,7 @@
+         j=j+1
+         id2(i)=fac*jwave(j)
+      enddo
++     if(iqmode.eq.1) call phasetx(id2,npts,fac,txbal,txpha)
+      ierr=soundout(ndevout,id2,npts,iqmode)
+   else
+      istart=2*48000 +1
+@@ -142,7 +143,7 @@
+               j=j+1
+               id2(i)=fac*jwave(j)
+            enddo
+-           if(iqmode.eq.1) call phasetx(id2,npts,fac,ntxbal,ntxpha)
++           if(iqmode.eq.1) call phasetx(id2,npts,fac,txbal,txpha)
+            ierr=soundout(ndevout,id2,npts,iqmode)
+         enddo
+      endif
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-28 14:31:36 UTC (rev 2191)
++++ branches/wspr/wspr.py	2010-09-28 17:29:36 UTC (rev 2192)
+@@ -709,8 +709,11 @@
+     w.acom1.iqrx=iq.iqrx.get()
+     w.acom1.iqtx=iq.iqtx.get()
+     w.acom1.ntxdb=iq.isc1.get()
+-    w.acom1.ntxbal=iq.isc2.get()
+-    w.acom1.ntxpha=iq.isc3.get()
++    bal=iq.isc2.get() + 0.02*iq.isc2a.get()
++    w.acom1.txbal=bal
++    pha=iq.isc3.get() + 0.02*iq.isc3a.get()
++    w.acom1.txpha=pha
++##    print bal,pha
+     try:
+         w.acom1.nfiq=iq.fiq.get()
+     except:
+@@ -1049,7 +1052,9 @@
+     f.write(&quot;FIQ &quot; + str(iq.fiq.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxdb &quot; + str(iq.isc1.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxbal &quot; + str(iq.isc2.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxbalf &quot; + str(iq.isc2a.get()) + &quot;\n&quot;)
+     f.write(&quot;Ntxpha &quot; + str(iq.isc3.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxphaf &quot; + str(iq.isc3a.get()) + &quot;\n&quot;)
+     f.write(&quot;SerialRate &quot; + str(options.serial_rate.get()) + &quot;\n&quot;)
+     f.write(&quot;DataBits &quot; + str(options.databits.get()) + &quot;\n&quot;)
+     f.write(&quot;StopBits &quot; + str(options.stopbits.get()) + &quot;\n&quot;)
+@@ -1415,7 +1420,9 @@
+             elif key == 'FIQ': iq.fiq.set(value)
+             elif key == 'Ntxdb': iq.isc1.set(value)
+             elif key == 'Ntxbal': iq.isc2.set(value)
++            elif key == 'Ntxbalf': iq.isc2a.set(value)
+             elif key == 'Ntxpha': iq.isc3.set(value)
++            elif key == 'Ntxphaf': iq.isc3a.set(value)
+             elif key == 'PTTmode': options.pttmode.set(value)
+             elif key == 'CATenable': options.cat_enable.set(value)
+             elif key == 'SerialRate': options.serial_rate.set(int(value))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001883.html">[WSJT-SVN] r2191 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001885.html">[WSJT-SVN] r2193 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1884">[ date ]</a>
+              <a href="thread.html#1884">[ thread ]</a>
+              <a href="subject.html#1884">[ subject ]</a>
+              <a href="author.html#1884">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

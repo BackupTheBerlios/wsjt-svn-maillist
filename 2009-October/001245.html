@@ -1,0 +1,1233 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1555 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1555%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200910241921.n9OJL6f8003837%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001244.html">
+   <LINK REL="Next"  HREF="001246.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1555 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1555%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200910241921.n9OJL6f8003837%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1555 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Oct 24 21:21:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001244.html">[WSJT-SVN] r1554 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001246.html">[WSJT-SVN] r1556 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1245">[ date ]</a>
+              <a href="thread.html#1245">[ thread ]</a>
+              <a href="subject.html#1245">[ subject ]</a>
+              <a href="author.html#1245">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-24 21:20:59 +0200 (Sat, 24 Oct 2009)
+New Revision: 1555
+
+Added:
+   branches/wspr/gencwid.f
+   branches/wspr/morse.f
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/WsprMod/options.py
+   branches/wspr/acom1.f90
+   branches/wspr/azdist.f
+   branches/wspr/hash.f90
+   branches/wspr/tx.F90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+   branches/wspr/wspr.py
+Log:
+New message formats enabled, including two-transmission sequence.
+Starting to implement CW ID.
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/Makefile.in	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -63,7 +63,7 @@
+ 	ps162.f pctile.f xcor162.f peakup.f db.f \
+ 	inter_mept.f fano232.f unpack50.f unpackcall.f \
+ 	unpackgrid.f four2a.f flat3.f sort.f deg2grid.f \
+-	ssort.f genmept.f \
++	ssort.f genmept.f gencwid.f morse.f \
+ 	packcall.f packgrid.f pack50.f encode232.f \
+ 	nchar.f grid2deg.f \
+ 	fchisq.f ccf2.f twkfreq.f azdist.f geodist.f
+
+Modified: branches/wspr/WsprMod/options.py
+===================================================================
+--- branches/wspr/WsprMod/options.py	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/WsprMod/options.py	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -49,6 +49,8 @@
+ serial_rate=IntVar()
+ serial_handshake=StringVar()
+ cat_enable=IntVar()
++idint=IntVar()
++igrid6=IntVar()
+ rignum=IntVar()
+ 
+ pttmode.set('DTR')
+@@ -65,6 +67,8 @@
+         value='Dummy',entry_textvariable=MyCall,entry_width=8)
+ lgrid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Grid:',
+         value='AB99',entry_textvariable=MyGrid,entry_width=5)
++cwid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='IDinterval (m):',
++        value='0',entry_textvariable=idint,entry_width=5)
+ comport=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Serial Port:',
+         value='0',entry_textvariable=SerialPort,entry_width=12)
+ cbptt=Pmw.ComboBox(g1.interior(),labelpos=W,label_text='PTT:',
+@@ -77,6 +81,7 @@
+         value='1500',entry_textvariable=bfofreq,entry_width=12)
+ cbpwr=Pmw.ComboBox(g1.interior(),labelpos=W,label_text='Power (dBm):',
+         entry_textvariable=dBm,entry_width=4,scrolledlist_items=pwrlist)
++engrid6=Checkbutton(g1.interior(),text='Tx Grid6',variable=igrid6)
+ encat=Checkbutton(g1.interior(),text='Enable CAT',variable=cat_enable)
+ lrignum=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Rig num:',
+         value='214',entry_textvariable=rignum,entry_width=8)
+@@ -84,8 +89,8 @@
+         entry_textvariable=serial_rate,entry_width=4,scrolledlist_items=baudlist)
+ cbhs=Pmw.ComboBox(g1.interior(),labelpos=W,label_text='Handshake:',
+         entry_textvariable=serial_handshake,entry_width=4,scrolledlist_items=hslist)
+-widgets = (lcall,lgrid,comport,cbptt,audioin,audioout,rxbfo,cbpwr,encat, \
+-           lrignum,cbbaud,cbhs)
++widgets = (lcall,lgrid,cwid,comport,cbptt,audioin,audioout,rxbfo,\
++           cbpwr,engrid6,encat,lrignum,cbbaud,cbhs)
+ for widget in widgets:
+     widget.pack(fill=X,expand=1,padx=10,pady=2)
+ Pmw.alignlabels(widgets)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/acom1.f90	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -6,11 +6,12 @@
+   character*80 infile,outfile,pttport,thisfile
+   character cdate*8,utctime*10,rxtime*4
+   character cmd*60,pttmode*3
+-  character callsign*6,grid*4,ctxmsg*22,sending*22
++  character callsign*12,grid*4,grid6*6,ctxmsg*22,sending*22
+   integer*2 iwave
+-  common/acom1/ f0,ftx,rms,pctx,nsec,ndevin,ndevout,nsave,nrxdone,      &amp;
+-       ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,       &amp;
+-       ndiskdat,ndecoding,ntr,ndebug,idevin,idevout,idsec,nsectx,nbfo,  &amp;
+-       ntxfirst,ntest,ncat,ltest,iwave(NMAX),nsec1,nsec2,rms1,xdb1,     &amp;
+-       infile,outfile,pttport,cdate,utctime,callsign,grid,rxtime,       &amp;
+-       ctxmsg,sending,thisfile,cmd,pttmode
++  common/acom1/ f0,ftx,rms,pctx,igrid6,nsec,ndevin,ndevout,nsave,       &amp;
++       nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,idint,       &amp;
++       ntransmitting,ndiskdat,ndecoding,ntr,ndebug,idevin,idevout,      &amp;
++       idsec,nsectx,nbfo,ntxfirst,ntest,ncat,ltest,iwave(NMAX),         &amp;
++       nsec1,nsec2,rms1,xdb1,infile,outfile,pttport,cdate,utctime,      &amp;
++       callsign,grid,grid6,rxtime,ctxmsg,sending,thisfile,cmd,          &amp;
++       pttmode
+
+Modified: branches/wspr/azdist.f
+===================================================================
+--- branches/wspr/azdist.f	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/azdist.f	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -1,10 +1,6 @@
+       subroutine azdist(MyGrid,HisGrid,utch,nAz,nEl,nDmiles,nDkm,
+      +  nHotAz,nHotABetter)
+ 
+-C  Old calling sequence:
+-c      subroutine azdist(MyGrid,HisGrid,UTChours,Az,Dmiles,Dkm,El,
+-c     +  HotA,HotB,HotABetter)
+-
+       character*6 MyGrid,HisGrid,mygrid0,hisgrid0
+       real*8 utch,utch0
+       logical HotABetter,IamEast
+
+Added: branches/wspr/gencwid.f
+===================================================================
+--- branches/wspr/gencwid.f	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/gencwid.f	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -0,0 +1,36 @@
++      subroutine gencwid(msg,wpm,freqcw,iwave,nwave)
++
++      parameter (NMAX=60000)
++      character msg*22,msg2*22
++      integer*2 iwave(NMAX)
++
++      integer*1 idat(460)
++      real*8 dt,t,twopi,pha,dpha,tdit,samfac
++      data twopi/6.283185307d0/
++
++      do i=1,22
++         if(msg(i:i).eq.' ') go to 10
++       enddo
++ 10   iz=i-1
++      msg2=msg(1:iz)//'                      '
++      call morse(msg2,idat,ndits) !Encode part 1 of msg
++
++      tdit=1.2d0/wpm                   !Key-down dit time, seconds
++      dt=1.d0/12000.d0
++      nwave=ndits*tdit/dt
++      pha=0.
++      dpha=twopi*freqcw*dt
++      t=0.d0
++      s=0.
++      u=wpm/(12000.0*0.03)
++      do i=1,nwave
++         t=t+dt
++         pha=pha+dpha
++         j=t/tdit + 1
++         s=s + u*(idat(j)-s)
++         iwave(i)=nint(s*32767.d0*sin(pha))
++      enddo
++
++      return
++      end
++
+
+Modified: branches/wspr/hash.f90
+===================================================================
+--- branches/wspr/hash.f90	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/hash.f90	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -10,5 +10,6 @@
+      i=nhash(ic,len,146)
+      ihash=iand(i,MASK15)
+ 
++!     print*,'C',ihash,len,string
+   return
+ end subroutine hash
+
+Added: branches/wspr/morse.f
+===================================================================
+--- branches/wspr/morse.f	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/morse.f	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -0,0 +1,90 @@
++      subroutine morse(msg,idat,n)
++
++C  Convert ascii message to a Morse code bit string.
++C     Dash = 3 dots
++C     Space between dots, dashes = 1 dot
++C     Space between letters = 3 dots
++C     Space between words = 7 dots
++
++      character*22 msg
++      integer*1 idat(460)
++      integer*1 ic(21,38)
++      data ic/
++     + 1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,0,20,
++     + 1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,0,0,0,18,
++     + 1,0,1,0,1,1,1,0,1,1,1,0,1,1,1,0,0,0,0,0,16,
++     + 1,0,1,0,1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,14,
++     + 1,0,1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,1,1,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,1,1,0,1,1,1,0,1,0,1,0,1,0,0,0,0,0,0,0,14,
++     + 1,1,1,0,1,1,1,0,1,1,1,0,1,0,1,0,0,0,0,0,16,
++     + 1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,0,0,0,18,
++     + 1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 6,
++     + 1,1,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,1,1,0,1,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,1,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0, 8,
++     + 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 2,
++     + 1,0,1,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,1,1,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0, 8,
++     + 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 4,
++     + 1,0,1,1,1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,14,
++     + 1,1,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,0,1,1,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0, 8,
++     + 1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 6,
++     + 1,1,1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,0,1,1,1,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,1,1,0,1,1,1,0,1,0,1,1,1,0,0,0,0,0,0,0,14,
++     + 1,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0, 8,
++     + 1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 6,
++     + 1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 4,
++     + 1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0, 8,
++     + 1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,10,
++     + 1,1,1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,14,
++     + 1,1,1,0,1,1,1,0,1,0,1,0,0,0,0,0,0,0,0,0,12,
++     + 1,1,1,0,1,0,1,0,1,1,1,0,1,0,0,0,0,0,0,0,14,
++     + 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 2/   !Incremental word space
++      save
++
++C  Find length of message
++      do i=22,1,-1
++         if(msg(i:i).ne.' ') go to 1
++      enddo
++ 1    msglen=i
++
++      n=0
++      do k=1,msglen
++         jj=ichar(msg(k:k))
++         if(jj.ge.97 .and. jj.le.122) jj=jj-32  !Convert lower to upper case
++         if(jj.ge.48 .and. jj.le.57) j=jj-48    !Numbers
++         if(jj.ge.65 .and. jj.le.90) j=jj-55    !Letters
++         if(jj.eq.47) j=36                      !Slash (/)
++         if(jj.eq.32) j=37                      !Word space
++         j=j+1
++
++C  Insert this character
++         nmax=ic(21,j)
++         do i=1,nmax
++            n=n+1
++            idat(n)=ic(i,j)
++         enddo
++
++C  Insert character space of 2 dit lengths:
++         n=n+1
++         idat(n)=0
++         n=n+1
++         idat(n)=0
++      enddo
++
++C  Insert word space at end of message
++      do j=1,4
++         n=n+1
++         idat(n)=0
++      enddo
++
++      return
++      end
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/tx.F90	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -11,12 +11,15 @@
+ 
+   parameter (NMAX2=120*12000)
+   character message*22,call1*12,cdbm*3
+-  character*22 msg2
++  character*22 msg0,msg1,msg2,cwmsg
+   character cmnd*60
+   integer*2 jwave(NMAX2)
++  integer*2 icwid(72000)
+   integer soundout,ptt
+   include 'acom1.f90'
+   common/bcom/ntransmitted
++  data ntx/0/
++  save ntx
+ 
+   cmnd=cmd
+   ierr=0
+@@ -30,31 +33,53 @@
+      iret=system(cmnd)
+ #endif
+   else
+-     ierr=ptt(nport,pttport,1,iptt)
+-     if(ierr.ne.0) then
+-        print*,'Error using PTT port',ierr
+-        stop
+-     endif
++     if(nport.gt.0) ierr=ptt(nport,pttport,1,iptt)
+   endif
+ 
+   write(cdbm,'(i3)'),ndbm
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  do i=6,1,-1
+-     if(call1(i:i).ne.' ') go to 10
+-  enddo
+ 
+-10 iz=i
+-  message=call1(1:iz)//' '//grid//' '//cdbm
+-
++  ntx=1-ntx
++  i1=index(call1,' ')
++  i2=index(call1,'/')
++  if(i2.gt.0 .or. igrid6.ne.0) then
++! WSPR_2 message, in two parts
++     if(i2.le.0) then
++        msg1=call1(1:i1)//grid//' '//cdbm
++     else
++        msg1=call1(:i1)//cdbm
++     endif
++     msg0='&lt;'//call1(:i1-1)//'&gt; '//grid6//' '//cdbm
++     if(ntx.eq.1) message=msg1
++     if(ntx.eq.0) message=msg0
++  else
++! Normal WSPR message
++     message=call1(1:i1)//grid//' '//cdbm
++  endif
+   ntxdf=nint(1.e6*(ftx-f0)) - 1500
+   ctxmsg=message
+   snr=99.0
+   if(ntest.eq.1) snr=-26.0
+   call genmept(message,ntxdf,snr,msg2,jwave)
+-  sending=msg2
+ 
+   npts=114*12000
++  if(idint.ne.0) then
++!  Generate and insert the CW ID.
++     wpm=25.
++     freqcw=1500.0 + ntxdf
++     cwmsg=call1(:iz)//'                      '
++     icwid=0
++     call gencwid(cwmsg,wpm,freqcw,icwid,ncwid)
++     k=114.5*12000
++     do i=1,60000
++        k=k+1
++        jwave(k)=icwid(i)
++     enddo
++     npts=k
++  endif
++
++  sending=msg2
+   ierr=soundout(idevout,jwave,npts)
+   if(ierr.ne.0) then
+      print*,'Error in soundout',ierr
+@@ -69,11 +94,7 @@
+      iret=system(cmnd)
+ #endif
+   else
+-     ierr=ptt(nport,pttport,0,iptt)
+-     if(ierr.ne.0) then
+-        print*,'Error using PTT port',ierr
+-        stop
+-     endif
++     if(nport.gt.0) ierr=ptt(nport,pttport,0,iptt)
+   endif
+ 
+   ntransmitted=1
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/wqdecode.f90	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -5,24 +5,18 @@
+   character*22 message
+   character*12 callsign
+   character*3 cdbm,cf
+-  character*2 crpt
+-  character*4 grid
+-  character*9 name
++  character grid4*4,grid6*6
+   character*36 fmt
+-  character*6 cwx(4)
+-  character*7 cwind(5)
+-  character ccur*4,cxp*2
+   logical first
+   character*12 dcall(0:N15-1)
+-  character*4  dgrid(0:N15-1)
+   data first/.true./
+-  data cwx/'CLEAR','CLOUDY','RAIN','SNOW'/
+-  data cwind/'CALM','BREEZES','WINDY','DRY','HUMID'/
+   save first,dcall
+ 
++! May want to have a timeout (say, one hour?) on calls fetched 
++! from the hash table.
++
+   if(first) then
+      dcall='            '
+-     dgrid='    '
+      first=.false.
+   endif
+ 
+@@ -30,294 +24,55 @@
+   call unpack50(data0,n1,n2)
+   call unpackcall(n1,callsign)
+   i1=index(callsign,' ')
+-  call unpackgrid(n2/128,grid)
++  call unpackgrid(n2/128,grid4)
+   ntype=iand(n2,127) -64
+ 
+ ! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+-  nu=mod(ntype,10)
+-  if(ntype.ge.0 .and. ntype.le.60 .and. (nu.eq.0 .or. nu.eq.3 .or.   &amp;
+-       nu.eq.7)) then
+-     write(cdbm,'(i3)'),ntype
++  if(ntype.ge.0 .and. ntype.le.60) then
++     nu=mod(ntype,10)
++     nt=ntype/10
++     if(nu.eq.0 .or. nu.eq.3 .or. nu.eq.7) then
++        write(cdbm,'(i3)'),ntype
++        if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++        if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++        message=callsign(1:i1)//grid4//' '//cdbm
++        call hash(callsign,i1-1,ih)
++        dcall(ih)=callsign(:i1)
++     else
++        nadd=nu
++        if(nu.gt.3) nadd=nu-3
++        if(nu.gt.7) nadd=nu-7
++        ng=n2/128 + 32768*(nadd-1)
++        call unpackpfx(ng,callsign)
++        ndbm=ntype-nadd
++        write(cdbm,'(i3)'),ndbm
++        if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++        if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++        i2=index(callsign,' ')
++        message=callsign(:i2)//cdbm
++        call hash(callsign,i2-1,ih)
++        dcall(ih)=callsign(:i2)
++     endif
++  else if(ntype.lt.0) then
++     nu=mod(-(ntype+1),10)
++     nt=-(ntype+1)/10
++     nadd=nu
++     if(nu.gt.3) nadd=nu-3
++     if(nu.gt.7) nadd=nu-7
++     grid6=callsign(6:6)//callsign(1:5)
++     ih=(n2-ntype-64)/128
++     callsign=dcall(ih)
++     ndbm=-(ntype+1)-nadd
++     write(cdbm,'(i3)'),ndbm
+      if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+      if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-     message=callsign(1:i1)//grid//' '//cdbm
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1)
+-     dgrid(ih)=grid
+-
+-! &quot;Best DX&quot; WSPR response (type 1)
+-  else if(ntype.eq.1) then
+-     message=grid//' DE '//callsign
+-
+-! CQ (msg 3; types 2,4,5)
+-  else if(ntype.eq.2) then
+-     message='CQ '//callsign(:i1)//grid
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1)
+-     dgrid(ih)=grid
+-  else if(ntype.eq.4 .or. ntype.eq.5) then
+-     ng=n2/128 + 32768*(ntype-4)
+-     call unpackpfx(ng,callsign)
+-     message='CQ '//callsign
+-     i2=index(callsign,' ')-1
+-     call hash(callsign,i2,ih)
+-     dcall(ih)=callsign(:i2)
+-
+-! Reply to CQ (msg #2; type 6)
+-  else if(ntype.eq.6) then
+-     ih=(n2-64-ntype)/128
++     i2=index(callsign,' ')
+      if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1-1)
++        message='&lt;'//callsign(:i2-1)//'&gt; '//grid6//' '//cdbm
+      else
+-        message='&lt;...&gt; '//callsign
++        message='&lt;...&gt; '//grid6//' '//cdbm
+      endif
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! Reply to CQ (msg #2; type 8)
+-  else if(ntype.eq.8) then
+-     message='DE '//callsign(:i1)//grid
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-     dgrid(ih)=grid
+-
+-! Reply to CQ, DE pfx/call (msg #2; types 9, 11)
+-  else if(ntype.eq.9 .or. ntype.eq.11) then
+-     ng=n2/128 + 32768*(ntype-9)/2
+-     call unpackpfx(ng,callsign)
+-     message='DE '//callsign
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! Calls and report (msg #3; types -1 to -9)
+-  else if(ntype.le.-1 .and. ntype.ge.-9) then
+-     write(crpt,1010) -ntype
+-1010 format('S',i1)
+-     ih=(n2-62-ntype)/128
+-     if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; '//crpt
+-     else
+-        message=callsign(:i1)//'&lt;...&gt; '//crpt
+-     endif
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! pfx/call and report (msg #3; types -10 to -27)
+-  else if(ntype.le.-10 .and. ntype.ge.-27) then
+-     ng=n2/128
+-     nrpt=-ntype-9
+-     if(ntype.le.-19) then
+-        ng=ng + 32768
+-        nrpt=-ntype-18
+-     endif
+-     write(crpt,1010) nrpt
+-     call unpackpfx(ng,callsign)
+-     message=callsign//' '//crpt
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! Calls and R and report (msg #4; types -28 to -36)
+-  else if(ntype.le.-28 .and. ntype.ge.-36) then
+-     write(crpt,1010) -(ntype+27)
+-     ih=(n2-64+28-ntype)/128
+-     if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; '//'R '//crpt
+-     else
+-        message=callsign(:i1)//'&lt;...&gt; '//'R '//crpt
+-     endif
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! pfx/call R and report (msg #4; types -37 to -54)
+-  else if(ntype.le.-37 .and. ntype.ge.-54) then
+-     ng=n2/128
+-     nrpt=-ntype-36
+-     if(ntype.le.-46) then
+-        ng=ng + 32768
+-        nrpt=-ntype-45
+-     endif
+-     write(crpt,1010) nrpt
+-     call unpackpfx(ng,callsign)
+-     message=callsign//' R '//crpt
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! Calls and RRR (msg#5; type 12)
+-  else if(ntype.eq.12) then
+-     ih=(n2-64+28-ntype)/128
+-     if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; RRR'
+-     else
+-        message=callsign(:i1)//'&lt;...&gt; RRR'
+-     endif
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! Calls and RRR (msg#5; type 14)
+-  else if(ntype.eq.14) then
+-     ih=(n2-64+28-ntype)/128
+-     if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1)//'RRR'
+-     else
+-        message='&lt;...&gt; '//callsign(:i1)//' RRR'
+-     endif
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! DE pfx/call and RRR (msg#5; types 15, 16)
+-  else if(ntype.eq.15 .or. ntype.eq.16) then
+-     ng=n2/128 + 32768*(ntype-15)
+-     call unpackpfx(ng,callsign)
+-     message='DE '//callsign//' RRR'
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! TNX [name] 73 GL (msg #6; type 18)
+-  else if(ntype.eq.18) then
+-     ng=(n2-18-64)/128
+-     call unpackname(n1,ng,name,len)
+-     message='TNX '//name(:len)//' 73 GL'
+-
+-! OP [name] 73 GL (msg #6; type 18)
+-  else if(ntype.eq.-56) then
+-     ng=(n2+56-64)/128
+-     call unpackname(n1,ng,name,len)
+-     message='OP '//name(:len)//' 73 GL'
+-
+-! 73 DE [call] [grid] (msg #6; type 19)
+-  else if(ntype.eq.19) then
+-     ng=(n2-19-64)/128
+-     message='73 DE '//callsign(:i1)//grid
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-     dgrid(ih)=grid
+-
+-! 73 DE pfx/call (msg #6; type 21, 22)
+-  else if(ntype.eq.21 .or. ntype.eq.22) then
+-     ng=n2/128 + (ntype-21)*32768
+-     call unpackpfx(ng,callsign)
+-     i1=index(callsign,' ')
+-     message='73 DE '//callsign
+-     call hash(callsign,i1-1,ih)
+-     dcall(ih)=callsign(:i1-1)
+-
+-! [power] W [gain] DBD 73 GL (msg#6; type 24, 25)
+-  else if(ntype.eq.24 .or. ntype.eq.25) then
+-     ng=(n2-24-64)/128 - 32
+-     i1=1
+-     if(n1.gt.0) i1=log10(float(n1)) + 1
+-     i2=1
+-     if(ng.ge.10) i2=2
+-     if(ng.lt.0) i2=i2+1
+-     if(n1.le.3000) then
+-        if(ntype.eq.24) fmt=&quot;(i4,' W ',i2,' DBD 73 GL')&quot;
+-        if(ntype.eq.25) fmt=&quot;(i4,' W ',i2,' DBD      ')&quot;
+-        fmt(3:3)=char(48+i1)
+-        fmt(12:12)=char(48+i2)
+-        if(ng.le.100) then
+-           write(message,fmt) n1,ng
+-        else
+-           if(ng.eq.30000) fmt=fmt(1:8)//&quot;DIPOLE')&quot;
+-           if(ng.eq.30001) fmt=fmt(1:8)//&quot;VERTICAL')&quot;
+-           write(message,fmt) n1
+-        endif
+-     else
+-        mw=n1-3000
+-        if(ntype.eq.24) fmt=&quot;('0.',i3.3,' W ',i2,' DBD 73 GL')&quot;
+-        if(ntype.eq.25) fmt=&quot;('0.',i3.3,' W ',i2,' DBD      ')&quot;
+-        fmt(19:19)=char(48+i2)
+-        if(ng.le.100) then
+-           write(message,fmt) mw,ng
+-        else
+-           if(ng.eq.30000) fmt=fmt(1:15)//&quot;DIPOLE')&quot;
+-           if(ng.eq.30001) fmt=fmt(1:15)//&quot;VERTICAL')&quot;
+-           write(message,fmt) n1
+-        endif
+-        if(index(message,'***').gt.0) go to 700
+-     endif
+-
+-! QRZ call (msg #3; type 26)
+-  else if(ntype.eq.26) then
+-     ng=(n2-24-64)/128 - 32
+-     message='QRZ '//callsign
+-
+-! PSE QSY [nnn] KHZ (msg #6; type 28)
+-  else if(ntype.eq.28) then
+-     if(n1.gt.0) i1=log10(float(n1)) + 1
+-     fmt=&quot;('PSE QSY ',i2,' KHZ')&quot;
+-     fmt(14:14)=char(48+i1)
+-     write(message,fmt) n1        
+-
+-! WX wx temp C/F wind (msg #6; type 29)
+-  else if(ntype.eq.29) then
+-     nwx=n1/10000
+-     ntemp=mod(n1,10000) - 100
+-     cf=' F '
+-     if(ntemp.gt.800) then
+-        ntemp=ntemp-1000
+-        cf=' C '
+-     endif
+-     n2a=n2/128
+-     if(nwx.ge.1 .and. nwx.le.4 .and. n2a.ge.1 .and. n2a.le.5) then
+-        write(message,1020) cwx(nwx),ntemp,cf,cwind(n2/128)
+-1020    format('WX ',a6,i3,a3,a7)
+-     else
+-        message='WX'//' (BadMsg)'
+-     endif
+-
+-! Hexadecimal data (type 62)
+-  else if(ntype.eq.62) then
+-     ng=n2/128
+-     write(message,'(z4.4,z7.7)') ng,n1
+-     
+-! Solar/geomagnetic/ionospheric data (type 63)
+-  else if(ntype.eq.63) then
+-     ih=(n2-64-ntype)/128
+-     if(dcall(ih)(1:1).ne.' ') then
+-        i2=index(dcall(ih),' ')
+-        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '
+-     else
+-        message='&lt;...&gt; '
+-     endif
+-     call unpackprop(n1,k,muf,ccur,cxp)
+-     i2=index(message,'&gt;')
+-     write(message(i2+1:),'(i3,i3)') k,muf
+-     message=message(:i2+7)//ccur//' '//cxp
+-     
+-! [plain text] (msg #6; type -57)
+-  else if(ntype.eq.-57) then
+-     ng=n2/128
+-     call unpacktext2(n1,ng,message)
+-  else
+-     go to 700
+   endif
+-  go to 750
+ 
+-!     message='&lt;Unknown message type&gt;'
+-700 i1=index(callsign,' ')
+-  if(i1.lt.1) i1=12
+-  message=callsign(:i1)//' (BadMsg)'
+-
+-750 do i=1,22
+-     if(ichar(message(i:i)).eq.0) message(i:i)=' '
+-  enddo
+-
+-  do i=22,1,-1
+-     if(message(i:i).ne.' ') go to 800
+-  enddo
+-800 i2=i
+-  do n=1,20
+-     i1=index(message(:i2),'  ')
+-     if(i1.le.0) go to 900
+-     message=message(1:i1)//message(i1+2:)
+-     i2=i2-1
+-  enddo
+-
+-900  continue
+   return
+ end subroutine wqdecode
+
+Modified: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/wqencode.f90	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -5,341 +5,60 @@
+   parameter (MASK15=32767)
+   character*22 msg
+   character*12 call1,call2
+-  character*4 grid
+-!  character*9 name
+-  character ccur*4,cxp*2
++  character grid4*4,grid6*6
+   logical lbad1,lbad2
+   integer*1 data0(11)
+   integer nu(0:9)
+   data nu/0,-1,1,0,-1,2,1,0,-1,1/
+ 
+-  read(msg,1001,end=1,err=1) ng,n1
+-1001 format(z4,z7)
+-  ntype=62
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
+-  go to 900
+-
+-1  if(msg(1:6).eq.'73 DE ') go to 80
+-  if(index(msg,' W ').gt.0 .and. index(msg,' DBD ').gt.0) go to 90
+-  if(msg(1:4).eq.'QRZ ') go to 100
+-  if(msg(1:8).eq.'PSE QSY ') go to 110
+-  if(msg(1:3).eq.'WX ') go to 120
+-
+ ! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   i1=index(msg,' ')
+-  if(i1.lt.4 .or. i1.gt.7) go to 10
++  i2=index(msg,'/')
++  i3=index(msg,'&lt;')
+   call1=msg(:i1-1)
+-  grid=msg(i1+1:i1+4)
++  if(i1.lt.3 .or. i1.gt.7 .or. i2.gt.0 .or. i3.gt.0) go to 10
++  grid4=msg(i1+1:i1+4)
+   call packcall(call1,n1,lbad1)
+-  call packgrid(grid,ng,lbad2)
++  call packgrid(grid4,ng,lbad2)
+   if(lbad1 .or. lbad2) go to 10
+   ndbm=0
+-  read(msg(i1+5:),*,err=10,end=800) ndbm
+-  if(ndbm.lt.0 .or. ndbm.gt.60) go to 800
++  read(msg(i1+5:),*) ndbm
++  if(ndbm.lt.0) ndbm=0
++  if(ndbm.gt.60) ndbm=60
+   ndbm=ndbm+nu(mod(ndbm,10))
+   n2=128*ng + (ndbm+64)
+   call pack50(n1,n2,data0)
+   ntype=ndbm
+   go to 900
+ 
+-! &quot;BestDX&quot; automated WSPR reply (type 1)
+-10 if(i1.ne.5 .or. msg(5:8).ne.' DE ') go to 20
+-  grid=msg(1:4)
+-  call packgrid(grid,ng,lbad2)
+-  if(lbad2) go to 800
+-  call1=msg(9:)
+-  call packcall(call1,n1,lbad1)
+-  if(lbad1) go to 800
+-  ntype=1
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
+-  go to 900
+-
+-! CQ (msg #1; types 2, 4, 5)
+-20  if(msg(1:3).ne.'CQ ') go to 30
+-  if(index(msg,'/').le.0) then
+-     i2=index(msg(4:),' ')
+-     call1=msg(4:i2+3)
+-     grid=msg(i2+4:)
+-     call packcall(call1,n1,lbad1)
+-     if(lbad1) go to 30
+-     call packgrid(grid,ng,lbad2)
+-     if(lbad2) go to 30
+-     ntype=2
+-     n2=128*ng + (ntype+64)
+-     call pack50(n1,n2,data0)
+-  else
+-     ntype=4                                     ! or 5
+-     call1=msg(4:)
++10 if(i2.ge.2 .and. i3.lt.1) then
+      call packpfx(call1,n1,ng,nadd)
+-     ntype=ntype+nadd
++     ndbm=0
++     read(msg(i1+1:),*) ndbm
++     if(ndbm.lt.0) ndbm=0
++     if(ndbm.gt.60) ndbm=60
++     ndbm=ndbm+nu(mod(ndbm,10))
++     ntype=ndbm + 1 + nadd
+      n2=128*ng + ntype + 64
+      call pack50(n1,n2,data0)
+-  endif
+-  go to 900
+-
+-! Reply to CQ (msg #2; types 6,8,9,11)
+-30 if(msg(1:1).ne.'&lt;' .and. msg(1:3).ne.'DE ') go to 40
+-  if(index(msg,' RRR ').gt.0) go to 50
+-  if(msg(1:1).eq.'&lt;') then
+-     ntype=6
+-     i1=index(msg,'&gt;')
+-     call1=msg(2:i1-1)
+-     read(msg(i1+1:),*,err=31,end=31) k,muf,ccur,cxp
+-     go to 130
+-31   call2=msg(i1+2:)
+-     call hash(call1,i1-2,ih)
++  else if(i3.eq.1) then
++     i4=index(msg,'&gt;')
++     call1=msg(2:i4-1)
++     call hash(call1,i4-2,ih)
++     grid6=msg(i1+1:i1+6)
++     call2=grid6(2:6)//grid6(1:1)//'      '
+      call packcall(call2,n1,lbad1)
+-     n2=128*ih + (ntype+64)
++     ndbm=0
++     read(msg(i1+8:),*) ndbm
++     if(ndbm.lt.0) ndbm=0
++     if(ndbm.gt.60) ndbm=60
++     ndbm=ndbm+nu(mod(ndbm,10))
++     ntype=-(ndbm+1)
++     n2=128*ih + ntype + 64
+      call pack50(n1,n2,data0)
+-  else
+-     i1=index(msg(4:),' ')
+-     call1=msg(4:i1+2)
+-     if(index(msg,'/').le.0) then
+-        ntype=8
+-        ih=0
+-        call packcall(call1,n1,lbad1)
+-        grid=msg(i1+4:i1+7)
+-        call packgrid(grid,ng,lbad2)
+-        n2=128*ng + (ntype+64)
+-        call pack50(n1,n2,data0)
+-     else
+-        ntype=9                                   ! or 11
+-        call1=msg(4:)
+-        call packpfx(call1,n1,ng,nadd)
+-        ntype=ntype + 2*nadd
+-        n2=128*ng + ntype + 64
+-        call pack50(n1,n2,data0)
+-     endif
+   endif
+   go to 900
+ 
+-! Call(s) + report (msg #3; types -1 to -27)
+-! Call(s) + R + report (msg #4; types -28 to -54)
+-40 if(index(msg,' RRR').gt.0) go to 50
+-  i1=index(msg,'&lt;')
+-  if(i1.gt.0 .and. (i1.lt.5 .or. i1.gt.8)) go to 50
+-  i2=index(msg,'/')
+-  if(i2.gt.0 .and.i2.le.4) then
+-     ntype=-10                                   ! -10 to -27
+-     i0=index(msg,' ')
+-     call1=msg(:i0-1)
+-     call packpfx(call1,n1,ng,nadd)
+-     ntype=ntype - 9*nadd
+-     i2=index(msg,' ')
+-     i3=index(msg,' R ')
+-     if(i3.gt.0) i2=i2+2                            !-28 to -36
+-     read(msg(i2+2:i2+2),*,end=800,err=800) nrpt
+-     ntype=ntype - (nrpt-1)
+-     if(i3.gt.0) ntype=ntype-27
+-     n2=128*ng + ntype + 64
+-     call pack50(n1,n2,data0)
+-     go to 900
+-  else if(i1.eq.0) then
+-     go to 50
+-  endif
+-  call1=msg(:i1-2)                               !-1 to -9
+-  i2=index(msg,'&gt;')
+-  call2=msg(i1+1:i2-1)
+-  call hash(call2,i2-i1-1,ih)
+-  i3=index(msg,' R ')
+-  if(i3.gt.0) i2=i2+2                            !-28 to -36
+-  read(msg(i2+3:i2+3),*,end=42,err=42) nrpt
+-  go to 43
+-42 nrpt=1
+-43 ntype=-nrpt
+-  if(i3.gt.0) ntype=-(nrpt+27)
+-  call packcall(call1,n1,lbad1)
+-  n2=128*ih + (ntype+64)
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-50 i0=index(msg,'&lt;')
+-  if(i0.le.0 .and. msg(1:3).ne.'DE ') go to 60
+-  i3=index(msg,' RRR')
+-  if(i3.le.0) go to 60
+-! Call or calls and RRR (msg#5; type2 12,14,15,16)
+-  i0=index(msg,'&lt;')
+-  if(i0.eq.1) then
+-     if(index(msg,'/').le.0) then
+-        ntype=14
+-        i1=index(msg,'&gt;')
+-        call1=msg(2:i1-1)
+-        call2=msg(i1+2:)
+-        i2=index(call2,' ')
+-        call2=call2(:i2-1)
+-        call packcall(call2,n1,lbad1)
+-        call hash(call1,i1-2,ih)
+-        n2=128*ih + (ntype+64)
+-        call pack50(n1,n2,data0)
+-     else
+-        stop '0002'
+-     endif
+-  else if(i0.ge.5 .and. i0.le.8) then
+-     if(index(msg,'/').le.0) then
+-        ntype=12
+-        i1=index(msg,'&gt;')
+-        call1=msg(:i0-2)
+-        call2=msg(i0+1:i1-1)
+-        call packcall(call1,n1,lbad1)
+-        call hash(call2,i1-i0-1,ih)
+-        n2=128*ih + (ntype+64)
+-        call pack50(n1,n2,data0)
+-     else
+-        stop '0002'
+-     endif
+-  else
+-     i1=index(msg(4:),' ')
+-     call1=msg(4:i1+2)
+-     if(index(msg,'/').le.0) then
+-        ntype=9
+-        grid=msg(i1+4:i1+7)
+-     else
+-        ntype=15                                   ! or 16
+-        call1=msg(4:)
+-        i0=index(call1,' ')
+-        call1=call1(:i0-1)
+-        call packpfx(call1,n1,ng,nadd)
+-        ntype=ntype+nadd
+-        n2=128*ng + ntype + 64
+-        call pack50(n1,n2,data0)
+-     endif
+-  endif
+-  go to 900
+-
+-! TNX &lt;name&gt; 73 GL (msg #6; type 18 ...)
+-60 if(msg(1:4).ne.'TNX ') go to 70
+-  ntype=18
+-  n1=0
+-  i2=index(msg(5:),' ')
+-  call packname(msg(5:i2+4),i2-1,n1,ng)
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-! TNX name 73 GL (msg #6; type -56 ...)
+-70 if(msg(1:3).ne.'OP ') go to 80
+-  ntype=-56
+-  n1=0
+-  i2=index(msg(4:),' ')
+-  call packname(msg(4:i2+3),i2-1,n1,ng)
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-! 73 DE call grid (msg #6; type 19)
+-80 if(msg(1:6).ne.'73 DE ') go to 90
+-  ntype=19
+-  i1=index(msg(7:),' ')
+-  call1=msg(7:)
+-  if(index(call1,'/').le.0) then
+-     i1=index(call1,' ')
+-     grid=call1(i1+1:)
+-     call1=call1(:i1-1)
+-     call packcall(call1,n1,lbad1)
+-     call packgrid(grid,ng,lbad2)
+-     if(lbad1 .or. lbad2) go to 800
+-     n2=128*ng + (ntype+64)
+-     call pack50(n1,n2,data0)
+-     go to 900
+-  else
+-     ntype=21                                   ! or 22
+-     call packpfx(call1,n1,ng,nadd)
+-     ntype=ntype + nadd
+-     n2=128*ng + ntype + 64
+-     call pack50(n1,n2,data0)
+-     go to 900
+-  endif
+-
+-! [pwr] W [gain] DBD [73 GL] (msg #6; types 24, 25)
+-90  if(index(msg,' W ').le.0) go to 140
+-  ntype=25
+-  if(index(msg,' DBD 73 GL').gt.0) ntype=24
+-  i1=index(msg,' ')
+-  read(msg(:i1-1),*,end=800,err=800) watts
+-  nwatts = 0
+-  if(watts.ge.1.0) nwatts=watts
+-  if(watts.lt.1.0) nwatts=3000 + nint(1000.*watts)
+-  if(index(msg,'DIPOLE').gt.0) then
+-     ndbd=30000
+-  else if(index(msg,'VERTICAL').gt.0) then
+-     ndbd=30001
+-  else
+-     i2=index(msg(i1+3:),' ')
+-     read(msg(i1+3:i1+i2+1),*,end=800,err=800) ndbd
+-  endif
+-  n1=nwatts
+-  ng=ndbd + 32
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-! QRZ call (msg #3; type 26)
+-100 call1=msg(5:)
+-  call packcall(call1,n1,lbad1)
+-  if(lbad1) go to 800
+-  ntype=26
+-  n2=ntype+64
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-! PSE QSY [nnn] KHZ (msg #6; type 28)
+-110 ntype=28
+-  read(msg(9:),*,end=800,err=800) n1
+-  n2=ntype+64
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-! WX wx temp C|F wind (msg #6; type 29)
+-120 ntype=29
+-  i1=0
+-  if(index(msg,' CLEAR ').gt.0) then
+-     i1=10
+-     n1=10000
+-  else if(index(msg,' CLOUDY ').gt.0) then
+-     i1=11
+-     n1=20000
+-  else if(index(msg,' RAIN ').gt.0) then
+-     i1=9
+-     n1=30000
+-  else if(index(msg,' SNOW ').gt.0) then
+-     i1=9
+-     n1=40000
+-  endif
+-  read(msg(i1:),*,err=800,end=800) ntemp
+-  ntemp=ntemp+100
+-  i1=index(msg,' C ')
+-  if(i1.gt.0) ntemp=ntemp+1000
+-  n1=n1+ntemp
+-  if(index(msg,' CALM').gt.0) ng=1
+-  if(index(msg,' BREEZES').gt.0) ng=2
+-  if(index(msg,' WINDY').gt.0) ng=3
+-  if(index(msg,' DRY').gt.0) ng=4
+-  if(index(msg,' HUMID').gt.0) ng=5
+-
+-  n2=128*ng + (ntype+64)
+-  call pack50(n1,n2,data0)
+-
+-  go to 900
+-
+-! Solar/geomagnetic/ionospheric data
+-130 ntype=63
+-  call packprop(k,muf,ccur,cxp,n1)
+-  call hash(call1,i1-2,ih)
+-  n2=128*ih + ntype + 64 
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+-140 continue
+-
+-! Plain text
+-800 ntype=-57
+-  call packtext2(msg(:8),n1,ng)
+-  n2=128*ng + ntype + 64
+-  call pack50(n1,n2,data0)
+-  go to 900
+-
+ 900 continue
+   return
+ end subroutine wqencode
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-10-23 19:19:04 UTC (rev 1554)
++++ branches/wspr/wspr.py	2009-10-24 19:20:59 UTC (rev 1555)
+@@ -591,8 +591,9 @@
+         w.acom1.ftx=ftx.get()
+     except:
+         pass
+-    w.acom1.callsign=(options.MyCall.get().strip().upper()+'      ')[:6]
++    w.acom1.callsign=(options.MyCall.get().strip().upper()+'            ')[:12]
+     w.acom1.grid=(options.MyGrid.get().strip().upper()+'    ')[:4]
++    w.acom1.grid6=(options.MyGrid.get().strip().upper()+'      ')[:6]
+     w.acom1.ctxmsg=(txmsg.get().strip().upper()+'                      ')[:22]
+ 
+     # numeric port ==&gt; COM%d, else string of device.  --W1BW
+@@ -622,6 +623,8 @@
+     w.acom1.ntxfirst=ntxfirst.get()
+     w.acom1.nsave=nsave.get()
+     w.acom1.nbfo=options.bfofreq.get()
++    w.acom1.idint=options.idint.get()
++    w.acom1.igrid6=options.igrid6.get()
+     try:
+         g.ndevin.set(options.DevinName.get())
+         w.acom1.ndevin=g.ndevin.get()
+@@ -1025,6 +1028,7 @@
+         if   key == 'WSPRGeometry': root.geometry(value)
+         elif key == 'MyCall': options.MyCall.set(value)
+         elif key == 'MyGrid': options.MyGrid.set(value)
++        elif key == 'CWID': options.idint.set(value)
+         elif key == 'dBm': options.dBm.set(value)
+         elif key == 'PctTx': ipctx.set(value)
+ #        elif key == 'IDinterval': options.IDinterval.set(value)
+@@ -1057,6 +1061,7 @@
+         elif key == 'BFOfreq': options.bfofreq.set(value)
+         elif key == 'PTTmode': options.pttmode.set(value)
+         elif key == 'CATenable': options.cat_enable.set(int(value))
++        elif key == 'TxGrid6': options.igrid6.set(int(value))
+         elif key == 'SerialRate': options.serial_rate.set(int(value))
+         elif key == 'Handshake': options.serial_handshake.set(value)
+         elif key == 'RigNum': options.rignum.set(int(value))
+@@ -1150,6 +1155,7 @@
+ f.write(&quot;WSPRGeometry &quot; + root_geom + &quot;\n&quot;)
+ f.write(&quot;MyCall &quot; + options.MyCall.get() + &quot;\n&quot;)
+ f.write(&quot;MyGrid &quot; + options.MyGrid.get() + &quot;\n&quot;)
++f.write(&quot;CWID &quot; + options.idint.get() + &quot;\n&quot;)
+ f.write(&quot;dBm &quot; + str(options.dBm.get()) + &quot;\n&quot;)
+ f.write(&quot;SerialPort &quot; + str(options.SerialPort.get()) + &quot;\n&quot;)
+ f.write(&quot;AudioIn &quot; + options.DevinName.get() + &quot;\n&quot;)
+@@ -1157,6 +1163,7 @@
+ f.write(&quot;BFOfreq &quot; + str(options.bfofreq.get()) + &quot;\n&quot;)
+ f.write(&quot;PTTmode &quot; + options.pttmode.get() + &quot;\n&quot;)
+ f.write(&quot;CATenable &quot; + str(options.cat_enable.get()) + &quot;\n&quot;)
++f.write(&quot;TxGrid6 &quot; + str(options.igrid6.get()) + &quot;\n&quot;)
+ f.write(&quot;SerialRate &quot; + str(options.serial_rate.get()) + &quot;\n&quot;)
+ f.write(&quot;Handshake &quot; + options.serial_handshake.get() + &quot;\n&quot;)
+ f.write(&quot;RigNum &quot; + str(options.rignum.get()) + &quot;\n&quot;)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001244.html">[WSJT-SVN] r1554 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001246.html">[WSJT-SVN] r1556 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1245">[ date ]</a>
+              <a href="thread.html#1245">[ thread ]</a>
+              <a href="subject.html#1245">[ subject ]</a>
+              <a href="author.html#1245">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,343 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1466 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1466%20-%20branches/wsjt8a&In-Reply-To=%3C200909302001.n8UK1j6p014099%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001156.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1466 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1466%20-%20branches/wsjt8a&In-Reply-To=%3C200909302001.n8UK1j6p014099%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1466 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 30 22:01:45 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001156.html">[WSJT-SVN] r1465 - branches/wsjt8a
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1157">[ date ]</a>
+              <a href="thread.html#1157">[ thread ]</a>
+              <a href="subject.html#1157">[ subject ]</a>
+              <a href="author.html#1157">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-09-30 22:01:40 +0200 (Wed, 30 Sep 2009)
+New Revision: 1466
+
+Removed:
+   branches/wsjt8a/inter_mept.f
+Modified:
+   branches/wsjt8a/WSJT8codes.f90
+   branches/wsjt8a/chdec.f90
+   branches/wsjt8a/chenc.f90
+   branches/wsjt8a/genjt8.f90
+   branches/wsjt8a/genms.f90
+   branches/wsjt8a/wsjt.py
+Log:
+Moved interleaving and gray coding into chenc and chdec, where they belong.
+
+
+Modified: branches/wsjt8a/WSJT8codes.f90
+===================================================================
+--- branches/wsjt8a/WSJT8codes.f90	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/WSJT8codes.f90	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -55,7 +55,7 @@
+      else
+ ! Apply FEC and do the channel encoding
+         call chenc(cmode,nbit,iu0,gsym)
+-! Decode hard-decision channel symbols to recover source-encoded message bits
++! Decode hard-decision channel symbols to recover source-encoded message bits.
+         call chdec(cmode,nbit,gsym,iu)
+      endif
+ 
+
+Modified: branches/wsjt8a/chdec.f90
+===================================================================
+--- branches/wsjt8a/chdec.f90	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/chdec.f90	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -4,6 +4,7 @@
+ 
+   character*5 cmode
+   integer gsym(372)
++  integer gsym2(372)
+   integer iu(3)
+   integer era(63)
+   integer dat4(13)
+@@ -12,6 +13,8 @@
+   integer*1 ddec(10)
+   integer mettab(0:255,0:1)
+   logical first
++  integer igray0(0:7)
++  data igray0/0,1,3,2,7,6,4,5/    !Use this to remove the gray code
+   data first/.true./
+   save first,mettab
+ 
+@@ -32,8 +35,34 @@
+         first=.false.
+      endif
+ 
+-     nsym=2*(nbit+12)
+-     if(cmode.eq.'JT8') nsym=4*(nbit+15)
++     if(cmode.eq.'JTMS') then
++        nhdata=nbit+12
++        nsym=2*nhdata                          !Number of binary symbols
++        gsym2(1:2*nhdata)=gsym(1:2*nhdata)
++        do i=1,nhdata                          !Remove the interleaving
++           gsym(2*i-1)=gsym2(i)
++           gsym(2*i)=gsym2(nhdata+i)
++        enddo        
++     else if(cmode.eq.'JT8') then
++        nsym=4*(nbit+15)                       !Number of binary symbols
++! Remove gray code and convert 3-bit symbols to bit-level soft symbols
++        gsym2=gsym
++        do i=1,124
++           n=igray0(gsym2(i))
++           gsym(3*i-2)=n/4
++           gsym(3*i-1)=iand(n,2)/2
++           gsym(3*i)=iand(n,1)
++        enddo
++        do i1=0,30                    !Remove interleaving
++           do i2=0,11
++              i=31*i2+i1
++              j=12*i1+i2
++              gsym2(j+1)=gsym(i+1)
++           enddo
++        enddo
++        gsym=gsym2
++     endif
++
+      do i=1,nsym
+         n=127
+         if(gsym(i).eq.1) n=-127
+
+Modified: branches/wsjt8a/chenc.f90
+===================================================================
+--- branches/wsjt8a/chenc.f90	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/chenc.f90	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -10,7 +10,11 @@
+   integer*1 dat1(10)
+   integer*1 i1a,i1b,i1c,i1d
+   integer gsym(372)
++  integer gsym2(372)
+   character*96 line
++  integer igray1(0:7)
++!  data igray0/0,1,3,2,7,6,4,5/    !Use this to remove the gray code
++  data igray1/0,1,3,2,6,7,5,4/
+   common/acom1/i1a,i1b,i1c,i1d
+   equivalence (i4,i1a)
+ 
+@@ -31,11 +35,30 @@
+      dat1(9)=i1d
+      dat1(10)=i1c
+ 
+-     if(cmode.eq.'JTMS') call enc213(dat1,nbit,gsym1,nsym,kc2,nc2)
+-     if(cmode.eq.'JT8') call enc416(dat1,nbit,gsym1,nsym,kc2,nc2)
+-     do i=1,nsym
+-        gsym(i)=gsym1(i)
+-     enddo
++     if(cmode.eq.'JTMS') then
++        call enc213(dat1,nbit,gsym1,nsym,kc2,nc2)
++        nhdata=nbit+12
++        do i=1,nhdata                          !Interleave the data
++           gsym(i)=gsym1(2*i-1)
++           gsym(nhdata+i)=gsym1(2*i)
++        enddo
++
++     else if(cmode.eq.'JT8') then
++        call enc416(dat1,nbit,gsym1,nsym,kc2,nc2)
++        do i1=0,30                    !Interleave using a 12x31 logical block
++           do i2=0,11
++              i=31*i2+i1
++              j=12*i1+i2
++              gsym2(i+1)=gsym1(j+1)    !Exchange i and j to remove interleaving
++           enddo
++        enddo
++! Apply gray code and insert 3-bit data symbols
++        do i=1,124
++           n=4*gsym2(3*i-2) + 2*gsym2(3*i-1) + gsym2(3*i)
++           gsym(i)=igray1(n)              !Use igray0() to remove the gray code
++        enddo
++     endif
++
+   else if(cmode.eq.'JT64' .or. cmode.eq.'ISCAT') then
+      mm=6
+      nq=64
+
+Modified: branches/wsjt8a/genjt8.f90
+===================================================================
+--- branches/wsjt8a/genjt8.f90	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/genjt8.f90	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -13,10 +13,7 @@
+   integer gsym2(372)
+   integer sent(140)
+   integer ic8(8)
+-  integer igray1(0:7)
+   data ic8/3,6,2,4,5,0,7,1/
+-!  data igray0/0,1,3,2,7,6,4,5/    !Use this to remove the gray code
+-  data igray1/0,1,3,2,6,7,5,4/
+   data nsps/4200/
+   data twopi/6.283185307d0/
+   save
+@@ -36,29 +33,14 @@
+   call srcdec(cmode,nbit,iu0,msgsent)
+ 
+ ! Insert 8x8 Costas array at beginning and end of array sent().
+-  do i=1,8
+-     sent(i)=ic8(i)
+-     sent(i+132)=ic8(i)
+-  enddo
++  sent(1:8)=ic8
++  sent(133:140)=ic8
+ 
+-! Interleave the data using a 12x31 logical block
+-  do i1=0,30
+-     do i2=0,11
+-        i=31*i2+i1
+-        j=12*i1+i2
+-        gsym2(i+1)=gsym(j+1)        !Exchange i and j to remove interleaving
+-     enddo
+-  enddo
++! Insert the 3-bit data symbols
++  sent(9:132)=gsym(1:124)
+ 
+-! Apply gray code and insert 3-bit data symbols
+-  nsym=140
+-  k=0
+-  do i=1,124
+-     n=4*gsym2(3*i-2) + 2*gsym2(3*i-1) + gsym2(3*i)
+-     sent(i+8)=igray1(n)            !Use igray0() to remove gray code
+-  enddo
+-
+ ! Set up necessary constants
++  nsym=140
+   tsymbol=nsps/12000.d0
+   dt=1.d0/12000.d0
+   f0=1270.46d0
+
+Modified: branches/wsjt8a/genms.f90
+===================================================================
+--- branches/wsjt8a/genms.f90	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/genms.f90	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -29,16 +29,12 @@
+   call srcdec(cmode,nbit,iu0,msgsent)
+ 
+ ! Append the encoded data after the 32-bit sync vector
+-  nhdata=nbit+12
+-  ndata=2*nhdata
++  ndata=2*(nbit+12)
+   nsync=32
+   nsym=ndata+nsync
+   sent(1:nsync)=is32
+-  do i=1,ndata,2                          !Interleave the data
+-     sent(nsync+i)=gsym(i)
+-     sent(nsync+nhdata+i+1)=gsym(i+1)
+-  enddo
+-
++  sent(nsync+1:nsym)=gsym(1:ndata)
++ 
+ ! Set up necessary constants
+   nsps=8
+   tsymbol=nsps/12000.d0
+
+Deleted: branches/wsjt8a/inter_mept.f
+===================================================================
+--- branches/wsjt8a/inter_mept.f	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/inter_mept.f	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -1,47 +0,0 @@
+-      subroutine inter_mept(id,ndir)
+-
+-C  Interleave (ndir=1) or de-interleave (ndir=-1) the array id.
+-
+-      integer*1 id(0:161),itmp(0:161)
+-      integer j0(0:161)
+-      character*8 c0,c1
+-      logical first
+-      data first/.true./
+-      save
+-
+-      if(first) then
+-         k=-1
+-         do i=0,255
+-            m=i
+-            n=iand(m,1)
+-            n=2*n + iand(m/2,1)
+-            n=2*n + iand(m/4,1)
+-            n=2*n + iand(m/8,1)
+-            n=2*n + iand(m/16,1)
+-            n=2*n + iand(m/32,1)
+-            n=2*n + iand(m/64,1)
+-            n=2*n + iand(m/128,1)
+-            if(n.le.161) then
+-               k=k+1
+-               j0(k)=n
+-            endif
+-         enddo
+-         first=.false.
+-      endif
+-
+-      if(ndir.eq.1) then
+-         do i=0,161
+-            itmp(j0(i))=id(i)
+-         enddo
+-      else
+-         do i=0,161
+-            itmp(i)=id(j0(i))
+-         enddo
+-      endif
+-
+-      do i=0,161
+-         id(i)=itmp(i)
+-      enddo
+-
+-      return
+-      end
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2009-09-30 18:46:01 UTC (rev 1465)
++++ branches/wsjt8a/wsjt.py	2009-09-30 20:01:40 UTC (rev 1466)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT8
++#----------------------------------------------------------------------- WSJT8
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001156.html">[WSJT-SVN] r1465 - branches/wsjt8a
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1157">[ date ]</a>
+              <a href="thread.html#1157">[ thread ]</a>
+              <a href="subject.html#1157">[ subject ]</a>
+              <a href="author.html#1157">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

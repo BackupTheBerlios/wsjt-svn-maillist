@@ -1,0 +1,649 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3125 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3125%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403164432.46C4D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002816.html">
+   <LINK REL="Next"  HREF="002818.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3125 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3125%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130403164432.46C4D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3125 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Apr  3 18:44:32 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002816.html">[WSJT-SVN] r3124 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002818.html">[WSJT-SVN] r3126 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2817">[ date ]</a>
+              <a href="thread.html#2817">[ thread ]</a>
+              <a href="subject.html#2817">[ subject ]</a>
+              <a href="author.html#2817">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-03 18:44:31 +0200 (Wed, 03 Apr 2013)
+New Revision: 3125
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+First try at changing Tol to fMin and fMax.  More work still to be done!
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/lib/decoder.f90	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -68,7 +68,8 @@
+   tstep=kstep/12000.0
+ 
+   call timer('sync9   ',0)
+-  call sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  !Compute ccfred
++! Compute ccfred()
++  call sync9(ss,nzhsym,tstep,df3,nfa,nfb,ntol,nfqso,ccfred,ia,ib,ipk)
+   call timer('sync9   ',1)
+ 
+   ccfok=.false.
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/lib/sync9.f90	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -1,4 +1,4 @@
+-subroutine sync9(ss,nzhsym,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipkbest)
++subroutine sync9(ss,nzhsym,tstep,df3,nfa,nfb,ntol,nfqso,ccfred,ia,ib,ipkbest)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
+@@ -7,16 +7,9 @@
+ 
+   ipk=0
+   ipkbest=0
+-  ia=1
+-  ib=min(1000,nint(1000.0/df3))
++  ia=max(1,nint((nfa-1000)/df3))
++  ib=min(NSMAX,nint((nfb-1000)/df3))
+ 
+-  if(ntol.lt.1000) then
+-     ia=nint((nfqso-1000-ntol)/df3)
+-     ib=nint((nfqso-1000+ntol)/df3)
+-     if(ia.lt.1) ia=1
+-     if(ib.gt.NSMAX) ib=NSMAX
+-  endif
+-
+   sbest=0.
+   lag1=-(2.5/tstep + 0.9999)
+   lag2=5.0/tstep + 0.9999
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/mainwindow.cpp	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -161,6 +161,8 @@
+   m_promptToLog=false;
+   m_blankLine=false;
+   m_insertBlank=false;
++  m_fMin=1000;
++  ui-&gt;fMinSpinBox-&gt;setValue(m_fMin);
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -190,8 +192,7 @@
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+   }
+-  readSettings();		             //Restore user's setup params
+-
++  readSettings();		             //Restore user's setup params  
+   if(m_dFreq.length()&lt;=1) {
+     m_dFreq.clear();
+     for(int i=0; i&lt;16; i++) {
+@@ -225,6 +226,7 @@
+   if(m_mode==&quot;JT9-5&quot;) on_actionJT9_5_triggered();
+   if(m_mode==&quot;JT9-10&quot;) on_actionJT9_10_triggered();
+   if(m_mode==&quot;JT9-30&quot;) on_actionJT9_30_triggered();
++  g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
+   future1 = new QFuture&lt;void&gt;;
+   watcher1 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher1, SIGNAL(finished()),this,SLOT(diskDat()));
+@@ -240,11 +242,6 @@
+   m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+   soundInThread.setMonitoring(m_monitoring);
+   m_diskData=false;
+-  static int ntol[] = {1,2,5,10,20,50,100,200,500};
+-  for (int i=0; i&lt;10; i++) {
+-    if(ntol[i]==m_tol) ui-&gt;tolSlider-&gt;setValue(i);
+-  }
+-  g_pWideGraph-&gt;setTol(m_tol);
+ 
+ // Create &quot;m_worked&quot;, a dictionary of all calls in wsjtx.log
+   QFile f(&quot;wsjtx.log&quot;);
+@@ -346,7 +343,6 @@
+   settings.setValue(&quot;NBslider&quot;,m_NBslider);
+   settings.setValue(&quot;DialFreq&quot;,m_dialFreq);
+   settings.setValue(&quot;TxFreq&quot;,m_txFreq);
+-  settings.setValue(&quot;Tol&quot;,m_tol);
+   settings.setValue(&quot;InGain&quot;,m_inGain);
+   settings.setValue(&quot;PSKReporter&quot;,m_pskReporter);
+   settings.setValue(&quot;After73&quot;,m_After73);
+@@ -430,7 +426,6 @@
+   m_saveDecoded=ui-&gt;actionSave_decoded-&gt;isChecked();
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,2).toInt();
+-  m_tol=settings.value(&quot;Tol&quot;,500).toInt();
+   m_inGain=settings.value(&quot;InGain&quot;,0).toInt();
+   ui-&gt;inGain-&gt;setValue(m_inGain);
+   m_kb8rq=settings.value(&quot;KB8RQ&quot;,false).toBool();
+@@ -815,14 +810,6 @@
+   statusBar()-&gt;addWidget(lab5);
+ }
+ 
+-void MainWindow::on_tolSlider_valueChanged(int i)             //tolSlider
+-{
+-  static int ntol[] = {1,2,5,10,20,50,100,200,500};
+-  m_tol=ntol[i];
+-  g_pWideGraph-&gt;setTol(m_tol);
+-  ui-&gt;labTol1-&gt;setText(&quot;Tolerance: &quot; + QString::number(ntol[i]));
+-}
+-
+ void MainWindow::on_actionExit_triggered()                     //Exit()
+ {
+   OnExit();
+@@ -1055,22 +1042,6 @@
+ {
+   if(n==1) {
+     bumpFqso(0);
+-  } else {
+-    static int ntol[] = {1,2,5,10,20,50,100,200,500};
+-    if(!m_decoderBusy) {
+-      jt9com_.newdat=0;
+-      jt9com_.nagain=1;
+-      int i;
+-      if(m_mode==&quot;JT9-1&quot;) i=4;
+-      if(m_mode==&quot;JT9-2&quot;) i=4;
+-      if(m_mode==&quot;JT9-5&quot;) i=3;
+-      if(m_mode==&quot;JT9-10&quot;) i=2;
+-      if(m_mode==&quot;JT9-30&quot;) i=1;
+-      m_tol=ntol[i];
+-      g_pWideGraph-&gt;setTol(m_tol);
+-      ui-&gt;tolSlider-&gt;setValue(i);
+-      decode();
+-    }
+   }
+ }
+ 
+@@ -1093,7 +1064,7 @@
+   jt9com_.nfa=1000;                         //### temporary ###
+   jt9com_.nfb=2000;
+ 
+-  jt9com_.ntol=m_tol;
++  jt9com_.ntol=10;
+   if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to all65.txt
+   m_nutc0=jt9com_.nutc;
+   jt9com_.nrxlog=m_RxLog;
+@@ -2017,6 +1988,8 @@
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_1-&gt;setChecked(true);
++  m_fMax=2000;
++  ui-&gt;fMaxSpinBox-&gt;setValue(m_fMax);
+ }
+ 
+ void MainWindow::on_actionJT9_2_triggered()
+@@ -2032,6 +2005,8 @@
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_2-&gt;setChecked(true);
++  m_fMax=2000;
++  ui-&gt;fMaxSpinBox-&gt;setValue(m_fMax);
+ }
+ 
+ void MainWindow::on_actionJT9_5_triggered()
+@@ -2047,6 +2022,8 @@
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_5-&gt;setChecked(true);
++  m_fMax=1300;
++  ui-&gt;fMaxSpinBox-&gt;setValue(m_fMax);
+ }
+ 
+ void MainWindow::on_actionJT9_10_triggered()
+@@ -2062,6 +2039,8 @@
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_10-&gt;setChecked(true);
++  m_fMax=1150;
++  ui-&gt;fMaxSpinBox-&gt;setValue(m_fMax);
+ }
+ 
+ void MainWindow::on_actionJT9_30_triggered()
+@@ -2077,6 +2056,8 @@
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_30-&gt;setChecked(true);
++  m_fMax=1050;
++  ui-&gt;fMaxSpinBox-&gt;setValue(m_fMax);
+ }
+ 
+ void MainWindow::on_NBcheckBox_toggled(bool checked)
+@@ -2255,3 +2236,15 @@
+ {
+   m_insertBlank=checked;
+ }
++
++void MainWindow::on_fMinSpinBox_valueChanged(int n)
++{
++  m_fMin=n;
++  g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
++}
++
++void MainWindow::on_fMaxSpinBox_valueChanged(int n)
++{
++  m_fMax=n;
++  g_pWideGraph-&gt;setRxRange(m_fMin,m_fMax);
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/mainwindow.h	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -59,7 +59,6 @@
+   void on_actionCuteSDR_triggered();
+   void on_autoButton_clicked();
+   void on_stopTxButton_clicked();
+-  void on_tolSlider_valueChanged(int arg1);
+   void on_stopButton_clicked();
+   void on_actionOnline_Users_Guide_triggered();
+   void on_actionWide_Waterfall_triggered();
+@@ -132,6 +131,8 @@
+   void on_bandComboBox_currentIndexChanged(int index);
+   void on_actionPrompt_to_log_QSO_triggered(bool checked);
+   void on_actionBlank_line_between_decoding_periods_triggered(bool checked);
++  void on_fMinSpinBox_valueChanged(int n);
++  void on_fMaxSpinBox_valueChanged(int n);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -143,7 +144,8 @@
+     qint32  m_idInt;
+     qint32  m_waterfallAvg;
+     qint32  m_pttMethodIndex;
+-    qint32  m_tol;
++    qint32  m_fMin;
++    qint32  m_fMax;
+     qint32  m_QSOfreq0;
+     qint32  m_ntx;
+     qint32  m_pttPort;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/mainwindow.ui	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -526,71 +526,95 @@
+           &lt;property name=&quot;lineWidth&quot;&gt;
+            &lt;number&gt;1&lt;/number&gt;
+           &lt;/property&gt;
+-          &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_2&quot;&gt;
+-           &lt;property name=&quot;spacing&quot;&gt;
+-            &lt;number&gt;0&lt;/number&gt;
++          &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++           &lt;property name=&quot;geometry&quot;&gt;
++            &lt;rect&gt;
++             &lt;x&gt;2&lt;/x&gt;
++             &lt;y&gt;4&lt;/y&gt;
++             &lt;width&gt;100&lt;/width&gt;
++             &lt;height&gt;52&lt;/height&gt;
++            &lt;/rect&gt;
+            &lt;/property&gt;
+-           &lt;property name=&quot;margin&quot;&gt;
+-            &lt;number&gt;0&lt;/number&gt;
+-           &lt;/property&gt;
+-           &lt;item&gt;
+-            &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+-             &lt;property name=&quot;spacing&quot;&gt;
+-              &lt;number&gt;6&lt;/number&gt;
+-             &lt;/property&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QLabel&quot; name=&quot;labTol1&quot;&gt;
+-               &lt;property name=&quot;sizePolicy&quot;&gt;
+-                &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
+-                 &lt;horstretch&gt;0&lt;/horstretch&gt;
+-                 &lt;verstretch&gt;0&lt;/verstretch&gt;
+-                &lt;/sizepolicy&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;minimumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;30&lt;/width&gt;
+-                 &lt;height&gt;22&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;maximumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;100&lt;/width&gt;
+-                 &lt;height&gt;18&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;text&quot;&gt;
+-                &lt;string&gt;Tolerance: 500&lt;/string&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;alignment&quot;&gt;
+-                &lt;set&gt;Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter&lt;/set&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;indent&quot;&gt;
+-                &lt;number&gt;5&lt;/number&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-             &lt;item&gt;
+-              &lt;widget class=&quot;QSlider&quot; name=&quot;tolSlider&quot;&gt;
+-               &lt;property name=&quot;maximumSize&quot;&gt;
+-                &lt;size&gt;
+-                 &lt;width&gt;100&lt;/width&gt;
+-                 &lt;height&gt;16777215&lt;/height&gt;
+-                &lt;/size&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;maximum&quot;&gt;
+-                &lt;number&gt;8&lt;/number&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;value&quot;&gt;
+-                &lt;number&gt;8&lt;/number&gt;
+-               &lt;/property&gt;
+-               &lt;property name=&quot;orientation&quot;&gt;
+-                &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-               &lt;/property&gt;
+-              &lt;/widget&gt;
+-             &lt;/item&gt;
+-            &lt;/layout&gt;
+-           &lt;/item&gt;
+-          &lt;/layout&gt;
++           &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_2&quot;&gt;
++            &lt;item&gt;
++             &lt;widget class=&quot;QLabel&quot; name=&quot;labTol1&quot;&gt;
++              &lt;property name=&quot;sizePolicy&quot;&gt;
++               &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Preferred&quot;&gt;
++                &lt;horstretch&gt;0&lt;/horstretch&gt;
++                &lt;verstretch&gt;0&lt;/verstretch&gt;
++               &lt;/sizepolicy&gt;
++              &lt;/property&gt;
++              &lt;property name=&quot;minimumSize&quot;&gt;
++               &lt;size&gt;
++                &lt;width&gt;30&lt;/width&gt;
++                &lt;height&gt;22&lt;/height&gt;
++               &lt;/size&gt;
++              &lt;/property&gt;
++              &lt;property name=&quot;maximumSize&quot;&gt;
++               &lt;size&gt;
++                &lt;width&gt;100&lt;/width&gt;
++                &lt;height&gt;18&lt;/height&gt;
++               &lt;/size&gt;
++              &lt;/property&gt;
++              &lt;property name=&quot;text&quot;&gt;
++               &lt;string&gt; Decode  Range
++  Min           Max&lt;/string&gt;
++              &lt;/property&gt;
++              &lt;property name=&quot;alignment&quot;&gt;
++               &lt;set&gt;Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter&lt;/set&gt;
++              &lt;/property&gt;
++              &lt;property name=&quot;indent&quot;&gt;
++               &lt;number&gt;5&lt;/number&gt;
++              &lt;/property&gt;
++             &lt;/widget&gt;
++            &lt;/item&gt;
++            &lt;item&gt;
++             &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout&quot;&gt;
++              &lt;item&gt;
++               &lt;widget class=&quot;QSpinBox&quot; name=&quot;fMinSpinBox&quot;&gt;
++                &lt;property name=&quot;sizePolicy&quot;&gt;
++                 &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++                  &lt;horstretch&gt;0&lt;/horstretch&gt;
++                  &lt;verstretch&gt;0&lt;/verstretch&gt;
++                 &lt;/sizepolicy&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;minimum&quot;&gt;
++                 &lt;number&gt;1000&lt;/number&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;maximum&quot;&gt;
++                 &lt;number&gt;2000&lt;/number&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;singleStep&quot;&gt;
++                 &lt;number&gt;50&lt;/number&gt;
++                &lt;/property&gt;
++               &lt;/widget&gt;
++              &lt;/item&gt;
++              &lt;item&gt;
++               &lt;widget class=&quot;QSpinBox&quot; name=&quot;fMaxSpinBox&quot;&gt;
++                &lt;property name=&quot;sizePolicy&quot;&gt;
++                 &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++                  &lt;horstretch&gt;0&lt;/horstretch&gt;
++                  &lt;verstretch&gt;0&lt;/verstretch&gt;
++                 &lt;/sizepolicy&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;minimum&quot;&gt;
++                 &lt;number&gt;1000&lt;/number&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;maximum&quot;&gt;
++                 &lt;number&gt;2000&lt;/number&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;singleStep&quot;&gt;
++                 &lt;number&gt;50&lt;/number&gt;
++                &lt;/property&gt;
++                &lt;property name=&quot;value&quot;&gt;
++                 &lt;number&gt;2000&lt;/number&gt;
++                &lt;/property&gt;
++               &lt;/widget&gt;
++              &lt;/item&gt;
++             &lt;/layout&gt;
++            &lt;/item&gt;
++           &lt;/layout&gt;
++          &lt;/widget&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+         &lt;item row=&quot;3&quot; column=&quot;7&quot; rowspan=&quot;2&quot;&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/plotter.cpp	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -174,7 +174,7 @@
+   if(m_OverlayPixmap.isNull()) return;
+   if(m_WaterfallPixmap.isNull()) return;
+   int w = m_WaterfallPixmap.width();
+-  int x,y;
++  int x,y,x1,x2;
+ //  int nHzDiv[11]={0,50,100,200,200,200,500,500,500,500,500};
+   float pixperdiv;
+ 
+@@ -207,21 +207,6 @@
+           painter.drawLine(0, y, w, y);
+   }
+ 
+-/*
+-  //draw amplitude values
+-  painter.setPen(Qt::yellow);
+-//  Font.setWeight(QFont::Light);
+-//  painter.setFont(Font);
+-//  int dB = m_MaxdB;
+-  int dB = 50;
+-  for( int i=0; i&lt;VERT_DIVS-1; i++)
+-  {
+-    y = (int)( (float)i*pixperdiv );
+-    painter.drawStaticText(5, y-1, QString::number(dB)+&quot; dB&quot;);
+-    dB -= m_dBStepSize;
+-  }
+-*/
+-
+   QRect rect0;
+   QPainter painter0(&amp;m_ScalePixmap);
+   painter0.initFrom(this);
+@@ -288,31 +273,17 @@
+   painter0.setPen(pen0);
+   x=XfromFreq(m_fQSO);
+   painter0.drawLine(x,17,x,30);
+-  int x1=x - m_tol/df;
+-  int x2=x + m_tol/df;
++  x1=XfromFreq(m_fMin);                    //Mark the decoding range
++  x2=XfromFreq(m_fMax);
+   pen0.setWidth(6);
+   painter0.drawLine(x1,28,x2,28);
+ 
+   QPen pen1(Qt::red, 3);                 //Mark TxFreq with red tick
+   painter0.setPen(pen1);
+-  x = XfromFreq(m_txFreq);
++  x=XfromFreq(m_txFreq);
+   painter0.drawLine(x,0,x,13);
+   painter0.drawLine(x,13,x-2,11);
+   painter0.drawLine(x,13,x+2,11);
+-
+-  /*
+-  df = 12000.0/m_nsps;
+-  int nlabs=df*w/m_freqPerDiv + 1.0;
+-//  m_LowerScalePixmap.fill(Qt::white);
+-//  painter3.drawRect(0, 0, w, 30);
+-  pixperdiv = m_freqPerDiv/df;
+-  for( int i=0; i&lt;10*nlabs; i++) {
+-    x = i*pixperdiv/10;
+-    y=24;
+-    if ((i%10) == 0) y=18;
+-//    painter3.drawLine(x,y,x,30);
+-  }
+-  */
+ }
+ 
+ void CPlotter::MakeFrequencyStrs()                       //MakeFrequencyStrs
+@@ -380,17 +351,12 @@
+ void CPlotter::UpdateOverlay() {DrawOverlay();}
+ void CPlotter::setDataFromDisk(bool b) {m_dataFromDisk=b;}
+ 
+-void CPlotter::setTol(int n)                                 //setTol()
++void CPlotter::setRxRange(int fMin, int fMax)
+ {
+-  m_tol=n;
+-  DrawOverlay();
++  m_fMin=fMin;
++  m_fMax=fMax;
+ }
+ 
+-int CPlotter::Tol()                                         //Tol()
+-{
+-  return m_tol;
+-}
+-
+ void CPlotter::setBinsPerPixel(int n)                       // set nbpp
+ {
+   m_binsPerPixel = n;
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/plotter.h	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -50,8 +50,7 @@
+   void setNSpan(int n);
+   void UpdateOverlay();
+   void setDataFromDisk(bool b);
+-  void setTol(int n);
+-  int  Tol();
++  void setRxRange(int fMin, int fMax);
+   void setBinsPerPixel(int n);
+   int  binsPerPixel();
+   void setFQSO(int n, bool bf);
+@@ -110,9 +109,10 @@
+   qint32  m_h;
+   qint32  m_h1;
+   qint32  m_h2;
+-  qint32  m_tol;
+   qint32  m_TRperiod;
+   qint32  m_txFreq;
++  qint32  m_fMin;
++  qint32  m_fMax;
+ 
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/widegraph.cpp	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -202,18 +202,13 @@
+   emit freezeDecode2(n);
+ }
+ 
+-void WideGraph::setTol(int n)
++void WideGraph::setRxRange(int fMin, int fMax)
+ {
+-  ui-&gt;widePlot-&gt;setTol(n);
++  ui-&gt;widePlot-&gt;setRxRange(fMin,fMax);
+   ui-&gt;widePlot-&gt;DrawOverlay();
+   ui-&gt;widePlot-&gt;update();
+ }
+ 
+-int WideGraph::Tol()
+-{
+-  return ui-&gt;widePlot-&gt;Tol();
+-}
+-
+ void WideGraph::setFcal(int n)
+ {
+   m_fCal=n;
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2013-04-03 15:35:11 UTC (rev 3124)
++++ branches/wsjtx/widegraph.h	2013-04-03 16:44:31 UTC (rev 3125)
+@@ -22,8 +22,7 @@
+   int    nStartFreq();
+   float  fSpan();
+   void   saveSettings();
+-  int    Tol();
+-  void   setTol(int n);
++  void   setRxRange(int fMin, int fMax);
+   void   setFcal(int n);
+   void   setPalette(QString palette);
+   void   setFsample(int n);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002816.html">[WSJT-SVN] r3124 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002818.html">[WSJT-SVN] r3126 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2817">[ date ]</a>
+              <a href="thread.html#2817">[ thread ]</a>
+              <a href="subject.html#2817">[ subject ]</a>
+              <a href="author.html#2817">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

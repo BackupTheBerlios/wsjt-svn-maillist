@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2324 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2324%20-%20branches/wspr&In-Reply-To=%3C20101224204203.5BC6E48027F%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002015.html">
+   <LINK REL="Next"  HREF="002017.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2324 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2324%20-%20branches/wspr&In-Reply-To=%3C20101224204203.5BC6E48027F%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2324 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Dec 24 21:42:03 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002015.html">[WSJT-SVN] r2323 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002017.html">[WSJT-SVN] r2325 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2016">[ date ]</a>
+              <a href="thread.html#2016">[ thread ]</a>
+              <a href="subject.html#2016">[ subject ]</a>
+              <a href="author.html#2016">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-24 21:42:02 +0100 (Fri, 24 Dec 2010)
+New Revision: 2324
+
+Modified:
+   branches/wspr/rxtxcoord.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Reduce ATU tuneup duration from 4 s to 3 s.
+Tweak the T/R decisions for coordinated hopping.
+
+
+Modified: branches/wspr/rxtxcoord.f90
+===================================================================
+--- branches/wspr/rxtxcoord.f90	2010-12-23 16:41:40 UTC (rev 2323)
++++ branches/wspr/rxtxcoord.f90	2010-12-24 20:42:02 UTC (rev 2324)
+@@ -2,17 +2,19 @@
+ 
+ ! Determine Rx or Tx in coordinated hopping mode.
+ 
+-  integer tx(10,6)    !T/R array for 2 hours: 10 bands, 6 time slots per band
++  integer tx(10,6)    !T/R array for 2 hours: 10 bands, 6 time slots
+   real r(6)           !Random numbers
+   integer ii(1)
+-  data nsec0/-10000000/
+-  save nsec0,tx
++  data n2hr0/-999/
++  save n2hr0,tx
+   
+-  nsec=(ns0+10)/120
++  nsec=(ns0+10)/120                   !Round up to start of next 2-min slot
+   nsec=nsec*120
+-  if(abs(nsec-nsec0).gt.7200 - 10) then
+-! At startup and whenever 2 hours have elapsed, compute new Rx/Tx pattern
+-     nsec0=nsec                       !Save time when new array is computed
++  n2hr=nsec/7200                      !2-hour slot number
++
++  if(n2hr.ne.n2hr0) then
++! Compute a new Rx/Tx pattern for this 2-hour interval
++     n2hr0=n2hr                       !Mark this one as done
+      tx=0                             !Clear the tx array
+      do j=1,10                        !Loop over all 10 bands
+         call random_number(r)
+@@ -50,11 +52,10 @@
+      enddo
+ 
+ ! We now have 1 to 3 Tx periods per band in the 2-hour interval.
+-
+   endif
+ 
+   iband=mod(nsec/120,10) + 1
+-  iseq=mod((nsec-nsec0)/1200,6) + 1
++  iseq=mod(nsec/1200,6) + 1
+   if(iseq.lt.1) iseq=1
+   if(tx(iband,iseq).eq.1) then
+      ntxnext=1
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-23 16:41:40 UTC (rev 2323)
++++ branches/wspr/wspr.py	2010-12-24 20:42:02 UTC (rev 2324)
+@@ -896,7 +896,7 @@
+                 sftx.set(t)
+ ##            if ierr==0 and ierr2==0 and w.acom1.nfhopping==1 and hopped==1:
+             if ierr==0 and ierr2==0 and w.acom1.nfhopping==1 and hopped==1 \
+-                   and hopping.tuneupflag[iband.get()].get(): w.acom1.ntune=-4
++                   and hopping.tuneupflag[iband.get()].get(): w.acom1.ntune=-3
+         else:
+             iband0=iband.get()
+         iq.ib.set(iband.get())
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-12-23 16:41:40 UTC (rev 2323)
++++ branches/wspr/wspr2.f90	2010-12-24 20:42:02 UTC (rev 2324)
+@@ -9,7 +9,7 @@
+ !  18  test.snr
+ !  19  wspr.log
+ 
+-  character message*24,cdbm*4
++  character message*24,cdbm*4,type*4
+   real*8 tsec,tsec1
+   include 'acom1.f90'
+   character linetx*40,dectxt*80,logfile*80
+@@ -104,7 +104,10 @@
+      transmitting=.true.
+      call gmtime2(nt,tsec1)
+      t120=mod(tsec1,120.d0)
+-     write(19,1031) cdate(3:8),utctime(1:4),t120,'Test',iband,ib(iband)
++     type='Tune'
++     if(ntune.eq.-3) type='ATU '
++     if(type.eq.'Tune' .or. t120.lt.116.5) write(19,1031) cdate(3:8),   &amp;
++          utctime(1:4),t120,type,iband,ib(iband)
+      call flush(19)
+      call cs_unlock
+      call starttx
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002015.html">[WSJT-SVN] r2323 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002017.html">[WSJT-SVN] r2325 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2016">[ date ]</a>
+              <a href="thread.html#2016">[ thread ]</a>
+              <a href="subject.html#2016">[ subject ]</a>
+              <a href="author.html#2016">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

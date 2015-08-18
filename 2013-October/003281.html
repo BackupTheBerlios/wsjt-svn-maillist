@@ -1,0 +1,375 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3588 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3588%20-%20branches/wsjtx&In-Reply-To=%3C20131004190029.E116955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003280.html">
+   <LINK REL="Next"  HREF="003282.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3588 - branches/wsjtx</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3588%20-%20branches/wsjtx&In-Reply-To=%3C20131004190029.E116955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3588 - branches/wsjtx">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Fri Oct  4 21:00:29 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003280.html">[WSJT-SVN] r3587 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003282.html">[WSJT-SVN] r3589 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3281">[ date ]</a>
+              <a href="thread.html#3281">[ thread ]</a>
+              <a href="subject.html#3281">[ subject ]</a>
+              <a href="author.html#3281">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-10-04 21:00:29 +0200 (Fri, 04 Oct 2013)
+New Revision: 3588
+
+Modified:
+   branches/wsjtx/Detector.cpp
+   branches/wsjtx/Detector.hpp
+   branches/wsjtx/main.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundin.h
+Log:
+Fix audio input rate issue on Windows Vista
+
+Windows Vista has a broken rate converter which gets invoked when an
+input audio stream at 48kHz sampel rate is requested. I've no idea why
+our application can't get exclusive access to the audio input device
+and have a unconverted stream direct at 48kHz.
+
+To get around this our down sampling filter for audio input from 48kHz
+to 12kHz is disaabled by default on Windows Vista, instead we request
+a 12kHz stream and process it directly.
+
+This default behviour can be overriden by specifying the following
+settings value:
+
+[Tune]
+Audio\DisableInputResampling=false
+
+This settings value defaults to true on Windows Vista and false
+everywhere else so normally needn't be present.
+
+
+
+Modified: branches/wsjtx/Detector.cpp
+===================================================================
+--- branches/wsjtx/Detector.cpp	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/Detector.cpp	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -10,19 +10,15 @@
+ void   fil4_(qint16*, qint32*, qint16*, qint32*);
+ }
+ 
+-namespace
+-{
+-  unsigned const downsampleFactor = 4;
+-}
+-
+-Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, QObject * parent)
++Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, unsigned downSampleFactor, QObject * parent)
+   : AudioDevice (parent)
+   , m_frameRate (frameRate)
+   , m_period (periodLengthInSeconds)
++  , m_downSampleFactor (downSampleFactor)
+   , m_framesPerSignal (framesPerSignal)
+   , m_monitoring (false)
+   , m_starting (false)
+-  , m_buffer (new short [framesPerSignal * downsampleFactor])
++  , m_buffer ((downSampleFactor &gt; 1) ? new short [framesPerSignal * downSampleFactor] : 0)
+   , m_bufferPos (0)
+ {
+   clear ();
+@@ -53,7 +49,7 @@
+       Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (bytesPerFrame ()))); // no torn frames
+ 
+       // these are in terms of input frames (not down sampled)
+-      size_t framesAcceptable ((sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin) * downsampleFactor);
++      size_t framesAcceptable ((sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin) * m_downSampleFactor);
+       size_t framesAccepted (qMin (static_cast&lt;size_t&gt; (maxSize / bytesPerFrame ()), framesAcceptable));
+ 
+       if (framesAccepted &lt; static_cast&lt;size_t&gt; (maxSize / bytesPerFrame ()))
+@@ -63,19 +59,34 @@
+ 
+       for (unsigned remaining = framesAccepted; remaining; )
+ 	{
+-	  size_t numFramesProcessed (qMin (m_framesPerSignal * downsampleFactor - m_bufferPos, remaining));
+-	  store (&amp;data[(framesAccepted - remaining) * bytesPerFrame ()], numFramesProcessed, &amp;m_buffer[m_bufferPos]);
+-	  m_bufferPos += numFramesProcessed;
+-	  if (m_bufferPos == m_framesPerSignal * downsampleFactor &amp;&amp; m_monitoring)
++	  size_t numFramesProcessed (qMin (m_framesPerSignal * m_downSampleFactor - m_bufferPos, remaining));
++
++	  if (m_downSampleFactor &gt; 1)
+ 	    {
+-	      qint32 framesToProcess (m_framesPerSignal * downsampleFactor);
+-	      qint32 framesAfterDownSample;
+-	      fil4_(&amp;m_buffer[0], &amp;framesToProcess, &amp;jt9com_.d2[jt9com_.kin], &amp;framesAfterDownSample);
+-	      m_bufferPos = 0;
++	      store (&amp;data[(framesAccepted - remaining) * bytesPerFrame ()], numFramesProcessed, &amp;m_buffer[m_bufferPos]);
++	      m_bufferPos += numFramesProcessed;
++	      if (m_bufferPos == m_framesPerSignal * m_downSampleFactor &amp;&amp; m_monitoring)
++		{
++		  qint32 framesToProcess (m_framesPerSignal * m_downSampleFactor);
++		  qint32 framesAfterDownSample;
++		  fil4_(&amp;m_buffer[0], &amp;framesToProcess, &amp;jt9com_.d2[jt9com_.kin], &amp;framesAfterDownSample);
++		  jt9com_.kin += framesAfterDownSample;
++		  Q_EMIT framesWritten (jt9com_.kin);
++		  m_bufferPos = 0;
++		}
+ 
+-	      jt9com_.kin += framesAfterDownSample;
+-	      Q_EMIT framesWritten (jt9com_.kin);
+ 	    }
++	  else
++	    {
++	      store (&amp;data[(framesAccepted - remaining) * bytesPerFrame ()], numFramesProcessed, &amp;jt9com_.d2[jt9com_.kin]);
++	      m_bufferPos += numFramesProcessed;
++	      jt9com_.kin += numFramesProcessed;
++	      if (m_bufferPos == static_cast&lt;unsigned&gt; (m_framesPerSignal) &amp;&amp; m_monitoring)
++		{
++		  Q_EMIT framesWritten (jt9com_.kin);
++		  m_bufferPos = 0;
++		}
++	    }
+ 
+ 	  if (!secondInPeriod ())
+ 	    {
+
+Modified: branches/wsjtx/Detector.hpp
+===================================================================
+--- branches/wsjtx/Detector.hpp	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/Detector.hpp	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -26,7 +26,7 @@
+   //
+   // the framesPerSignal argument is the number after down sampling
+   //
+-  Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, QObject * parent = 0);
++  Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, unsigned downSampleFactor = 4u, QObject * parent = 0);
+ 
+   bool isMonitoring () const {return m_monitoring;}
+ 
+@@ -52,7 +52,8 @@
+ 
+   unsigned m_frameRate;
+   unsigned m_period;
+-  qint32 m_framesPerSignal;	// after down sampling
++  unsigned m_downSampleFactor;
++  qint32 m_framesPerSignal;	// after any down sampling
+   bool volatile m_monitoring;
+   bool m_starting;
+   QScopedArrayPointer&lt;short&gt; m_buffer; // de-interleaved sample buffer
+
+Modified: branches/wsjtx/main.cpp
+===================================================================
+--- branches/wsjtx/main.cpp	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/main.cpp	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -6,6 +6,7 @@
+ #include &lt;QApplication&gt;
+ #include &lt;QObject&gt;
+ #include &lt;QSettings&gt;
++#include &lt;QSysInfo&gt;
+ 
+ #include &quot;mainwindow.h&quot;
+ 
+@@ -55,8 +56,20 @@
+   }
+   memset(to,0,size);         //Zero all decoding params in shared memory
+ 
++  settings.beginGroup (&quot;Tune&quot;);
++
++  // deal with Windows Vista input audio rate converter problems
++  unsigned downSampleFactor = settings.value (&quot;Audio/DisableInputResampling&quot;,
++#if defined (Q_OS_WIN)
++					      QSysInfo::WV_VISTA == QSysInfo::WindowsVersion ? true : false
++#else
++					      false
++#endif
++					      ).toBool () ? 1u : 4u;
++  settings.endGroup ();
++
+ // Multiple instances:  Call MainWindow() with the UUID key
+-  MainWindow w(&amp;settings, &amp;mem_jt9, &amp;my_key, fontSize2, fontWeight2);
++  MainWindow w(&amp;settings, &amp;mem_jt9, &amp;my_key, fontSize2, fontWeight2, downSampleFactor);
+   w.show();
+ 
+   QObject::connect (&amp;a, SIGNAL (lastWindowClosed()), &amp;a, SLOT (quit()));
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/mainwindow.cpp	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -42,14 +42,14 @@
+ //-------------------------------------------------- MainWindow constructor
+ // Multiple instances: new arg *thekey
+ MainWindow::MainWindow(QSettings * settings, QSharedMemory *shdmem, QString *thekey,
+-                       qint32 fontSize2, qint32 fontWeight2,
++                       qint32 fontSize2, qint32 fontWeight2, unsigned downSampleFactor,
+                        QWidget *parent) :
+   QMainWindow(parent),
+   m_settings (settings),
+   ui(new Ui::MainWindow),
+   m_wideGraph (new WideGraph (settings)),
+   m_logDlg (new LogQSO (settings, this)),
+-  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2),
++  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2, downSampleFactor),
+   m_audioInputDevice (QAudioDeviceInfo::defaultInputDevice ()), // start with default
+   m_modulator (TX_SAMPLE_RATE, NTMAX / 2),
+   m_audioOutputDevice (QAudioDeviceInfo::defaultOutputDevice ()), // start with default
+@@ -57,6 +57,7 @@
+   psk_Reporter (new PSK_Reporter (this)),
+   m_msAudioOutputBuffered (0u),
+   m_framesAudioInputBuffered (RX_SAMPLE_RATE / 10),
++  m_downSampleFactor (downSampleFactor),
+   m_audioThreadPriority (QThread::HighPriority)
+ {
+   ui-&gt;setupUi(this);
+@@ -91,8 +92,8 @@
+ 	   , &amp;m_modulator, SLOT (open (unsigned, double, unsigned, AudioDevice::Channel, bool, double)));
+ 
+   // hook up the audio input stream
+-  connect (this, SIGNAL (startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *))
+-	   , &amp;m_soundInput, SLOT (start (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *)));
++  connect (this, SIGNAL (startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *, unsigned))
++	   , &amp;m_soundInput, SLOT (start (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *, unsigned)));
+   connect (this, SIGNAL (stopAudioInputStream ()), &amp;m_soundInput, SLOT (stop ()));
+ 
+   connect(&amp;m_soundInput, SIGNAL (error (QString)), this, SLOT (showSoundInError (QString)));
+@@ -394,7 +395,7 @@
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
+   Q_EMIT startDetector (m_audioInputChannel);
+-  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
++  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector, m_downSampleFactor);
+ 
+   Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+   Q_EMIT muteAudioOutput (false);
+@@ -855,7 +856,7 @@
+       Q_EMIT stopAudioInputStream ();
+       Q_EMIT detectorClose ();
+       Q_EMIT startDetector (m_audioInputChannel);
+-      Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
++      Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector, m_downSampleFactor);
+     }
+ 
+     if(dlg.m_restartSoundOut) {
+@@ -892,7 +893,7 @@
+ {
+   m_monitoring=true;
+   Q_EMIT detectorSetMonitoring (true);
+-  //  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector);
++  //  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, m_framesAudioInputBuffered, &amp;m_detector, m_downSampleFactor);
+   m_diskData=false;
+ }
+ 
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/mainwindow.h	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -48,8 +48,8 @@
+ 
+ // Multiple instances: call MainWindow() with *thekey
+ public:
+-  explicit MainWindow(QSettings *, QSharedMemory *shdmem, QString *thekey, \
+-                      qint32 fontSize2, qint32 fontWeight2, \
++  explicit MainWindow(QSettings *, QSharedMemory *shdmem, QString *thekey,
++                      qint32 fontSize2, qint32 fontWeight2, unsigned downSampleFactor,
+                       QWidget *parent = 0);
+   ~MainWindow();
+ 
+@@ -184,7 +184,7 @@
+   Q_SIGNAL void startAudioOutputStream (QAudioDeviceInfo, unsigned channels, unsigned msBuffered);
+   Q_SIGNAL void stopAudioOutputStream ();
+ 
+-  Q_SIGNAL void startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
++  Q_SIGNAL void startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink, unsigned downSampleFactor);
+   Q_SIGNAL void stopAudioInputStream ();
+ 
+   Q_SIGNAL void startDetector (AudioDevice::Channel);
+@@ -391,6 +391,7 @@
+     DecodedText m_QSOText;
+     unsigned m_msAudioOutputBuffered;
+     unsigned m_framesAudioInputBuffered;
++    unsigned m_downSampleFactor;
+     QThread::Priority m_audioThreadPriority;
+ 
+ 
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/soundin.cpp	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -38,7 +38,7 @@
+   return result;
+ }
+ 
+-void SoundInput::start(QAudioDeviceInfo const&amp; device, unsigned channels, int framesPerBuffer, QIODevice * sink)
++void SoundInput::start(QAudioDeviceInfo const&amp; device, unsigned channels, int framesPerBuffer, QIODevice * sink, unsigned downSampleFactor)
+ {
+   Q_ASSERT (0 &lt; channels &amp;&amp; channels &lt; 3);
+   Q_ASSERT (sink);
+@@ -48,7 +48,7 @@
+   QAudioFormat format (device.preferredFormat());
+   format.setChannelCount (channels);
+   format.setCodec (&quot;audio/pcm&quot;);
+-  format.setSampleRate (48000);
++  format.setSampleRate (12000 * downSampleFactor);
+   format.setSampleType (QAudioFormat::SignedInt);
+   format.setSampleSize (16);
+ 
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2013-10-03 14:07:39 UTC (rev 3587)
++++ branches/wsjtx/soundin.h	2013-10-04 19:00:29 UTC (rev 3588)
+@@ -31,7 +31,7 @@
+   Q_SIGNAL void status (QString message) const;
+ 
+   // sink must exist from the start call to any following stop () call
+-  Q_SLOT void start(QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
++  Q_SLOT void start(QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink, unsigned downSampleFactor);
+   Q_SLOT void stop();
+ 
+   // used internally
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003280.html">[WSJT-SVN] r3587 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003282.html">[WSJT-SVN] r3589 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3281">[ date ]</a>
+              <a href="thread.html#3281">[ thread ]</a>
+              <a href="subject.html#3281">[ subject ]</a>
+              <a href="author.html#3281">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

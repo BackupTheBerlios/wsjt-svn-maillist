@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2350 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2350%20-%20branches/wspr&In-Reply-To=%3C20110217191231.D28B24813EB%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002041.html">
+   <LINK REL="Next"  HREF="002043.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2350 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2350%20-%20branches/wspr&In-Reply-To=%3C20110217191231.D28B24813EB%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2350 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Feb 17 20:12:31 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002041.html">[WSJT-SVN] r2349 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002043.html">[WSJT-SVN] r2351 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2042">[ date ]</a>
+              <a href="thread.html#2042">[ thread ]</a>
+              <a href="subject.html#2042">[ subject ]</a>
+              <a href="author.html#2042">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-17 20:12:31 +0100 (Thu, 17 Feb 2011)
+New Revision: 2350
+
+Modified:
+   branches/wspr/t1.f90
+   branches/wspr/wwv.f90
+Log:
+Fix length of cal observation to 60 s.
+
+
+Modified: branches/wspr/t1.f90
+===================================================================
+--- branches/wspr/t1.f90	2011-02-16 13:28:36 UTC (rev 2349)
++++ branches/wspr/t1.f90	2011-02-17 19:12:31 UTC (rev 2350)
+@@ -52,6 +52,16 @@
+   read(ctime(4:4),*) i10
+   xx=prof1
+ 
++  iipk=maxloc(xx)
++  do i=1,ip
++     j=ipk+i-nint(0.001/dt)
++     if(j.lt.1)  j=j+ip
++     if(j.gt.ip) j=j-ip
++     t=1000.0*i*dt - 1.0
++     write(13,3001) t,xx(j)
++3001 format(2f10.3)
++  enddo
++
+   call four2a(xx,ip,1,-1,0)                !Forward FFT of profile
+ 
+   df=float(nfs)/ip
+@@ -73,25 +83,28 @@
+      endif
+   endif
+ 
+-  do i=0,ib
+-     s=real(c(i))**2 + aimag(c(i))**2
+-     pha=atan2(aimag(c(i)),real(c(i)))
+-     write(13,1030) i*df,s,db(s),pha
+-1030 format(f10.3,f12.3,2f10.3)
+-  enddo
++!  do i=0,ib
++!     s=real(c(i))**2 + aimag(c(i))**2
++!     pha=atan2(aimag(c(i)),real(c(i)))
++!     write(13,1030) i*df,s,db(s),pha
++!1030 format(f10.3,f12.3,2f10.3)
++!  enddo
+ 
+   call four2a(c,ip,1,1,-1)             !Inverse FFT ==&gt; calibrated profile
+ 
+   fac=6.62/ip
+   xx=fac*xx
++
+   iipk=maxloc(xx)
+   do i=1,ip
+-     j=ipk+i-100
++     j=ipk+i-nint(0.001/dt)
+      if(j.lt.1)  j=j+ip
+      if(j.gt.ip) j=j-ip
++     t=1000.0*i*dt - 1.0
++     write(14,3001) t,xx(j)
+   enddo
+ 
+-  call clean(xx,ipk,snr,delay,nd)
++  call clean(xx,ipk,snr,delay,nwwv,nd)
+ 
+   do i=1,nd
+      write(*,1000) irec,ctime,day,ikhz,snr(i),delay(i)
+@@ -100,11 +113,13 @@
+   enddo
+ 
+   call flush(13)
++  call flush(14)
+   call flush(16)
+   rewind 13
++  rewind 14
+ 
+-!  read*,cjunk
+-!  if(cjunk.eq.'q') go to 999
++  read*,cjunk
++  if(cjunk.eq.'q') go to 999
+   go to 10
+ 
+ 999 end program t1
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-02-16 13:28:36 UTC (rev 2349)
++++ branches/wspr/wwv.f90	2011-02-17 19:12:31 UTC (rev 2350)
+@@ -46,9 +46,7 @@
+ 
+   call getarg(1,arg)
+   if(arg.eq.'cal' .or. arg.eq.'CAL') then
+-     if(nargs.ne.2) go to 998
+-     call getarg(2,arg)                      !This is a CAL measurement
+-     read(arg,*) nsec
++     nsec=60
+      call calobs(nfs,nsec,ndevin,id,x1)
+      go to 999
+   endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002041.html">[WSJT-SVN] r2349 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002043.html">[WSJT-SVN] r2351 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2042">[ date ]</a>
+              <a href="thread.html#2042">[ thread ]</a>
+              <a href="subject.html#2042">[ subject ]</a>
+              <a href="author.html#2042">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

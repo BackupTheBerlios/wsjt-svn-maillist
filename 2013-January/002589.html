@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2897 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2897%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108015812.1B6BA55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002588.html">
+   <LINK REL="Next"  HREF="002590.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2897 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2897%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108015812.1B6BA55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2897 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan  8 02:58:11 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002588.html">[WSJT-SVN] r2896 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002590.html">[WSJT-SVN] r2898 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2589">[ date ]</a>
+              <a href="thread.html#2589">[ thread ]</a>
+              <a href="subject.html#2589">[ subject ]</a>
+              <a href="author.html#2589">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-08 02:58:11 +0100 (Tue, 08 Jan 2013)
+New Revision: 2897
+
+Added:
+   branches/wsprx/lib/savec2.f90
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.ui
+Log:
+Include savec2.f90; clean up a bit.
+
+
+Added: branches/wsprx/lib/savec2.f90
+===================================================================
+--- branches/wsprx/lib/savec2.f90	                        (rev 0)
++++ branches/wsprx/lib/savec2.f90	2013-01-08 01:58:11 UTC (rev 2897)
+@@ -0,0 +1,55 @@
++subroutine savec2(c2name,ntrseconds,dialFreq)
++
++! Array c0() has complex samples at 1500 Hz sample rate.
++! WSPR-2:  downsample by 1/4 to produce c2(45000), centered at 1500 Hz
++! WSPR-15: downsample by 1/32 to produce c2(45000), centered at 1612.5 Hz
++
++  parameter (NMAX=900*12000)         !Total sample intervals per 30 minutes
++  parameter (NDMAX=900*1500)         !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1366)             !Max length of saved spectra
++  parameter (MAXFFT=2048*1024)
++
++  character*(*) c2name
++  character*14 outfile
++  real*8 dialFreq
++  integer*2 id2
++  complex c0
++  complex c1(0:MAXFFT-1)
++  complex c2(0:65535)
++  common/datcom/nutc,ndiskdat,id2(NMAX),savg(NSMAX),c0(0:NDMAX-1)
++
++  ntrminutes=ntrseconds/60
++  npts=114*1500
++  nfft1=262144
++  if(ntrminutes.eq.15) then
++     npts=890*1500
++     nfft1=MAXFFT
++  endif
++  df1=1500.0/nfft1
++  fac=1.0/nfft1
++  c1(0:npts-1)=fac*c0(0:npts-1)
++  c1(npts:nfft1-1)=0.
++
++  call four2a(c1,nfft1,1,1,1)
++
++  nfft2=65536
++  nh2=nfft2/2
++  if(ntrminutes.eq.2) then
++     c2(0:nh2)=c1(0:nh2)
++     c2(nh2+1:nfft2-1)=c1(nfft1-nh2+1:nfft1-1)
++  else
++     i0=nint(112.5/df1)
++     c2(0:nh2)=c1(i0:i0+nh2)
++     c2(nh2+1:nfft2-1)=c1(i0-nh2+1:i0-1)
++  endif
++
++  call four2a(c2,nfft2,1,-1,1)
++
++  i1=index(c2name,'.c2')
++  outfile=c2name(i1-11:i1+2)
++  open(18,file=c2name,status='unknown',access='stream')
++  write(18) outfile,ntrminutes,dialFreq,c2(0:45000-1)
++  close(18)
++
++  return
++end subroutine savec2
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-07 15:53:07 UTC (rev 2896)
++++ branches/wsprx/mainwindow.cpp	2013-01-08 01:58:11 UTC (rev 2897)
+@@ -356,9 +356,9 @@
+       *future2 = QtConcurrent::run(savewav, m_fname, m_TRseconds);
+       watcher2-&gt;setFuture(*future2);
+       int len1=m_c2name.length();
+-      char fname[80];
+-      strcpy(fname,m_c2name.toAscii());
+-      savec2_(fname,&amp;m_TRseconds,&amp;m_dialFreq,len1);
++      char c2name[80];
++      strcpy(c2name,m_c2name.toAscii());
++      savec2_(c2name,&amp;m_TRseconds,&amp;m_dialFreq,len1);
+     }
+ 
+     m_decodedList.clear();
+@@ -486,7 +486,7 @@
+ 
+   lab3 = new QLabel(&quot;&quot;);
+   lab3-&gt;setAlignment(Qt::AlignHCenter);
+-  lab3-&gt;setMinimumSize(QSize(80,18));
++  lab3-&gt;setMinimumSize(QSize(120,18));
+   lab3-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab3);
+ }
+@@ -664,6 +664,8 @@
+   while(p1.canReadLine()) {
+     QString t(p1.readLine());
+     if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
++      lab3-&gt;setStyleSheet(&quot;&quot;);
++      lab3-&gt;setText(&quot;&quot;);
+       loggit(&quot;Decoder Finished&quot;);
+       if(m_uploadSpots) {
+         float x=rand()/((double)RAND_MAX + 1);
+@@ -682,8 +684,6 @@
+         QFile savedC2(m_fname.mid(i1-11,11) + &quot;.c2&quot;);
+         savedC2.remove();
+       }
+-      lab3-&gt;setStyleSheet(&quot;&quot;);
+-      lab3-&gt;setText(&quot;&quot;);
+       m_RxLog=0;
+       m_startAnother=m_loopall;
+       return;
+@@ -715,6 +715,8 @@
+   cmnd=QDir::toNativeSeparators(cmnd) + &quot; <A HREF="http://wsprnet.org/meptspots.php">http://wsprnet.org/meptspots.php</A>&quot;;
+   loggit(&quot;Start curl&quot;);
+   m_uploading=true;
++  lab3-&gt;setStyleSheet(&quot;QLabel{background-color:yellow}&quot;);
++  lab3-&gt;setText(&quot;Uploading Spots&quot;);
+   p2.start(cmnd);
+ }
+ 
+@@ -727,6 +729,8 @@
+       f.remove();
+     }
+   }
++  lab3-&gt;setStyleSheet(&quot;&quot;);
++  lab3-&gt;setText(&quot;&quot;);
+   m_uploading=false;
+ }
+ 
+
+Modified: branches/wsprx/mainwindow.ui
+===================================================================
+--- branches/wsprx/mainwindow.ui	2013-01-07 15:53:07 UTC (rev 2896)
++++ branches/wsprx/mainwindow.ui	2013-01-08 01:58:11 UTC (rev 2897)
+@@ -764,7 +764,7 @@
+   &lt;/action&gt;
+   &lt;action name=&quot;actionDelete_all_wav_files_in_SaveDir&quot;&gt;
+    &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Delete all *.wav files in SaveDir&lt;/string&gt;
++    &lt;string&gt;Delete all *.wav and *.c2 files in Save Directory&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+   &lt;action name=&quot;actionErase_Band_Map_and_Messages&quot;&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002588.html">[WSJT-SVN] r2896 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002590.html">[WSJT-SVN] r2898 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2589">[ date ]</a>
+              <a href="thread.html#2589">[ thread ]</a>
+              <a href="subject.html#2589">[ subject ]</a>
+              <a href="author.html#2589">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

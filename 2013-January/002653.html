@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2961 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2961%20-%20branches/wsprx&In-Reply-To=%3C20130119162814.C362F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002652.html">
+   <LINK REL="Next"  HREF="002654.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2961 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2961%20-%20branches/wsprx&In-Reply-To=%3C20130119162814.C362F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2961 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jan 19 17:28:14 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002652.html">[WSJT-SVN] r2960 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002654.html">[WSJT-SVN] r2962 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2653">[ date ]</a>
+              <a href="thread.html#2653">[ thread ]</a>
+              <a href="subject.html#2653">[ subject ]</a>
+              <a href="author.html#2653">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-19 17:28:14 +0100 (Sat, 19 Jan 2013)
+New Revision: 2961
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/plotter.cpp
+Log:
+Correct frequency display that come out 199 (etc.) rather than 200.
+Don't attempt to remove *.wav or *.c2 files if data have been
+read from disk.
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-18 18:08:08 UTC (rev 2960)
++++ branches/wsprx/mainwindow.cpp	2013-01-19 16:28:14 UTC (rev 2961)
+@@ -403,6 +403,7 @@
+   if(ihsym == m_hsymStop) {
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
++    double f0m1500=m_dialFreq + 0.000001*(m_BFO - 1500);
+     QString t2;
+ 
+     if(!m_diskData) {                        //Always save; may delete later
+@@ -419,9 +420,6 @@
+       int len1=m_c2name.length();
+       char c2name[80];
+       strcpy(c2name,m_c2name.toAscii());
+-      double f0m1500=m_dialFreq + 0.000001*(m_BFO - 1500);
+-//      double f0m1500=m_dialFreq + m_BFO - 1500;
+-      qDebug() &lt;&lt; m_dialFreq &lt;&lt; m_BFO &lt;&lt; f0m1500;
+       savec2_(c2name,&amp;m_TRseconds,&amp;f0m1500,len1);
+     }
+ 
+@@ -431,7 +429,7 @@
+     loggit(&quot;Start Decoder&quot;);
+     QString cmnd;
+     if(m_diskData) {
+-      t2.sprintf(&quot; -f %.6f &quot;,m_dialFreq+m_BFO);
++      t2.sprintf(&quot; -f %.6f &quot;,f0m1500);
+ 
+       cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd &quot; + m_path + '&quot;';
+       if(m_TRseconds==900) cmnd='&quot;' + m_appDir + '&quot;' + &quot;/wsprd -m 15&quot; + t2 +
+@@ -741,7 +739,8 @@
+       i=(fname.indexOf(&quot;.wav&quot;));
+       if(i&gt;1) dir.remove(fname);
+       i=(fname.indexOf(&quot;.c2&quot;));
+-      if(i&gt;1) dir.remove(fname);    }
++      if(i&gt;1) dir.remove(fname);
++    }
+   }
+ }
+ 
+@@ -786,11 +785,11 @@
+         QFile f(&quot;wsprd.out&quot;);
+         if(f.exists()) f.remove();
+       }
+-      if(m_save!=1 and m_save!=3) {
++      if(m_save!=1 and m_save!=3 and !m_diskData) {
+         QFile savedWav(m_fname);
+         savedWav.remove();
+       }
+-      if(m_save!=2 and m_save!=3) {
++      if(m_save!=2 and m_save!=3 and !m_diskData) {
+         int i1=m_fname.indexOf(&quot;.wav&quot;);
+         QString sc2=m_fname.mid(0,i1) + &quot;.c2&quot;;
+         QFile savedC2(sc2);
+
+Modified: branches/wsprx/plotter.cpp
+===================================================================
+--- branches/wsprx/plotter.cpp	2013-01-18 18:08:08 UTC (rev 2960)
++++ branches/wsprx/plotter.cpp	2013-01-19 16:28:14 UTC (rev 2961)
+@@ -198,8 +198,7 @@
+   float pixPerHdiv = m_freqPerDiv/m_fftBinWidth;
+   float pixPerVdiv = float(m_h2)/float(VERT_DIVS);
+ 
+-  m_RFHz=int(1000000.0*m_dialFreq+m_StartFreq) % 1000;
+-//  qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; m_StartFreq &lt;&lt; m_dialFreq &lt;&lt; m_RFHz;
++  m_RFHz=int(1000000.0*m_dialFreq+m_StartFreq + 0.5) % 1000;
+   m_hdivs = m_w*m_fftBinWidth/m_freqPerDiv + 0.9999;
+ 
+   painter.setPen(QPen(Qt::white, 1,Qt::DotLine));
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002652.html">[WSJT-SVN] r2960 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002654.html">[WSJT-SVN] r2962 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2653">[ date ]</a>
+              <a href="thread.html#2653">[ thread ]</a>
+              <a href="subject.html#2653">[ subject ]</a>
+              <a href="author.html#2653">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

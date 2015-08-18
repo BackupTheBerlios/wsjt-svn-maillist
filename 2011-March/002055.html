@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2363 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2363%20-%20branches/wspr&In-Reply-To=%3C20110301200206.EF07B48118F%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002056.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2363 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2363%20-%20branches/wspr&In-Reply-To=%3C20110301200206.EF07B48118F%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2363 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar  1 21:02:06 CET 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002056.html">[WSJT-SVN] r2364 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2055">[ date ]</a>
+              <a href="thread.html#2055">[ thread ]</a>
+              <a href="subject.html#2055">[ subject ]</a>
+              <a href="author.html#2055">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-03-01 21:02:06 +0100 (Tue, 01 Mar 2011)
+New Revision: 2363
+
+Added:
+   branches/wspr/qth.f90
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/hftoa.f90
+Log:
+Starting on program &quot;qth&quot;.
+
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2011-02-28 01:39:52 UTC (rev 2362)
++++ branches/wspr/Makefile.MinGW	2011-03-01 20:02:06 UTC (rev 2363)
+@@ -18,7 +18,7 @@
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+ all:    WSPR.EXE fmt.exe fmtave.exe fcal.exe fmeasure.exe wspr0.exe \
+-	hftoa.exe ccf.exe wwv.exe t1.exe
++	hftoa.exe ccf.exe wwv.exe
+ 
+ OBJS1 = wspr0.o wspr0_tx.o sound.o ptt.o gmtime2.o wfile5.o \
+ 	cs_stubs.o genmept.o wqencode.o wqdecode.o inter_mept.o \
+@@ -114,13 +114,14 @@
+ 	$(FC) -o ccf.exe $(FFLAGS) $(OBJS5) libfftw3f_win.a libsamplerate.a
+ 
+ OBJS6 = wwv.o read_wav.o averms.o db.o fold1pps.o ffa.o getutc.o \
+-	gmtime2.o sound.o resample.o calobs.o clean.o four2a.o
++	gmtime2.o sound.o resample.o calobs.o clean.o four2a.o \
++	pctile.o sort.o ssort.o
+ 
+ wwv.exe: $(OBJS6)
+ 	$(FC) -o wwv.exe $(FFLAGS) $(OBJS6) libportaudio.a \
+ 	   c:\MinGW\lib\libwinmm.a libsamplerate.a libfftw3f_win.a
+ 
+-OBJS7 = t1.o four2a.o db.o averms.o clean.o
++OBJS7 = t1.o four2a.o db.o averms.o clean.o 
+ 
+ t1.exe: $(OBJS7)
+ 	$(FC) -o t1.exe $(FFLAGS) $(OBJS7) libfftw3f_win.a
+
+Modified: branches/wspr/hftoa.f90
+===================================================================
+--- branches/wspr/hftoa.f90	2011-02-28 01:39:52 UTC (rev 2362)
++++ branches/wspr/hftoa.f90	2011-03-01 20:02:06 UTC (rev 2363)
+@@ -18,24 +18,28 @@
+   integer soundin
+ 
+   nargs=iargc()
+-  if(nargs.ne.6) then
+-     print*,'Usage:   hftoa &lt;fsample&gt; &lt;ndown&gt; &lt;f_kHz&gt; &lt;mode&gt; &lt;nsec&gt; &lt;tstart&gt;'
+-     print*,'Example: hftoa   48000      4     3990     AM     300    2145'
++  if(nargs.ne.1 .and. nargs.ne.4) then
++     print*,'Usage:   hftoa &lt;f_kHz&gt; &lt;mode&gt; &lt;nsec&gt; &lt;tstart&gt;'
++     print*,'Example: hftoa   3990    AM     300    2100'
+      go to 999
+   endif
+ 
+   call getarg(1,arg)
+-  read(arg,*) nfsample                 !Sample rate (Hz)
+-  call getarg(2,arg)
+-  read(arg,*) ndown                    !Downsampling factor (1 or 4)
+-  call getarg(3,arg)
+-  read(arg,*) fkhz                     !Rx frequency (kHz)
+-  call getarg(4,mode)                  !Rx mode, e.g. AM, USB, LSB
+-  call getarg(5,arg)
+-  read(arg,*) nsec                     !Duration of recording (s)
+-  call getarg(6,arg)
+-  read(arg,*) start_time               !Start time (HHMM)
++  if(arg(:2).eq.'-v') then
++     print*,'Version 1.00'
++     go to 999
++  else
++     read(arg,*) fkhz                     !Rx frequency (kHz)
++     call getarg(2,mode)                  !Rx mode, e.g. AM, USB, LSB
++     call getarg(3,arg)
++     read(arg,*) nsec                     !Duration of recording (s)
++     call getarg(4,arg)
++     read(arg,*) start_time               !Start time (HHMM)
++  endif
+ 
++  nfsample=48000
++  ndown=4
++
+   open(10,file='fmt.ini',status='old',err=910)
+   read(10,'(a120)') cmnd              !Get rigctl command to set frequency
+   read(10,*) ndevin
+@@ -43,25 +47,27 @@
+   read(10,*) mygrid
+   close(10)
+ 
+-  nHz=nint(1000.d0*fkhz)
+-  i1=index(cmnd,' F ')
+-  write(cmnd(i1+2:),*) nHz                   !Insert desired frequency
+-  iret=system(cmnd)                          !Set Rx frequency
+-  if(iret.ne.0) then
+-     print*,'Error executing rigctl command to set frequency:'
+-     print*,cmnd
+-     go to 999
+-  endif
++  if(cmnd(:6).eq.'rigctl') then
++     nHz=nint(1000.d0*fkhz)
++     i1=index(cmnd,' F ')
++     write(cmnd(i1+2:),*) nHz                   !Insert desired frequency
++     iret=system(cmnd)                          !Set Rx frequency
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set frequency:'
++        print*,cmnd
++        go to 999
++     endif
+ 
+-  if(mode.eq.'am  ') mode='AM  '
+-  if(mode.eq.'usb ') mode='USB '
+-  if(mode.eq.'lsb ') mode='LSB '
+-  cmnd(i1+1:)='M '//mode//' 0'
+-  iret=system(cmnd)                          !Set Rx mode
+-  if(iret.ne.0) then
+-     print*,'Error executing rigctl command to set Rx mode:'
+-     print*,cmnd
+-     go to 999
++     if(mode.eq.'am  ') mode='AM  '
++     if(mode.eq.'usb ') mode='USB '
++     if(mode.eq.'lsb ') mode='LSB '
++     cmnd(i1+1:)='M '//mode//' 0'
++     iret=system(cmnd)                          !Set Rx mode
++     if(iret.ne.0) then
++        print*,'Error executing rigctl command to set Rx mode:'
++        print*,cmnd
++        go to 999
++     endif
+   endif
+ 
+   nchan=1
+
+Added: branches/wspr/qth.f90
+===================================================================
+--- branches/wspr/qth.f90	                        (rev 0)
++++ branches/wspr/qth.f90	2011-03-01 20:02:06 UTC (rev 2363)
+@@ -0,0 +1,34 @@
++program qth
++
++  parameter (NMAX=20)
++  real xlon(NMAX)
++  real xlat(NMAX)
++  character*6 callsign(NMAX)
++  character*6 grid(NMAX)
++  character*6 unknown
++
++  nargs=iargc()
++  if(nargs.ne.1) then
++     print*,'Usage: qth &lt;call&gt;'
++     go to 999
++  endif
++  call getarg(1,unknown)
++
++  open(10,file='qth.dat',status='old')
++  do i=1,NMAX
++     read(10,1010,end=10) callsign(i),grid(i),xlon(i),xlat(i)
++1010 format(a6,2x,a6,1x,2f10.4)
++  enddo
++  i=NMAX+1
++
++10 iz=i-1
++
++  do i=1,iz
++     do j=i+1,iz
++        call geodist(xlat(i),-xlon(i),xlat(j),-xlon(j),az,baz,dist)
++        write(*,1020) callsign(i),callsign(j),az,dist,dist/300.0
++1020    format(a6,2x,a6,2x,2f8.0,f8.2)
++     enddo
++  enddo
++
++999 end program qth
+
+
+Property changes on: branches/wspr/qth.f90
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002056.html">[WSJT-SVN] r2364 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2055">[ date ]</a>
+              <a href="thread.html#2055">[ thread ]</a>
+              <a href="subject.html#2055">[ subject ]</a>
+              <a href="author.html#2055">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

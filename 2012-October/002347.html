@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2655 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2655%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121010204047.5A69855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002346.html">
+   <LINK REL="Next"  HREF="002348.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2655 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2655%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121010204047.5A69855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2655 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct 10 22:40:47 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002346.html">[WSJT-SVN] r2654 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002348.html">[WSJT-SVN] r2656 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2347">[ date ]</a>
+              <a href="thread.html#2347">[ thread ]</a>
+              <a href="subject.html#2347">[ subject ]</a>
+              <a href="author.html#2347">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-10 22:40:46 +0200 (Wed, 10 Oct 2012)
+New Revision: 2655
+
+Modified:
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Compute ccfred, the &quot;red curve&quot;.
+
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-10-10 19:25:28 UTC (rev 2654)
++++ branches/wsjtx/lib/jt9.f90	2012-10-10 20:40:46 UTC (rev 2655)
+@@ -11,6 +11,7 @@
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   integer*4 ihdr(11)
+   real*4 s(NSMAX)
++  real*4 ccfred(NSMAX)
+   logical*1 lstrong(0:1023)
+   integer*1 i1SoftSymbols(207)
+   character*22 msg
+@@ -90,25 +91,28 @@
+ 
+ 10   continue
+ 
+-! Fix up the data in c0()
+-     twopi=8.0*atan(1.0)
+-     phi=0.
+-     dphi=twopi*500.0/1500.0
+-     do i=1,npts8
+-        phi=phi+dphi
+-        if(phi.gt.twopi) phi=phi-twopi
+-        if(phi.lt.-twopi) phi=phi+twopi
+-        c0(i)=cmplx(aimag(c0(i)),real(c0(i)))*cmplx(cos(phi),sin(phi))
+-     enddo
+-
+ ! Now do the decoding
+      nutc=nutc0
+      nstandalone=1
+-     call sync9(ss,tstep,f0a,df3,fpk)                 !Find sig, get rough freq
++
++     ntol=500
++     nfqso=1500
++
++! Get sync, approx freq
++     call sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,ccfred)    
++     fpk0=fpk
++     iz=1000.0/df3
++     do i=1,iz
++        freq=1000.0 + (i-1)*df3
++        write(72,3001) freq,ccfred(i)
++3001    format(2f10.3)
++     enddo
++     flush(72)
++
+      call spec9(c0,npts8,nsps,f0a,fpk,xdt,i1SoftSymbols)
+      call decode9(i1SoftSymbols,msg)
+-     write(*,1010) nutc,xdt,1000.0+fpk,msg
+-1010 format(i4.4,f6.1,f7.1,2x,a22)
++     write(*,1010) nutc,xdt,1000.0+fpk,msg,sync,fpk0
++1010 format(i4.4,f6.1,f7.1,2x,a22,2f9.1)
+   enddo
+ 
+   go to 999
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-10-10 19:25:28 UTC (rev 2654)
++++ branches/wsjtx/lib/spec9.f90	2012-10-10 20:40:46 UTC (rev 2655)
+@@ -19,6 +19,17 @@
+   data ig/0,1,3,2,7,6,4,5/             !Gray code removal
+   save
+ 
++! Fix up the data in c0()
++  twopi=8.0*atan(1.0)
++  phi=0.
++  dphi=twopi*500.0/1500.0
++  do i=0,npts8-1
++     phi=phi+dphi
++     if(phi.gt.twopi) phi=phi-twopi
++     if(phi.lt.-twopi) phi=phi+twopi
++     c0(i)=cmplx(aimag(c0(i)),real(c0(i)))*cmplx(cos(phi),sin(phi))
++  enddo
++
+   nsps8=nsps/8
+   foffset=fpk-f0a
+   istart=1520
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-10 19:25:28 UTC (rev 2654)
++++ branches/wsjtx/lib/sync9.f90	2012-10-10 20:40:46 UTC (rev 2655)
+@@ -1,7 +1,8 @@
+-subroutine sync9(ss,tstep,f0a,df3,fpk)
++subroutine sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,ccfred)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
++  real ccfred(NSMAX)
+ 
+   integer ii0(16)
+   integer ii(16)                     !Locations of sync half-symbols
+@@ -14,38 +15,45 @@
+        0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,  &amp;
+        1,0,0,0,1/
+ 
+-  nz=1000.0/df3
++  ia=1
++  ib=min(1000,nint(1000.0/df3))
+ 
+-  smax=0.
++  if(ntol.lt.1000) then
++     ia=nint((nfqso-1000-ntol)/df3)
++     ib=nint((nfqso-1000+ntol)/df3)
++     if(ia.lt.1) ia=1
++     if(ib.gt.NSMAX) ib=NSMAX
++  endif
++  print*,ia,ib,df3*ia+1000,df3*ib+1000
++
++  sbest=0.
+   lagmax=2.5/tstep + 0.9999
+-  do n=1,nz
++  ccfred=0.
++
++  do i=ia,ib
++     smax=0.
+      do lag=-lagmax,lagmax
+         sum=0.
+-        do i=1,16
+-           k=ii(i) + lag
+-           if(k.ge.1) sum=sum + ss(k,n)
++        do j=1,16
++           k=ii(j) + lag
++           if(k.ge.1) sum=sum + ss(k,i)
+         enddo
+         if(sum.gt.smax) then
+            smax=sum
+-           npk=n
++           ipk=i
+            lagpk=lag
+         endif
+      enddo
++     if(smax.gt.sbest) then
++        sbest=smax
++        ipkbest=ipk
++        lagpkbest=lagpk
++     endif
++     ccfred(i)=smax
+   enddo
+ 
+-  fpk=f0a + (npk-1)*df3
++  fpk=f0a + (ipkbest-1)*df3
++  sync=sbest
+ 
+-! This loop for tests only:
+-!  do lag=-lagmax,lagmax
+-!     sum=0.
+-!     do i=1,16
+-!        k=ii(i) + lag
+-!        if(k.ge.1) sum=sum + ss(k,npk)
+-!     enddo
+-!     write(71,3001) lag,sum
+-!3001 format(i8,f12.3)
+-!  enddo
+-!  flush(71)
+-
+   return
+ end subroutine sync9
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-10 19:25:28 UTC (rev 2654)
++++ branches/wsjtx/mainwindow.cpp	2012-10-10 20:40:46 UTC (rev 2655)
+@@ -1,4 +1,4 @@
+-//----------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002346.html">[WSJT-SVN] r2654 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002348.html">[WSJT-SVN] r2656 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2347">[ date ]</a>
+              <a href="thread.html#2347">[ thread ]</a>
+              <a href="subject.html#2347">[ subject ]</a>
+              <a href="author.html#2347">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

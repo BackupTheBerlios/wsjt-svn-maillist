@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2616 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2616%20-%20branches/wsjtx&In-Reply-To=%3C20120929175236.0902A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002307.html">
+   <LINK REL="Next"  HREF="002309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2616 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2616%20-%20branches/wsjtx&In-Reply-To=%3C20120929175236.0902A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2616 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 29 19:52:35 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002307.html">[WSJT-SVN] r2615 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002309.html">[WSJT-SVN] r2617 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2308">[ date ]</a>
+              <a href="thread.html#2308">[ thread ]</a>
+              <a href="subject.html#2308">[ subject ]</a>
+              <a href="author.html#2308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-29 19:52:35 +0200 (Sat, 29 Sep 2012)
+New Revision: 2616
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+Log:
+Set fQSO; code cleanup.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-29 17:31:43 UTC (rev 2615)
++++ branches/wsjtx/mainwindow.cpp	2012-09-29 17:52:35 UTC (rev 2616)
+@@ -947,6 +947,7 @@
+     ui-&gt;monitorButton-&gt;setStyleSheet(&quot;&quot;);
+   }
+ 
++  lab2-&gt;setText(&quot;QSO Freq:  &quot; + QString::number(g_pWideGraph-&gt;QSOfreq()));
+   lab3-&gt;setText(&quot;Freeze DF:  &quot; + QString::number(g_pWideGraph-&gt;DF()));
+ 
+   if(m_startAnother) {
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-09-29 17:31:43 UTC (rev 2615)
++++ branches/wsjtx/plotter.cpp	2012-09-29 17:52:35 UTC (rev 2616)
+@@ -58,7 +58,6 @@
+     m_2DPixmap = QPixmap(w,h);
+     m_WaterfallPixmap.fill(Qt::black);
+     m_2DPixmap.fill(Qt::black);
+-    memset(m_zwf,0,NSMAX*h);
+     m_ScalePixmap = QPixmap(w,30);
+     m_LowerScalePixmap = QPixmap(w,30);    //(no change on resize...)
+     m_ScalePixmap.fill(Qt::white);
+@@ -97,7 +96,6 @@
+   //move current data down one line
+   //(must do this before attaching a QPainter object)
+   m_WaterfallPixmap.scroll(0,1,0,0,w,h);
+-  memmove(&amp;m_zwf[32768],m_zwf,32768*(h-1));
+   QPainter painter1(&amp;m_WaterfallPixmap);
+   QPainter painter2D(&amp;m_2DPixmap);
+ 
+@@ -106,7 +104,6 @@
+     m_hist2[i]=0;
+   }
+ 
+-//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_binsPerPixel &lt;&lt; m_nSpan &lt;&lt; m_fSpan;
+   painter2D.setPen(Qt::green);
+   QRect tmp(0,0,w,h);
+   painter2D.fillRect(tmp,Qt::black);
+@@ -152,7 +149,6 @@
+     if (y1&gt;254) y1=254;
+     if (splot[i]&gt;1.e29) y1=255;
+     m_hist2[y1]++;
+-    m_zwf[i]=y1;
+   }
+ 
+   if(swide[0]&gt;1.0e29) m_line=0;
+@@ -202,9 +198,9 @@
+   painter0.setFont(Font);
+   painter0.setPen(Qt::black);
+ 
+-  double fftBinWidth=12000.0/m_nsps;
++  m_fftBinWidth=12000.0/m_nsps;
+   if(m_binsPerPixel &lt; 1) m_binsPerPixel=1;
+-  double df = m_binsPerPixel*fftBinWidth;
++  double df = m_binsPerPixel*m_fftBinWidth;
+   m_fSpan = w*df;
+ //  m_freqPerDiv=50*m_binsPerPixel;
+ //  m_freqPerDiv=nHzDiv[m_binsPerPixel];
+@@ -214,7 +210,6 @@
+   if(n&gt;70) m_freqPerDiv=100;
+   if(n&gt;250) m_freqPerDiv=500;
+   m_hdivs = w*df/m_freqPerDiv + 0.9999;
+-//  qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; m_binsPerPixel &lt;&lt; df &lt;&lt; m_freqPerDiv &lt;&lt; pixperdiv &lt;&lt; m_hdivs &lt;&lt; m_fSpan;
+   m_ScalePixmap.fill(Qt::white);
+   painter0.drawRect(0, 0, w, 30);
+ 
+@@ -275,11 +270,9 @@
+   painter3.setPen(Qt::black);
+ 
+   df = 12000.0/m_nsps;
+-  m_hdivs = 4400*df/m_freqPerDiv + 0.9999;
+   int nlabs=df*w/m_freqPerDiv + 1.0;
+   m_LowerScalePixmap.fill(Qt::white);
+   painter3.drawRect(0, 0, w, 30);
+-
+   pixperdiv = m_freqPerDiv/df;
+   for( int i=0; i&lt;10*nlabs; i++) {
+     x = i*pixperdiv/10;
+@@ -321,9 +314,7 @@
+ 
+ float CPlotter::FreqfromX(int x)                               //FreqfromX()
+ {
+-  float w = m_WaterfallPixmap.width();
+-  float f =m_CenterFreq - 0.5*m_fSpan + m_fSpan * x/w;
+-  return f;
++  return float(1000.0 + m_fftBinWidth*x);
+ }
+ 
+ void CPlotter::SetRunningState(bool running)              //SetRunningState()
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-09-29 17:31:43 UTC (rev 2615)
++++ branches/wsjtx/plotter.h	2012-09-29 17:52:35 UTC (rev 2616)
+@@ -85,7 +85,6 @@
+ 
+   QPixmap m_WaterfallPixmap;
+   QPixmap m_2DPixmap;
+-  unsigned char m_zwf[32768*400];
+   QPixmap m_ScalePixmap;
+   QPixmap m_LowerScalePixmap;
+   QSize   m_Size;
+@@ -96,6 +95,7 @@
+   bool    m_2Dspec;
+   double  m_CenterFreq;
+   double  m_fGreen;
++  double  m_fftBinWidth;
+   qint64  m_StartFreq;
+   qint32  m_dBStepSize;
+   qint32  m_FreqUnits;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002307.html">[WSJT-SVN] r2615 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002309.html">[WSJT-SVN] r2617 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2308">[ date ]</a>
+              <a href="thread.html#2308">[ thread ]</a>
+              <a href="subject.html#2308">[ subject ]</a>
+              <a href="author.html#2308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

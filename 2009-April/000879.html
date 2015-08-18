@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1188 - branches/wsjt8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1188%20-%20branches/wsjt8&In-Reply-To=%3C200904302036.n3UKaBib018561%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000878.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1188 - branches/wsjt8</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1188%20-%20branches/wsjt8&In-Reply-To=%3C200904302036.n3UKaBib018561%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1188 - branches/wsjt8">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 30 22:36:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000878.html">[WSJT-SVN] r1187 - branches/wspr
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#879">[ date ]</a>
+              <a href="thread.html#879">[ thread ]</a>
+              <a href="subject.html#879">[ subject ]</a>
+              <a href="author.html#879">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-04-30 22:36:09 +0200 (Thu, 30 Apr 2009)
+New Revision: 1188
+
+Modified:
+   branches/wsjt8/t441.f90
+Log:
+Doing FFT of s2() to determine period.  (Next, do harmonic summing.)
+
+
+Modified: branches/wsjt8/t441.f90
+===================================================================
+--- branches/wsjt8/t441.f90	2009-04-30 19:01:33 UTC (rev 1187)
++++ branches/wsjt8/t441.f90	2009-04-30 20:36:09 UTC (rev 1188)
+@@ -2,31 +2,35 @@
+ 
+ ! Run tests on the &quot;TNX QSO TNX QSO ...&quot; ping in W8WN sample file.
+ 
+-  parameter (NSTEP=3)                       !Step size for lag (samples)
+-  parameter (NP=1200/NSTEP)                 !Period of full message (lags)
++  parameter (NPTS=9283)
+   character*28 tmsg
++  character*12 arg
+   real ps(128)                              !Spectrum computed in WSJT
+-  real dat(9283)                            !Raw data, 11025 S/s
+-  real s1(9283)
+-  real s2(9283)
++  real dat(NPTS)                            !Raw data, 11025 S/s
++  real s1(NPTS)
++  real s2(NPTS)
++  real p(28*3*25)                           !Folded s2
+   integer itone(3*28)                       !Tones of test message
+   complex cz(3*28*25)                       !Complex LO for test message
+   complex csum
++  complex cs2(0:2048)
++  equivalence(s2,cs2)
+   data twopi/6.2831853/
+ 
+   nargs=iargc()
+-  if(nargs.ne.1) then
+-     print*,'Usage: t441 &quot;Test message&quot;'
++  if(nargs.ne.2) then
++     print*,'Usage: t441 &quot;Test message&quot; nstep'
+      go to 999
+   endif
+   call getarg(1,tmsg)
++  call getarg(2,arg)
++  read(arg,*) nstep
+   call gen441(tmsg,nmsg,itone)
+   nsym=3*nmsg
+   nsamp=25*nsym
+ 
+-  write(*,1000) nmsg,nsamp,8,8*75
+-1000 format('Test msg:',i3,' ch,'i4,' samples.'/               &amp;
+-            'Full msg:',i3,' ch,'i4,' samples.')
++  write(*,1000) nmsg,nsamp
++1000 format('Test msg:',i3,' chars,'i4,' samples.')
+ 
+   open(88,file='dat.88',form='unformatted',status='old')
+   read(88) jjz,ps,f0,(dat(j),j=1,jjz)       !Read raw data saved by WSJT
+@@ -38,7 +42,6 @@
+   df=11025.0/(10*nsamp)
+   ndf=221.0/df
+   sbest=0.
+-  print*,nsamp,df,ndf
+ 
+   do idf=-ndf,ndf
+      xdf=idf*df
+@@ -57,7 +60,7 @@
+ 
+      ! Find best match to test message over all lags and all frequency offsets
+      k=0
+-     do lag=0,9283-nsamp,NSTEP
++     do lag=0,NPTS-nsamp,nstep
+         k=k+1
+         csum=0.
+         do i=1,nsamp
+@@ -75,6 +78,8 @@
+   enddo
+   kz=k
+   xdfpk=idfpk*df
++  write(*,1020) nmsg,2*ndf+1,kz
++1020 format('Nmsg:',i3,'   Nf:',i4,'   Nt:',i5)
+   write(*,1030) xdfpk,lagpk,sbest
+ 1030 format('Fpk:',f7.0,'   Lagpk:',i4,'   Sbest:',f8.0)
+ 
+@@ -82,5 +87,48 @@
+      write(13,1040) k,s2(k)
+ 1040 format(i5,f10.0)
+   enddo
+-  
++
++  pbest=0.
++  do np=2,28
++     jz=np*75/nstep
++     nsum=kz/jz
++     kz2=nsum*jz
++     p(1:jz)=0.
++     do k=1,kz2
++        j=mod(k-1,jz)+1
++        p(j)=p(j)+s2(k)
++     enddo
++     lu=20+np
++     fac=sqrt(1.0/nsum)
++     pmax=0.
++     do j=1,jz
++        p(j)=fac*p(j)
++        if(p(j).gt.pmax) then
++           pmax=p(j)
++           if(p(j).gt.pbest) then
++              pbest=p(j)
++              npbest=np
++           endif
++        endif
++        write(lu,1050) j,p(j)
++1050    format(i5,f10.0)
++     enddo
++     write(14,1060) np,pmax
++1060 format(i5,f10.0)
++  enddo
++  print*,npbest,pbest,kz
++
++  nfft=4096
++  nh=nfft/2
++  s2(kz+1:nfft)=0.
++  s2(1:kz)=1.e-4*s2(1:kz)
++
++  call four2a(s2,nfft,1,-1,0)
++  do i=1,nh
++     ss2=real(cs2(i))**2 + aimag(cs2(i))**2
++     period=float(nfft)/i
++     write(15,1070) i,ss2,period
++1070 format(i5,f10.3,f10.3)
++  enddo
++
+ 999 end program t441
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000878.html">[WSJT-SVN] r1187 - branches/wspr
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#879">[ date ]</a>
+              <a href="thread.html#879">[ thread ]</a>
+              <a href="subject.html#879">[ subject ]</a>
+              <a href="author.html#879">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

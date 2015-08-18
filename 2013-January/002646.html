@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2954 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2954%20-%20branches/wsprx&In-Reply-To=%3C20130117221811.7020B55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002645.html">
+   <LINK REL="Next"  HREF="002647.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2954 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2954%20-%20branches/wsprx&In-Reply-To=%3C20130117221811.7020B55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2954 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 17 23:18:11 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002645.html">[WSJT-SVN] r2953 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002647.html">[WSJT-SVN] r2955 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2646">[ date ]</a>
+              <a href="thread.html#2646">[ thread ]</a>
+              <a href="subject.html#2646">[ subject ]</a>
+              <a href="author.html#2646">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-17 23:18:10 +0100 (Thu, 17 Jan 2013)
+New Revision: 2954
+
+Modified:
+   branches/wsprx/getfile.cpp
+   branches/wsprx/getfile.h
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Correct the problem in PTT routine.  (&quot;nopen&quot; was not being saved,
+although defined as &quot;static int&quot;.  Was it getting clobbered???)
+
+
+Modified: branches/wsprx/getfile.cpp
+===================================================================
+--- branches/wsprx/getfile.cpp	2013-01-16 17:25:46 UTC (rev 2953)
++++ branches/wsprx/getfile.cpp	2013-01-17 22:18:10 UTC (rev 2954)
+@@ -118,11 +118,10 @@
+   return v2*fac;
+ }
+ 
+-int ptt(int nport, int ntx, int *iptt)
++int ptt(int nport, int ntx, int* iptt, int* nopen)
+ {
+ #ifdef WIN32
+   static HANDLE hFile;
+-  static int open=0;
+   char s[10];
+   int i3=1,i4=1,i5=1,i6=1,i9=1,i00=1;
+ 
+@@ -131,18 +130,19 @@
+     return(0);
+   }
+ 
+-  if(ntx &amp;&amp; (!open)) {
++  if(ntx &amp;&amp; (!(*nopen))) {
+     sprintf(s,&quot;\\\\.\\COM%d&quot;,nport);
+     hFile=CreateFile(TEXT(s),GENERIC_WRITE,0,NULL,OPEN_EXISTING,
+                      FILE_ATTRIBUTE_NORMAL,NULL);
+     if(hFile==INVALID_HANDLE_VALUE) {
+-      //      printf(&quot;PTT: Cannot open COM port %d.\n&quot;,nport);
++      QString t;
++      t.sprintf(&quot;Cannot open COM port %d for PTT\n&quot;,nport);
+       return 1;
+     }
+-    open=1;
++    *nopen=1;
+   }
+ 
+-  if(ntx &amp;&amp; open) {
++  if(ntx &amp;&amp; *nopen) {
+     i3=EscapeCommFunction(hFile,SETRTS);
+     i5=EscapeCommFunction(hFile,SETDTR);
+     *iptt=1;
+@@ -154,7 +154,7 @@
+     i9=EscapeCommFunction(hFile,CLRBREAK);
+     i00=CloseHandle(hFile);
+     *iptt=0;
+-    open=0;
++    *nopen=0;
+   }
+   /*
+   if(i3==0) return -(SETRTS);
+
+Modified: branches/wsprx/getfile.h
+===================================================================
+--- branches/wsprx/getfile.h	2013-01-16 17:25:46 UTC (rev 2953)
++++ branches/wsprx/getfile.h	2013-01-17 22:18:10 UTC (rev 2954)
+@@ -3,10 +3,11 @@
+ #include &lt;QString&gt;
+ #include &lt;QFile&gt;
+ #include &lt;QDebug&gt;
++#include &lt;QMessageBox&gt;
+ #include &quot;commons.h&quot;
+ 
+ void getfile(QString fname, int ntrperiod);
+ float gran();
+-int ptt(int* nport, int* ntx, int* iptt);
++int ptt(int nport, int ntx, int* iptt, int* nopen);
+ 
+ #endif // GETFILE_H
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-16 17:25:46 UTC (rev 2953)
++++ branches/wsprx/mainwindow.cpp	2013-01-17 22:18:10 UTC (rev 2954)
+@@ -136,6 +136,8 @@
+   m_BFO=1500;
+   m_rig=-1;
+   m_secID=0;
++  m_iptt=0;
++  m_COMportOpen=0;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -1063,7 +1065,9 @@
+     QString cmnd=rig_command() + &quot; T 1&quot;;
+     p3.start(cmnd);
+   }
+-  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) ptt(m_pttPort,1,&amp;m_iptt);
++  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
++    ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
++  }
+   ptt1Timer-&gt;start(200);                       //Sequencer delay
+   loggit(&quot;Start Tx&quot;);
+   lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ff0000}&quot;);
+@@ -1128,7 +1132,9 @@
+     QString cmnd=rig_command() + &quot; T 0&quot;;
+     p3.start(cmnd);
+   }
+-  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) ptt(m_pttPort,0,&amp;m_iptt);
++  if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
++    ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
++  }
+ }
+ 
+ void MainWindow::on_cbIdle_toggled(bool b)
+@@ -1231,10 +1237,10 @@
+ 
+ void MainWindow::loggit(QString t)
+ {
+-/*
++  /*
+   QDateTime t2 = QDateTime::currentDateTimeUtc();
+   qDebug() &lt;&lt; t2.time().toString(&quot;hh:mm:ss.zzz&quot;) &lt;&lt; t;
+-*/
++  */
+ 
+   /*
+   QFile f(&quot;wsprx.log&quot;);
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-16 17:25:46 UTC (rev 2953)
++++ branches/wsprx/mainwindow.h	2013-01-17 22:18:10 UTC (rev 2954)
+@@ -134,6 +134,7 @@
+     qint32  m_handshakeIndex;
+     qint32  m_ncw;
+     qint32  m_secID;
++    qint32  m_COMportOpen;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+@@ -224,7 +225,7 @@
+ extern void getDev(int* numDevices,char hostAPI_DeviceName[][50],
+                    int minChan[], int maxChan[],
+                    int minSpeed[], int maxSpeed[]);
+-extern int ptt(int nport, int itx, int* iptt);
++extern int ptt(int nport, int itx, int* iptt, int* nopen);
+ 
+ 
+ extern &quot;C&quot; {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002645.html">[WSJT-SVN] r2953 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002647.html">[WSJT-SVN] r2955 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2646">[ date ]</a>
+              <a href="thread.html#2646">[ thread ]</a>
+              <a href="subject.html#2646">[ subject ]</a>
+              <a href="author.html#2646">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2544 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2544%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830184741.ACE8755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002235.html">
+   <LINK REL="Next"  HREF="002237.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2544 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2544%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830184741.ACE8755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2544 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Aug 30 20:47:41 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002235.html">[WSJT-SVN] r2543 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002237.html">[WSJT-SVN] r2545 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-30 20:47:41 +0200 (Thu, 30 Aug 2012)
+New Revision: 2544
+
+Modified:
+   branches/map65/libm65/decode1a.f
+   branches/map65/libm65/map65a.f90
+   branches/map65/libm65/s3avg.f90
+   branches/map65/mainwindow.cpp
+Log:
+Use ntol to distinguise spectra to be used for message averaging.
+
+
+Modified: branches/map65/libm65/decode1a.f
+===================================================================
+--- branches/map65/libm65/decode1a.f	2012-08-30 18:21:41 UTC (rev 2543)
++++ branches/map65/libm65/decode1a.f	2012-08-30 18:47:41 UTC (rev 2544)
+@@ -1,6 +1,6 @@
+       subroutine decode1a(dd,newdat,f0,nflip,mode65,nfsample,xpol,
+      +  mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,iloop,
+-     +  nutc,nkhz,ndf,ipol,sync2,a,dt,pol,nkv,nhist,nsum,nsave,
++     +  nutc,nkhz,ndf,ipol,ntol,sync2,a,dt,pol,nkv,nhist,nsum,nsave,
+      +  qual,decoded)
+ 
+ !  Apply AFC corrections to a candidate JT65 signal, then decode it.
+@@ -134,14 +134,15 @@
+ 
+       if(nqd.eq.1 .and. nkv.eq.0) then
+          nhz=1000*nkhz + ndf
+-         if(nutc.ne.nutc0 .or. abs(nhz-nhz0).ge.1000) syncbest=0.   !### 1000 ??
++         ihzdiff=min(500,ntol)
++         if(nutc.ne.nutc0 .or. abs(nhz-nhz0).ge.ihzdiff) syncbest=0.
+          if(sync2.gt.syncbest) then
+             nsave=nsave+1
+             nsave=mod(nsave-1,64)+1
+             npol=nint(57.296*pol)
+             xdt=dt+0.8
+ 
+-            call s3avg(nsave,mode65,nutc,nhz,xdt,npol,s3,nsum,
++            call s3avg(nsave,mode65,nutc,nhz,xdt,npol,ntol,s3,nsum,
+      +                 nkv,decoded)
+             syncbest=sync2
+             nhz0=nhz
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-08-30 18:21:41 UTC (rev 2543)
++++ branches/map65/libm65/map65a.f90	2012-08-30 18:47:41 UTC (rev 2544)
+@@ -206,8 +206,8 @@
+                  idf=nint(1000.0*(freq+0.5*(nfa+nfb)-foffset-(ikHz+nfshift)))
+                  call decode1a(dd,newdat,f00,nflip,mode65,nfsample,xpol,  &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,  &amp;
+-                      iloop,nutc,ikHz,idf,ipol,sync2,a,dt,pol,nkv,nhist,  &amp;
+-                      nsum,nsave,qual,decoded)
++                      iloop,nutc,ikHz,idf,ipol,ntol,sync2,a,dt,pol,nkv,   &amp;
++                      nhist,nsum,nsave,qual,decoded)
+                  dt=dt+0.8                           !### empirical tweak
+                  call timer('decode1a',1)
+ 
+
+Modified: branches/map65/libm65/s3avg.f90
+===================================================================
+--- branches/map65/libm65/s3avg.f90	2012-08-30 18:21:41 UTC (rev 2543)
++++ branches/map65/libm65/s3avg.f90	2012-08-30 18:47:41 UTC (rev 2544)
+@@ -1,4 +1,4 @@
+-subroutine s3avg(nsave,mode65,nutc,nhz,xdt,npol,s3,nsum,nkv,decoded)
++subroutine s3avg(nsave,mode65,nutc,nhz,xdt,npol,ntol,s3,nsum,nkv,decoded)
+ 
+ ! Save the current synchronized spectra, s3(64,63), for possible
+ ! decoding of average.
+@@ -18,7 +18,7 @@
+      ihz=0
+      ipol=0
+      first=.false.
+-     ihzdiff=100
++     ihzdiff=min(100,ntol)
+      dtdiff=0.2
+   endif
+ 
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-30 18:21:41 UTC (rev 2543)
++++ branches/map65/mainwindow.cpp	2012-08-30 18:47:41 UTC (rev 2544)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002235.html">[WSJT-SVN] r2543 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002237.html">[WSJT-SVN] r2545 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

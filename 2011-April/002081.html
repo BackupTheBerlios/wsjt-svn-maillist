@@ -1,0 +1,491 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2389 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2389%20-%20trunk&In-Reply-To=%3C20110418202539.0ADE94814B6%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002080.html">
+   <LINK REL="Next"  HREF="002082.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2389 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2389%20-%20trunk&In-Reply-To=%3C20110418202539.0ADE94814B6%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2389 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 18 22:25:38 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002080.html">[WSJT-SVN] r2388 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002082.html">[WSJT-SVN] r2390 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2081">[ date ]</a>
+              <a href="thread.html#2081">[ thread ]</a>
+              <a href="subject.html#2081">[ subject ]</a>
+              <a href="author.html#2081">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-18 22:25:38 +0200 (Mon, 18 Apr 2011)
+New Revision: 2389
+
+Added:
+   trunk/ana932.f90
+Modified:
+   trunk/iscat.f90
+   trunk/synciscat.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Merge in revised iscat, synciscat routines.
+
+
+Added: trunk/ana932.f90
+===================================================================
+--- trunk/ana932.f90	                        (rev 0)
++++ trunk/ana932.f90	2011-04-18 20:25:38 UTC (rev 2389)
+@@ -0,0 +1,21 @@
++subroutine ana932(dat,npts0,cdat,npts)
++
++  real dat(npts0)
++  complex cdat(368640)
++
++!  nfft1=184320
++!  if(npts0.gt.nfft1) nfft1=2*nfft1
++  n=log(float(npts0))/log(2.0)
++  nfft1=2**(n+1)
++  nfft2=9*nfft1/32
++  fac=2.0/nfft1
++  do i=1,npts0/2
++     cdat(i)=fac*cmplx(dat(2*i-1),dat(2*i))
++  enddo
++  cdat(npts0/2+1:nfft1/2)=0.
++  call four2a(cdat,nfft1,1,-1,0)               !Forward r2c FFT
++  call four2a(cdat,nfft2,1,1,1)                !Inverse c2c FFT
++  npts=npts0*9.0/32.0                          !Downsampled data length
++
++  return
++end subroutine ana932
+
+
+Property changes on: trunk/ana932.f90
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Modified: trunk/iscat.f90
+===================================================================
+--- trunk/iscat.f90	2011-04-18 20:16:20 UTC (rev 2388)
++++ trunk/iscat.f90	2011-04-18 20:25:38 UTC (rev 2389)
+@@ -1,91 +1,145 @@
+-subroutine iscat(cdat,npts,t2,cfile6,MinSigdB,DFTolerance,NFreeze,   &amp;
++subroutine iscat(cdat0,npts0,t2,cfile6,MinSigdB,DFTolerance,NFreeze,   &amp;
+      MouseDF,mousebutton,mode4,nafc,psavg)
+ 
+ ! Decode an ISCAT signal
+ 
+-  parameter (NMAX=34*11025)
++  parameter (NMAX=30*3101)
+   parameter (NSZ=4*1400)
+   character cfile6*6                      !File time
+   character c42*42
+-  character msg*29,msg1*29
++  character msg*29,msg1*29,msgbig*29
+   character csync*1
++  complex cdat0(NMAX)
++  complex cdat(NMAX)
+   real s0(288,NSZ)
++  real fs0(0:41,6)
+   real fs1(0:41,30)
+   real psavg(72)                          !Average spectrum of whole file
+   integer dftolerance
+   integer icos(4)
++  logical last
+   data icos/0,1,3,2/
+   data nsync/4/,nlen/2/,ndat/18/
+   data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?@-'/
+ 
++!  print*,cfile6,cdat0(100),npts0
++
++  fsample=3100.78125                   !New sample rate
++  nsps=144/mode4
++
++  bigworst=-1.e30
++  last=.false.
++  do inf=1,5
++     nframes=2**inf
++     if(npts.gt.npts0) then
++        nframes=npts0/(24*nsps)
++        last=.true.
++     endif
++     npts=nframes*24*nsps
++
++     do ia=1,npts0-npts,nsps*24
++        ib=ia+npts-1
++        cdat(1:npts)=cdat0(ia:ib)
++        t2=(ia + 0.5*npts)/fsample
++
+ ! Compute symbol spectra and establish sync:
+-  call synciscat(cdat,npts,s0,jsym,df,MinSigdB,DFTolerance,NFreeze,    &amp;
+-       MouseDF,mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,    &amp;
+-       ipk,jpk,idf,df1)
++        call synciscat(cdat,npts,s0,jsym,df,MinSigdB,DFTolerance,NFreeze,    &amp;
++             MouseDF,mousebutton,mode4,nafc,psavg,xsync,nsig,ndf0,msglen,    &amp;
++             ipk,jpk,idf,df1)
+ 
+-  if(nsig.lt.MinSigdB .or. xsync.le.1.0) then
+-     msglen=0
+-     worst=1.
+-     avg=1.
+-     xsync=0.
+-     ndf0=0
+-     go to 100
+-  endif
++        if(nsig.lt.MinSigdB .or. xsync.le.1.0) then
++           msglen=0
++           worst=1.
++           avg=1.
++           xsync=0.
++           ndf0=0
++           go to 100
++        endif
+ 
+-  ipk3=0                                  !Silence compiler warning
+-  nblk=nsync+nlen+ndat
+-  fs1=0.
+-  jb=(jsym-4*nblk+1)/4
+-  jb=4*jb
+-  k=0
+-  n=0
+-  do j=jpk,jsym,4                         !Fold information symbols into fs1
+-     k=k+1
+-     if(mod(k-1,nblk)+1.gt.6) then
+-        n=n+1
+-        m=mod(n-1,msglen)+1
+-        ii=nint(idf*float(j-jb/2)/float(jb))
+-        do i=0,41
+-           iii=ii+ipk+2*i
+-           if(iii.ge.1 .and. iii.le.288) fs1(i,m)=fs1(i,m) + s0(iii,j)
++        ipk3=0                                  !Silence compiler warning
++        nblk=nsync+nlen+ndat
++        fs0=0.
++        fs1=0.
++        nfold=jsym/96
++        jb=96*nfold
++        k=0
++        n=0
++        do j=jpk,jsym,4                !Fold information symbols into fs1
++           k=k+1
++           km=mod(k-1,nblk)+1
++           if(km.gt.6) then
++              n=n+1
++              m=mod(n-1,msglen)+1
++              ii=nint(idf*float(j-jb/2)/float(jb))
++              do i=0,41
++                 iii=ii+ipk+2*i
++                 if(iii.ge.1 .and. iii.le.288) fs1(i,m)=fs1(i,m) + s0(iii,j)
++              enddo
++           endif
+         enddo
+-     endif
+-  enddo
+ 
+ ! Read out the message:
+-  msg1='                            '
+-  mpk=0
+-  worst=9999.
+-  sum=0.
+-  do m=1,msglen
+-     smax=0.
+-     smax2=0.
+-     do i=0,41
+-        if(fs1(i,m).gt.smax) then
+-           smax=fs1(i,m)
+-           ipk3=i
++        msg1='                            '
++        mpk=0
++        worst=9999.
++        sum=0.
++        do m=1,msglen
++           smax=0.
++           smax2=0.
++           do i=0,41
++              if(fs1(i,m).gt.smax) then
++                 smax=fs1(i,m)
++                 ipk3=i
++              endif
++           enddo
++           do i=0,41
++              if(fs1(i,m).gt.smax2 .and. i.ne.ipk3) smax2=fs1(i,m)
++           enddo
++           rr=smax/smax2
++           sum=sum + rr
++           if(rr.lt.worst) worst=rr
++           if(ipk3.eq.40) mpk=m
++           msg1(m:m)=c42(ipk3+1:ipk3+1)
++        enddo
++
++        avg=sum/msglen
++        if(mpk.eq.1) then
++           msg=msg1(2:)
++        else if(mpk.lt.msglen) then
++           msg=msg1(mpk+1:msglen)//msg1(1:mpk-1)
++        else
++           msg=msg1(1:msglen-1)
+         endif
++
++100     continue
++        if(worst.gt.bigworst) then
++           bigworst=worst
++           bigavg=avg
++           bigxsync=xsync
++           nsigbig=nsig
++           ndf0big=ndf0
++           nfdotbig=nfdot
++           msgbig=msg
++           msglenbig=msglen
++           bigt2=t2
++           if(bigworst.gt.2.0) go to 110
++        endif
+      enddo
+-     do i=0,41
+-        if(fs1(i,m).gt.smax2 .and. i.ne.ipk3) smax2=fs1(i,m)
+-     enddo
+-     rr=smax/smax2
+-     sum=sum + rr
+-     if(rr.lt.worst) worst=rr
+-     if(ipk3.eq.40) mpk=m
+-     msg1(m:m)=c42(ipk3+1:ipk3+1)
++     if(last) go to 110
+   enddo
++  
++110 continue
++  worst=bigworst
++  avg=bigavg
++  xsync=bigxsync
++  nsig=nsigbig
++  ndf0=ndf0big
++  nfdot=nfdotbig
++  msg=msgbig
++  msglen=msglenbig
++  t2=bigt2
+ 
+-  avg=sum/msglen
+-  if(mpk.eq.1) then
+-     msg=msg1(2:)
+-  else if(mpk.lt.msglen) then
+-     msg=msg1(mpk+1:msglen)//msg1(1:mpk-1)
+-  else
+-     msg=msg1(1:msglen-1)
+-  endif
+-
+-100 nworst=10.0*(worst-1.0)
++  nworst=10.0*(worst-1.0)
+   navg=10.0*(avg-1.0)
+   if(nworst.gt.10) nworst=10
+   if(navg.gt.10) navg=10
+@@ -95,10 +149,15 @@
+   if(isync.ge.1) csync='*'
+   nfdot=nint(idf*df1)
+ 
++  tana=nframes*24*nsps/fsample
++  if(nfdot.ne.0) ndf0=0
++
+   call cs_lock('iscat')
+   write(11,1020) cfile6,isync,nsig,t2,ndf0,nfdot,csync,msg,msglen,nworst,navg
+   write(21,1020) cfile6,isync,nsig,t2,ndf0,nfdot,csync,msg,msglen,nworst,navg
+ 1020 format(a6,2i4,f5.1,i5,i4,1x,a1,2x,a28,i4,2i3)
++  write(*,1021) cfile6,isync,nsig,t2,ndf0,nfdot,csync,msg,msglen,nworst,navg,tana
++1021 format(a6,2i4,f5.1,2i5,1x,a1,1x,a28,3i3,f5.1)
+   call cs_unlock
+ 
+   return
+
+Modified: trunk/synciscat.f90
+===================================================================
+--- trunk/synciscat.f90	2011-04-18 20:16:20 UTC (rev 2388)
++++ trunk/synciscat.f90	2011-04-18 20:25:38 UTC (rev 2389)
+@@ -5,15 +5,15 @@
+ ! Synchronize an ISCAT signal
+ ! cdat() is the downsampled analytic signal.  
+ ! Sample rate = fsample = BW = 11025 * (9/32) = 3100.78125 Hz
+-! npts, nsps, etc., are all reduced from original by 9/32
++! npts, nsps, etc., are all reduced by 9/32
+ 
+-  parameter (NMAX=34*11025)
++  parameter (NMAX=30*3101)
+   parameter (NSZ=4*1400)
+-  complex cdat(368640)
++  complex cdat(NMAX)
+   real x(NSZ),x2(NSZ)
+   complex c(288)
+   real s0(288,NSZ)
+-  real fs0(288,108)                        !108 = 96 + 3*4
++  real fs0(288,96)                        !108 = 96 + 3*4
+   real savg(288)
+   real b(288)
+   real ccf(1:96)
+@@ -23,7 +23,7 @@
+   data icos/0,1,3,2/
+   data nsync/4/,nlen/2/,ndat/18/
+ 
+-! To silence compiler warnings:
++! Silence compiler warnings:
+   nsigbest=-999
+   ndf0best=0
+   msglenbest=0
+@@ -34,9 +34,10 @@
+ 
+   fsample=3100.78125                   !New sample rate
+   nsps=144/mode4
+-  nsym=npts/nsps
++  nsym=npts/nsps - 1
+   nblk=nsync+nlen+ndat
+   nfft=2*nsps                          !FFTs at twice the symbol length,
++
+   kstep=nsps/4                         !  stepped by 1/4 symbol
+   df=fsample/nfft
+   fac=1.0/1000.0                       !Somewhat arbitrary
+@@ -55,14 +56,22 @@
+         savg(i)=savg(i) + s0(i,j)                 !Accumulate avg spectrum
+      enddo
+   enddo
++!  if(s0(15,182).lt.0.01) print*,'a',s0(15,182),ia,ib,npts,4*nsym
+ 
+   jsym=4*nsym
+   savg=savg/jsym
+   do i=1,nfft
+      x(1:jsym)=s0(i,1:jsym)
+      call pctile(x,x2,jsym,50,b(i))           !Baseline level for each freq bin
++!     if(b(i).lt.0.5) then
++!        do j=1,jsym
++!           write(43,3001) j,x(j),x2(j)
++!3001       format(i8,2e12.3)
++!        enddo
++!     endif
+   enddo
+   b(1:10)=b(11)
++!  print*,'b',s0(15,182),b(15)
+ 
+   do i=1,71                                   !Compute spectrum in dB, for plot
+      if(mode4.eq.1) then
+@@ -79,7 +88,6 @@
+      enddo
+   enddo
+ 
+-!  print*,jsym,0.25*jsym*nsps/fsample
+   nfold=jsym/96
+   jb=96*nfold
+ 
+@@ -107,13 +115,16 @@
+            fs0(i,k)=fs0(i,k) + s0(i+ii,j)
+         enddo
+      enddo
+-!     ref=sum(fs0(ia:ib,1:96))/(24.0*(ib-ia+1))
+      ref=nfold*4
+ 
+      i0=27
+-     if(mode4.eq.1) i0=95                  !bin of nominal lowest tone
+-     ia=i0-600/df                          !Set search range in frequency...
+-     ib=i0+600/df
++     ia=i0-400/df                          !Set search range in frequency...
++     ib=i0+400/df
++     if(mode4.eq.1) then
++        i0=95
++        ia=i0-600/df                          !Set search range in frequency...
++        ib=i0+600/df
++     endif
+      if(nfreeze.eq.1) then
+         ia=i0+(mousedf-dftolerance)/df
+         ib=i0+(mousedf+dftolerance)/df
+@@ -129,6 +140,7 @@
+            ss=0.
+            do n=1,4                             !Sum over 4 sync tones
+               k=j+4*n-3
++              if(k.gt.96) k=k-96
+               ss=ss + fs0(i+2*icos(n),k)
+            enddo
+            if(ss.gt.smax) then
+@@ -142,10 +154,6 @@
+      xsync=smax/ref - 1.0
+      if(nfold.lt.26) xsync=xsync * sqrt(nfold/26.0)
+      xsync=xsync-0.5                           !Empirical
+-     
+-!     write(*,3001) idf,idf*df1,smax,ref,xsync,(ipk-i0)*df
+-!     write(41,3001) idf,idf*df1,smax,ref,xsync,(ipk-i0)*df
+-!3001 format(i3,f8.1,2f8.0,f8.3,f8.0)
+ 
+      nsig=nint(db(smax/ref - 1.0) -15.0)
+      if(mode4.eq.1) nsig=nsig-5
+@@ -187,9 +195,5 @@
+   jpk=jpkbest
+   idf=idfbest
+ 
+-!  print*,'A',idf,df1,idf*df1,nfold
+-!  call flush(41)
+-!  rewind 41
+-
+-900 return
++  return
+ end subroutine synciscat
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-18 20:16:20 UTC (rev 2388)
++++ trunk/wsjt.py	2011-04-18 20:25:38 UTC (rev 2389)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-18 20:16:20 UTC (rev 2388)
++++ trunk/wsjt1.f90	2011-04-18 20:25:38 UTC (rev 2389)
+@@ -241,7 +241,7 @@
+      if(pick) t2=(istart+0.5*jz2)/11025.0 + 0.5           !### +0.5 is empirical
+      jz2=min(jz2,30*11025)
+      call ana932(dat2,jz2,cdat,npts)          !Make downsampled analytic signal
+-     write(74) npts,cfile6,(cdat(j),j=1,npts)
++!     write(74) npts,cfile6,(cdat(j),j=1,npts)
+ 
+ ! Now cdat() is the downsampled analytic signal.  
+ ! New sample rate = fsample = BW = 11025 * (9/32) = 3100.78125 Hz
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002080.html">[WSJT-SVN] r2388 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002082.html">[WSJT-SVN] r2390 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2081">[ date ]</a>
+              <a href="thread.html#2081">[ thread ]</a>
+              <a href="subject.html#2081">[ subject ]</a>
+              <a href="author.html#2081">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

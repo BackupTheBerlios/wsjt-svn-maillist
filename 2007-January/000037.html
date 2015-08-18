@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r352 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r352%20-%20branches/map65&In-Reply-To=%3C200701141653.l0EGrLMb009980%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000036.html">
+   <LINK REL="Next"  HREF="000038.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r352 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r352%20-%20branches/map65&In-Reply-To=%3C200701141653.l0EGrLMb009980%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r352 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Jan 14 17:53:21 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000036.html">[WSJT-SVN] r351 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000038.html">[WSJT-SVN] r353 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#37">[ date ]</a>
+              <a href="thread.html#37">[ thread ]</a>
+              <a href="subject.html#37">[ subject ]</a>
+              <a href="author.html#37">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-01-14 17:53:10 +0100 (Sun, 14 Jan 2007)
+New Revision: 352
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+Log:
+Fixed waterfall display problem.
+Fixed &quot;decode all remaining files&quot; timing problem.
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-01-14 01:44:13 UTC (rev 351)
++++ branches/map65/gcom2.f90	2007-01-14 16:53:10 UTC (rev 352)
+@@ -46,7 +46,6 @@
+ integer nsked          !Sked mode for deep search?              GUI
+ integer naggressive    !Is &quot;Aggressive decoding&quot; checked?       GUI
+ integer ntx2           !Is &quot;No shorthands if Tx1&quot; checked?      GUI
+-integer nslim2         !2nd Decoder threshold for FSK441. JT6M  GUI
+ integer nagain         !Decode same file again?                 GUI
+ integer nsavelast      !Save last file?                         GUI
+ integer shok           !Shorthand messages OK?                  GUI
+@@ -86,17 +85,19 @@
+ character*80 filetokilla !Filenames (full path)                 Decoder
+ character*80 filetokillb
+ character*12 pttport
++character*8 utcdata     !HHMM UTC for the processed data       Decoder
+ 
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),fselect,ngreen,dgain,iter,ndecoding,ndecoding0,mousebutton,   &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+      nclearave,nfreeze,nafc,newspec,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+-     mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,     &amp;
++     mousedf,neme,nsked,naggressive,ntx2,nagain,nsavelast,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,  &amp;
+      ndepth,nspecial,ndf,nfmid,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+-     fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport
++     fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport,  &amp;
++     utcdata
+ 
+ !### volatile /gcom2/
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-01-14 01:44:13 UTC (rev 351)
++++ branches/map65/map65.py	2007-01-14 16:53:10 UTC (rev 352)
+@@ -1268,14 +1268,14 @@
+                 bmtext.insert(END,lines[i])
+             bmtext.see(END)
+             Audio.gcom2.ndecdone=0
++            if loopall: opennext()
++            nopen=0
+ 
+         if g.cmap != cmap0:
+             im.putpalette(g.palette)
+             cmap0=g.cmap
+ 
+-        plot_large()
+-        if loopall: opennext()
+-        nopen=0
++#        plot_large()
+ 
+ # Save some parameters
+     g.mode=mode.get()
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-01-14 01:44:13 UTC (rev 351)
++++ branches/map65/map65a.f90	2007-01-14 16:53:10 UTC (rev 352)
+@@ -22,21 +22,27 @@
+   common/spcom/ip0,ss(4,322,NFFT)                !169 MB: half-symbol spectra
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+-  data nfile/0/,nutc0/-999/
++  data nfile/0/,nutc0/-999/,nid/0/
+   save
+ 
+   include 'gcom2.f90'
+ 
++  if(newdat2.gt.0) nid=1
++  if(nid.eq.0) go to 999
+   rewind 11
+   rewind 12
+   if(nutc.ne.nutc0) nfile=nfile+1
+   nutc0=nutc
++  nutcdata=nutc
++  write(utcdata,1001) nutc
++1001 format(i4.4)
++  utcdata=utcdata(1:2)//':'//utcdata(3:4)
+ 
+   tskip=0.
+ !  fselect=126.0 + 1.6 + 0.290
+ !  nflip=-1
+ !  ip0=1
+-  fselect=128.0 + 1.6 + 0.220
++  fselect=128.0 + 1.6 + 0.220               !AA1YN
+   nflip=1
+   ip0=3
+ !  fselect=155.0 + 1.6 + 0.454
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-01-14 01:44:13 UTC (rev 351)
++++ branches/map65/spec.f90	2007-01-14 16:53:10 UTC (rev 352)
+@@ -21,7 +21,7 @@
+   include 'gcom3.f90'
+   include 'gcom4.f90'
+   data first/.true./
+-  data nstep/40,20,10,5,3/       !Integration limits
++  data nstep/28,20,14,10,7/       !Integration limits
+   save
+ 
+   if(first) then
+@@ -39,11 +39,11 @@
+   ia=imid-374
+   ib=ia+749
+ 
+-  do n=1,nadd
+-     do j=1,nlines
++  do j=1,nlines
++     do n=1,nadd
+         k=k+1
+         do i=1,NFFT
+-           s(i,j)=s(i,j) + ss(3,k,i)
++           s(i,j)=s(i,j) + ss(2,k,i)          !### ip value is temporary ###
+         enddo
+      enddo
+   enddo
+@@ -60,7 +60,7 @@
+   k=0
+   fac=20.0/nadd
+   nbpp=NFFT/NX                        !Bins per pixel in wide waterfall
+-  do j=1,nlines
++  do j=nlines,1,-1                    !Reverse order so last will be on top
+      do i=1,NX
+         k=k+1
+ 
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-01-14 01:44:13 UTC (rev 351)
++++ branches/map65/specjt.py	2007-01-14 16:53:10 UTC (rev 352)
+@@ -268,13 +268,18 @@
+             if newMinute:
+                 draw.line((0,0,749,0),fill=128)     #Draw the minute separator
+                 draw2.line((0,0,749,0),fill=128)    #Draw the minute separator
+-            if nscroll == 13:
+-                draw.text((5,2),t0[0:5],fill=253)   #Insert time label
+-                draw2.text((5,2),t0[0:5],fill=253)  #Insert time label
++#            if nscroll == 13:
++#                draw.text((5,2),t0[0:5],fill=253)   #Insert time label
++#                draw2.text((5,2),t0[0:5],fill=253)  #Insert time label
+         else:
+             draw.line((0,0,749,0),fill=128)     #Draw the minute separator
+             draw2.line((0,0,749,0),fill=128)    #Draw the minute separator
+ 
++        t=g.ftnstr(Audio.gcom2.utcdata)
++        draw.text((4,1),t[0:5],fill=253)   #Insert time label
++        draw2.text((4,1),t[0:5],fill=253)  #Insert time label
++
++
+         pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
+         graph1.delete(ALL)
+         pim2=ImageTk.PhotoImage(im2)            #Convert Image to PhotoImage
+@@ -326,10 +331,10 @@
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+     c.delete(ALL)
+-    xmid=125.0 - 2.1                            #Empirical
++    xmid=125.0 - 2.3                            #Empirical
+     bw=96.0
+-    x1=int(xmid-0.5*bw)
+-    x2=int(xmid+0.5*bw)
++    x1=int(xmid-0.6*bw)
++    x2=int(xmid+0.6*bw)
+     xdf=bw/NX                                    #128 Hz
+     for ix in range(x1,x2,1):
+         i=0.5*NX + (ix-xmid)/xdf
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000036.html">[WSJT-SVN] r351 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000038.html">[WSJT-SVN] r353 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#37">[ date ]</a>
+              <a href="thread.html#37">[ thread ]</a>
+              <a href="subject.html#37">[ subject ]</a>
+              <a href="author.html#37">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

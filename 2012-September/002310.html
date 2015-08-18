@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2618 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2618%20-%20branches/wsjtx&In-Reply-To=%3C20120929190436.1F07255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002309.html">
+   <LINK REL="Next"  HREF="002311.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2618 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2618%20-%20branches/wsjtx&In-Reply-To=%3C20120929190436.1F07255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2618 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 29 21:04:36 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002309.html">[WSJT-SVN] r2617 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002311.html">[WSJT-SVN] r2619 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2310">[ date ]</a>
+              <a href="thread.html#2310">[ thread ]</a>
+              <a href="subject.html#2310">[ subject ]</a>
+              <a href="author.html#2310">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-29 21:04:35 +0200 (Sat, 29 Sep 2012)
+New Revision: 2618
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+Log:
+Approx code for AutoZero control.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-29 18:11:44 UTC (rev 2617)
++++ branches/wsjtx/mainwindow.cpp	2012-09-29 19:04:35 UTC (rev 2618)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-09-29 18:11:44 UTC (rev 2617)
++++ branches/wsjtx/plotter.cpp	2012-09-29 19:04:35 UTC (rev 2618)
+@@ -99,7 +99,6 @@
+ 
+   for(i=0; i&lt;256; i++) {                     //Zero the histograms
+     m_hist1[i]=0;
+-    m_hist2[i]=0;
+   }
+ 
+   painter2D.setPen(Qt::green);
+@@ -117,14 +116,14 @@
+       swide[i]=-swide[i];
+     }
+     y = 10.0*log10(swide[i]);
+-    int y1 = 5.0*gain*(y + 29 -m_plotZero);
++    int y1 = 5.0*gain*(y + 37 - m_plotZero);
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+     if (swide[i]&gt;1.e29) y1=255;
+     m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+-    int y2 = gain*(y + 34 -m_plotZero);
++    int y2 = 0.7*gain*(y + 54 - m_plotZero);
+     if (y2&lt;0) y2=0;
+     if (y2&gt;254) y2=254;
+     if (swide[i]&gt;1.e29) y2=255;
+@@ -140,15 +139,6 @@
+     j++;
+   }
+ 
+-  for(i=0; i&lt;NSMAX; i++) {
+-    y = 10.0*log10(splot[i]);
+-    int y1 = 5.0*gain*(y + 29 -m_plotZero);
+-    if (y1&lt;0) y1=0;
+-    if (y1&gt;254) y1=254;
+-    if (splot[i]&gt;1.e29) y1=255;
+-    m_hist2[y1]++;
+-  }
+-
+   if(swide[0]&gt;1.0e29) m_line=0;
+   m_line++;
+   if(m_line == 13) {
+@@ -413,28 +403,23 @@
+ 
+ int CPlotter::autoZero()                                        //autoZero()
+ {
++  int w = m_Size.width();
+   m_z1=0;
+-  m_z2=0;
+   int sum1=0;
+   for(int i=0; i&lt;256; i++) {
+     sum1 += m_hist1[i];
+-    if(sum1 &gt; m_Size.width()/2) {
++    if(sum1 &gt; int(0.7*w)) {
+       m_z1=i;
+       break;
+     }
+   }
+-  int sum2=0;
+-  for(int i=0; i&lt;256; i++) {
+-    sum2 += m_hist2[i];
+-    if(sum2 &gt; 16384) {
+-      m_z2=i;
+-      break;
+-    }
+-  }
++
+   double gain = pow(10.0,0.05*(m_plotGain+7));
+-//  double dz1 = (m_z1-38)/(5.0*gain);
+-  double dz2 = (m_z2-28)/(5.0*gain);
+-  if(m_z2 &lt; 255) m_plotZero = int(m_plotZero + dz2 + 0.5);
++  if(m_z1 &lt; 255) {
++    double dz1 = m_z1/(5.0*gain);
++    m_plotZero = int(m_plotZero + dz1 + 0.5);
++    if(m_z1==0) m_plotZero = m_plotZero - 5;
++  }
+   return m_plotZero;
+ }
+ 
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-09-29 18:11:44 UTC (rev 2617)
++++ branches/wsjtx/plotter.h	2012-09-29 19:04:35 UTC (rev 2618)
+@@ -98,7 +98,6 @@
+   char    m_sutc[5];
+   qint32  m_line;
+   qint32  m_hist1[256];
+-  qint32  m_hist2[256];
+   qint32  m_z1;
+   qint32  m_z2;
+   qint32  m_fSample;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002309.html">[WSJT-SVN] r2617 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002311.html">[WSJT-SVN] r2619 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2310">[ date ]</a>
+              <a href="thread.html#2310">[ thread ]</a>
+              <a href="subject.html#2310">[ subject ]</a>
+              <a href="author.html#2310">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

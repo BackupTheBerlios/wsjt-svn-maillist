@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2172 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2172%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100920231747.8B470480F2D%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001863.html">
+   <LINK REL="Next"  HREF="001865.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2172 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2172%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20100920231747.8B470480F2D%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2172 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 21 01:17:47 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001863.html">[WSJT-SVN] r2171 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001865.html">[WSJT-SVN] r2173 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1864">[ date ]</a>
+              <a href="thread.html#1864">[ thread ]</a>
+              <a href="subject.html#1864">[ subject ]</a>
+              <a href="author.html#1864">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-21 01:17:47 +0200 (Tue, 21 Sep 2010)
+New Revision: 2172
+
+Modified:
+   branches/wspr/WsprMod/iq.py
+   branches/wspr/acom1.f90
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+Log:
+Tx opposite-sideband adjustment is working.
+
+Modified: branches/wspr/WsprMod/iq.py
+===================================================================
+--- branches/wspr/WsprMod/iq.py	2010-09-20 21:12:00 UTC (rev 2171)
++++ branches/wspr/WsprMod/iq.py	2010-09-20 23:17:47 UTC (rev 2172)
+@@ -13,7 +13,7 @@
+ root.withdraw()
+ root.protocol('WM_DELETE_WINDOW',done)
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title(&quot;Advanced&quot;)
++root.title(&quot;I-Q Mode&quot;)
+ 
+ def iq2(t):
+     root.geometry(t)
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-09-20 21:12:00 UTC (rev 2171)
++++ branches/wspr/acom1.f90	2010-09-20 23:17:47 UTC (rev 2172)
+@@ -11,7 +11,8 @@
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+-       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,ntxdb,             &amp;
++       nhandshake,ndebug,idevin,idevout,nsectx,nbfo,                   &amp;
++       ntxdb,ntxbal,ntxpha,                                            &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),kwave(NZ),idle,ntune,     &amp;
+        ncal,ndevsok,nsec1,nsec2,xdb1,xdb2,infile,outfile,              &amp;
+        pttport,cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,        &amp;
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-09-20 21:12:00 UTC (rev 2171)
++++ branches/wspr/tx.f90	2010-09-20 23:17:47 UTC (rev 2172)
+@@ -133,14 +133,15 @@
+         enddo
+         ierr=soundout(ndevout,id2,npts,iqmode)
+      else
+-        npts=36*4096
++        npts=24*4096
+         do irpt=1,100
+            fac=10.0**(0.05*ntxdb)
+            j=istart-1
+-           do i=1,npts
++           do i=1,npts*(iqmode+1)
+               j=j+1
+               id2(i)=fac*jwave(j)
+            enddo
++           if(iqmode.eq.1) call phasetx(id2,npts,fac,ntxbal,ntxpha)
+            ierr=soundout(ndevout,id2,npts,iqmode)
+         enddo
+      endif
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-09-20 21:12:00 UTC (rev 2171)
++++ branches/wspr/wspr.py	2010-09-20 23:17:47 UTC (rev 2172)
+@@ -710,6 +710,8 @@
+     w.acom1.iqrx=iq.iqrx.get()
+     w.acom1.iqtx=iq.iqtx.get()
+     w.acom1.ntxdb=iq.isc1.get()
++    w.acom1.ntxbal=iq.isc2.get()
++    w.acom1.ntxpha=iq.isc3.get()
+     try:
+         w.acom1.nfiq=iq.fiq.get()
+     except:
+@@ -1046,6 +1048,9 @@
+     f.write(&quot;IQrx &quot; + str(iq.iqrx.get()) + &quot;\n&quot;)
+     f.write(&quot;IQtx &quot; + str(iq.iqtx.get()) + &quot;\n&quot;)
+     f.write(&quot;FIQ &quot; + str(iq.fiq.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxdb &quot; + str(iq.isc1.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxbal &quot; + str(iq.isc2.get()) + &quot;\n&quot;)
++    f.write(&quot;Ntxpha &quot; + str(iq.isc3.get()) + &quot;\n&quot;)
+     f.write(&quot;SerialRate &quot; + str(options.serial_rate.get()) + &quot;\n&quot;)
+     f.write(&quot;DataBits &quot; + str(options.databits.get()) + &quot;\n&quot;)
+     f.write(&quot;StopBits &quot; + str(options.stopbits.get()) + &quot;\n&quot;)
+@@ -1409,6 +1414,9 @@
+             elif key == 'IQrx': iq.iqrx.set(value)
+             elif key == 'IQtx': iq.iqtx.set(value)
+             elif key == 'FIQ': iq.fiq.set(value)
++            elif key == 'Ntxdb': iq.isc1.set(value)
++            elif key == 'Ntxbal': iq.isc2.set(value)
++            elif key == 'Ntxpha': iq.isc3.set(value)
+             elif key == 'PTTmode': options.pttmode.set(value)
+             elif key == 'CATenable': options.cat_enable.set(value)
+             elif key == 'SerialRate': options.serial_rate.set(int(value))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001863.html">[WSJT-SVN] r2171 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001865.html">[WSJT-SVN] r2173 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1864">[ date ]</a>
+              <a href="thread.html#1864">[ thread ]</a>
+              <a href="subject.html#1864">[ subject ]</a>
+              <a href="author.html#1864">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

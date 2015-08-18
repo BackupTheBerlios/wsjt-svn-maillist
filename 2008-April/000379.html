@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r691 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r691%20-%20branches/wspr&In-Reply-To=%3C200804101755.m3AHthHZ010445%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000378.html">
+   <LINK REL="Next"  HREF="000380.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r691 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r691%20-%20branches/wspr&In-Reply-To=%3C200804101755.m3AHthHZ010445%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r691 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 10 19:55:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000378.html">[WSJT-SVN] r690 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000380.html">[WSJT-SVN] r692 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#379">[ date ]</a>
+              <a href="thread.html#379">[ thread ]</a>
+              <a href="subject.html#379">[ subject ]</a>
+              <a href="author.html#379">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-10 19:55:40 +0200 (Thu, 10 Apr 2008)
+New Revision: 691
+
+Added:
+   branches/wspr/f2py.py
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/wspr2.f90
+Log:
+Receiving OK now.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2008-04-10 17:23:18 UTC (rev 690)
++++ branches/wspr/acom1.f90	2008-04-10 17:55:40 UTC (rev 691)
+@@ -1,9 +1,11 @@
+   parameter (NMAX=120*12000)                          !Max length of waveform
+   real*8 f0,ftx
++  integer nreceiving
++  integer ntransmitting
+   character*80 infile,outfile
+   character cdate*8,utctime*10
+   character callsign*6,grid*4
+   integer*2 iwave
+   common/acom1/ f0,ftx,rms,nsec,ndevin,ndevout,nsave,nrxdone,ndbm,      &amp;
+-       ndecdone,ntxdone,iwave(NMAX),infile,outfile,cdate,utctime,      &amp;
+-       callsign,grid
++       ndecdone,ntxdone,nreceiving,ntransmitting,                         &amp;
++       iwave(NMAX),infile,outfile,cdate,utctime,callsign,grid
+
+Added: branches/wspr/f2py.py
+===================================================================
+--- branches/wspr/f2py.py	2008-04-10 17:23:18 UTC (rev 690)
++++ branches/wspr/f2py.py	2008-04-10 17:55:40 UTC (rev 691)
+@@ -0,0 +1,4 @@
++#!/usr/bin/env python.exe
++# See <A HREF="http://cens.ioc.ee/projects/f2py2e/">http://cens.ioc.ee/projects/f2py2e/</A>
++import f2py2e
++f2py2e.main()
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2008-04-10 17:23:18 UTC (rev 690)
++++ branches/wspr/wspr2.f90	2008-04-10 17:55:40 UTC (rev 691)
+@@ -2,37 +2,24 @@
+ 
+ #ifdef CVF
+   use dfport
+-#else
+-  integer unlink
+ #endif
+ 
+ ! Logical units:
+ !  10  wspr_tr.in
+ !  11  Transmitting/Receiving and UTC
+-!  12
++!  12  Audio data in *.wav file
+ !  13  ALL_MEPT.TXT
+ !  14  decoded.txt
+ 
+-  character cjunk*1
+-  character*74 line
+-  character*80 infile0
+   character*17 message
+-  character*12 arg
+   real*8 tsec
+   logical idle,receiving,transmitting,decoding,gui,cmnd
+   integer soundinit,soundexit
+   integer*1 hdr(44)
+   include 'acom1.f90'
+-  data nsec0/9999999/,itr/0/
+-  data idle/.false./,receiving/.false./,transmitting/.false./
+-  data decoding/.false./,gui/.false./,cmnd/.false./
+-  data infile0/''/
++  data idle/.true./,receiving/.false./,transmitting/.false./
++  data decoding/.false./
+ 
+-  gui=.true.
+-
+-  print*,'Hello, world.',gui,f0
+-
+-  ierr=unlink('abort')
+ #ifdef CVF
+   open(11,file='txrxtime.txt',status='unknown',share='denynone')
+   open(14,file='decoded.txt',status='unknown',share='denynone')
+@@ -40,7 +27,6 @@
+   open(11,file='txrxtime.txt',status='unknown')
+   open(14,file='decoded.txt',status='unknown')
+ #endif
+-
+   write(11,1000) 
+ 1000 format('Idle')
+   call flush(11)
+@@ -49,40 +35,21 @@
+   call flush(14)
+   rewind 14
+ 
+-  is10=-9999999
+   ierr=soundinit()
+   call random_seed
+   nrx=1
+ 
+ 20 continue
+-!20 ierr=stat('abort',istat)
+-!  if(ierr.eq.0) go to 999
+-!  if(.not.cmnd) then
+-!     ierr=stat('wspr_tr.in',istat)
+-!     if(istat(10).gt.is10) then
+-!#ifdef CVF
+-!        open(10,file='wspr_tr.in',status='old',share='denynone')
+-!#else
+-!        open(10,file='wspr_tr.in',status='old')
+-!#endif
+-!        read(10,*,end=11) cjunk
+-!        read(10,*) f0,ftx,nport,callsign,grid,ndbm,pctx,idsec,          &amp;
+-!             ndevin,ndevout,nsave
+-!        read(10,*) infile
+-!11      close(10)
+-!        if(pctx.gt.50.0) nrx=0
+-!        ierr=stat('wspr_tr.in',istat)
+-!        is10=istat(10)
+-!     endif
+-!  endif
+ 
+-  pctx=0.
++!  if(pctx.gt.50.0) nrx=0
++
++  pctx=0.                                    !### temporary ###
+   rxavg=1.0
+   if(pctx.gt.0.0) rxavg=100.0/pctx - 1.0
+   rr=3.0
+   if(pctx.ge.40.0) rr=1.5                    !soft step?
+   idle=.false.
+-  if(pctx.lt.0.0 .and.infile.eq.infile0) then
++  if(pctx.lt.0.0) then
+      idle=.true.
+      call msleep(100)
+      go to 20
+@@ -93,7 +60,6 @@
+      go to 20
+   endif
+ 
+-  infile0=infile
+   call getutc(cdate,utctime,tsec)
+   nsec=tsec
+ 
+@@ -130,25 +96,10 @@
+      call startdec
+   endif
+ 
+-  if(ndecdone.gt.0) then
+-     if(.not.gui) then
+-        rewind 14
+-        do i=1,99
+-           read(14,1022,end=24) line
+-1022       format(a74)
+-           if(line(1:4).eq.'$EOF') go to 24
+-           write(*,1022) line
+-        enddo
+-24        rewind 14
+-        line='$EOF'
+-        write(14,1022) line
+-        call flush(14)
+-        rewind 14
+-     endif
+-     ndecdone=0
+-     decoding=.false.
+-     if(cmnd) go to 999
+-  endif
++!  if(ndecdone.gt.0) then
++!     ndecdone=0
++!     decoding=.false.
++!  endif
+ 
+   if(ntxdone.gt.0) then
+      transmitting=.false.
+@@ -171,7 +122,7 @@
+         i1=index(message,'  ')
+         message=message(:i1)//message(i1+2:)
+      enddo
+-     if(.not.gui) write(*,1030) cdate(3:8),utctime(1:4),ftx,message
++!     if(.not.gui) write(*,1030) cdate(3:8),utctime(1:4),ftx,message
+      write(13,1030) cdate(3:8),utctime(1:4),ftx,message
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a17)
+      rewind 11
+@@ -187,8 +138,5 @@
+   endif
+   go to 20
+ 
+-999 ierr=soundexit()
+-  ierr=unlink('abort')
+-
+   return
+ end subroutine wspr2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000378.html">[WSJT-SVN] r690 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000380.html">[WSJT-SVN] r692 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#379">[ date ]</a>
+              <a href="thread.html#379">[ thread ]</a>
+              <a href="subject.html#379">[ subject ]</a>
+              <a href="author.html#379">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2972 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2972%20-%20trunk&In-Reply-To=%3C20130124151441.5B54A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002663.html">
+   <LINK REL="Next"  HREF="002665.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2972 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2972%20-%20trunk&In-Reply-To=%3C20130124151441.5B54A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2972 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 24 16:14:41 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002663.html">[WSJT-SVN] r2971 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002665.html">[WSJT-SVN] r2973 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2664">[ date ]</a>
+              <a href="thread.html#2664">[ thread ]</a>
+              <a href="subject.html#2664">[ subject ]</a>
+              <a href="author.html#2664">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-24 16:14:40 +0100 (Thu, 24 Jan 2013)
+New Revision: 2972
+
+Modified:
+   trunk/decode24.f90
+   trunk/deep24.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt24.f90
+Log:
+Pass ndepth into wsjt24.  Code cleanup.
+
+
+Modified: trunk/decode24.f90
+===================================================================
+--- trunk/decode24.f90	2013-01-24 14:13:17 UTC (rev 2971)
++++ trunk/decode24.f90	2013-01-24 15:14:40 UTC (rev 2972)
+@@ -54,7 +54,6 @@
+   ichbest=-1
+ 
+ ! Should amp be adjusted according to signal strength?
+-
+ ! Compute soft symbols using differential BPSK demodulation
+   c0=0.                                !### C0=amp ???
+   k=istart
+@@ -109,25 +108,11 @@
+      if(i4.gt.127) i4=i4-256
+      if(j.ge.1) then
+         symbol(j)=i4
+-!        rsymbol(j,ich)=rsymbol(j,ich) + rsym
+         rsymbol(j,ich)=rsym
+         sym(j)=rsym
+      endif
+   enddo
+   
+-!###  The following does simple message averaging:
+-!  nsum(ich)=nsum(ich)+1
+-!  do j=1,207
+-!     sym(j)=rsymbol(j,ich)/nsum(ich)
+-!     r=sym(j) + 128.
+-!     if(r.gt.255.0) r=255.0
+-!     if(r.lt.0.0) r=0.0
+-!     i4=nint(r)
+-!     if(i4.gt.127) i4=i4-256
+-!     symbol(j)=i4
+-!  enddo
+-!###
+-  
+   call extract4(sym,nadd,ncount,decoded)     !Do the KV decode
+ 
+   qual=0.                                    !Now try deep search
+@@ -143,31 +128,14 @@
+   if(mode.eq.7 .and. nchips.lt.mode4) go to 40
+ 
+ 100 continue
+-!100 do i=1,9
+-!     i4=data1(i)
+-!     if(i4.lt.0) i4=i4+256
+-!     data4a(i)=i4
+-!  enddo
+-!  write(c72,1100) (data4a(i),i=1,9)
+-!1100 format(9b8.8)
+-!  read(c72,1102) data4
+-!1102 format(12b6)
+ 
+-!  decoded='                      '
+-!  submode=' '
+-
+   if(ncount.lt.0) then
+      decoded=deepbest
+      submode=char(ichar('A')+ichbest-1)
+      qual=qbest
+   endif
+-!  if(decoded(1:6).eq.'000AAA') then
+-!     decoded='***WRONG MODE?***'
+-!     ncount=-1
+-!  endif
+ 
+-! Save symbol spectra for possible decoding of average.
+-  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)
++  ppsave(1:207,1:7,nsave)=rsymbol(1:207,1:7)  !Save data for message averaging
+ 
+   return
+ end subroutine decode24
+
+Modified: trunk/deep24.f90
+===================================================================
+--- trunk/deep24.f90	2013-01-24 14:13:17 UTC (rev 2971)
++++ trunk/deep24.f90	2013-01-24 15:14:40 UTC (rev 2972)
+@@ -175,8 +175,5 @@
+           decoded(i:i)=char(ichar(decoded(i:i))-32)
+   enddo
+ 
+-!  write(*,3010) p1,p2,p1-p2,p1/p2,qual,decoded
+-!3010 format('DS:',5f9.1,2x,a22)
+-
+   return
+ end subroutine deep24
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-01-24 14:13:17 UTC (rev 2971)
++++ trunk/wsjt.py	2013-01-24 15:14:40 UTC (rev 2972)
+@@ -772,9 +772,9 @@
+ def ModeJT4():
+     global slabel,isync,isync65,textheight,itol
+     ModeJT65()
+-    bclravg.pack_forget()
+-    binclude.pack_forget()
+-    bexclude.pack_forget()
++#    bclravg.pack_forget()
++#    binclude.pack_forget()
++#    bexclude.pack_forget()
+ 
+ 
+ #------------------------------------------------------ ModeJT4A
+@@ -2205,7 +2205,7 @@
+                                 variable=ndepth, value=3)
+ 
+ ##decodemenu.add_cascade(label = 'ISCAT',menu=decodemenu.ISCAT)
+-decodemenu.add_cascade(label = 'JT65',menu=decodemenu.JT65)
++decodemenu.add_cascade(label = 'JT4 and JT65',menu=decodemenu.JT65)
+ 
+ if (sys.platform == 'darwin'):
+     mbar.add_cascade(label=&quot;Decode&quot;, menu=decodemenu)
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2013-01-24 14:13:17 UTC (rev 2971)
++++ trunk/wsjt1.f90	2013-01-24 15:14:40 UTC (rev 2972)
+@@ -233,7 +233,7 @@
+      if(jz.ge.jztest) call wsjt24(dat,jz,cfile6,                        &amp;
+           NClearAve,MinSigdB,DFTolerance,NFreeze,mode,mode4,            &amp;
+           mycall,hiscall,hisgrid,                                       &amp;
+-          Nseg,MouseDF2,NAgain,idf,lumsg,lcum,nspecial,ndf,             &amp;
++          Nseg,MouseDF2,NAgain,ndepth,idf,lumsg,lcum,nspecial,ndf,      &amp;
+           NSyncOK,ccf,psavg,ndiag)
+      goto 900
+   endif
+
+Modified: trunk/wsjt24.f90
+===================================================================
+--- trunk/wsjt24.f90	2013-01-24 14:13:17 UTC (rev 2971)
++++ trunk/wsjt24.f90	2013-01-24 15:14:40 UTC (rev 2972)
+@@ -1,11 +1,10 @@
+ subroutine wsjt24(dat,npts,cfile6,NClearAve,MinSigdB,                  &amp;
+      DFTolerance,NFreeze,mode,mode4,mycall,hiscall,hisgrid,            &amp;
+-     Nseg,MouseDF,NAgain,                                              &amp;
++     Nseg,MouseDF,NAgain,ndepth,                                       &amp;
+      idf,lumsg,lcum,nspecial,ndf,NSyncOK,ccfblue,ccfred,ndiag)
+ 
+ ! Orchestrates the process of decoding JT4 messages, using data that 
+ ! have been 2x downsampled.  
+-! No message averaging and no deep search, at present.
+ 
+   parameter (MAXAVE=120)
+   real dat(npts)                                     !Raw data
+@@ -37,7 +36,6 @@
+      if(nspecial.eq.999) go to 900        !Silence compiler warning
+   endif
+ 
+-  ndepth=3                                !###
+   naggressive=0
+   if(ndepth.ge.2) naggressive=1
+   nq1=3
+@@ -65,9 +63,9 @@
+   deepmsg='                      '
+   special='     '
+   cooo='   '
+-  ncount=-1             !Flag for RS decode of current record
+-  ncount1=-1            !Flag for RS Decode of ave1
+-  ncount2=-1            !Flag for RS Decode of ave2
++  ncount=-1             !Flag for convolutional decode of current record
++  ncount1=-1            !Flag for convolutional decode of ave1
++  ncount2=-1            !Flag for convolutional decode of ave2
+   NSyncOK=0
+   nqual1=0
+   nqual2=0
+@@ -110,11 +108,15 @@
+      if(c1.ge.'a' .and. c1.le.'z') decoded(i:i)=char(ichar(c1)-32)
+   enddo
+   jdf=ndf+idf
++  do i=22,1,-1
++     if(decoded(i:i).ne.' ') exit
++  enddo
++  decoded(i+2:i+4)=cooo
+ 
+   call cs_lock('wsjt24')
+   write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),         &amp;
+-       csync,special,decoded(1:19),cooo,kvqual,nqual,submode
+-1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i3,i5,1x,a1)
++       csync,special,decoded,kvqual,nqual,submode
++1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a22,i4,i5,1x,a1)
+ 
+ ! Blank all end-of-line stuff if no decode
+   if(line(31:40).eq.'          ') line=line(:30)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002663.html">[WSJT-SVN] r2971 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002665.html">[WSJT-SVN] r2973 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2664">[ date ]</a>
+              <a href="thread.html#2664">[ thread ]</a>
+              <a href="subject.html#2664">[ subject ]</a>
+              <a href="author.html#2664">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

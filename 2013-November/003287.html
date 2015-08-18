@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3594 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3594%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20131104164251.B5D5E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003286.html">
+   <LINK REL="Next"  HREF="003288.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3594 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3594%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20131104164251.B5D5E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3594 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Nov  4 17:42:51 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003286.html">[WSJT-SVN] r3593 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="003288.html">[WSJT-SVN] r3595 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3287">[ date ]</a>
+              <a href="thread.html#3287">[ thread ]</a>
+              <a href="subject.html#3287">[ subject ]</a>
+              <a href="author.html#3287">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-11-04 17:42:51 +0100 (Mon, 04 Nov 2013)
+New Revision: 3594
+
+Modified:
+   branches/map65/libm65/gen65.f90
+   branches/map65/mainwindow.cpp
+   branches/map65/map65.iss
+   branches/map65/soundout.cpp
+Log:
+Make the Tx audio stereo, i.e., I and Q signals in left and right channels.
+
+
+Modified: branches/map65/libm65/gen65.f90
+===================================================================
+--- branches/map65/libm65/gen65.f90	2013-11-03 20:28:14 UTC (rev 3593)
++++ branches/map65/libm65/gen65.f90	2013-11-04 16:42:51 UTC (rev 3594)
+@@ -3,7 +3,7 @@
+ ! Encodes a JT65 message into a wavefile.  
+ ! Executes in 17 ms on opti-745.
+ 
+-  parameter (NMAX=60*11025)     !Max length of wave file
++  parameter (NMAX=2*60*11025)   !Max length of wave file
+   character*22 message          !Message to be generated
+   character*22 msgsent          !Message as it will be received
+   character*3 cok               !'   ' or 'OOO'
+@@ -54,27 +54,31 @@
+   f0=118*11025.d0/1024
+   dfgen=mode65*11025.d0/4096.d0
+   phi=0.d0
++  dphi=twopi*dt*f0
+   i=0
+   k=0
+   do j=1,nsym
+-     f=f0
+-     if(nspecial.ne.0 .and. mod(j,2).eq.0) f=f0+10*nspecial*dfgen
+-     if(nspecial.eq.0 .and. flip*pr(j).lt.0.0) then
+-        k=k+1
+-        f=f0+(sent(k)+2)*dfgen
++     if(message(1:5).ne.'@TUNE') then
++        f=f0
++        if(nspecial.ne.0 .and. mod(j,2).eq.0) f=f0+10*nspecial*dfgen
++        if(nspecial.eq.0 .and. flip*pr(j).lt.0.0) then
++           k=k+1
++           f=f0+(sent(k)+2)*dfgen
++        endif
++        dphi=twopi*dt*f
+      endif
+-     dphi=twopi*dt*f
+      do ii=1,nsps
+         phi=phi+dphi
+         if(phi.gt.twopi) phi=phi-twopi
+         xphi=phi
+         i=i+1
+-        iwave(i)=32767.0*sin(xphi)
++        iwave(2*i-1)=32767.0*cos(xphi)
++        iwave(2*i)=32767.0*sin(xphi)
+      enddo
+   enddo
+ 
+-  iwave(nsym*nsps+1:)=0
+-  nwave=nsym*nsps + 5512
++  iwave(2*nsym*nsps+1:)=0
++  nwave=2*nsym*nsps + 5512
+   call unpackmsg(dgen,msgsent)
+   if(flip.lt.0.0) then
+      do i=22,1,-1
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2013-11-03 20:28:14 UTC (rev 3593)
++++ branches/map65/mainwindow.cpp	2013-11-04 16:42:51 UTC (rev 3594)
+@@ -13,7 +13,7 @@
+ 
+ #define NFFT 32768
+ 
+-short int iwave[60*11025];            //Wave file for Tx audio
++short int iwave[2*60*11025];          //Wave file for Tx audio
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+ double outputLatency;                 //Latency in seconds
+
+Modified: branches/map65/map65.iss
+===================================================================
+--- branches/map65/map65.iss	2013-11-03 20:28:14 UTC (rev 3593)
++++ branches/map65/map65.iss	2013-11-04 16:42:51 UTC (rev 3594)
+@@ -1,7 +1,7 @@
+ [Setup]
+ AppName=MAP65
+-AppVerName=MAP65 Version 2.4.1 r2587
+-AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
++AppVerName=MAP65 Version 2.4.1 r3120
++AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\MAP65
+ DefaultGroupName=MAP65
+ 
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2013-11-03 20:28:14 UTC (rev 3593)
++++ branches/map65/soundout.cpp	2013-11-04 16:42:51 UTC (rev 3594)
+@@ -8,7 +8,7 @@
+ 
+ extern float gran();                  //Noise generator (for tests only)
+ 
+-extern short int iwave[60*11025];     //Wave file for Tx audio
++extern short int iwave[2*60*11025];   //Wave file for Tx audio
+ extern int nwave;
+ extern bool btxok;
+ extern double outputLatency;
+@@ -28,7 +28,7 @@
+   paUserData *udata=(paUserData*)userData;
+   short *wptr = (short*)outputBuffer;
+   unsigned int i;
+-  int n;
++  static int n;
+   static int ic=0;
+   static bool btxok0=false;
+   static int nStart=0;
+@@ -51,6 +51,7 @@
+     } else {
+       if(n != nStart) { //Late start in new Tx cycle: compute starting index
+         ic=(int)(tstart*11025.0);
++        ic=2*ic;
+         nStart=n;
+       }
+     }
+@@ -59,19 +60,18 @@
+ 
+   if(btxok) {
+     for(i=0 ; i&lt;framesToProcess; i++ )  {
+-      short int i2=iwave[ic];
+-      if(ic &gt; nwave) i2=0;
++        short int i2a=iwave[ic++];
++        short int i2b=iwave[ic++];
++      if(ic &gt; nwave) {i2a=0; i2b=0;}
+ //      i2 = 500.0*(i2/32767.0 + 5.0*gran());      //Add noise (tests only!)
+-      if(!btxok) i2=0;
+-      *wptr++ = i2;                   //left
+-      *wptr++ = i2;                   //right
+-      ic++;
++      *wptr++ = i2a;                     //left
++      *wptr++ = i2b;                     //right
+     }
+   } else {
+     for(i=0 ; i&lt;framesToProcess; i++ )  {
+       *wptr++ = 0;
+       *wptr++ = 0;
+-      ic++;
++      ic++; ic++;
+     }
+   }
+   if(ic &gt; nwave) {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003286.html">[WSJT-SVN] r3593 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="003288.html">[WSJT-SVN] r3595 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3287">[ date ]</a>
+              <a href="thread.html#3287">[ thread ]</a>
+              <a href="subject.html#3287">[ subject ]</a>
+              <a href="author.html#3287">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

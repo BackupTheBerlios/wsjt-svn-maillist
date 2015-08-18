@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2701 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2701%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121029175834.386A355B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002392.html">
+   <LINK REL="Next"  HREF="002394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2701 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2701%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121029175834.386A355B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2701 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Oct 29 18:58:34 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002392.html">[WSJT-SVN] r2700 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002394.html">[WSJT-SVN] r2702 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-29 18:58:33 +0100 (Mon, 29 Oct 2012)
+New Revision: 2701
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/wsjtx.iss
+Log:
+Save and restore fQSO.
+
+Decode mjultiple signals inside the &quot;Tol&quot; green bar, rather than just the
+one producing highest value of sync.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/lib/decoder.f90	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -9,6 +9,7 @@
+   parameter (NDMAX=1800*1500)        !Sample intervals at 1500 Hz rate
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   character*22 msg
++  character*33 line
+   real*4 ccfred(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+@@ -46,19 +47,10 @@
+   tstep=kstep/12000.0
+ 
+ ! Get sync, approx freq
+-  call sync9(ss,tstep,df3,ntol,nfqso,sync,snr,fpk0,ccfred)
+-  call spec9(c0,npts8,nsps,fpk0,fpk,xdt,i1SoftSymbols)
+-  call decode9(i1SoftSymbols,msg)
++  call sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)
+ 
+-  nsync=sync
+-  nsnr=nint(snr)
+-  width=0.0
+   open(13,file='decoded.txt',status='unknown')
+   rewind 13
+-  write(13,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
+-1010 format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+-  call flush(13)
+-  close(13)
+   if(first) then
+      open(14,file='wsjtx_rx.log',status='unknown',position='append')
+      first=.false.
+@@ -67,8 +59,48 @@
+   if(iand(nRxLog,1).ne.0) then
+ ! Write date and time to lu 14     
+   endif
+-  write(14,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++
++  fgood=0.
++  df8=1500.0/(nsps/8)
++  sbest=0.
++  do i=ia,ib
++     f=(i-1)*df3
++     if((i.eq.ipk .or. ccfred(i).ge.10.0) .and. f.gt.fgood+10.0*df8) then
++        call spec9(c0,npts8,nsps,f,fpk,xdt,i1SoftSymbols)
++        call decode9(i1SoftSymbols,msg)
++        call pctile(ccfred(ia),ib-ia+1,50,xmed)
++
++        snr=10.0*log10(ccfred(i)/xmed) - 10.0*log10(2500.0/df3) + 2.0
++        sync=ccfred(i)/xmed - 2.0
++        if(sync.lt.0.0) sync=0.0
++        nsync=sync
++        if(nsync.gt.10) nsync=10
++        nsnr=nint(snr)
++        width=0.0
++
++        if(ccfred(i).gt.sbest .and. fgood.eq.0.0) then
++           sbest=ccfred(i)
++           write(line,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width
++        endif
++
++        if(msg.ne.'                      ') then
++           write(13,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++1010       format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
++           write(14,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++           fgood=f
++        endif
++     endif
++  enddo
++
++  if(fgood.eq.0.0) then
++     write(13,1020) line
++     write(14,1020) line
++1020 format(a33)
++  endif
++
++  call flush(13)
+   call flush(14)
++  close(13)
+ 
+   return
+ end subroutine decoder
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/lib/symspec.f90	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -135,13 +135,15 @@
+ 
+ 999 continue
+ 
+-!  call pctile(s,iz,50,xmed0)
+-  ave0=sum(s(1:iz))/iz
+-  fac0=1.0/max(ave0,0.006)
++  call pctile(s,iz,50,xmed0)
++  fac0=1.0/max(xmed0,0.006)
++!  ave0=sum(s(1:iz))/iz
++!  fac0=1.0/max(ave0,0.006)
+   s(1:iz)=fac0*s(1:iz)
+-!  call pctile(ssum,iz,50,xmed1)
+-  ave1=sum(ssum(1:iz))/iz
+-  fac1=1.0/max(ave1,0.006*ihsym)
++  call pctile(ssum,iz,50,xmed1)
++  fac1=1.0/max(xmed1,0.006*ihsym)
++!  ave1=sum(ssum(1:iz))/iz
++!  fac1=1.0/max(ave1,0.006*ihsym)
+   savg(1:iz)=fac1*ssum(1:iz)
+   call redsync(ss,ntrperiod,ihsym,iz,red)
+ 
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/lib/sync9.f90	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -1,4 +1,4 @@
+-subroutine sync9(ss,tstep,df3,ntol,nfqso,sync,snr,fpk,ccfred)
++subroutine sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipkbest)
+ 
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   real ss(184,NSMAX)
+@@ -27,7 +27,8 @@
+         sum=0.
+         do j=1,16
+            k=ii2(j) + lag
+-           if(k.ge.1) sum=sum + ss(k,i)
++!           if(k.ge.1) sum=sum + ss(k,i) 
++           if(k.ge.1) sum=sum + ss(k,i) - 0.5*(ss(k+2,i)+ss(k+4,i))
+         enddo
+         if(sum.gt.smax) then
+            smax=sum
+@@ -43,27 +44,5 @@
+      endif
+   enddo
+ 
+-  sum=0.
+-  nsum=0
+-  do i=ia,ib
+-     if(abs(i-ipkbest).ge.4) then
+-        sum=sum+ccfred(i)
+-        nsum=nsum+1
+-     endif
+-  enddo
+-  ave=sum/nsum
+-  snr=10.0*log10(sbest/ave) - 10.0*log10(2500.0/df3) + 2.0
+-  sync=sbest/ave - 1.0
+-  if(sync.lt.0.0) sync=0.0
+-  if(sync.gt.10.0) sync=10.0
+-  fpk=(ipkbest-1)*df3
+-
+-!  rewind 71
+-!  do j=1,184
+-!     write(71,3001) j,ss(j,ipkbest)
+-!3001 format(i5,f12.6)
+-!  enddo
+-!  call flush(71)
+-
+   return
+ end subroutine sync9
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/mainwindow.cpp	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/plotter.cpp	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -323,10 +323,10 @@
+ 
+ int CPlotter::XfromFreq(float f)                               //XfromFreq()
+ {
+-  float w = m_WaterfallPixmap.width();
+-  int x = (int) w * (f - m_StartFreq)/m_fSpan;
++//  float w = m_WaterfallPixmap.width();
++  int x = (int) m_w * (f - m_StartFreq)/m_fSpan;
+   if(x&lt;0 ) return 0;
+-  if(x&gt;(int)w) return m_WaterfallPixmap.width();
++  if(x&gt;m_w) return m_w;
+   return x;
+ }
+ 
+@@ -397,7 +397,7 @@
+ void CPlotter::setFQSO(int x, bool bf)                       //setFQSO()
+ {
+   if(bf) {
+-    m_fQSO=x;         // x is freq in kHz
++    m_fQSO=x;         // x is freq in Hz
+     m_xClick=XfromFreq(m_fQSO);
+   } else {
+     if(x&lt;0) x=0;      // x is pixel number
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/plotter.h	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -38,6 +38,7 @@
+   qint32  m_DF;
+   qint32  m_tol;
+   qint32  m_fCal;
++  qint32  m_w;
+ 
+   void draw(float sw[], float red[], int i0);		//Update the waterfall
+   void SetRunningState(bool running);
+@@ -112,7 +113,6 @@
+   qint32  m_freqPerDiv;
+   qint32  m_nsps;
+   qint32  m_Percent2DScreen;
+-  qint32  m_w;
+   qint32  m_h;
+   qint32  m_h1;
+   qint32  m_h2;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/widegraph.cpp	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -32,6 +32,7 @@
+   ui-&gt;gainSpinBox-&gt;setValue(ui-&gt;widePlot-&gt;getPlotGain());
+   int n = settings.value(&quot;FreqSpan&quot;,1).toInt();
+   int w = settings.value(&quot;PlotWidth&quot;,1000).toInt();
++  ui-&gt;widePlot-&gt;m_w=w;
+   ui-&gt;freqSpanSpinBox-&gt;setValue(n);
+   ui-&gt;widePlot-&gt;setNSpan(n);
+ //  int nbpp = n * 32768.0/(w*96.0) + 0.5;
+@@ -48,10 +49,11 @@
+   ui-&gt;rbJT9Sync-&gt;setChecked(ui-&gt;widePlot-&gt;m_bJT9Sync);
+   int nbpp=settings.value(&quot;BinsPerPixel&quot;,1).toInt();
+   ui-&gt;widePlot-&gt;setBinsPerPixel(nbpp);
++  m_qsoFreq=settings.value(&quot;QSOfreq&quot;,1010).toInt();
++  ui-&gt;widePlot-&gt;setFQSO(m_qsoFreq,true);
+   settings.endGroup();
+ }
+ 
+-
+ WideGraph::~WideGraph()
+ {
+   saveSettings();
+@@ -76,6 +78,7 @@
+   settings.setValue(&quot;Cumulative&quot;,ui-&gt;widePlot-&gt;m_bCumulative);
+   settings.setValue(&quot;JT9Sync&quot;,ui-&gt;widePlot-&gt;m_bJT9Sync);
+   settings.setValue(&quot;BinsPerPixel&quot;,ui-&gt;widePlot-&gt;binsPerPixel());
++  settings.setValue(&quot;QSOfreq&quot;,ui-&gt;widePlot-&gt;fQSO());
+   settings.endGroup();
+ }
+ 
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-10-29 13:42:09 UTC (rev 2700)
++++ branches/wsjtx/wsjtx.iss	2012-10-29 17:58:33 UTC (rev 2701)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.1 r2692
++AppVerName=wsjtx Version 0.1 r2695
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002392.html">[WSJT-SVN] r2700 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002394.html">[WSJT-SVN] r2702 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

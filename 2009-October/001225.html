@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1534 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1534%20-%20branches/map65&In-Reply-To=%3C200910211819.n9LIJI8P011760%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001224.html">
+   <LINK REL="Next"  HREF="001226.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1534 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1534%20-%20branches/map65&In-Reply-To=%3C200910211819.n9LIJI8P011760%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1534 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct 21 20:19:18 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001224.html">[WSJT-SVN] r1533 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="001226.html">[WSJT-SVN] r1535 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-21 20:19:10 +0200 (Wed, 21 Oct 2009)
+New Revision: 1534
+
+Modified:
+   branches/map65/Makefile.MinGW
+   branches/map65/four2a.f
+   branches/map65/ftn_init.F90
+   branches/map65/libfftw3f.a
+Log:
+MAP65 now imports FFT wisdom from fftw_wisdom.dat, if available.
+
+
+Modified: branches/map65/Makefile.MinGW
+===================================================================
+--- branches/map65/Makefile.MinGW	2009-10-21 00:01:14 UTC (rev 1533)
++++ branches/map65/Makefile.MinGW	2009-10-21 18:19:10 UTC (rev 1534)
+@@ -32,9 +32,8 @@
+ 	unpackmsg.f unpacktext.f astro.f azdist.f coord.f dcoord.f \
+ 	deg2grid.f dot.f ftsky.f geocentric.f GeoDist.f grid2deg.f \
+ 	moon2.f MoonDop.f sun.f toxyz.f pfxdump.f \
+-	ccf65.f trimlist.f chkhist.f decode1a.f \
+-	fil6521.f twkfreq.f decode65b.f \
+-	afc65b.f fchisq.f ccf2.f
++	ccf65.f trimlist.f chkhist.f decode1a.f f77_wisdom.f \
++	fil6521.f twkfreq.f decode65b.f afc65b.f fchisq.f ccf2.f 
+ 
+ SRC2F77 = four2a.f filbig.f
+ 
+
+Modified: branches/map65/four2a.f
+===================================================================
+--- branches/map65/four2a.f	2009-10-21 00:01:14 UTC (rev 1533)
++++ branches/map65/four2a.f	2009-10-21 18:19:10 UTC (rev 1534)
+@@ -1,4 +1,4 @@
+-      SUBROUTINE FOUR2a (a,nfft,NDIM,ISIGN,IFORM)
++      subroutine four2a(a,nfft,ndim,isign,iform)
+ 
+ C     IFORM = 1, 0 or -1, as data is
+ C     complex, real, or the first half of a complex array.  Transform
+@@ -18,13 +18,15 @@
+ C     The transform will be real and returned to the input array.
+ 
+       parameter (NPMAX=100)
++      parameter (NSMALL=16384)
+       complex a(nfft)
+       complex aa(32768)
+       integer nn(NPMAX),ns(NPMAX),nf(NPMAX),nl(NPMAX)
+-      real*8 plan(NPMAX)                   !Should be i*8
++      real*8 plan(NPMAX)             !Actually should be i*8, but no matter
+       data nplan/0/
+       include 'fftw3.f'
+-      save
++      common/patience/npatience
++      save plan,nplan,nn,ns,nf,nl
+ 
+       if(nfft.lt.0) go to 999
+ 
+@@ -41,12 +43,19 @@
+       nf(i)=iform
+       nl(i)=nloc
+ 
+-C  Planning: FFTW_ESTIMATE, FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
++C  Planning: FFTW_ESTIMATE, FFTW_ESTIMATE_PATIENT, FFTW_MEASURE, 
++C            FFTW_PATIENT,  FFTW_EXHAUSTIVE
++C  NB: &quot;EXHAUSTIVE&quot; takes more or less forever, for long transforms.
+       nspeed=FFTW_ESTIMATE
+-      if(nfft.le.16384) nspeed=FFTW_MEASURE
+-      nspeed=FFTW_MEASURE
+-      if(nfft.le.32768) then
+-         do j=1,nfft
++      if(npatience.eq.1) nspeed=FFTW_ESTIMATE_PATIENT
++      if(npatience.eq.2) nspeed=FFTW_MEASURE
++      if(npatience.eq.3) nspeed=FFTW_PATIENT
++      if(npatience.eq.4) nspeed=FFTW_EXHAUSTIVE
++      nspeed=nspeed + FFTW_THREADSAFE+FFTW_USE_WISDOM
++      if(nfft.le.NSMALL) then
++         jz=nfft
++         if(iform.eq.0) jz=nfft/2
++         do j=1,jz
+             aa(j)=a(j)
+          enddo
+       endif
+@@ -66,13 +75,16 @@
+       endif
+       call sleep_msec(0)
+       i=nplan
+-      if(nfft.le.32768) then
+-         do j=1,nfft
++      if(nfft.le.NSMALL) then
++         jz=nfft
++         if(iform.eq.0) jz=nfft/2
++         do j=1,jz
+             a(j)=aa(j)
+          enddo
+       endif
+ 
+- 10   call sleep_msec(0)
++ 10   continue
++      call sleep_msec(0)
+       call sfftw_execute_(plan(i))
+       call sleep_msec(0)
+       return
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2009-10-21 00:01:14 UTC (rev 1533)
++++ branches/map65/ftn_init.F90	2009-10-21 18:19:10 UTC (rev 1534)
+@@ -18,7 +18,7 @@
+ !   25  meas25.dat
+ !   26  tmp26.txt
+ !   27  dphi.txt
+-!   28  
++!   28  fftw_wisdom.dat
+ !   29  debug.txt
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+@@ -140,6 +140,12 @@
+   open(27,file=appdir(:iz)//'/dphi.txt',status='unknown')
+ #endif
+ 
++  open(28,file='fftw_wisdom.dat',status='unknown')
++  call import_wisdom_from_file(isuccess,28)
++  close(28)
++  if(isuccess.ne.0) write(*,1000) 
++1000 format('Using optimized FFTs.')
++
+ #ifdef CVF
+   open(29,file=appdir(:iz)//'/debug.txt',status='unknown',                 &amp;
+        share='denynone')
+
+Modified: branches/map65/libfftw3f.a
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001224.html">[WSJT-SVN] r1533 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="001226.html">[WSJT-SVN] r1535 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

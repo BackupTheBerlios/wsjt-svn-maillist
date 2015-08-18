@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r554 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r554%20-%20trunk&In-Reply-To=%3C200710041919.l94JJxVu004270%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000238.html">
+   <LINK REL="Next"  HREF="000240.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r554 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r554%20-%20trunk&In-Reply-To=%3C200710041919.l94JJxVu004270%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r554 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Oct  4 21:19:59 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000238.html">[WSJT-SVN] r553 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000240.html">[WSJT-SVN] r555 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#239">[ date ]</a>
+              <a href="thread.html#239">[ thread ]</a>
+              <a href="subject.html#239">[ subject ]</a>
+              <a href="author.html#239">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-10-04 21:19:51 +0200 (Thu, 04 Oct 2007)
+New Revision: 554
+
+Modified:
+   trunk/decode24.f
+   trunk/gen24.f
+   trunk/sync24.f
+   trunk/wsjt.py
+   trunk/xcor24.f
+Log:
+Frequency smoothing now done for sync as well as data.
+Corrected 'OOO' messages for submodes JT4B-G.
+Fixed mouse-selected DF for JT4 modes.
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-10-04 14:49:06 UTC (rev 553)
++++ trunk/decode24.f	2007-10-04 19:19:51 UTC (rev 554)
+@@ -149,7 +149,7 @@
+          nchips=mode4
+          if(mode4.eq.72) then
+             nspchip=35
+-            nchips=36
++            nchips=36     !Try using twice as many chips and overlapping
+          endif
+          fac2=1.e-8 * sqrt(float(mode4))
+          do j=1,nsym+1
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-10-04 14:49:06 UTC (rev 553)
++++ trunk/gen24.f	2007-10-04 19:19:51 UTC (rev 554)
+@@ -77,7 +77,8 @@
+             j=int(t/tsymbol) + 1                  !Symbol number, 1-207
+             if(j.ne.j0) then
+                f=f0 + (npr2(j)+2*symbol(j)-1.5) * dfgen * mode4
+-               if(flip.lt.0.0) f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen
++               if(flip.lt.0.0) 
++     +              f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen*mode4
+                dphi=twopi*dt*f
+                j0=j
+             endif
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-10-04 14:49:06 UTC (rev 553)
++++ trunk/sync24.f	2007-10-04 19:19:51 UTC (rev 554)
+@@ -55,6 +55,10 @@
+       endif
+       ia=fa/df
+       ib=fb/df
++      if(mode.eq.7) then
++         ia=ia - 3*mode4
++         ib=ib - 3*mode4
++      endif
+       i0=nint(1270.46/df)
+       lag1=-5
+       lag2=59
+@@ -66,6 +70,7 @@
+          call xcor24(s2,i,nsteps,nsym,lag1,lag2,mode,mode4,
+      +        ccfblue,ccf0,lagpk0,flip)
+          j=i-i0
++         if(mode.eq.7) j=j + 3*mode4
+          if(j.ge.-372 .and. j.le.372) ccfred(j)=ccf0
+ 
+ C  Find rms of the CCF, without the main peak
+@@ -103,7 +108,7 @@
+ !      if(dx.gt.1.0) dx=1.0
+       dx=0.
+       dfx=(ipk+dx-i0)*df
+-      dfx=dfx + 3*mode4*df
++      if(mode.eq.7) dfx=dfx + 3*mode4*df
+ 
+ C  Peak up in time, at best whole-channel frequency
+       call xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode,mode4,
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-10-04 14:49:06 UTC (rev 553)
++++ trunk/wsjt.py	2007-10-04 19:19:51 UTC (rev 554)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------------ WSJT
++#----------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/xcor24.f
+===================================================================
+--- trunk/xcor24.f	2007-10-04 14:49:06 UTC (rev 553)
++++ trunk/xcor24.f	2007-10-04 19:19:51 UTC (rev 554)
+@@ -36,16 +36,33 @@
+ 
+       df=0.5*11025.0/2520.0
+       dtstep=0.5/df
+-      fac=dtstep/(60.0*df)
+       do j=1,nsteps
+          if(mode.eq.6) then
+             a(j)=s2(ipk+2,j) - s2(ipk,j)             !JT2
+          else                                        !JT4
+             n=2*mode4
++            if(mode4.eq.1) then
+ !            a(j)=0.5*(s2(ipk+n,j) + s2(ipk+3*n,j) - 
+ !     +                s2(ipk  ,j) - s2(ipk+2*n,j))
+-            a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - 
+-     +           max(s2(ipk  ,j),s2(ipk+2*n,j))
++               a(j)=max(s2(ipk+n,j),s2(ipk+3*n,j)) - 
++     +              max(s2(ipk  ,j),s2(ipk+2*n,j))
++            else
++               kz=mode4/2
++               ss0=0.
++               ss1=0.
++               ss2=0.
++               ss3=0.
++               wsum=0.
++               do k=-kz+1,kz-1
++                  w=float(kz-iabs(k))/mode4
++                  wsum=wsum+w
++                  ss0=ss0 + w*s2(ipk    +k,j)
++                  ss1=ss1 + w*s2(ipk+  n+k,j)
++                  ss2=ss2 + w*s2(ipk+2*n+k,j)
++                  ss3=ss3 + w*s2(ipk+3*n+k,j)
++               enddo
++               a(j)=(max(ss1,ss3) - max(ss0,ss2))/sqrt(wsum)
++            endif
+          endif
+       enddo
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000238.html">[WSJT-SVN] r553 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000240.html">[WSJT-SVN] r555 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#239">[ date ]</a>
+              <a href="thread.html#239">[ thread ]</a>
+              <a href="subject.html#239">[ subject ]</a>
+              <a href="author.html#239">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,269 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2900 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2900%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108162113.3FDC955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002591.html">
+   <LINK REL="Next"  HREF="002593.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2900 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2900%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20130108162113.3FDC955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2900 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan  8 17:21:13 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002591.html">[WSJT-SVN] r2899 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002593.html">[WSJT-SVN] r2901 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2592">[ date ]</a>
+              <a href="thread.html#2592">[ thread ]</a>
+              <a href="subject.html#2592">[ subject ]</a>
+              <a href="author.html#2592">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-08 17:21:12 +0100 (Tue, 08 Jan 2013)
+New Revision: 2900
+
+Modified:
+   branches/wsprx/lib/Makefile
+   branches/wsprx/lib/getrms.f
+   branches/wsprx/lib/mix162.f90
+   branches/wsprx/lib/wsprd.f90
+   branches/wsprx/mainwindow.cpp
+Log:
+Looking at decoding details for simultaneous *.wav and *.c2 files.
+
+
+Modified: branches/wsprx/lib/Makefile
+===================================================================
+--- branches/wsprx/lib/Makefile	2013-01-08 15:07:30 UTC (rev 2899)
++++ branches/wsprx/lib/Makefile	2013-01-08 16:21:12 UTC (rev 2900)
+@@ -35,10 +35,10 @@
+ 	ar cr libwspr.a $(OBJS1) 
+ 	ranlib libwspr.a
+ 
+-OBJS2 = wspr0.o 
++OBJS2 = wsprd.o wsprd_init.o
+ 
+-wsprd.exe: wsprd.o libwspr.a
+-	$(FC) -o wsprd.exe $(FFLAGS) wsprd.o libwspr.a libfftw3f_win.a
++wsprd.exe: $(OBJS2) libwspr.a
++	$(FC) -o wsprd.exe $(FFLAGS) $(OBJS2) libwspr.a libfftw3f_win.a
+ 	cp wsprd.exe ../../wsprx_install
+ 
+ .PHONY : clean
+
+Modified: branches/wsprx/lib/getrms.f
+===================================================================
+--- branches/wsprx/lib/getrms.f	2013-01-08 15:07:30 UTC (rev 2899)
++++ branches/wsprx/lib/getrms.f	2013-01-08 16:21:12 UTC (rev 2900)
+@@ -1,7 +1,6 @@
+       subroutine getrms(iwave,npts,ave,rms)
+ 
+-      parameter (NMAX=120*12000)
+-      integer*2 iwave(NMAX)
++      integer*2 iwave(npts)
+       real*8 sq
+ 
+       s=0.
+@@ -22,11 +21,11 @@
+          iwave(i)=n
+       enddo
+ 
+-      if(npts.lt.NMAX) then
+-         do i=npts+1,NMAX
+-            iwave(i)=0
+-         enddo
+-      endif
++!      if(npts.lt.NMAX) then
++!         do i=npts+1,NMAX
++!            iwave(i)=0
++!         enddo
++!      endif
+ 
+       return
+       end
+
+Modified: branches/wsprx/lib/mix162.f90
+===================================================================
+--- branches/wsprx/lib/mix162.f90	2013-01-08 15:07:30 UTC (rev 2899)
++++ branches/wsprx/lib/mix162.f90	2013-01-08 16:21:12 UTC (rev 2900)
+@@ -2,29 +2,35 @@
+ 
+ ! Mix from &quot;nbfo&quot; +/- 100 Hz to baseband, and downsample by 1/32
+ 
+-  parameter (NFFT1=2*1024*1024)
+-  parameter (NFFT2=NFFT1/32)
+-  parameter (NH2=NFFT2/2)
++  parameter (NFFT1MAX=16*1024*1024)
++  parameter (NH1MAX=NFFT1MAX/2)
+   integer*2 id(npts)
+-  real x(NFFT1)
+   real ps(-256:256)
+-  real*8 df
+-  complex c(0:NFFT1)
++  real*8 df,fbfo
+   complex c2(0:65535)
++  complex c(0:NH1MAX)
++  real x(NFFT1MAX)
+   equivalence (x,c)
+ 
++  nfft1=NFFT1MAX
++  if(npts.le.120*12000) nfft1=2*1024*1024
++  nfft2=65536
++  nh2=nfft2/2
++  ndown=nfft1/nfft2
++
+ ! Load data into real array x; pad with zeros up to nfft.
+   fac=1.e-4
+   do i=1,npts
+      x(i)=fac*id(i)
+   enddo
+-  call zero(x(npts+1),NFFT1-npts)
++  x(npts+1:nfft1)=0.
+ 
+-! Do the real-to-complex FFT
+-  call xfft(x,NFFT1)
++  call xfft(x,nfft1)                         !Do the real-to-complex FFT
+ 
+-  df=12000.d0/NFFT1
+-  i0=nint(nbfo/df)
++  df=12000.d0/nfft1
++  fbfo=nbfo
++  if(npts.gt.120*12000) fbfo=nbfo + 112.5d0
++  i0=nint(fbfo/df)
+   ia=i0-NH2 + 1
+   ib=i0+NH2
+ 
+@@ -47,7 +53,7 @@
+   call four2a(c2,NFFT2,1,1,1)        !Return to time domain
+ 
+   fac=1.e-5
+-  jz=npts/32
++  jz=npts/ndown
+   do i=0,jz-1
+      c2(i)=fac*c2(i)
+   enddo
+
+Modified: branches/wsprx/lib/wsprd.f90
+===================================================================
+--- branches/wsprx/lib/wsprd.f90	2013-01-08 15:07:30 UTC (rev 2899)
++++ branches/wsprx/lib/wsprd.f90	2013-01-08 16:21:12 UTC (rev 2900)
+@@ -4,20 +4,35 @@
+   integer*2 id(NMAX)
+   real*8 f0,dialFreq
+   real*4 ps(-256:256)
+-  character*80 infile
++  character*80 arg,infile
+   logical lc2
+   character c2file*14,datetime*11
+   complex c2(65536)
+   data nbfo/1500/
+ 
+-  call getarg(1,infile)
+-  open(18,file=infile,access='stream',status='old')
+-  lc2=index(infile,'.c2').gt.0
++  nargs=iargc()
++  if(nargs.eq.0) then
++     print*,'Usage: wsprd [options...] infile'
++     print*,''
++     print*,'Options:'
++     print*,'       -f x   Transceiver dial frequency is x (MHz)'
++     print*,'       -m n   Run in WSPR-n mode (default is WSPR-2)'
++     print*,''
++     print*,'Input file type may be *.wav or *.c2'
++     go to 999
++  endif
+ 
++  call wsprd_init(ntrminutes,f0,infile)
++
+   open(13,file='ALL_WSPR.TXT',status='unknown',position='append')
+   open(14,file='wspr0.out',status='unknown')
+ 
+-  ntrminutes=2
++  open(18,file=infile,access='stream',status='old')
++  lc2=index(infile,'.c2').gt.0
++  i1=index(infile,'.wav')
++  if(i1.le.0)   i1=index(infile,'.c2')
++  datetime=infile(i1-11:i1-1)
++  datetime(7:7)=' '
+ 
+   if(lc2) then
+      read(18) c2file,ntrmin,dialFreq,c2(1:45000)
+@@ -26,9 +41,9 @@
+      npts=60*ntrminutes*12000
+      call mix162a(c2,ps)
+      c2=(2.94127/13.983112)*c2
++     datetime=c2file
++     datetime(7:7)=' '
+   else
+-     f0=10.1387
+-     ntrminutes=2
+      npts=60*ntrminutes*12000
+      read(18) id(1:22)
+      read(18) id(1:npts)
+@@ -38,12 +53,8 @@
+      call mix162(id,npts,nbfo,c2,jz,ps)
+   endif
+ 
+-  i1=index(infile,'.wav')
+-  if(i1.le.0)   i1=index(infile,'.c2')
+-  datetime=infile(i1-11:i1-1)
+-  datetime(7:7)=' '
+   call mept162a(datetime,f0,c2,ps,lc2,npts,nbfo)
+   write(*,1100)
+ 1100 format('&lt;DecodeFinished&gt;')
+     
+-end program wsprd
++999 end program wsprd
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-08 15:07:30 UTC (rev 2899)
++++ branches/wsprx/mainwindow.cpp	2013-01-08 16:21:12 UTC (rev 2900)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002591.html">[WSJT-SVN] r2899 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002593.html">[WSJT-SVN] r2901 - in branches/wsprx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2592">[ date ]</a>
+              <a href="thread.html#2592">[ thread ]</a>
+              <a href="subject.html#2592">[ subject ]</a>
+              <a href="author.html#2592">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

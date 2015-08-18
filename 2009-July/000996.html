@@ -1,0 +1,296 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1302 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1302%20-%20trunk&In-Reply-To=%3C200907271415.n6REFd9V010213%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000995.html">
+   <LINK REL="Next"  HREF="000997.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1302 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1302%20-%20trunk&In-Reply-To=%3C200907271415.n6REFd9V010213%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1302 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 27 16:15:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000995.html">[WSJT-SVN] r1301 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000997.html">[WSJT-SVN] r1303 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#996">[ date ]</a>
+              <a href="thread.html#996">[ thread ]</a>
+              <a href="subject.html#996">[ subject ]</a>
+              <a href="author.html#996">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-27 16:15:33 +0200 (Mon, 27 Jul 2009)
+New Revision: 1302
+
+Modified:
+   trunk/Makefile.ifort
+   trunk/astro.F
+   trunk/ftn_init.F90
+   trunk/genmet.f
+   trunk/jtaudio.c
+   trunk/mept162a.f
+   trunk/sync162.f
+   trunk/twkfreq.f
+   trunk/wsjt.py
+   trunk/xcor24.f
+Log:
+Cleanup of some code that produced compiler warning messages.
+
+
+Modified: trunk/Makefile.ifort
+===================================================================
+--- trunk/Makefile.ifort	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/Makefile.ifort	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -2,7 +2,7 @@
+ CC ?= gcc
+ MKDIR ?= mkdir
+ INSTALL=	install
+-FFLAGS	= -O0 -C -reentrancy threaded -traceback -static
++FFLAGS	= -O0 -C -threads -reentrancy threaded -traceback -static
+ LDFLAGS	= -L/usr/lib -L/usr/local/lib 
+ LIBS	+=  -lpthread  -lportaudio -lsamplerate -lfftw3f
+ CPPFLAGS = -I/usr/include -I/usr/local/include 
+
+Modified: trunk/astro.F
+===================================================================
+--- trunk/astro.F	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/astro.F	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -6,7 +6,6 @@
+ C  Computes astronomical quantities for display in JT65, CW, and EME Echo mode.
+ C  NB: may want to smooth the Tsky map to 10 degrees or so.
+ 
+-      character*80 AppDir,fname
+       character*6 MyGrid,HisGrid
+       logical ltsky
+       real LST
+@@ -20,7 +19,7 @@
+ 
+       ltsky=nsky(1,1).eq.192
+ 
+- 20   call grid2deg(MyGrid,elon,lat)
++      call grid2deg(MyGrid,elon,lat)
+       lon=-elon
+       call sun(nyear,month,nday,uth,lon,lat,RASun,DecSun,LST,
+      +    AzSun,ElSun,mjd)
+
+Modified: trunk/ftn_init.F90
+===================================================================
+--- trunk/ftn_init.F90	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/ftn_init.F90	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -18,7 +18,7 @@
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+ 
+-  character*1 cjunk,fname*80
++  character*1 fname*80
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+@@ -40,11 +40,6 @@
+   lenappdir=iz
+   call pfxdump(appdir(:iz)//'/prefixes.txt')
+ 
+-  do i=80,1,-1
+-     if(AzElDir(i:i).ne.' ') goto 2
+-  enddo
+-2 iz2=i
+-
+ #ifdef CVF
+   open(11,file=appdir(:iz)//'/decoded.txt',status='unknown',               &amp;
+        share='denynone',err=910)
+
+Modified: trunk/genmet.f
+===================================================================
+--- trunk/genmet.f	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/genmet.f	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -9,12 +9,12 @@
+ 
+       call cs_lock('genmet')
+       bias=0.5
++      scale=10
+       if(mode.eq.6) then       !JT2, DBPSK
+          open(19,file='dmet_20_-2_2.dat',status='old')
+          scale=20
+       else if(mode.eq.7) then  !Non-coherent 2FSK
+          open(19,file='dmet_10_-1_3.dat',status='old')
+-         scale=10
+       else
+          print*,'Unsupported mode:',mode,' in genmet.'
+          stop 'genmet'
+
+Modified: trunk/jtaudio.c
+===================================================================
+--- trunk/jtaudio.c	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/jtaudio.c	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -2,8 +2,8 @@
+ #include &lt;portaudio.h&gt;
+ #include &lt;string.h&gt;
+ 
+-void fivehz_();
+-void fivehztx_();
++void fivehz_(void);
++void fivehztx_(void);
+ void addnoise_(short int *n);
+ 
+ //  Definition of structure pointing to the audio data
+@@ -72,11 +72,8 @@
+   paTestData *data = (paTestData*)userData;
+   short *in = (short*)inputBuffer;
+   unsigned int i;
+-  static int n0;
+   static int ia=0;
+   static int ib=0;
+-  static int ic=0;
+-  static int TxOKz=0;
+   static int ncall=0;
+   static int nsec0=0;
+   static double stime0=86400.0;
+@@ -104,7 +101,7 @@
+   if((statusFlags!=0) &amp; (ncall&gt;2) &amp; (stime&gt;stime0)) {
+     if(*data-&gt;ndebug) 
+       printf(&quot;Status flags %d at Tsec = %7.1f s, DT = %7.1f\n&quot;,
+-		      statusFlags,stime,stime-stime0);
++	       (int)statusFlags,stime,stime-stime0);
+     stime0=stime;
+   }
+ 
+@@ -142,12 +139,8 @@
+   short *wptr = (short*)outputBuffer;
+   unsigned int i,n;
+   static short int n2;
+-  static int n0;
+-  static int ia=0;
+-  static int ib=0;
+   static int ic=0;
+   static int TxOKz=0;
+-  static double stime0=86400.0;
+   int nsec;
+   double stime;
+   SYSTEMTIME st;
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/mept162a.f	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -23,7 +23,6 @@
+       c2a(0:jz-1)=c2
+       c2a(jz:)=0.
+       nfft0=65536
+-      df0=375.0/nfft0
+       call fourt(c2a,65536,1,-1,1,0.0)
+       do k=-256,256
+          i=128*k
+
+Modified: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/sync162.f	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -189,20 +189,16 @@
+       enddo
+       kz=k
+ 
+-      rewind 71
+       do k=1,kz
+          a(1)=-freq(k) + 1.4648   !### Why is this offset necessary? ###
+          a(2)=-0.5*drift(k)
+          a(3)=0.
+          lagpk=nint((dtx(k)+2)/(128*dt))
+-!         lag1=max(-200,8*lagpk-16)
+-!         lag2=min(200,8*lagpk+16)
+          lag1=-200
+          lag2=200
+          ccf=-fchisq(c2,jz,375.0,a,lag1,lag2,ccfbest,dtbest)
+          ipk=nint(freq(k)/df)
+          snrx=db(max(psavg(ipk),0.0001)) - 26.5         !Empirical
+-!         sstf(1,k)=p1(k)
+          sstf(1,k)=ccfbest
+          sstf(2,k)=snrx
+          sstf(3,k)=dtbest-2.0
+
+Modified: trunk/twkfreq.f
+===================================================================
+--- trunk/twkfreq.f	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/twkfreq.f	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -5,13 +5,13 @@
+       complex ca(jz),cb(jz)
+       real a(5)
+       real*8 twopi
+-      complex*16 w
+-      complex*16 wstep
++      complex*16 w,wstep
+       data twopi/0.d0/
+       save twopi
+ 
+       if(twopi.eq.0.d0) twopi=8.d0*atan(1.d0)
+       w=1.d0
++      wstep=1.d0
+       x0=0.5*(jz+1)
+       s=2.0/jz
+       do i=1,jz
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/wsjt.py	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/xcor24.f
+===================================================================
+--- trunk/xcor24.f	2009-07-26 18:49:48 UTC (rev 1301)
++++ trunk/xcor24.f	2009-07-27 14:15:33 UTC (rev 1302)
+@@ -34,7 +34,6 @@
+          first=.false.
+       endif
+ 
+-      df=0.5*11025.0/2520.0
+       do j=1,nsteps
+          if(mode.eq.6) then
+             a(j)=s2(ipk+2,j) - s2(ipk,j)             !JT2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000995.html">[WSJT-SVN] r1301 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000997.html">[WSJT-SVN] r1303 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#996">[ date ]</a>
+              <a href="thread.html#996">[ thread ]</a>
+              <a href="subject.html#996">[ subject ]</a>
+              <a href="author.html#996">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

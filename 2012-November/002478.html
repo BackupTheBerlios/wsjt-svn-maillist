@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2786 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2786%20-%20branches/wsjtx&In-Reply-To=%3C20121128235532.7F4CD55B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002477.html">
+   <LINK REL="Next"  HREF="002479.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2786 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2786%20-%20branches/wsjtx&In-Reply-To=%3C20121128235532.7F4CD55B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2786 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Nov 29 00:55:32 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002477.html">[WSJT-SVN] r2785 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002479.html">[WSJT-SVN] r2787 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2478">[ date ]</a>
+              <a href="thread.html#2478">[ thread ]</a>
+              <a href="subject.html#2478">[ subject ]</a>
+              <a href="author.html#2478">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-29 00:55:32 +0100 (Thu, 29 Nov 2012)
+New Revision: 2786
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundout.cpp
+Log:
+I think sequencing is now OK when Auto is turned OFF.  
+Also, F3 (TxMute) now works.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-28 21:08:35 UTC (rev 2785)
++++ branches/wsjtx/mainwindow.cpp	2012-11-28 23:55:32 UTC (rev 2786)
+@@ -11,6 +11,7 @@
+ 
+ int itone[85];                        //Tx audio tones for 85 symbols
+ bool btxok;                           //True if OK to transmit
++bool btxMute;
+ double outputLatency;                 //Latency in seconds
+ //float c0[2*1800*1500];
+ 
+@@ -98,7 +99,7 @@
+   m_auto=false;
+   m_waterfallAvg = 1;
+   m_txFirst=false;
+-  m_txMute=false;
++  btxMute=false;
+   btxok=false;
+   m_restart=false;
+   m_transmitting=false;
+@@ -523,7 +524,7 @@
+   switch(e-&gt;key())
+   {
+   case Qt::Key_F3:
+-    m_txMute=!m_txMute;
++    btxMute=!btxMute;
+     break;
+   case Qt::Key_F4:
+     ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+@@ -1022,7 +1023,7 @@
+     if(f.exists() and fmod(tsec,m_TRperiod)&lt;1.0 + 85.0*m_nsps/12000.0)
+       bTxTime=true;
+ 
+-    if(bTxTime and iptt==0 and !m_txMute) {
++    if(bTxTime and iptt==0 and !btxMute) {
+       int itx=1;
+       int ierr = ptt(m_pttPort,itx,&amp;iptt);       // Raise PTT
+       /*
+@@ -1041,7 +1042,7 @@
+         soundOutThread.start(QThread::HighPriority);
+       }
+     }
+-    if(!bTxTime || m_txMute) {
++    if(!bTxTime || btxMute) {
+       btxok=false;
+     }
+   }
+@@ -1095,7 +1096,9 @@
+ 
+ // If btxok was just lowered, start a countdown for lowering PTT
+   if(!btxok &amp;&amp; btxok0 &amp;&amp; iptt==1) nc0=-11;  //RxDelay = 1.0 s
+-  if(nc0 &lt;= 0) nc0++;
++  if(nc0 &lt;= 0) {
++    nc0++;
++  }
+   if(nc0 == 0) {
+     int itx=0;
+     int ierr=ptt(m_pttPort,itx,&amp;iptt);       // Lower PTT
+@@ -1106,7 +1109,7 @@
+       msgBox(s);
+     }
+     */
+-    if(!m_txMute) soundOutThread.quitExecution=true;
++    if(!btxMute) soundOutThread.quitExecution=true;
+     m_transmitting=false;
+     if(m_auto) {
+       m_monitoring=true;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-11-28 21:08:35 UTC (rev 2785)
++++ branches/wsjtx/mainwindow.h	2012-11-28 23:55:32 UTC (rev 2786)
+@@ -146,7 +146,6 @@
+     bool    m_decoderBusy;
+     bool    m_txFirst;
+     bool    m_auto;
+-    bool    m_txMute;
+     bool    m_restart;
+     bool    m_startAnother;
+     bool    m_saveSynced;
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-11-28 21:08:35 UTC (rev 2785)
++++ branches/wsjtx/soundout.cpp	2012-11-28 23:55:32 UTC (rev 2786)
+@@ -8,6 +8,8 @@
+ 
+ extern float gran();                  //Noise generator (for tests only)
+ extern int itone[85];                 //Tx audio tones for 85 symbols
++extern bool btxok;
++extern bool btxMute;
+ extern double outputLatency;
+ 
+ typedef struct   //Parameters sent to or received from callback function
+@@ -17,7 +19,6 @@
+   int    ntrperiod;
+   int    ntxfreq;
+   int    ncall;
+-  bool   txOK;
+   bool   txMute;
+   bool   bRestart;
+ } paUserData;
+@@ -74,11 +75,7 @@
+       if(i4&lt;-32767) i4=-32767;
+       i2=i4;
+     }
+-    /*
+-    if(udata-&gt;txMute) i2=0;
+-    if(!udata-&gt;txOK)  i2=0;
+-    if(ic &gt; 85*udata-&gt;nsps) i2=0;
+-    */
++    if(!btxok or btxMute)  i2=0;
+     *wptr++ = i2;                   //left
+     ic++;
+   }
+@@ -111,7 +108,6 @@
+   udata.ntrperiod=m_TRperiod;
+   udata.ntxfreq=m_txFreq;
+   udata.ncall=0;
+-  udata.txOK=false;
+   udata.txMute=m_txMute;
+   udata.bRestart=true;
+ 
+@@ -143,7 +139,6 @@
+     udata.nsps=m_nsps;
+     udata.ntrperiod=m_TRperiod;
+     udata.ntxfreq=m_txFreq;
+-    udata.txOK=m_txOK;
+     udata.txMute=m_txMute;
+ 
+     m_SamFacOut=1.0;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002477.html">[WSJT-SVN] r2785 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002479.html">[WSJT-SVN] r2787 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2478">[ date ]</a>
+              <a href="thread.html#2478">[ thread ]</a>
+              <a href="subject.html#2478">[ subject ]</a>
+              <a href="author.html#2478">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

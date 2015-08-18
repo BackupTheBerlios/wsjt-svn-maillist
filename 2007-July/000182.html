@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r497 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r497%20-%20branches/map65&In-Reply-To=%3C200707111947.l6BJlg0x013533%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000181.html">
+   <LINK REL="Next"  HREF="000183.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r497 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r497%20-%20branches/map65&In-Reply-To=%3C200707111947.l6BJlg0x013533%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r497 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 11 21:47:42 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000181.html">[WSJT-SVN] r496 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000183.html">[WSJT-SVN] r498 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#182">[ date ]</a>
+              <a href="thread.html#182">[ thread ]</a>
+              <a href="subject.html#182">[ subject ]</a>
+              <a href="author.html#182">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-11 21:47:36 +0200 (Wed, 11 Jul 2007)
+New Revision: 497
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/recvpkt.F90
+Log:
+Tx pol is now computed and displayed in status bar.
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2007-07-11 16:44:30 UTC (rev 496)
++++ branches/map65/gcom2.f90	2007-07-11 19:47:36 UTC (rev 497)
+@@ -7,6 +7,7 @@
+ real green             !Data for green line                     GUI
+ real fselect           !Specified QSO frequency                 GUI
+ real pctlost           !Percent of lost packets                 Decoder
++real fcenter           !Linrad center freq, from pkt header   recvpkt
+ real rxnoise           !Rx noise in dB                        recvpkt
+ real dphi              !Phase shift between pol'n channels   GUI,Decoder
+ integer ngreen         !Length of green                         GUI
+@@ -47,6 +48,7 @@
+ integer nfullspec      !Set to 1 to display full spectrum       GUI
+ integer ndebug         !Write debugging info?                   GUI
+ integer ndphi          !Set to 1 to compute dphi             GUI,Decoder
++integer nhispol        !Pol angle matching HisCall or HisGrid Decoder
+ integer nblank         !Is NB checked?                          GUI
+ integer nfmid          !Center frequency of main display        GUI
+ integer nfrange        !Frequency range of main display         GUI
+@@ -99,12 +101,12 @@
+ character*8 utcdata     !HHMM UTC for the processed data       Decoder
+ 
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),                   &amp;
+-     green(500),fselect,pctlost,rxnoise,dphi,ngreen,dgain,iter,             &amp;
++     green(500),fselect,pctlost,fcenter,rxnoise,dphi,ngreen,dgain,iter,     &amp;
+      ndecoding,ndecoding0,mousebutton,                                      &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,     &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+      nclearave,nfreeze,nafc,ncsmin,newspec,nfa,nfb,nfcal,idphi,nkeep,       &amp;
+-     nmode,mode65,nbpp,nfullspec,ndebug,ndphi,                              &amp;
++     nmode,mode65,nbpp,nfullspec,ndebug,ndphi,nhispol,                      &amp;
+      nblank,nport,mousedf,mousefqso,neme,nrw26,naggressive,ntx2,nagain,     &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,         &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,    &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-11 16:44:30 UTC (rev 496)
++++ branches/map65/map65.py	2007-07-11 19:47:36 UTC (rev 497)
+@@ -58,6 +58,7 @@
+ font1='Helvetica'
+ hiscall=&quot;&quot;
+ hisgrid=&quot;&quot;
++hisgrid0=&quot;&quot;
+ isec0=-99
+ k2txb=IntVar()
+ kb8rq=IntVar()
+@@ -931,7 +932,7 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen,kxp0, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom,bm2_geom
++           bm_geom,bm2_geom,hisgrid0
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+@@ -978,6 +979,21 @@
+             if len(HisGrid.get().strip())&lt;4:
+                 g.ndop=g.ndop00
+                 g.dfdt=g.dfdt0
++            if hisgrid != hisgrid0:
++                msg6.configure(text=&quot;        &quot;,bg='gray85')
++                hisgrid0=hisgrid
++                Audio.gcom2.nhispol=-999
++            if Audio.gcom2.nhispol != -999:
++                txpol=(int(Audio.gcom2.nhispol) - 2*g.poloffset + 360) % 180
++                t=&quot;Tx pol: %d  &quot; % txpol
++                if txpol &lt; 45 or txpol &gt; 135:
++                    t=t + 'H'
++                    color='pink'
++                else:
++                    t=t + 'V'
++                    color='yellow'
++                msg6.configure(text=t,bg=color)
++
+         astrotext.delete(1.0,END)
+         astrotext.insert(END,'   Moon\n')
+         astrotext.insert(END,&quot;Az: %7.1f\n&quot; % g.AzMoon)
+@@ -1074,7 +1090,7 @@
+     else:
+         bgcolor='green'
+         t='Receiving'
+-    msg6.configure(text=t,bg=bgcolor)
++    msg7.configure(text=t,bg=bgcolor)
+ 
+     if Audio.gcom2.ndecdone&gt;0 or g.cmap != cmap0:
+         if Audio.gcom2.ndecdone==1:
+@@ -1630,8 +1646,10 @@
+ msg4.pack(side=LEFT, fill=X, padx=1)
+ msg5=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
+ msg5.pack(side=LEFT, fill=X, padx=1)
+-msg6=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
+-msg6.pack(side=RIGHT, fill=X, padx=1)
++msg6=Message(iframe6, text=&quot;&quot;, width=300,relief=SUNKEN)
++msg6.pack(side=LEFT, fill=X, padx=1)
++msg7=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
++msg7.pack(side=RIGHT, fill=X, padx=1)
+ iframe6.pack(expand=1, fill=X, padx=4)
+ frame.pack()
+ ldate.after(100,update)
+@@ -1765,6 +1783,7 @@
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+'        ')[:8]
+ Audio.gcom2.mousefqso=125
+ Audio.gcom2.nfullspec=0
++Audio.gcom2.nhispol=-999
+ monitor()
+ first=1
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-11 16:44:30 UTC (rev 496)
++++ branches/map65/map65a.F90	2007-07-11 19:47:36 UTC (rev 497)
+@@ -43,16 +43,21 @@
+   if(nutc.ne.nutc0) nfile=nfile+1
+   nutc0=nutc
+   nutcdata=nutc
+-
+   df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
+   ftol=0.020                          !Frequency tolerance (kHz)
+   foffset=0.001*(1270 + nfcal)
+   fselect=mousefqso + foffset
+   nfilt=1
+   dphi=idphi/57.2957795
+-  
++
++  do i=12,3,-1
++     if(hiscall(i:i).ne.' ') go to 1
++  enddo
++  i=0
++1 len_hiscall=i
++
+   iloop=0
+-1 if(ndphi.eq.1) dphi=30*iloop/57.2957795
++2 if(ndphi.eq.1) dphi=30*iloop/57.2957795
+   do nqd=1,0,-1
+      if(nqd.eq.1) then
+         fa=1000.0*(fselect+0.001*mousedf-100.0) - dftolerance
+@@ -170,9 +175,17 @@
+                    nkm.eq.1) km=km-1
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+-                 call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,          &amp;
+-                      mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,      &amp;
++                 call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,        &amp;
++                      mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,    &amp;
+                       ipol,sync2,a,dt,pol,nkv,nhist,qual,decoded)
++
++!  If hiscall or hisgrid is in decoded message, save the pol'n angle.
++                 i1=index(decoded,hiscall(1:len_hiscall))
++                 i2=index(decoded,hisgrid(1:4))
++                 if(i1.ge.5 .or. i2.ge.9) then
++                    nhispol=nint(57.2957795*pol)
++                 endif
++
+                  km=km+1
+                  sig(km,1)=nfile
+                  sig(km,2)=nutc
+@@ -252,7 +265,7 @@
+      endif
+      if(ndphi.eq.1 .and.iloop.lt.12) then
+         iloop=iloop+1
+-        go to 1
++        go to 2
+      endif
+      if(nqd.eq.1) then
+         write(11,*) '$EOF'
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-07-11 16:44:30 UTC (rev 496)
++++ branches/map65/recvpkt.F90	2007-07-11 19:47:36 UTC (rev 497)
+@@ -28,9 +28,11 @@
+   nreset=-1
+   k=0
+   nsec0=-999
++  fcenter=144.125               !Default (startup) frequency)
+ 
+ 10 call recv_pkt(center_freq)
+ 
++  if(nsec0.eq.-999) fcenter=center_freq
+   isec=sec_midn()
+   imin=isec/60
+   if((monitoring.eq.0) .or. (lauto.eq.1 .and. mod(imin,2).eq.(1-TxFirst))) then
+@@ -110,6 +112,7 @@
+ 
+      if(ns.eq.48) then
+         nutc=mutc
++        fcenter=center_freq
+         kbuf=kb
+         kk=k
+         ndiskdat=0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000181.html">[WSJT-SVN] r496 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000183.html">[WSJT-SVN] r498 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#182">[ date ]</a>
+              <a href="thread.html#182">[ thread ]</a>
+              <a href="subject.html#182">[ subject ]</a>
+              <a href="author.html#182">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

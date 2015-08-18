@@ -1,0 +1,434 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2669 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2669%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121016233215.D2D3D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002360.html">
+   <LINK REL="Next"  HREF="002362.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2669 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2669%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121016233215.D2D3D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2669 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct 17 01:32:15 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002360.html">[WSJT-SVN] r2668 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002362.html">[WSJT-SVN] r2670 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2361">[ date ]</a>
+              <a href="thread.html#2361">[ thread ]</a>
+              <a href="subject.html#2361">[ subject ]</a>
+              <a href="author.html#2361">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-17 01:32:15 +0200 (Wed, 17 Oct 2012)
+New Revision: 2669
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/peakdf9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/wsjtx.pro
+Log:
+Decoded text now appears in main window.  However, ... the next decode
+request fails.  Then 3rd one is OK, 4th fails, etc., etc.
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/commons.h	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -6,27 +6,19 @@
+ extern &quot;C&quot; {
+ 
+ extern struct {
+-  short int d2[1800*12000];         //This is &quot;common/jt9com/...&quot; in fortran
+-  float ss[184*NSMAX];
++  float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
+-  double fcenter;                   //USB dial freq (kHz)
++  short int d2[1800*12000];
+   int nutc;                         //UTC as integer, HHMM
++  int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+-  int mousedf;                      //User-selected DF
+   int mousefqso;                    //User-selected QSO freq (kHz)
+   int nagain;                       //1 ==&gt; decode only at fQSO +/- Tol
+-  int ndepth;                       //How much hinted decoding to do?
+-  int ndiskdat;                     //1 ==&gt; data read from *.tf2 or *.iq file
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int nfa;                          //Low decode limit (kHz)
+   int nfb;                          //High decode limit (kHz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+-  int map65RxLog;                   //Flags to control log files
+-  int nfsample;                     //Input sample rate
+-  int nsave;                        //Number of s3(64,63) spectra saved
+   int kin;
+-  int kline;
+-  char datetime[20];
+ } jt9com_;
+ 
+ }
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/lib/decoder.f90	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ntrSeconds)
++subroutine decoder(ntrSeconds,c0)
+ 
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+@@ -12,21 +12,14 @@
+   real*4 red(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+-  complex c0
+-  common/jt9com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),c0(NDMAX),    &amp;
+-       nutc,npts8,junk(20)
++  complex c0(NDMAX)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
++       ntr,mousefqso,nagain,newdat,nfa,nfb,ntol,kin
+ 
+-
+   ntrMinutes=ntrSeconds/60
+-  nfa=1000
+-  nfb=2000
+-  ntol=500
+-  mousedf=0
+-  mousefqso=1500
+   newdat=1
+   nb=0
+   nbslider=100
+-  f0a=0.
+ 
+   nsps=0
+   if(ntrMinutes.eq.1)  nsps=6912
+@@ -41,26 +34,25 @@
+ 
+ 
+ ! Now do the decoding
+-  nutc=nutc0
+-  nstandalone=1
++  nutc=0
++  tstep=kstep/12000.0
+ 
+   ntol=500
+   nfqso=1500
+ 
+ ! Get sync, approx freq
+-  call sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,red)    
+-  fpk0=fpk
+-
+-  call spec9(c0,npts8,nsps,f0a,fpk,xdt,i1SoftSymbols)
++  call sync9(ss,tstep,df3,ntol,nfqso,sync,fpk,red)
++  npts8=170880                                        !### TEST ONLY ###
++  call spec9(c0,npts8,nsps,fpk,xdt,i1SoftSymbols)
+   call decode9(i1SoftSymbols,msg)
+ 
+-!  open(73,file='decoded.txt',status='unknown')
+-  iutc=0
+-  write(*,1010) iutc,xdt,1000.0+fpk,msg,sync,fpk0
+-  write(73,1010) iutc,xdt,1000.0+fpk,msg,sync,fpk0
+-1010 format(i4.4,f6.1,f7.1,2x,a22,2f9.1)
+-  flush(73)
+-!  close(13)
++  open(73,file='decoded.txt',status='unknown')
++  rewind 73
++!  write(*,1010) nutc,sync,xdt,1000.0+fpk,msg
++  write(73,1010) nutc,sync,xdt,1000.0+fpk,msg
++1010 format(i4.4,3f7.1,2x,a22)
++  call flush(73)
++  close(73)
+ 
+   return
+ end subroutine decoder
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/lib/jt9.f90	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -17,7 +17,8 @@
+   character*22 msg
+   integer*2 id2
+   complex c0(NDMAX)
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
++       ntr,mousefqso,nagain,newdat,nfa,nfb,ntol,kin
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+@@ -74,7 +75,7 @@
+         nhsym=(k-2048)/kstep
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+-           call symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,   &amp;
++           call symspec(k,ntrperiod,nsps,nb,nbslider,pxdb,   &amp;
+                 s,red,df3,ihsym,nzap,slimit,lstrong,c0,npts8)
+            nhsym0=nhsym
+            if(ihsym.ge.184) go to 10
+@@ -83,14 +84,14 @@
+ 
+ 10   close(10)
+      iz=1000.0/df3
+-     print*,'A',ihsym,nhsym,tstep,df3,ntol,nfqso
++!     print*,'A',ihsym,nhsym,tstep,df3,ntol,nfqso
+ 
+ ! Now do the decoding
+      nutc=nutc0
+ 
+ ! Get sync, approx freq
+      call sync9(ss,tstep,df3,ntol,nfqso,sync,fpk,red)
+-     print*,'B',sync,fpk
++!     print*,'B',sync,fpk,npts8,nsps
+      call spec9(c0,npts8,nsps,fpk,xdt,i1SoftSymbols)
+      call decode9(i1SoftSymbols,msg)
+      write(*,1010) nutc,sync,xdt,1000.0+fpk,msg
+
+Modified: branches/wsjtx/lib/peakdf9.f90
+===================================================================
+--- branches/wsjtx/lib/peakdf9.f90	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/lib/peakdf9.f90	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -27,8 +27,6 @@
+         idfpk=idf
+         smax=sum
+      endif
+-     write(71,3001) idf,sum
+-3001 format(i5,f12.3)
+   enddo
+ 
+   return
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/lib/symspec.f90	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,red,    &amp;
++subroutine symspec(k,ntrperiod,nsps,nb,nbslider,pxdb,s,red,    &amp;
+      df3,ihsym,nzap,slimit,lstrong,c0,npts8)
+ 
+ ! Input:
+@@ -32,7 +32,8 @@
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+   complex c0(NDMAX)
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX)
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
++       ntr,mousefqso,nagain,newdat,nfa,nfb,ntol,kin
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+ 
+@@ -141,15 +142,5 @@
+ 
+   call redsync(ss,ntrperiod,ihsym,iz,red)
+ 
+-  if(ihsym.eq.160) then
+-     rewind 71
+-     do i=1,iz
+-        write(71,3003) 1000+i*df3,savg(i),red(i)
+-3003    format(3f12.3)
+-     enddo
+-     flush(71)
+-  endif
+-
+-
+   return
+ end subroutine symspec
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/mainwindow.cpp	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -12,6 +12,8 @@
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+ double outputLatency;                 //Latency in seconds
++float c0[2*1800*1500];
++
+ //qint16 id[30*48000];
+ 
+ WideGraph* g_pWideGraph = NULL;
+@@ -315,8 +317,8 @@
+   static int nadj=0;
+   static int nb;
+   static int trmin;
++  static int npts8;
+   static float px=0.0;
+-  static float f0a;
+   static float df3;
+   static uchar lstrong[1024];
+   static float slimit;
+@@ -332,8 +334,8 @@
+   nb=0;
+   if(m_NB) nb=1;
+   trmin=m_TRperiod/60;
+-  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
+-           &amp;f0a, &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong);
++  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
++           &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, c0, &amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap/178.3;
+@@ -739,16 +741,14 @@
+ 
+ void MainWindow::decoderFinished()                       //decoderFinished
+ {
+-
+-  qDebug() &lt;&lt; &quot;Decoder Finished&quot;;
+-  QFile f(&quot;fort.73&quot;);
++  QFile f(&quot;decoded.txt&quot;);
+   f.open(QIODevice::ReadOnly);
+   QTextStream in(&amp;f);
+   QString line;
+   for(int i=0; i&lt;99999; i++) {
+     line=in.readLine();
+     if(line.length()&lt;=0) break;
+-    qDebug() &lt;&lt; line;
++    ui-&gt;decodedTextBrowser-&gt;append(line);
+   }
+   f.close();
+ }
+@@ -836,8 +836,8 @@
+ void MainWindow::decode()                                       //decode()
+ {
+   m_len1=80;
+-  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod);
+-  watcher3-&gt;setFuture(*future2);
++  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod, &amp;c0[0]);
++  watcher3-&gt;setFuture(*future3);
+ }
+ 
+ 
+@@ -915,7 +915,7 @@
+     ba2msg(ba,msgsent);
+     int len1=22;
+     int len2=22;
+-    genjt9_(message,&amp;m_TRperiod,msgsent,itone,len1,len2);
++    genjt9_(message,msgsent,itone,len1,len2);
+     if(m_restart) {
+       QFile f(&quot;wsjtx_tx.log&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/mainwindow.h	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -217,15 +217,14 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* ntrperiod, int* nsps, int* ndiskdat,
+-              int* nb, int* m_NBslider, float* px, float s[], float red[],
+-              float* f0a, float* df3, int* nhsym, int* nzap,
+-               float* slimit, uchar lstrong[]);
++void symspec_(int* k, int* ntrperiod, int* nsps, int* nb, int* m_NBslider,
++              float* px, float s[], float red[], float* df3, int* nhsym,
++              int* nzap, float* slimit, uchar lstrong[], float c0[],
++              int* npts8);
+ 
+-void genjt9_(char* msg, int* minutes, char* msgsent, int itone[],
+-             int len1, int len2);
++void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+-void decoder_(int* ntrperiod);
++void decoder_(int* ntrperiod, float c0[]);
+ 
+ int ptt_(int* nport, int* itx, int* iptt);
+   }
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/soundin.cpp	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -7,27 +7,19 @@
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+ extern struct {
+-  short int d2[1800*12000];         //This is &quot;common/jt9com/...&quot; in fortran
+-  float ss[184*NSMAX];
++  float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
+-  double fcenter;                   //USB dial freq (kHz)
++  short int d2[1800*12000];
+   int nutc;                         //UTC as integer, HHMM
++  int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+-  int mousedf;                      //User-selected DF
+   int mousefqso;                    //User-selected QSO freq (kHz)
+   int nagain;                       //1 ==&gt; decode only at fQSO +/- Tol
+-  int ndepth;                       //How much hinted decoding to do?
+-  int ndiskdat;                     //1 ==&gt; data read from *.tf2 or *.iq file
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int nfa;                          //Low decode limit (kHz)
+   int nfb;                          //High decode limit (kHz)
+   int ntol;                         //+/- decoding range around fQSO (Hz)
+-  int map65RxLog;                   //Flags to control log files
+-  int nfsample;                     //Input sample rate
+-  int nsave;                        //Number of s3(64,63) spectra saved
+   int kin;
+-  int kline;
+-  char datetime[20];
+ } jt9com_;
+ }
+ 
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-10-16 20:58:03 UTC (rev 2668)
++++ branches/wsjtx/wsjtx.pro	2012-10-16 23:32:15 UTC (rev 2669)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-CONFIG   += console
++#CONFIG   += console
+ 
+ TARGET = wsjtx
+ VERSION = 0.2
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002360.html">[WSJT-SVN] r2668 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002362.html">[WSJT-SVN] r2670 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2361">[ date ]</a>
+              <a href="thread.html#2361">[ thread ]</a>
+              <a href="subject.html#2361">[ subject ]</a>
+              <a href="author.html#2361">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3271 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3271%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130515190349.BD0F555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002962.html">
+   <LINK REL="Next"  HREF="002964.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3271 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3271%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130515190349.BD0F555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3271 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed May 15 21:03:49 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002962.html">[WSJT-SVN] r3270 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002964.html">[WSJT-SVN] r3272 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2963">[ date ]</a>
+              <a href="thread.html#2963">[ thread ]</a>
+              <a href="subject.html#2963">[ subject ]</a>
+              <a href="author.html#2963">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-15 21:03:49 +0200 (Wed, 15 May 2013)
+New Revision: 3271
+
+Modified:
+   branches/wsjtx/lib/chkss2.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/symspec2.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Another try at optimizing choices for decoding.  Not done yet!
+
+
+Modified: branches/wsjtx/lib/chkss2.f90
+===================================================================
+--- branches/wsjtx/lib/chkss2.f90	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/lib/chkss2.f90	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -8,7 +8,7 @@
+   ave=sum(ss2)/(9*85)
+   s=ss2/ave-1.0
+ 
+-!  call zplot9(s)
++  call zplot9(s)
+   s1=0.
+   do lag=0,5
+      do i=1,16
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/lib/decoder.f90	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -74,8 +74,8 @@
+      endif
+ 
+      if(nqd.eq.1) then
+-        limit=200000
+-        ccflim=2.5
++        limit=100000
++        ccflim=2.0
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
+      else
+@@ -115,8 +115,7 @@
+ 
+      do i=ia,ib
+         f=(i-1)*df3
+-        if(done(i) .or. (.not.ccfok(i)) .or. (ccfred(i).lt.ccflim-1.0) .or. &amp;
+-             (ccfred(i).lt.ccfred(i+1))) cycle
++        if(done(i) .or. (.not.ccfok(i)) .or. (ccfred(i).lt.ccflim-1.0)) cycle
+         if(nqd.eq.1 .or.                                                   &amp;
+            (ccfred(i).ge.ccflim .and. abs(f-fgood).gt.10.0*df8)) then
+ 
+@@ -129,7 +128,7 @@
+                 drift,schk,i1SoftSymbols)
+            call timer('softsym ',1)
+ 
+-           if(schk.ge.3.0) then
++           if(schk.ge.2.0) then
+ 
+               call timer('decode9 ',0)
+               call decode9(i1SoftSymbols,limit,nlim,msg)
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/lib/symspec.f90	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -86,8 +86,8 @@
+   peaklimit=sigmas*max(10.0,rms)
+   px=0.
+ 
+-  nwindow=2
+-!  nwindow=0                                    !### No windowing ###
++!  nwindow=2
++  nwindow=0                                    !### No windowing ###
+   kstep1=NFFT1
+   if(nwindow.ne.0) kstep1=NFFT1/2
+   fac=2.0/NFFT1
+@@ -97,11 +97,11 @@
+      do i=1,NFFT1
+         x0(i)=gain*id2(k1+i)
+      enddo
+-     call timf2(x0,k,NFFT1,nwindow,nb,peaklimit,x1,   &amp;
+-          slimit,lstrong,px,nzap)
++!     call timf2(x0,k,NFFT1,nwindow,nb,peaklimit,x1,   &amp;
++!          slimit,lstrong,px,nzap)
+ 
+ ! Mix at 1500 Hz, lowpass at +/-750 Hz, and downsample to 1500 Hz complex.
+-     x2(106:105+kstep1)=x1(1:kstep1)
++     x2(106:105+kstep1)=x0(1:kstep1)
+      call fil3(x2,kstep1+105,c0(k8+1),n2)
+      x2(1:105)=x1(kstep1-104:kstep1)   !Save 105 trailing samples
+      k1=k1+kstep1
+
+Modified: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/lib/symspec2.f90	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -38,7 +38,7 @@
+ !  write(30) freq,drift,ss2
+ !  call flush(30)
+   call chkss2(ss2,schk)
+-  if(schk.lt.3.0) go to 900
++  if(schk.lt.2.0) go to 900
+ !###
+   ss=0.
+   sig=0.
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/lib/sync9.f90	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -14,6 +14,8 @@
+   do i=ia,ib                         !Loop over freq range
+      ss1=ss(1:184,i)
+      call pctile(ss1,nzhsym,40,xmed)
++!     xmed=sum(ss1(1:nzhsym))/nzhsym
++
+      ss1=ss1/xmed - 1.0
+      do j=1,nzhsym
+         if(ss1(j).gt.3.0) ss1(j)=3.0
+@@ -21,13 +23,13 @@
+ 
+      smax=0.
+      do lag=lag1,lag2                !DT = 2.5 to 5.0 s
+-        sum=0.
++        sum1=0.
+         do j=1,16                    !Sum over 16 sync symbols
+            k=ii2(j) + lag
+-           if(k.ge.1 .and. k.le.nzhsym) sum=sum + ss1(k)
++           if(k.ge.1 .and. k.le.nzhsym) sum1=sum1 + ss1(k)
+         enddo
+-        if(sum.gt.smax) then
+-           smax=sum
++        if(sum1.gt.smax) then
++           smax=sum1
+            ipk=i 
+         endif
+      enddo
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-15 15:17:36 UTC (rev 3270)
++++ branches/wsjtx/mainwindow.cpp	2013-05-15 19:03:49 UTC (rev 3271)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//------------------------------------------------------------ MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002962.html">[WSJT-SVN] r3270 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002964.html">[WSJT-SVN] r3272 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2963">[ date ]</a>
+              <a href="thread.html#2963">[ thread ]</a>
+              <a href="subject.html#2963">[ subject ]</a>
+              <a href="author.html#2963">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

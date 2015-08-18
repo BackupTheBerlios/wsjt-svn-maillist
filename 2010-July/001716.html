@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2024 - in wsjt7a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2024%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20100723133356.5223E480E63%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001715.html">
+   <LINK REL="Next"  HREF="001717.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2024 - in wsjt7a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2024%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20100723133356.5223E480E63%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2024 - in wsjt7a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 23 15:33:56 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001715.html">[WSJT-SVN] r2023 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001717.html">[WSJT-SVN] r2025 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1716">[ date ]</a>
+              <a href="thread.html#1716">[ thread ]</a>
+              <a href="subject.html#1716">[ subject ]</a>
+              <a href="author.html#1716">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-23 15:33:56 +0200 (Fri, 23 Jul 2010)
+New Revision: 2024
+
+Modified:
+   wsjt7a/Makefile.MinGW
+   wsjt7a/WsjtMod/specjt.py
+   wsjt7a/mtdecode.f
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt65.f
+Log:
+Insert missing cs_lock calls in wsjt65.f
+Add click-to-decode capability for JTMS and ISCAT in SpecJT.
+Max ping size for JTMS set to 2 seconds.
+Fixed r-ght-double-click generation of single-digit reports.
+
+
+Modified: wsjt7a/Makefile.MinGW
+===================================================================
+--- wsjt7a/Makefile.MinGW	2010-07-22 19:58:05 UTC (rev 2023)
++++ wsjt7a/Makefile.MinGW	2010-07-23 13:33:56 UTC (rev 2024)
+@@ -17,7 +17,7 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    WSJT7.EXE t74
++all:    WSJT7.EXE
+ 
+ OBJS1 = JT65code.o nchar.o grid2deg.o packmsg.o packtext.o \
+ 	packcall.o packgrid.o unpackmsg.o unpacktext.o \
+
+Modified: wsjt7a/WsjtMod/specjt.py
+===================================================================
+--- wsjt7a/WsjtMod/specjt.py	2010-07-22 19:58:05 UTC (rev 2023)
++++ wsjt7a/WsjtMod/specjt.py	2010-07-23 13:33:56 UTC (rev 2024)
+@@ -259,7 +259,8 @@
+ 
+ #---------------------------------------------------- decode_request
+ def decode_request(event):
+-    if (g.mode=='FSK441' or g.mode=='JT6M') and nspeed0.get()&gt;5:
++    if (g.mode=='FSK441' or g.mode=='JT6M' or g.mode=='JTMS' or \
++        g.mode=='ISCAT') and nspeed0.get()&gt;5:
+ # If decoder is busy or we are not monitoring, ignore request
+         if Audio.gcom2.ndecoding==0 and Audio.gcom2.monitoring:
+             Audio.gcom2.mousebutton=event.num       #Left=1, Right=3
+@@ -380,6 +381,7 @@
+            and nspeed0.get()&gt;5: nspeed0.set(3)
+         if g.mode==&quot;FSK441&quot; and nspeed0.get()&lt;6: nspeed0.set(6)
+         if g.mode==&quot;JT6M&quot; and nspeed0.get()&lt;6: nspeed0.set(6)
++        if g.mode==&quot;JTMS&quot; and nspeed0.get()&lt;6: nspeed0.set(6)
+         if g.mode==&quot;ISCAT&quot; and nspeed0.get()&lt;6: nspeed0.set(6)
+         draw_axis()
+         mode0=g.mode
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-07-22 19:58:05 UTC (rev 2023)
++++ wsjt7a/mtdecode.f	2010-07-23 13:33:56 UTC (rev 2024)
+@@ -120,7 +120,8 @@
+          if(mode.eq.8) then
+ !            write(75) cfile6,t2,mswidth,int(peak),nrpt,jjz,
+ !     +      (dat(jj+j),j=1,jjz)
+-            call decodems(dat(jj),jjz,cfile6,t2,mswidth,int(peak),
++            jjzz=min(jjz,2*11025)       !Max data size 2 s 
++            call decodems(dat(jj),jjzz,cfile6,t2,mswidth,int(peak),
+      +           nrpt,nfreeze,DFTolerance,MouseDF,mycall)
+             go to 100
+          endif
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-22 19:58:05 UTC (rev 2023)
++++ wsjt7a/wsjt.py	2010-07-23 13:33:56 UTC (rev 2024)
+@@ -242,6 +242,7 @@
+         n=t1.rfind(&quot;\n&quot;)
+         rpt=t1[n+12:n+15]
+         if rpt[0:1] == &quot; &quot;: rpt=rpt[1:]
++        if rpt[:1]=='-' and len(rpt)==2: rpt=rpt[0:1]+'0'+rpt[1:2]
+         dbl_click_call(t,t1,rpt,event)
+ 
+ #------------------------------------------------------ dbl_click_ave
+
+Modified: wsjt7a/wsjt65.f
+===================================================================
+--- wsjt7a/wsjt65.f	2010-07-22 19:58:05 UTC (rev 2023)
++++ wsjt7a/wsjt65.f	2010-07-23 13:33:56 UTC (rev 2024)
+@@ -191,6 +191,7 @@
+ C  If Monitor segment #2 is available, write that line also
+ !      if(ns2.ge.1 .and. ns2.ne.ns20) then     !***Why the 2nd part?? ***
+       if(ns2.ge.1) then
++         call cs_lock('wsjt65')
+          if(ns2.lt.10) write(ave2,1021) cfile6,2,nused2,ns2,avemsg2,
+      +      nc2,nqual2
+          if(ns2.ge.10 .and. nsave.le.99) write(ave2,1022) cfile6,
+@@ -200,16 +201,18 @@
+          if(lcum .and. (avemsg2.ne.'                  ')) 
+      +      write(21,1011) ave2
+          ns20=ns2
++         call cs_unlock
+       endif
+ 
+       if(ave1(31:40).eq.'          ') ave1=ave1(:30)
+       if(ave2(31:40).eq.'          ') ave2=ave2(:30)
++      call cs_lock('wsjt65')
+       write(12,1011) ave1
+       write(12,1011) ave2
+       call flush(12)
++      if(lumsg.ne.6) end file 11
++      call cs_unlock
+  
+-      if(lumsg.ne.6) end file 11
+-
+  900  continue
+ 
+       return
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001715.html">[WSJT-SVN] r2023 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001717.html">[WSJT-SVN] r2025 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1716">[ date ]</a>
+              <a href="thread.html#1716">[ thread ]</a>
+              <a href="subject.html#1716">[ subject ]</a>
+              <a href="author.html#1716">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

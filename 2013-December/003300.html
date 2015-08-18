@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3608 - in branches/wsjtx_w: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3608%20-%20in%20branches/wsjtx_w%3A%20.%20lib&In-Reply-To=%3C20131220183208.C80D355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003301.html">
+   <LINK REL="Next"  HREF="003302.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3608 - in branches/wsjtx_w: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3608%20-%20in%20branches/wsjtx_w%3A%20.%20lib&In-Reply-To=%3C20131220183208.C80D355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3608 - in branches/wsjtx_w: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Dec 20 19:32:08 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003301.html">[WSJT-SVN] r3607 - in branches/wsjtx_w: . lib
+</A></li>
+        <LI>Next message: <A HREF="003302.html">[WSJT-SVN] r3609 - branches/wsjtx_w
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3300">[ date ]</a>
+              <a href="thread.html#3300">[ thread ]</a>
+              <a href="subject.html#3300">[ subject ]</a>
+              <a href="author.html#3300">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-12-20 19:32:08 +0100 (Fri, 20 Dec 2013)
+New Revision: 3608
+
+Modified:
+   branches/wsjtx_w/lib/astro.f90
+   branches/wsjtx_w/lib/astro0.f90
+   branches/wsjtx_w/lib/astrosub.f90
+   branches/wsjtx_w/mainwindow.cpp
+   branches/wsjtx_w/psk_reporter.cpp
+   branches/wsjtx_w/soundout.cpp
+Log:
+Add EME Delay and Freq to Astro display.
+
+
+Modified: branches/wsjtx_w/lib/astro.f90
+===================================================================
+--- branches/wsjtx_w/lib/astro.f90	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/lib/astro.f90	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -1,7 +1,7 @@
+ subroutine astro(nyear,month,nday,uth,nfreq,Mygrid,                    &amp;
+           NStation,MoonDX,AzSun,ElSun,AzMoon0,ElMoon0,                 &amp;
+           ntsky,doppler00,doppler,dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,    &amp;
+-          poloffset,xnr,day,lon,lat,LST)
++          poloffset,xnr,day,lon,lat,LST,techo)
+ 
+ ! Computes astronomical quantities for display and tracking.
+ ! NB: may want to smooth the Tsky map to 10 degrees or so.
+
+Modified: branches/wsjtx_w/lib/astro0.f90
+===================================================================
+--- branches/wsjtx_w/lib/astro0.f90	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/lib/astro0.f90	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -1,14 +1,14 @@
+ subroutine astro0(nyear,month,nday,uth8,nfreq,mygrid,hisgrid,              &amp;
+      AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,    &amp;
+      dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,sd8,poloffset8,xnr8,dfdt,dfdt0,    &amp;
+-     width1,width2,w501,w502,xlst8)
++     width1,width2,w501,w502,xlst8,techo8)
+ 
+   parameter (DEGS=57.2957795130823d0)
+   character*6 mygrid,hisgrid
+   real*8 AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8
+   real*8 dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,xnr8,dfdt,dfdt0,dt
+   real*8 sd8,poloffset8,day8,width1,width2,w501,w502,xlst8
+-  real*8 uth8
++  real*8 uth8,techo8
+   data uth8z/0.d0/
+   save
+ 
+@@ -16,16 +16,17 @@
+   call astro(nyear,month,nday,uth,nfreq,hisgrid,2,1,                 &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,               &amp;
+-       day,xlon2,xlat2,xlst)
++       day,xlon2,xlat2,xlst,techo)
+   AzMoonB8=AzMoon
+   ElMoonB8=ElMoon
+   call astro(nyear,month,nday,uth,nfreq,mygrid,1,1,                  &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,               &amp;
+-       day,xlon1,xlat1,xlst)
++       day,xlon1,xlat1,xlst,techo)
+ 
+   day8=day
+   xlst8=xlst
++  techo8=techo
+   call tm2(day8,xlat1,xlon1,xl1,b1)
+   call tm2(day8,xlat2,xlon2,xl2,b2)
+   call tm2(day8+1.d0/1440.0,xlat1,xlon1,xl1a,b1a)
+
+Modified: branches/wsjtx_w/lib/astrosub.f90
+===================================================================
+--- branches/wsjtx_w/lib/astrosub.f90	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/lib/astrosub.f90	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -1,6 +1,6 @@
+ subroutine astrosub(nyear,month,nday,uth8,nfreq,mygrid,hisgrid,          &amp;
+      AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,  &amp;
+-     RAMoon8,DecMoon8,Dgrd8,poloffset8,xnr8)
++     RAMoon8,DecMoon8,Dgrd8,poloffset8,xnr8,techo8)
+ 
+   implicit real*8 (a-h,o-z)
+   character*6 mygrid,hisgrid
+@@ -8,7 +8,7 @@
+   call astro0(nyear,month,nday,uth8,nfreq,mygrid,hisgrid,                &amp;
+      AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,  &amp;
+      dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,sd8,poloffset8,xnr8,dfdt,dfdt0,  &amp;
+-     width1,width2,w501,w502,xlst8)
++     width1,width2,w501,w502,xlst8,techo8)
+ 
+   return  
+ end subroutine astrosub
+
+Modified: branches/wsjtx_w/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_w/mainwindow.cpp	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/mainwindow.cpp	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -1121,11 +1121,13 @@
+ {
+   writeSettings ();
+   OnExit();
++  delete g_pAstro;                        //Is there a better way ?
+   QMainWindow::closeEvent (e);
+ }
+ 
+ void MainWindow::OnExit()
+ {
++//  g_pAstro-&gt;deleteLater();                    //???
+   m_guiTimer.stop ();
+   if(m_fname != &quot;&quot;) killFile();
+   m_killAll=true;
+
+Modified: branches/wsjtx_w/psk_reporter.cpp
+===================================================================
+--- branches/wsjtx_w/psk_reporter.cpp	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/psk_reporter.cpp	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -113,7 +113,7 @@
+ {
+     if (!info.addresses().isEmpty()) {
+         m_pskReporterAddress = info.addresses().at(0);
+-        qDebug() &lt;&lt; &quot;PSK Reporter IP: &quot; &lt;&lt; m_pskReporterAddress;
++//        qDebug() &lt;&lt; &quot;PSK Reporter IP: &quot; &lt;&lt; m_pskReporterAddress;
+     }
+ }
+ 
+
+Modified: branches/wsjtx_w/soundout.cpp
+===================================================================
+--- branches/wsjtx_w/soundout.cpp	2013-12-20 17:55:10 UTC (rev 3607)
++++ branches/wsjtx_w/soundout.cpp	2013-12-20 18:32:08 UTC (rev 3608)
+@@ -132,7 +132,7 @@
+ {
+   Q_ASSERT (0. &lt;= a &amp;&amp; a &lt;= 99.);
+   m_volume = qPow (10., -a / 10.);
+-  qDebug () &lt;&lt; &quot;SoundOut: attn = &quot; &lt;&lt; a &lt;&lt; &quot;, vol = &quot; &lt;&lt; m_volume;
++//  qDebug () &lt;&lt; &quot;SoundOut: attn = &quot; &lt;&lt; a &lt;&lt; &quot;, vol = &quot; &lt;&lt; m_volume;
+   if (m_stream)
+     {
+       m_stream-&gt;setVolume (m_volume);
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003301.html">[WSJT-SVN] r3607 - in branches/wsjtx_w: . lib
+</A></li>
+	<LI>Next message: <A HREF="003302.html">[WSJT-SVN] r3609 - branches/wsjtx_w
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3300">[ date ]</a>
+              <a href="thread.html#3300">[ thread ]</a>
+              <a href="subject.html#3300">[ subject ]</a>
+              <a href="author.html#3300">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

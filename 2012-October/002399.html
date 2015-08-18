@@ -1,0 +1,510 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2707 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2707%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121031183357.5507E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002398.html">
+   <LINK REL="Next"  HREF="002400.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2707 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2707%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121031183357.5507E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2707 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct 31 19:33:57 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002398.html">[WSJT-SVN] r2706 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002400.html">[WSJT-SVN] r2708 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2399">[ date ]</a>
+              <a href="thread.html#2399">[ thread ]</a>
+              <a href="subject.html#2399">[ subject ]</a>
+              <a href="author.html#2399">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-31 19:33:56 +0100 (Wed, 31 Oct 2012)
+New Revision: 2707
+
+Modified:
+   branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/pctile.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/wsjtx.iss
+   branches/wsjtx/wsjtx.pro
+Log:
+Add control of decoding &quot;depth&quot;.
+Improve the way pctile gets an estimate of array median.
+Put info for mettab() into a data statement.
+Attempt decoding near all freqs that give sync &gt;= 1.0
+Remove killbyname
+
+
+Modified: branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/lib/decode9.f90	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -1,4 +1,4 @@
+-subroutine decode9(i1SoftSymbols,msg)
++subroutine decode9(i1SoftSymbols,limit,nlim,msg)
+ 
+ ! Decoder for JT9
+ ! Input:   i1SoftSymbols(207) - Single-bit soft symbols
+@@ -11,11 +11,46 @@
+   integer*1 i1SoftSymbols(207)
+   integer*1 i1DecodedBits(72)
+ 
++  real*4 xx0(0:255)
++
+   integer*1 i1
+   logical first
+   integer*4 mettab(0:255,0:1)
+   equivalence (i1,i4)
+   data first/.true./
++  data xx0/                                                      &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        0.988, 1.000, 0.991, 0.993, 1.000, 0.995, 1.000, 0.991,  &amp;
++        1.000, 0.991, 0.992, 0.991, 0.990, 0.990, 0.992, 0.996,  &amp;
++        0.990, 0.994, 0.993, 0.991, 0.992, 0.989, 0.991, 0.987,  &amp;
++        0.985, 0.989, 0.984, 0.983, 0.979, 0.977, 0.971, 0.975,  &amp;
++        0.974, 0.970, 0.970, 0.970, 0.967, 0.962, 0.960, 0.957,  &amp;
++        0.956, 0.953, 0.942, 0.946, 0.937, 0.933, 0.929, 0.920,  &amp;
++        0.917, 0.911, 0.903, 0.895, 0.884, 0.877, 0.869, 0.858,  &amp;
++        0.846, 0.834, 0.821, 0.806, 0.790, 0.775, 0.755, 0.737,  &amp;
++        0.713, 0.691, 0.667, 0.640, 0.612, 0.581, 0.548, 0.510,  &amp;
++        0.472, 0.425, 0.378, 0.328, 0.274, 0.212, 0.146, 0.075,  &amp;
++        0.000,-0.079,-0.163,-0.249,-0.338,-0.425,-0.514,-0.606,  &amp;
++       -0.706,-0.796,-0.895,-0.987,-1.084,-1.181,-1.280,-1.376,  &amp;
++       -1.473,-1.587,-1.678,-1.790,-1.882,-1.992,-2.096,-2.201,  &amp;
++       -2.301,-2.411,-2.531,-2.608,-2.690,-2.829,-2.939,-3.058,  &amp;
++       -3.164,-3.212,-3.377,-3.463,-3.550,-3.768,-3.677,-3.975,  &amp;
++       -4.062,-4.098,-4.186,-4.261,-4.472,-4.621,-4.623,-4.608,  &amp;
++       -4.822,-4.870,-4.652,-4.954,-5.108,-5.377,-5.544,-5.995,  &amp;
++       -5.632,-5.826,-6.304,-6.002,-6.559,-6.369,-6.658,-7.016,  &amp;
++       -6.184,-7.332,-6.534,-6.152,-6.113,-6.288,-6.426,-6.313,  &amp;
++       -9.966,-6.371,-9.966,-7.055,-9.966,-6.629,-6.313,-9.966,  &amp;
++       -5.858,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
+   save
+ 
+   if(first) then
+@@ -23,23 +58,21 @@
+ !     bias=0.37                         !To be optimized, in decoder program
+      bias=0.0                           !Seems better, in jt9.exe ???
+      scale=10                           !  ... ditto ...
+-     open(19,file='met8.21',status='old')
+      do i=0,255
+-        read(19,*) x00,x0,x1
+-        mettab(i,0)=nint(scale*(x0-bias))
+-        mettab(i,1)=nint(scale*(x1-bias))    !### Check range, etc.  ###
++        mettab(i,0)=nint(scale*(xx0(i)-bias))
++        if(i.ge.1) mettab(256-i,1)=mettab(i,0)
+      enddo
+-     close(19)
++    close(19)
+      first=.false.
+   endif
+ 
+   msg='                      '
+   nbits=72
+   ndelta=17
+-  limit=100000
+   call fano232(i1SoftSymbols,nbits+31,mettab,ndelta,limit,i1DecodedBytes,   &amp;
+        ncycles,metric,ierr)
+ 
++  nlim=ncycles/nbits
+   if(ncycles.lt.(nbits*limit)) then
+      nbytes=(nbits+7)/8
+      do i=1,nbytes
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/lib/decoder.f90	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -1,4 +1,4 @@
+-subroutine decoder(ntrSeconds,nRxLog,c0)
++subroutine decoder(ntrSeconds,ndepth,nRxLog,c0)
+ 
+ ! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+ ! or as the back end of wsjt-x, with data placed in a shared memory region.
+@@ -24,6 +24,9 @@
+   newdat=1
+   nsynced=0
+   ndecoded=0
++  limit=1000
++  if(ndepth.ge.2) limit=20000
++  if(ndepth.ge.3) limit=100000
+ 
+   nsps=0
+   if(ntrMinutes.eq.1) then
+@@ -67,9 +70,9 @@
+   sbest=0.
+   do i=ia,ib
+      f=(i-1)*df3
+-     if((i.eq.ipk .or. ccfred(i).ge.10.0) .and. f.gt.fgood+10.0*df8) then
++     if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+         call spec9(c0,npts8,nsps,f,fpk,xdt,i1SoftSymbols)
+-        call decode9(i1SoftSymbols,msg)
++        call decode9(i1SoftSymbols,limit,nlim,msg)
+         snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
+         sync=ccfred(i) - 2.0
+         if(sync.lt.0.0) sync=0.0
+
+Modified: branches/wsjtx/lib/pctile.f90
+===================================================================
+--- branches/wsjtx/lib/pctile.f90	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/lib/pctile.f90	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -3,7 +3,22 @@
+   real x(npts)
+   integer hist(0:1000)
+ 
++  if(npts.le.0) then
++     xmedian=1.0
++     go to 900
++  endif
++
+   ave=sum(x)/npts
++  s=0.
++  ns=0
++  do i=1,npts
++     if(x(i).lt.3.0*ave) then
++        s=s+x(i)
++        ns=ns+1
++     endif
++  enddo
++  ave=s/ns
++
+   hist=0
+   do i=1,npts
+      j=nint(100.0*x(i)/ave)
+@@ -20,6 +35,8 @@
+   enddo
+ 
+   xmedian=j*ave/100.0
++  if(j.lt.10) xmedian=1.0
+ 
++900 continue
+   return
+ end subroutine pctile
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/lib/sync9.f90	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -45,6 +45,7 @@
+   enddo
+ 
+   call pctile(ccfred(ia),ib-ia+1,50,xmed)
++  if(xmed.le.1.0) xmed=1.0
+   ccfred=ccfred/xmed
+ 
+   return
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/mainwindow.cpp	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -55,9 +55,9 @@
+   ui-&gt;actionSave_all-&gt;setActionGroup(saveGroup);
+ 
+   QActionGroup* DepthGroup = new QActionGroup(this);
+-  ui-&gt;actionNo_Deep_Search-&gt;setActionGroup(DepthGroup);
+-  ui-&gt;actionNormal_Deep_Search-&gt;setActionGroup(DepthGroup);
+-  ui-&gt;actionAggressive_Deep_Search-&gt;setActionGroup(DepthGroup);
++  ui-&gt;actionQuickDecode-&gt;setActionGroup(DepthGroup);
++  ui-&gt;actionMediumDecode-&gt;setActionGroup(DepthGroup);
++  ui-&gt;actionDeepestDecode-&gt;setActionGroup(DepthGroup);
+ 
+   QButtonGroup* txMsgButtonGroup = new QButtonGroup;
+   txMsgButtonGroup-&gt;addButton(ui-&gt;txrb1,1);
+@@ -113,6 +113,7 @@
+   m_NB=false;
+   m_mode=&quot;JT9-1&quot;;
+   m_TRperiod=60;
++  decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -193,10 +194,6 @@
+     soundOutThread.quitExecution=true;
+     soundOutThread.wait(3000);
+   }
+-  if(!m_decoderBusy) {
+-    QFile lockFile(m_appDir + &quot;/.lock&quot;);
+-    lockFile.remove();
+-  }
+   delete ui;
+ }
+ 
+@@ -307,9 +304,9 @@
+     on_actionLinrad_triggered();
+     ui-&gt;actionLinrad-&gt;setChecked(true);
+   }
+-  if(m_ndepth==0) ui-&gt;actionNo_Deep_Search-&gt;setChecked(true);
+-  if(m_ndepth==1) ui-&gt;actionNormal_Deep_Search-&gt;setChecked(true);
+-  if(m_ndepth==2) ui-&gt;actionAggressive_Deep_Search-&gt;setChecked(true);
++  if(m_ndepth==1) ui-&gt;actionQuickDecode-&gt;setChecked(true);
++  if(m_ndepth==2) ui-&gt;actionMediumDecode-&gt;setChecked(true);
++  if(m_ndepth==3) ui-&gt;actionDeepestDecode-&gt;setChecked(true);
+ }
+ 
+ //-------------------------------------------------------------- dataSink()
+@@ -780,21 +777,6 @@
+   stub();
+ }
+ 
+-void MainWindow::on_actionNo_Deep_Search_triggered()          //No Deep Search
+-{
+-  m_ndepth=0;
+-}
+-
+-void MainWindow::on_actionNormal_Deep_Search_triggered()      //Normal DS
+-{
+-  m_ndepth=1;
+-}
+-
+-void MainWindow::on_actionAggressive_Deep_Search_triggered()  //Aggressive DS
+-{
+-  m_ndepth=2;
+-}
+-
+ void MainWindow::on_actionNone_triggered()                    //Save None
+ {
+   m_saveSynced=false;
+@@ -880,7 +862,8 @@
+   jt9com_.ntol=m_tol;
+   if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to wsjtx_rx.log
+   m_nutc0=jt9com_.nutc;
+-  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod, &amp;m_RxLog, &amp;c0[0]);
++  *future3 = QtConcurrent::run(decoder_, &amp;m_TRperiod, &amp;m_ndepth,
++                               &amp;m_RxLog, &amp;c0[0]);
+   watcher3-&gt;setFuture(*future3);
+ }
+ 
+@@ -1560,3 +1543,21 @@
+   m_txFreq=ntx;
+   ui-&gt;TxFreqSpinBox-&gt;setValue(ntx);
+ }
++
++void MainWindow::on_actionQuickDecode_triggered()
++{
++  m_ndepth=1;
++  ui-&gt;actionQuickDecode-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionMediumDecode_triggered()
++{
++  m_ndepth=2;
++  ui-&gt;actionMediumDecode-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionDeepestDecode_triggered()
++{
++  m_ndepth=3;
++  ui-&gt;actionDeepestDecode-&gt;setChecked(true);
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/mainwindow.h	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -68,9 +68,6 @@
+   void on_actionDelete_all_wav_files_in_SaveDir_triggered();
+   void on_actionF4_sets_Tx6_triggered();
+   void on_actionNo_shorthands_if_Tx1_triggered();
+-  void on_actionNo_Deep_Search_triggered();
+-  void on_actionNormal_Deep_Search_triggered();
+-  void on_actionAggressive_Deep_Search_triggered();
+   void on_actionNone_triggered();
+   void on_actionSave_all_triggered();
+   void on_actionKeyboard_shortcuts_triggered();
+@@ -113,6 +110,12 @@
+ 
+   void on_actionSave_decoded_triggered();
+ 
++  void on_actionQuickDecode_triggered();
++
++  void on_actionMediumDecode_triggered();
++
++  void on_actionDeepestDecode_triggered();
++
+ private:
+     Ui::MainWindow *ui;
+     qint32  m_nDevIn;
+@@ -232,7 +235,7 @@
+ 
+ void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+-void decoder_(int* ntrperiod, int* mRxLog, float c0[]);
++void decoder_(int* ntrperiod, int* ndepth, int* mRxLog, float c0[]);
+ }
+ 
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/mainwindow.ui	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -1179,7 +1179,9 @@
+     &lt;property name=&quot;title&quot;&gt;
+      &lt;string&gt;Decode&lt;/string&gt;
+     &lt;/property&gt;
+-    &lt;addaction name=&quot;actionNo_Deep_Search&quot;/&gt;
++    &lt;addaction name=&quot;actionQuickDecode&quot;/&gt;
++    &lt;addaction name=&quot;actionMediumDecode&quot;/&gt;
++    &lt;addaction name=&quot;actionDeepestDecode&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuSave&quot;&gt;
+     &lt;property name=&quot;title&quot;&gt;
+@@ -1350,33 +1352,17 @@
+     &lt;string&gt;No shorthand decodes if Tx1&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+-  &lt;action name=&quot;actionNo_Deep_Search&quot;&gt;
++  &lt;action name=&quot;actionQuickDecode&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;checked&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
++    &lt;bool&gt;false&lt;/bool&gt;
+    &lt;/property&gt;
+    &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;TBD...&lt;/string&gt;
++    &lt;string&gt;Quick&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
+-  &lt;action name=&quot;actionNormal_Deep_Search&quot;&gt;
+-   &lt;property name=&quot;checkable&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
+-   &lt;/property&gt;
+-   &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Normal Deep Search&lt;/string&gt;
+-   &lt;/property&gt;
+-  &lt;/action&gt;
+-  &lt;action name=&quot;actionAggressive_Deep_Search&quot;&gt;
+-   &lt;property name=&quot;checkable&quot;&gt;
+-    &lt;bool&gt;true&lt;/bool&gt;
+-   &lt;/property&gt;
+-   &lt;property name=&quot;text&quot;&gt;
+-    &lt;string&gt;Aggressive Deep Search&lt;/string&gt;
+-   &lt;/property&gt;
+-  &lt;/action&gt;
+   &lt;action name=&quot;actionNone&quot;&gt;
+    &lt;property name=&quot;checkable&quot;&gt;
+     &lt;bool&gt;true&lt;/bool&gt;
+@@ -1606,6 +1592,25 @@
+     &lt;string&gt;Save decoded&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionMediumDecode&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;checked&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Medium&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionDeepestDecode&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;Deepest&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/wsjtx.iss	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.2 r2705
++AppVerName=wsjtx Version 0.2 r2706
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2012-10-30 16:49:24 UTC (rev 2706)
++++ branches/wsjtx/wsjtx.pro	2012-10-31 18:33:56 UTC (rev 2707)
+@@ -38,7 +38,7 @@
+     displaytext.cpp getdev.cpp
+ 
+ win32 {
+-SOURCES += killbyname.cpp
++SOURCES +=
+ }
+ 
+ HEADERS  += mainwindow.h plotter.h soundin.h soundout.h \
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002398.html">[WSJT-SVN] r2706 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002400.html">[WSJT-SVN] r2708 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2399">[ date ]</a>
+              <a href="thread.html#2399">[ thread ]</a>
+              <a href="subject.html#2399">[ subject ]</a>
+              <a href="author.html#2399">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

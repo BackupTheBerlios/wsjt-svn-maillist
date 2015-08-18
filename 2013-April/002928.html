@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3236 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3236%20-%20branches/wsjtx&In-Reply-To=%3C20130428133501.BE85655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002927.html">
+   <LINK REL="Next"  HREF="002929.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3236 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3236%20-%20branches/wsjtx&In-Reply-To=%3C20130428133501.BE85655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3236 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Apr 28 15:35:01 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002927.html">[WSJT-SVN] r3235 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002929.html">[WSJT-SVN] r3237 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2928">[ date ]</a>
+              <a href="thread.html#2928">[ thread ]</a>
+              <a href="subject.html#2928">[ subject ]</a>
+              <a href="author.html#2928">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-28 15:35:01 +0200 (Sun, 28 Apr 2013)
+New Revision: 3236
+
+Modified:
+   branches/wsjtx/logqso.cpp
+   branches/wsjtx/logqso.h
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Make the LogQSO dialog non-modal.
+
+
+Modified: branches/wsjtx/logqso.cpp
+===================================================================
+--- branches/wsjtx/logqso.cpp	2013-04-28 00:40:39 UTC (rev 3235)
++++ branches/wsjtx/logqso.cpp	2013-04-28 13:35:01 UTC (rev 3236)
+@@ -124,5 +124,6 @@
+     out &lt;&lt; t &lt;&lt; endl;
+     f2.close();
+   }
++  emit(acceptQSO(true));
+   QDialog::accept();
+ }
+
+Modified: branches/wsjtx/logqso.h
+===================================================================
+--- branches/wsjtx/logqso.h	2013-04-28 00:40:39 UTC (rev 3235)
++++ branches/wsjtx/logqso.h	2013-04-28 13:35:01 UTC (rev 3236)
+@@ -28,6 +28,9 @@
+ public slots:
+   void accept();
+ 
++signals:
++  void acceptQSO(bool accepted);
++
+ private:
+   Ui::LogQSO *ui;
+ };
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-28 00:40:39 UTC (rev 3235)
++++ branches/wsjtx/mainwindow.cpp	2013-04-28 13:35:01 UTC (rev 3236)
+@@ -2205,27 +2205,33 @@
+ void MainWindow::on_logQSOButton_clicked()                 //Log QSO button
+ {
+   if(m_hisCall==&quot;&quot;) return;
+-  QDateTime t = QDateTime::currentDateTimeUtc();
+-  QString date=t.toString(&quot;yyyyMMdd&quot;);
++  dateTimeQSO = QDateTime::currentDateTimeUtc();
++  QString date=dateTimeQSO.toString(&quot;yyyyMMdd&quot;);
++
++  LogQSO* logDlg;
++  logDlg = new LogQSO(0);
++  logDlg-&gt;initLogQSO(m_hisCall,m_hisGrid,m_mode,m_rptSent,m_rptRcvd,date,
++                    m_qsoStart,m_qsoStop,m_dialFreq,m_myCall,m_myGrid,
++                    m_noSuffix,m_toRTTY,m_dBtoComments);
++  connect(logDlg, SIGNAL(acceptQSO(bool)),this,SLOT(acceptQSO2(bool)));
++  logDlg-&gt;show();
++}
++
++void MainWindow::acceptQSO2(bool accepted)
++{
++  QString date=dateTimeQSO.toString(&quot;yyyyMMdd&quot;);
+   QFile f(&quot;wsjtx.log&quot;);
+   if(!f.open(QIODevice::Text | QIODevice::Append)) {
+     msgBox(&quot;Cannot open file \&quot;wsjtx.log\&quot;.&quot;);
+   } else {
+-    QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
+-        t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
+-        QString::number(m_dialFreq) + &quot;,&quot; + m_mode + &quot;,&quot; +
+-        m_rptSent + &quot;,&quot; + m_rptRcvd;
++    QString logEntry=dateTimeQSO.date().toString(&quot;yyyy-MMM-dd,&quot;) +
++        dateTimeQSO.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; +
++        m_hisGrid + &quot;,&quot; + QString::number(m_dialFreq) + &quot;,&quot; + m_mode +
++        &quot;,&quot; + m_rptSent + &quot;,&quot; + m_rptRcvd;
+     QTextStream out(&amp;f);
+     out &lt;&lt; logEntry &lt;&lt; endl;
+     f.close();
+   }
+-
+-  LogQSO logDlg(this);
+-  logDlg.initLogQSO(m_hisCall,m_hisGrid,m_mode,m_rptSent,m_rptRcvd,date,
+-                    m_qsoStart,m_qsoStop,m_dialFreq,m_myCall,m_myGrid,
+-                    m_noSuffix,m_toRTTY,m_dBtoComments);
+-  if(logDlg.exec() == QDialog::Accepted) {
+-  }
+   if(m_clearCallGrid) {
+     m_hisCall=&quot;&quot;;
+     ui-&gt;dxCallEntry-&gt;setText(&quot;&quot;);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-28 00:40:39 UTC (rev 3235)
++++ branches/wsjtx/mainwindow.h	2013-04-28 13:35:01 UTC (rev 3236)
+@@ -150,12 +150,10 @@
+   void on_actionTx2QSO_triggered(bool checked);
+   void killFile();
+   void on_tuneButton_clicked();
+-
+   void on_actionAllow_multiple_instances_triggered(bool checked);
+-
+   void on_pbR2T_clicked();
+-
+   void on_pbT2R_clicked();
++  void acceptQSO2(bool accepted);
+ 
+ private:
+     Ui::MainWindow *ui;
+@@ -317,6 +315,8 @@
+     QStringList m_macro;
+     QStringList m_dFreq;
+ 
++    QDateTime dateTimeQSO;
++
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002927.html">[WSJT-SVN] r3235 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002929.html">[WSJT-SVN] r3237 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2928">[ date ]</a>
+              <a href="thread.html#2928">[ thread ]</a>
+              <a href="subject.html#2928">[ subject ]</a>
+              <a href="author.html#2928">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

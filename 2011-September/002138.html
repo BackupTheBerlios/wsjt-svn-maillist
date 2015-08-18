@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2446 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2446%20-%20branches/map65&In-Reply-To=%3C20110928165619.081B64813DE%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002137.html">
+   <LINK REL="Next"  HREF="002139.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2446 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2446%20-%20branches/map65&In-Reply-To=%3C20110928165619.081B64813DE%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2446 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 28 18:56:18 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002137.html">[WSJT-SVN] r2445 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="002139.html">[WSJT-SVN] r2447 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2138">[ date ]</a>
+              <a href="thread.html#2138">[ thread ]</a>
+              <a href="subject.html#2138">[ subject ]</a>
+              <a href="author.html#2138">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-09-28 18:56:18 +0200 (Wed, 28 Sep 2011)
+New Revision: 2446
+
+Modified:
+   branches/map65/gcom2.f90
+   branches/map65/map65.py
+Log:
+Starting to implement acceptance of floating-point data from Linrad.
+
+
+Modified: branches/map65/gcom2.f90
+===================================================================
+--- branches/map65/gcom2.f90	2011-09-27 19:13:40 UTC (rev 2445)
++++ branches/map65/gcom2.f90	2011-09-28 16:56:18 UTC (rev 2446)
+@@ -19,6 +19,7 @@
+ integer mousebutton    !Which button was clicked?               GUI
+ integer multicast      !1 for multicast data, 0 for unicast     GUI
+ integer ndecdone       !Is decoder finished?                 GUI,Decoder
++integer nfloat         !Floating-point data from Linrad?        GUI
+ integer ierr           !Error opening *.tf2 file                GUI
+ integer lauto          !Are we in Auto mode?                    GUI
+ integer mantx          !Manual transmission requested?       GUI,SoundIn
+@@ -107,7 +108,7 @@
+ common/gcom2/fcenter,ps0(431),psavg(450),s2(64,3100),ccf(-5:540),           &amp;
+      green(500),fselect,pctlost,pctblank,rxnoise,dphi,ngreen,dgain,         &amp;
+      ndecoding,ndecoding0,mcall3,mousebutton,multicast,nsetftx,ierr,        &amp;
+-     ndecdone,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,                    &amp;
++     ndecdone,nfloat,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5,             &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,minsigdb,                  &amp;
+      nclearave,nfreeze,nafc,ncsmin,newspec,nfa,nfb,nfcal,idphi,nkeep,       &amp;
+      nmode,mode65,nbpp,ndebug,ndphi,nhispol,nt1,nxant,                      &amp;
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2011-09-27 19:13:40 UTC (rev 2445)
++++ branches/map65/map65.py	2011-09-28 16:56:18 UTC (rev 2446)
+@@ -59,6 +59,8 @@
+ bm2_geom=&quot;&quot;
+ cmap0=&quot;Linrad&quot;
+ fileopened=&quot;&quot;
++floatpt=IntVar()
++floatpt.set(0)
+ font1='Helvetica'
+ fqso0=125
+ hiscall=&quot;&quot;
+@@ -1307,6 +1309,7 @@
+     Audio.gcom2.neme=neme.get()
+     Audio.gcom2.ndepth=ndepth.get()
+     Audio.gcom2.multicast=multicast.get()
++    Audio.gcom2.nfloat=floatpt.get()
+     Audio.gcom2.nxant=options.xant.get()
+     try:
+         Audio.gcom2.idinterval=options.IDinterval.get()
+@@ -1405,6 +1408,8 @@
+ setupmenu.add_radiobutton(label = 'Input data unicast', variable=multicast, \
+             value=0)
+ setupmenu.add_separator()
++setupmenu.add_checkbutton(label = 'Floating point data', variable=floatpt)
++setupmenu.add_separator()
+ setupmenu.add_checkbutton(label = 'Enable diagnostics',variable=ndebug)
+ setupmenu.add_checkbutton(label = 'Verbose diagnostics',variable=ndebug2)
+ 
+@@ -1879,6 +1884,7 @@
+         elif key == 'Multicast': multicast.set(value)
+         elif key == 'Debug': ndebug.set(value)
+         elif key == 'Debug2': ndebug2.set(value)
++        elif key == 'FloatPt': floatpt.set(value)
+         elif key == 'HisCall':
+             Audio.gcom2.hiscall=(value+'            ')[:12]
+             ToRadio.delete(0,99)
+@@ -1976,6 +1982,7 @@
+ f.write(&quot;Multicast &quot; + str(multicast.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug2 &quot; + str(ndebug2.get()) + &quot;\n&quot;)
++f.write(&quot;FloatPt &quot; + str(floatpt.get()) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
+ if g.astro_geom[:7]==&quot;200x200&quot;: g.astro_geom=&quot;316x373&quot; + g.astro_geom[7:]
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002137.html">[WSJT-SVN] r2445 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="002139.html">[WSJT-SVN] r2447 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2138">[ date ]</a>
+              <a href="thread.html#2138">[ thread ]</a>
+              <a href="subject.html#2138">[ subject ]</a>
+              <a href="author.html#2138">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r934 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r934%20-%20trunk&In-Reply-To=%3C200807111424.m6BEOBxA015111%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000622.html">
+   <LINK REL="Next"  HREF="000624.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r934 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r934%20-%20trunk&In-Reply-To=%3C200807111424.m6BEOBxA015111%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r934 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 11 16:24:11 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000622.html">[WSJT-SVN] r933 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000624.html">[WSJT-SVN] r935 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#623">[ date ]</a>
+              <a href="thread.html#623">[ thread ]</a>
+              <a href="subject.html#623">[ subject ]</a>
+              <a href="author.html#623">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-11 16:24:08 +0200 (Fri, 11 Jul 2008)
+New Revision: 934
+
+Modified:
+   trunk/ccf2.f
+   trunk/mept162a.f
+   trunk/sync162.f
+   trunk/wsjt.py
+Log:
+Better rejection of non-WSPR signals in WSPR mode.
+
+
+Modified: trunk/ccf2.f
+===================================================================
+--- trunk/ccf2.f	2008-07-11 13:13:36 UTC (rev 933)
++++ trunk/ccf2.f	2008-07-11 14:24:08 UTC (rev 934)
+@@ -2,7 +2,7 @@
+ 
+       parameter (LAGMAX=200)
+       real ss(nz)
+-!      real ccf(-LAGMAX:LAGMAX)
++      real ccf(-LAGMAX:LAGMAX)
+       real pr(162)
+       logical first
+ 
+@@ -36,12 +36,29 @@
+             j=16*i + lag
+             if(j.ge.1 .and. j.le.nz) x=x+ss(j)*pr(i)
+          enddo
+-!         ccf(lag)=x
++         ccf(lag)=x
+          if(x.gt.ccfbest) then
+             ccfbest=x
+             lagpk=lag
+          endif
+       enddo
+ 
++      sum=0.
++      nsum=0
++      do i=lag1,lag2
++         if(abs(i-lagpk).gt.16) then
++            sum=sum+ccf(i)
++            nsum=nsum+1
++         endif
++      enddo
++      ave=sum/nsum
++
++      sq=0.
++      do i=lag1,lag2
++         if(abs(i-lagpk).gt.16) sq=sq + (ccf(i)-ave)**2
++      enddo
++      rms=sqrt(sq/(nsum-1))
++      ccfbest=(ccfbest-ave)/rms
++
+       return
+       end
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2008-07-11 13:13:36 UTC (rev 933)
++++ trunk/mept162a.f	2008-07-11 14:24:08 UTC (rev 934)
+@@ -59,7 +59,7 @@
+          a(3)=0.
+          call twkfreq(c2,c3,jz,a)                    !Remove drift
+ 
+-         nsync=nint(snrsync)
++         nsync=nint(snrsync-4.0)
+          nsnrx=nint(snrx)
+          if(nsnrx.lt.-33) nsnrx=-33
+          if(nsync.lt.0) nsync=0
+
+Modified: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2008-07-11 13:13:36 UTC (rev 933)
++++ trunk/sync162.f	2008-07-11 14:24:08 UTC (rev 934)
+@@ -189,17 +189,21 @@
+       enddo
+       kz=k
+ 
++      rewind 71
+       do k=1,kz
+          a(1)=-freq(k) + 1.4648   !### Why is this offset necessary? ###
+          a(2)=-0.5*drift(k)
+          a(3)=0.
+          lagpk=nint((dtx(k)+2)/(128*dt))
+-         lag1=max(-200,8*lagpk-16)
+-         lag2=min(200,8*lagpk+16)
++!         lag1=max(-200,8*lagpk-16)
++!         lag2=min(200,8*lagpk+16)
++         lag1=-200
++         lag2=200
+          ccf=-fchisq(c2,jz,375.0,a,lag1,lag2,ccfbest,dtbest)
+          ipk=nint(freq(k)/df)
+          snrx=db(max(psavg(ipk),0.0001)) - 26.5         !Empirical
+-         sstf(1,k)=p1(k)
++!         sstf(1,k)=p1(k)
++         sstf(1,k)=ccfbest
+          sstf(2,k)=snrx
+          sstf(3,k)=dtbest-2.0
+          sstf(4,k)=freq(k)
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-11 13:13:36 UTC (rev 933)
++++ trunk/wsjt.py	2008-07-11 14:24:08 UTC (rev 934)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#----------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000622.html">[WSJT-SVN] r933 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000624.html">[WSJT-SVN] r935 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#623">[ date ]</a>
+              <a href="thread.html#623">[ thread ]</a>
+              <a href="subject.html#623">[ subject ]</a>
+              <a href="author.html#623">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

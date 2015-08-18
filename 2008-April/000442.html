@@ -1,0 +1,331 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r754 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r754%20-%20branches/wspr&In-Reply-To=%3C200804292101.m3TL1iiI028178%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000441.html">
+   <LINK REL="Next"  HREF="000443.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r754 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r754%20-%20branches/wspr&In-Reply-To=%3C200804292101.m3TL1iiI028178%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r754 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 29 23:01:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000441.html">[WSJT-SVN] r753 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000443.html">[WSJT-SVN] r755 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#442">[ date ]</a>
+              <a href="thread.html#442">[ thread ]</a>
+              <a href="subject.html#442">[ subject ]</a>
+              <a href="author.html#442">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-29 23:01:40 +0200 (Tue, 29 Apr 2008)
+New Revision: 754
+
+Added:
+   branches/wspr/GeoDist.f
+   branches/wspr/azdist.f
+Modified:
+   branches/wspr/Makefile.MinGW
+   branches/wspr/wspr.py
+Log:
+Now the &quot;BestDX&quot; stuff compiles in MinGW.
+
+
+Added: branches/wspr/GeoDist.f
+===================================================================
+--- branches/wspr/GeoDist.f	2008-04-29 20:39:27 UTC (rev 753)
++++ branches/wspr/GeoDist.f	2008-04-29 21:01:40 UTC (rev 754)
+@@ -0,0 +1,102 @@
++	subroutine geodist(Eplat, Eplon, Stlat, Stlon,
++     +	  Az, Baz, Dist)
++	implicit none
++	real eplat, eplon, stlat, stlon, az, baz, dist
++
++C JHT: In actual fact, I use the first two arguments for &quot;My Location&quot;,
++C      the second two for &quot;His location&quot;; West longitude is positive.
++
++c
++c
++c	Taken directly from:
++c	Thomas, P.D., 1970, Spheroidal geodesics, reference systems,
++c	&amp; local geometry, U.S. Naval Oceanographic Office SP-138,
++c	165 pp.
++c
++c	assumes North Latitude and East Longitude are positive
++c
++c	EpLat, EpLon = End point Lat/Long
++c	Stlat, Stlon = Start point lat/long
++c	Az, BAz = direct &amp; reverse azimuith
++c	Dist = Dist (km); Deg = central angle, discarded
++c
++
++	real BOA, F, P1R, P2R, L1R, L2R, DLR, T1R, T2R, TM,
++     +    DTM, STM, CTM, SDTM,CDTM, KL, KK, SDLMR, L,
++     +    CD, DL, SD, T, U, V, D, X, E, Y, A, FF64, TDLPM,
++     +    HAPBR, HAMBR, A1M2, A2M1
++
++	real AL,BL,D2R,Pi2
++
++	data AL/6378206.4/		! Clarke 1866 ellipsoid
++	data BL/6356583.8/
++c	real pi /3.14159265359/
++	data D2R/0.01745329251994/	! degrees to radians conversion factor
++	data Pi2/6.28318530718/
++
++        BOA = BL/AL
++        F = 1.0 - BOA
++c convert st/end pts to radians
++        P1R = Eplat * D2R
++        P2R = Stlat * D2R
++        L1R = Eplon * D2R
++        L2R = StLon * D2R
++        DLR = L2R - L1R			! DLR = Delta Long in Rads
++        T1R = ATan(BOA * Tan(P1R))
++        T2R = ATan(BOA * Tan(P2R))
++        TM = (T1R + T2R) / 2.0
++        DTM = (T2R - T1R) / 2.0
++        STM = Sin(TM)
++        CTM = Cos(TM)
++        SDTM = Sin(DTM)
++        CDTM = Cos(DTM)
++        KL = STM * CDTM
++        KK = SDTM * CTM
++        SDLMR = Sin(DLR/2.0)
++        L = SDTM * SDTM + SDLMR * SDLMR * (CDTM * CDTM - STM * STM)
++        CD = 1.0 - 2.0 * L
++        DL = ACos(CD)
++        SD = Sin(DL)
++        T = DL/SD
++        U = 2.0 * KL * KL / (1.0 - L)
++        V = 2.0 * KK * KK / L
++        D = 4.0 * T * T
++        X = U + V
++        E = -2.0 * CD
++        Y = U - V
++        A = -D * E
++        FF64 = F * F / 64.0
++        Dist = AL*SD*(T -(F/4.0)*(T*X-Y)+FF64*(X*(A+(T-(A+E)
++     +    /2.0)*X)+Y*(-2.0*D+E*Y)+D*X*Y))/1000.0
++        TDLPM = Tan((DLR+(-((E*(4.0-X)+2.0*Y)*((F/2.0)*T+FF64*
++     +    (32.0*T+(A-20.0*T)*X-2.0*(D+2.0)*Y))/4.0)*Tan(DLR)))/2.0)
++        HAPBR = ATan2(SDTM,(CTM*TDLPM))
++        HAMBR = Atan2(CDTM,(STM*TDLPM))
++        A1M2 = Pi2 + HAMBR - HAPBR
++        A2M1 = Pi2 - HAMBR - HAPBR
++
++1	If ((A1M2 .ge. 0.0) .AND. (A1M2 .lt. Pi2)) GOTO 5
++ 	If (A1M2 .lt. Pi2) GOTO 4
++ 	A1M2 = A1M2 - Pi2
++        GOTO 1
++4	A1M2 = A1M2 + Pi2
++        GOTO 1
++c
++c all of this gens the proper az, baz (forward and back azimuth)
++c
++
++5	If ((A2M1 .ge. 0.0) .AND. (A2M1 .lt. Pi2)) GOTO 9
++ 	If (A2M1 .lt. Pi2) GOTO 8
++	A2M1 = A2M1 - Pi2
++        GOTO 5
++8	A2M1 = A2M1 + Pi2
++        GOTO 5
++
++9	Az = A1M2 / D2R
++	BAZ = A2M1 / D2R
++c
++c Fix the mirrored coords here.
++c
++	az = 360.0 - az
++	baz = 360.0 - baz
++	end
+
+Modified: branches/wspr/Makefile.MinGW
+===================================================================
+--- branches/wspr/Makefile.MinGW	2008-04-29 20:39:27 UTC (rev 753)
++++ branches/wspr/Makefile.MinGW	2008-04-29 21:01:40 UTC (rev 754)
+@@ -24,7 +24,7 @@
+ 
+ SRCS2F90 = wspr1.f90 wspr2.f90 decode.f90 getutc.f90 gran.f90 rx.f90 \
+ 	startdec.f90 startrx.f90 starttx.f90 tx.f90 getfile.f90 \
+-	paterminate.f90 rect.f90
++	paterminate.f90 rect.f90 bestdx.f90
+ 
+ SRCS2F77 = mept162.f getrms.f wfile5.f mix162.f \
+ 	sync162.f decode162.f spec162.f set.f xfft.f \
+@@ -34,7 +34,7 @@
+ 	ssort.f genmept.f \
+ 	packcall.f packgrid.f pack50.f encode232.f \
+ 	nchar.f grid2deg.f \
+-	afc.f fchisq.f ccf2.f twkfreq.f 
++	afc.f fchisq.f ccf2.f twkfreq.f azdist.f geodist.f
+ 
+ SRCS2C = ptt.c start_threads.c padevsub.c
+ 
+
+Added: branches/wspr/azdist.f
+===================================================================
+--- branches/wspr/azdist.f	2008-04-29 20:39:27 UTC (rev 753)
++++ branches/wspr/azdist.f	2008-04-29 21:01:40 UTC (rev 754)
+@@ -0,0 +1,108 @@
++      subroutine azdist(MyGrid,HisGrid,utch,nAz,nEl,nDmiles,nDkm,
++     +  nHotAz,nHotABetter)
++
++C  Old calling sequence:
++c      subroutine azdist(MyGrid,HisGrid,UTChours,Az,Dmiles,Dkm,El,
++c     +  HotA,HotB,HotABetter)
++
++      character*6 MyGrid,HisGrid,mygrid0,hisgrid0
++      real*8 utch,utch0
++      logical HotABetter,IamEast
++      real eltab(22),daztab(22)
++      data eltab/18.,15.,13.,11.,9.,8.,7.,6.,5.3,4.7,4.,3.3,2.7,
++     +  2.,1.5,1.,0.8,0.6,0.4,0.2,0.0,0.0/
++      data daztab/21.,18.,16.,15.,14.,13.,12.,11.,10.7,10.3,10.,
++     +  10.,10.,10.,10.,10.,10.,9.,9.,9.,8.,8./
++      data mygrid0/&quot;      &quot;/,hisgrid0/&quot;      &quot;/,utch0/-999.d0/
++      save
++
++      if(MyGrid.eq.HisGrid) then
++         naz=0
++         nel=0
++         ndmiles=0
++         ndkm=0
++         nhotaz=0
++         nhotabetter=1
++         go to 999
++      endif
++
++      if(mygrid.eq.mygrid0 .and. hisgrid.eq.hisgrid0 .and.
++     +  abs(utch-utch0).lt.0.1666667d0) go to 900
++      utch0=utch
++      mygrid0=mygrid
++      hisgrid0=hisgrid
++      utchours=utch
++
++      if(MyGrid(5:5).eq.' ') MyGrid(5:5)='m'
++      if(MyGrid(6:6).eq.' ') MyGrid(6:6)='m'
++      if(HisGrid(5:5).eq.' ') HisGrid(5:5)='m'
++      if(HisGrid(6:6).eq.' ') HisGrid(6:6)='m'
++
++      if(MyGrid.eq.HisGrid) then
++         Az=0.
++         Dmiles=0.
++         Dkm=0.0
++         El=0.
++         HotA=0.
++         HotB=0.
++         HotABetter=.true.
++         go to 900
++      endif
++
++      call grid2deg(MyGrid,dlong1,dlat1)
++      call grid2deg(HisGrid,dlong2,dlat2)
++      call geodist(dlat1,dlong1,dlat2,dlong2,Az,Baz,Dkm)
++
++      j=nint(Dkm/100.0)-4
++      if(j.lt.1) j=1
++      if(j.gt.21)j=21
++      ndkm=Dkm/100
++      d1=100.0*ndkm
++      u=(Dkm-d1)/100.0
++      El=eltab(j) + u * (eltab(j+1)-eltab(j))
++      daz=daztab(j) + u * (daztab(j+1)-daztab(j))
++      Dmiles=Dkm/1.609344
++
++      tmid=mod(UTChours-0.5*(dlong1+dlong2)/15.0+48.0,24.0)
++      IamEast=.false.
++      if(dlong1.lt.dlong2) IamEast=.true.
++      if(dlong1.eq.dlong2 .and. dlat1.gt.dlat2) IamEast=.false.
++      azEast=baz
++      if(IamEast) azEast=az
++      if((azEast.ge.45.0 .and. azEast.lt.135.0) .or.
++     +    (azEast.ge.225.0 .and. azEast.lt.315.0)) then
++C  The path will be taken as &quot;east-west&quot;.
++         HotABetter=.true.
++         if(abs(tmid-6.0).lt.6.0) HotABetter=.false.
++         if((dlat1+dlat2)/2.0 .lt. 0.0) HotABetter=.not.HotABetter
++      else
++C  The path will be taken as &quot;north-south&quot;.
++         HotABetter=.false.
++         if(abs(tmid-12.0).lt.6.0) HotABetter=.true.
++      endif
++      if(IamEast) then
++         HotA = Az - daz
++         HotB = Az + daz
++      else
++         HotA = Az + daz
++         HotB = Az - daz
++      endif
++      if(HotA.lt.0.0)   HotA=HotA+360.0
++      if(HotA.gt.360.0) HotA=HotA-360.0
++      if(HotB.lt.0.0)   HotB=HotB+360.0
++      if(HotB.gt.360.0) HotB=HotB-360.0
++
++ 900  continue
++      naz=nint(Az)
++      nel=nint(el)
++      nDmiles=nint(Dmiles)
++      nDkm=nint(Dkm)
++      nHotAz=nint(HotB)
++      nHotABetter=0
++      if(HotABetter) then
++         nHotAz=nint(HotA)
++         nHotABetter=1
++      endif
++
++ 999  return
++      end
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-29 20:39:27 UTC (rev 753)
++++ branches/wspr/wspr.py	2008-04-29 21:01:40 UTC (rev 754)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- WSPR
++#---------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000441.html">[WSJT-SVN] r753 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000443.html">[WSJT-SVN] r755 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#442">[ date ]</a>
+              <a href="thread.html#442">[ thread ]</a>
+              <a href="subject.html#442">[ subject ]</a>
+              <a href="author.html#442">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

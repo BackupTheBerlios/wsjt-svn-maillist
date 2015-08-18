@@ -1,0 +1,1259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r758 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r758%20-%20branches/wspr&In-Reply-To=%3C200805061334.m46DYhUN028892%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000445.html">
+   <LINK REL="Next"  HREF="000447.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r758 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r758%20-%20branches/wspr&In-Reply-To=%3C200805061334.m46DYhUN028892%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r758 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue May  6 15:34:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000445.html">[WSJT-SVN] r757 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000447.html">[WSJT-SVN] r759 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#446">[ date ]</a>
+              <a href="thread.html#446">[ thread ]</a>
+              <a href="subject.html#446">[ subject ]</a>
+              <a href="author.html#446">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-06 15:34:34 +0200 (Tue, 06 May 2008)
+New Revision: 758
+
+Added:
+   branches/wspr/hash.f90
+   branches/wspr/nhash.c
+   branches/wspr/packname.f90
+   branches/wspr/packtext2.f90
+   branches/wspr/unpackname.f90
+   branches/wspr/unpacktext2.f90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/decode162.f
+   branches/wspr/genmept.f
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+First implementation (possibly temporary) of WSPR QSO mode.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/acom1.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -5,10 +5,10 @@
+   integer ntransmitting
+   character*80 infile,outfile
+   character cdate*8,utctime*10,rxtime*4
+-  character callsign*6,grid*4
++  character callsign*6,grid*4,ctxmsg*22
+   integer*2 iwave
+   common/acom1/ f0,ftx,rms,pctx,nsec,ndevin,ndevout,nsave,nrxdone,      &amp;
+        ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,       &amp;
+        ndiskdat,ndecoding,ntr,ndebug,idevin,idevout,idsec,nsectx,       &amp;
+-       nreply,ltest,iwave(NMAX),                                        &amp;
+-       infile,outfile,cdate,utctime,callsign,grid,rxtime
++       nreply,ntxfirst,nqso,ltest,iwave(NMAX),                          &amp;
++       infile,outfile,cdate,utctime,callsign,grid,rxtime,ctxmsg
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/decode162.f	2008-05-06 13:34:34 UTC (rev 758)
+@@ -172,7 +172,7 @@
+             message=grid//' DE '//callsign(:i1)
+          else
+             message=callsign(:i1)//grid
+-            message(14:22)='*M_Type?*'
++            message(14:22)='*MType?*'
+          endif
+       endif
+ 
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/genmept.f	2008-05-06 13:34:34 UTC (rev 758)
+@@ -1,4 +1,4 @@
+-      subroutine genmept(call1,grid,ndbm,ntxdf,snrdb,nreply,
++      subroutine genmept(message,ntxdf,snrdb,nreply,
+      +      nsectx,iwave)
+ 
+ C  Encode an MEPT_JT message and generate the corresponding wavefile.
+@@ -7,11 +7,12 @@
+       character*4 grid,grid2
+       parameter (NMAX=120*12000)     !Max length of wave file
+       character*22 message           !Message to be generated
++      character*22 msg2,msg0
+       integer*2 iwave(NMAX)          !Generated wave file
+ 
+       parameter (MAXSYM=176)
+       integer*1 symbol(MAXSYM)
+-      integer*1 data0(11),data1(11),i1
++      integer*1 data0(11),i1
+       integer npr3(162)
+       real pr3(162)
+       logical first,lbad1,lbad2
+@@ -47,8 +48,9 @@
+          first=.false.
+       endif
+ 
+-      call packcall(call1,n1,lbad1)
+-      call packgrid(grid,ng,lbad2)
++      call wqencode(message,ntype,data0)
++!      call packcall(call1,n1,lbad1)
++!      call packgrid(grid,ng,lbad2)
+ 
+       ihrtx=nsectx/3600
+       if(ihrtx.lt.ihrtx0 .and. ihrtx0.ne.99 .and. nreply.eq.1) then
+@@ -60,8 +62,8 @@
+          print*,'Sending reply message:',dxgrid(i),' DE ',call1
+       endif
+ 
+-      n2=128*ng + ndbm + 64
+-      call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
++!      n2=128*ng + ndbm + 64
++!      call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
+       nbytes=(50+31+7)/8
+       call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+       call inter_mept(symbol,1)                   !Apply interleaving
+@@ -70,15 +72,18 @@
+          i1=symbol(i)
+       enddo
+ 
+-      call unpackcall(n1,call2)
+-      call unpackgrid(n2/128,grid2)
+-      ndbm2=iand(n2,127) - 64
+-      if(lbad1 .or. lbad2 .or. (call1.ne.call2) .or. 
+-     +   (grid.ne.grid2) .or. (ndbm.ne.ndbm2)) then
+-         print*,'Error in structure of Tx message, cannot transmit'
+-         go to 999
+-      endif
++!      call unpackcall(n1,call2)
++!      call unpackgrid(n2/128,grid2)
++!      ndbm2=iand(n2,127) - 64
++!      if(lbad1 .or. lbad2 .or. (call1.ne.call2) .or. 
++!     +   (grid.ne.grid2) .or. (ndbm.ne.ndbm2)) then
++!         print*,'Error in structure of Tx message, cannot transmit'
++!         go to 999
++!      endif
+ 
++      call wqdecode(data0,msg2,ntype2,msg0)
++      print*,message,msg2,ntype2
++
+ C  Set up necessary constants
+       tsymbol=8192.d0/12000.d0
+       dt=1.d0/12000.d0
+
+Added: branches/wspr/hash.f90
+===================================================================
+--- branches/wspr/hash.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/hash.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,15 @@
++subroutine hash(string,len,ihash)
++
++  parameter (MASK15=32767)
++  character*(*) string
++  integer*1 ic(12)
++
++     do i=1,len
++        ic(i)=ichar(string(i:i))
++     enddo
++     i=nhash(ic,len,146)
++     ihash=iand(i,MASK15)
++
++!     print*,'C',ihash,len,string
++  return
++end subroutine hash
+
+Added: branches/wspr/nhash.c
+===================================================================
+--- branches/wspr/nhash.c	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/nhash.c	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,346 @@
++/*
++-------------------------------------------------------------------------------
++lookup3.c, by Bob Jenkins, May 2006, Public Domain.
++
++These are functions for producing 32-bit hashes for hash table lookup.
++hashword(), hashlittle(), hashlittle2(), hashbig(), mix(), and final() 
++are externally useful functions.  Routines to test the hash are included 
++if SELF_TEST is defined.  You can use this free for any purpose.  It's in
++the public domain.  It has no warranty.
++
++You probably want to use hashlittle().  hashlittle() and hashbig()
++hash byte arrays.  hashlittle() is is faster than hashbig() on
++little-endian machines.  Intel and AMD are little-endian machines.
++On second thought, you probably want hashlittle2(), which is identical to
++hashlittle() except it returns two 32-bit hashes for the price of one.  
++You could implement hashbig2() if you wanted but I haven't bothered here.
++
++If you want to find a hash of, say, exactly 7 integers, do
++  a = i1;  b = i2;  c = i3;
++  mix(a,b,c);
++  a += i4; b += i5; c += i6;
++  mix(a,b,c);
++  a += i7;
++  final(a,b,c);
++then use c as the hash value.  If you have a variable length array of
++4-byte integers to hash, use hashword().  If you have a byte array (like
++a character string), use hashlittle().  If you have several byte arrays, or
++a mix of things, see the comments above hashlittle().  
++
++Why is this so big?  I read 12 bytes at a time into 3 4-byte integers, 
++then mix those integers.  This is fast (you can do a lot more thorough
++mixing with 12*3 instructions on 3 integers than you can with 3 instructions
++on 1 byte), but shoehorning those bytes into integers efficiently is messy.
++-------------------------------------------------------------------------------
++*/
++#define SELF_TEST 1
++
++#include &lt;stdio.h&gt;      /* defines printf for tests */
++#include &lt;time.h&gt;       /* defines time_t for timings in the test */
++//#include &lt;stdint.h&gt;     /* defines uint32_t etc */
++#include &quot;stdint.h&quot;     /* defines uint32_t etc */
++//#include &lt;sys/param.h&gt;  /* attempt to define endianness */
++//#ifdef linux
++//# include &lt;endian.h&gt;    /* attempt to define endianness */
++//#endif
++
++#define HASH_LITTLE_ENDIAN 1
++
++#define hashsize(n) ((uint32_t)1&lt;&lt;(n))
++#define hashmask(n) (hashsize(n)-1)
++#define rot(x,k) (((x)&lt;&lt;(k)) | ((x)&gt;&gt;(32-(k))))
++
++/*
++-------------------------------------------------------------------------------
++mix -- mix 3 32-bit values reversibly.
++
++This is reversible, so any information in (a,b,c) before mix() is
++still in (a,b,c) after mix().
++
++If four pairs of (a,b,c) inputs are run through mix(), or through
++mix() in reverse, there are at least 32 bits of the output that
++are sometimes the same for one pair and different for another pair.
++This was tested for:
++* pairs that differed by one bit, by two bits, in any combination
++  of top bits of (a,b,c), or in any combination of bottom bits of
++  (a,b,c).
++* &quot;differ&quot; is defined as +, -, ^, or ~^.  For + and -, I transformed
++  the output delta to a Gray code (a^(a&gt;&gt;1)) so a string of 1's (as
++  is commonly produced by subtraction) look like a single 1-bit
++  difference.
++* the base values were pseudorandom, all zero but one bit set, or 
++  all zero plus a counter that starts at zero.
++
++Some k values for my &quot;a-=c; a^=rot(c,k); c+=b;&quot; arrangement that
++satisfy this are
++    4  6  8 16 19  4
++    9 15  3 18 27 15
++   14  9  3  7 17  3
++Well, &quot;9 15 3 18 27 15&quot; didn't quite get 32 bits diffing
++for &quot;differ&quot; defined as + with a one-bit base and a two-bit delta.  I
++used <A HREF="http://burtleburtle.net/bob/hash/avalanche.html">http://burtleburtle.net/bob/hash/avalanche.html</A> to choose 
++the operations, constants, and arrangements of the variables.
++
++This does not achieve avalanche.  There are input bits of (a,b,c)
++that fail to affect some output bits of (a,b,c), especially of a.  The
++most thoroughly mixed value is c, but it doesn't really even achieve
++avalanche in c.
++
++This allows some parallelism.  Read-after-writes are good at doubling
++the number of bits affected, so the goal of mixing pulls in the opposite
++direction as the goal of parallelism.  I did what I could.  Rotates
++seem to cost as much as shifts on every machine I could lay my hands
++on, and rotates are much kinder to the top and bottom bits, so I used
++rotates.
++-------------------------------------------------------------------------------
++*/
++#define mix(a,b,c) \
++{ \
++  a -= c;  a ^= rot(c, 4);  c += b; \
++  b -= a;  b ^= rot(a, 6);  a += c; \
++  c -= b;  c ^= rot(b, 8);  b += a; \
++  a -= c;  a ^= rot(c,16);  c += b; \
++  b -= a;  b ^= rot(a,19);  a += c; \
++  c -= b;  c ^= rot(b, 4);  b += a; \
++}
++
++/*
++-------------------------------------------------------------------------------
++final -- final mixing of 3 32-bit values (a,b,c) into c
++
++Pairs of (a,b,c) values differing in only a few bits will usually
++produce values of c that look totally different.  This was tested for
++* pairs that differed by one bit, by two bits, in any combination
++  of top bits of (a,b,c), or in any combination of bottom bits of
++  (a,b,c).
++* &quot;differ&quot; is defined as +, -, ^, or ~^.  For + and -, I transformed
++  the output delta to a Gray code (a^(a&gt;&gt;1)) so a string of 1's (as
++  is commonly produced by subtraction) look like a single 1-bit
++  difference.
++* the base values were pseudorandom, all zero but one bit set, or 
++  all zero plus a counter that starts at zero.
++
++These constants passed:
++ 14 11 25 16 4 14 24
++ 12 14 25 16 4 14 24
++and these came close:
++  4  8 15 26 3 22 24
++ 10  8 15 26 3 22 24
++ 11  8 15 26 3 22 24
++-------------------------------------------------------------------------------
++*/
++#define final(a,b,c) \
++{ \
++  c ^= b; c -= rot(b,14); \
++  a ^= c; a -= rot(c,11); \
++  b ^= a; b -= rot(a,25); \
++  c ^= b; c -= rot(b,16); \
++  a ^= c; a -= rot(c,4);  \
++  b ^= a; b -= rot(a,14); \
++  c ^= b; c -= rot(b,24); \
++}
++
++/*
++-------------------------------------------------------------------------------
++hashlittle() -- hash a variable-length key into a 32-bit value
++  k       : the key (the unaligned variable-length array of bytes)
++  length  : the length of the key, counting by bytes
++  initval : can be any 4-byte value
++Returns a 32-bit value.  Every bit of the key affects every bit of
++the return value.  Two keys differing by one or two bits will have
++totally different hash values.
++
++The best hash table sizes are powers of 2.  There is no need to do
++mod a prime (mod is sooo slow!).  If you need less than 32 bits,
++use a bitmask.  For example, if you need only 10 bits, do
++  h = (h &amp; hashmask(10));
++In which case, the hash table should have hashsize(10) elements.
++
++If you are hashing n strings (uint8_t **)k, do it like this:
++  for (i=0, h=0; i&lt;n; ++i) h = hashlittle( k[i], len[i], h);
++
++By Bob Jenkins, 2006.  <A HREF="https://lists.berlios.de/mailman/listinfo/wsjt-svn">bob_jenkins at burtleburtle.net.</A>  You may use this
++code any way you wish, private, educational, or commercial.  It's free.
++
++Use for hash table lookup, or anything where one collision in 2^^32 is
++acceptable.  Do NOT use for cryptographic purposes.
++-------------------------------------------------------------------------------
++*/
++
++//uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
++//uint32_t __stdcall NHASH( const void *key, size_t *length0, uint32_t *initval0)
++uint32_t nhash_( const void *key, size_t *length0, uint32_t *initval0)
++{
++  uint32_t a,b,c;                                          /* internal state */
++  size_t length;
++  uint32_t initval;
++  union { const void *ptr; size_t i; } u;     /* needed for Mac Powerbook G4 */
++
++  length=*length0;
++  initval=*initval0;
++
++  /* Set up the internal state */
++  a = b = c = 0xdeadbeef + ((uint32_t)length) + initval;
++
++  u.ptr = key;
++  if (HASH_LITTLE_ENDIAN &amp;&amp; ((u.i &amp; 0x3) == 0)) {
++    const uint32_t *k = (const uint32_t *)key;         /* read 32-bit chunks */
++    const uint8_t  *k8;
++
++    /*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
++    while (length &gt; 12)
++    {
++      a += k[0];
++      b += k[1];
++      c += k[2];
++      mix(a,b,c);
++      length -= 12;
++      k += 3;
++    }
++
++    /*----------------------------- handle the last (probably partial) block */
++    /* 
++     * &quot;k[2]&amp;0xffffff&quot; actually reads beyond the end of the string, but
++     * then masks off the part it's not allowed to read.  Because the
++     * string is aligned, the masked-off tail is in the same word as the
++     * rest of the string.  Every machine with memory protection I've seen
++     * does it on word boundaries, so is OK with this.  But VALGRIND will
++     * still catch it and complain.  The masking trick does make the hash
++     * noticably faster for short strings (like English words).
++     */
++#ifndef VALGRIND
++
++    switch(length)
++    {
++    case 12: c+=k[2]; b+=k[1]; a+=k[0]; break;
++    case 11: c+=k[2]&amp;0xffffff; b+=k[1]; a+=k[0]; break;
++    case 10: c+=k[2]&amp;0xffff; b+=k[1]; a+=k[0]; break;
++    case 9 : c+=k[2]&amp;0xff; b+=k[1]; a+=k[0]; break;
++    case 8 : b+=k[1]; a+=k[0]; break;
++    case 7 : b+=k[1]&amp;0xffffff; a+=k[0]; break;
++    case 6 : b+=k[1]&amp;0xffff; a+=k[0]; break;
++    case 5 : b+=k[1]&amp;0xff; a+=k[0]; break;
++    case 4 : a+=k[0]; break;
++    case 3 : a+=k[0]&amp;0xffffff; break;
++    case 2 : a+=k[0]&amp;0xffff; break;
++    case 1 : a+=k[0]&amp;0xff; break;
++    case 0 : return c;              /* zero length strings require no mixing */
++    }
++
++#else /* make valgrind happy */
++
++    k8 = (const uint8_t *)k;
++    switch(length)
++    {
++    case 12: c+=k[2]; b+=k[1]; a+=k[0]; break;
++    case 11: c+=((uint32_t)k8[10])&lt;&lt;16;  /* fall through */
++    case 10: c+=((uint32_t)k8[9])&lt;&lt;8;    /* fall through */
++    case 9 : c+=k8[8];                   /* fall through */
++    case 8 : b+=k[1]; a+=k[0]; break;
++    case 7 : b+=((uint32_t)k8[6])&lt;&lt;16;   /* fall through */
++    case 6 : b+=((uint32_t)k8[5])&lt;&lt;8;    /* fall through */
++    case 5 : b+=k8[4];                   /* fall through */
++    case 4 : a+=k[0]; break;
++    case 3 : a+=((uint32_t)k8[2])&lt;&lt;16;   /* fall through */
++    case 2 : a+=((uint32_t)k8[1])&lt;&lt;8;    /* fall through */
++    case 1 : a+=k8[0]; break;
++    case 0 : return c;
++    }
++
++#endif /* !valgrind */
++
++  } else if (HASH_LITTLE_ENDIAN &amp;&amp; ((u.i &amp; 0x1) == 0)) {
++    const uint16_t *k = (const uint16_t *)key;         /* read 16-bit chunks */
++    const uint8_t  *k8;
++
++    /*--------------- all but last block: aligned reads and different mixing */
++    while (length &gt; 12)
++    {
++      a += k[0] + (((uint32_t)k[1])&lt;&lt;16);
++      b += k[2] + (((uint32_t)k[3])&lt;&lt;16);
++      c += k[4] + (((uint32_t)k[5])&lt;&lt;16);
++      mix(a,b,c);
++      length -= 12;
++      k += 6;
++    }
++
++    /*----------------------------- handle the last (probably partial) block */
++    k8 = (const uint8_t *)k;
++    switch(length)
++    {
++    case 12: c+=k[4]+(((uint32_t)k[5])&lt;&lt;16);
++             b+=k[2]+(((uint32_t)k[3])&lt;&lt;16);
++             a+=k[0]+(((uint32_t)k[1])&lt;&lt;16);
++             break;
++    case 11: c+=((uint32_t)k8[10])&lt;&lt;16;     /* fall through */
++    case 10: c+=k[4];
++             b+=k[2]+(((uint32_t)k[3])&lt;&lt;16);
++             a+=k[0]+(((uint32_t)k[1])&lt;&lt;16);
++             break;
++    case 9 : c+=k8[8];                      /* fall through */
++    case 8 : b+=k[2]+(((uint32_t)k[3])&lt;&lt;16);
++             a+=k[0]+(((uint32_t)k[1])&lt;&lt;16);
++             break;
++    case 7 : b+=((uint32_t)k8[6])&lt;&lt;16;      /* fall through */
++    case 6 : b+=k[2];
++             a+=k[0]+(((uint32_t)k[1])&lt;&lt;16);
++             break;
++    case 5 : b+=k8[4];                      /* fall through */
++    case 4 : a+=k[0]+(((uint32_t)k[1])&lt;&lt;16);
++             break;
++    case 3 : a+=((uint32_t)k8[2])&lt;&lt;16;      /* fall through */
++    case 2 : a+=k[0];
++             break;
++    case 1 : a+=k8[0];
++             break;
++    case 0 : return c;                     /* zero length requires no mixing */
++    }
++
++  } else {                        /* need to read the key one byte at a time */
++    const uint8_t *k = (const uint8_t *)key;
++
++    /*--------------- all but the last block: affect some 32 bits of (a,b,c) */
++    while (length &gt; 12)
++    {
++      a += k[0];
++      a += ((uint32_t)k[1])&lt;&lt;8;
++      a += ((uint32_t)k[2])&lt;&lt;16;
++      a += ((uint32_t)k[3])&lt;&lt;24;
++      b += k[4];
++      b += ((uint32_t)k[5])&lt;&lt;8;
++      b += ((uint32_t)k[6])&lt;&lt;16;
++      b += ((uint32_t)k[7])&lt;&lt;24;
++      c += k[8];
++      c += ((uint32_t)k[9])&lt;&lt;8;
++      c += ((uint32_t)k[10])&lt;&lt;16;
++      c += ((uint32_t)k[11])&lt;&lt;24;
++      mix(a,b,c);
++      length -= 12;
++      k += 12;
++    }
++
++    /*-------------------------------- last block: affect all 32 bits of (c) */
++    switch(length)                   /* all the case statements fall through */
++    {
++    case 12: c+=((uint32_t)k[11])&lt;&lt;24;
++    case 11: c+=((uint32_t)k[10])&lt;&lt;16;
++    case 10: c+=((uint32_t)k[9])&lt;&lt;8;
++    case 9 : c+=k[8];
++    case 8 : b+=((uint32_t)k[7])&lt;&lt;24;
++    case 7 : b+=((uint32_t)k[6])&lt;&lt;16;
++    case 6 : b+=((uint32_t)k[5])&lt;&lt;8;
++    case 5 : b+=k[4];
++    case 4 : a+=((uint32_t)k[3])&lt;&lt;24;
++    case 3 : a+=((uint32_t)k[2])&lt;&lt;16;
++    case 2 : a+=((uint32_t)k[1])&lt;&lt;8;
++    case 1 : a+=k[0];
++             break;
++    case 0 : return c;
++    }
++  }
++
++  final(a,b,c);
++  return c;
++}
++
++//uint32_t __stdcall NHASH(const void *key, size_t length, uint32_t initval)
+
+Added: branches/wspr/packname.f90
+===================================================================
+--- branches/wspr/packname.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/packname.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,23 @@
++subroutine packname(name,len,n1,n2)
++
++  character*9 name
++  real*8 dn
++
++  dn=0
++  do i=1,len
++     n=ichar(name(i:i))
++     if(n.ge.97 .and. n.le.122) n=n-32
++     dn=27*dn + n-64
++  enddo
++  if(len.lt.9) then
++     do i=len+1,9
++        dn=27*dn
++     enddo
++  endif
++
++  n2=mod(dn,32768.d0)
++  dn=dn/32768.d0
++  n1=dn
++
++  return
++end subroutine packname
+
+Added: branches/wspr/packtext2.f90
+===================================================================
+--- branches/wspr/packtext2.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/packtext2.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,22 @@
++subroutine packtext2(msg,n1,ng)
++
++  character*8 msg
++  real*8 dn
++  character*41 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
++
++  dn=0.
++  do i=1,8
++     do j=1,41
++        if(msg(i:i).eq.c(j:j)) go to 10
++     enddo
++     j=37
++10   j=j-1                                !Codes should start at zero
++     dn=41.d0*dn + j
++  enddo
++
++  ng=mod(dn,32768.d0)
++  n1=(dn-ng)/32768.d0
++
++  return
++end subroutine packtext2
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/tx.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -15,25 +15,25 @@
+   include 'acom1.f90'
+   common/bcom/ntransmitted
+ 
+-  ndevout=0
+-  call1=callsign
+-  if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+-  write(cdbm,'(i3)'),ndbm
+-  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  do i=6,1,-1
+-     if(call1(i:i).ne.' ') go to 10
+-  enddo
++  if(nqso.eq.0) then
++     call1=callsign
++     if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
++     write(cdbm,'(i3)'),ndbm
++     if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++     if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++     do i=6,1,-1
++        if(call1(i:i).ne.' ') go to 10
++     enddo
+ 
+-10 iz=i
+-  message=call1(1:iz)//' '//grid//' '//cdbm
+-  do i=22,1,-1
+-     if(message(i:i).ne.' ') go to 20
+-  enddo
++10   iz=i
++     message=call1(1:iz)//' '//grid//' '//cdbm
++  else
++     message=ctxmsg
++  endif
+ 
+-20 iz=i
+   ntxdf=nint(1.e6*(ftx-f0)) - 1500
+-  call genmept(call1,grid,ndbm,ntxdf,99.0,nreply,nsectx,jwave)
++  ctxmsg=message
++  call genmept(message,ntxdf,99.0,nreply,nsectx,jwave)
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+   npts=114*12000
+   ierr=soundout(idevout,jwave,npts)
+
+Added: branches/wspr/unpackname.f90
+===================================================================
+--- branches/wspr/unpackname.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/unpackname.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,20 @@
++subroutine unpackname(n1,n2,name,len)
++
++  character*9 name
++  real*8 dn
++
++  dn=32768.d0*n1 + n2
++  len=0
++  do i=9,1,-1
++     j=mod(dn,27.d0)
++     if(j.ge.1) then
++        name(i:i)=char(64+j)
++        len=len+1
++     else
++        name(i:i)=' '
++     endif
++     dn=dn/27.d0
++  enddo
++
++  return
++end subroutine unpackname
+
+Added: branches/wspr/unpacktext2.f90
+===================================================================
+--- branches/wspr/unpacktext2.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/unpacktext2.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,17 @@
++subroutine unpacktext2(n1,ng,msg)
++
++  character*22 msg
++  real*8 dn
++  character*41 c
++  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
++
++  msg='                      '
++  dn=32768.d0*n1 + ng
++  do i=8,1,-1
++     j=mod(dn,41.d0)
++     msg(i:i)=c(j+1:j+1)
++     dn=dn/41.d0
++  enddo
++
++  return
++end subroutine unpacktext2
+
+Added: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/wqdecode.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,157 @@
++subroutine wqdecode(data0,message,ntype,msgold)
++
++  parameter (N15=32758)
++  integer*1 data0(11)
++  character*22 message,msgold
++  character*12 callsign
++  character*3 cdbm
++  character*2 crpt
++  character*4 grid
++  character*9 name
++  character*32 fmt
++  logical first
++  character*12 dcall(0:N15-1)
++  data first/.true./
++  save first
++
++  if(first) then
++     dcall='            '
++     first=.false.
++  endif
++
++  call unpack50(data0,n1,n2)
++  call unpackcall(n1,callsign)
++  i1=index(callsign,' ')
++  call unpackgrid(n2/128,grid)
++  ntype=iand(n2,127) -64
++  msgold=callsign(:i1)//grid
++  write(msgold(i1+5:),'(i4)') ntype
++
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
++  nu=mod(ntype,10)
++  if(ntype.ge.0 .and. ntype.le.60 .and. (nu.eq.0 .or. nu.eq.3 .or.   &amp;
++       nu.eq.7)) then
++     write(cdbm,'(i3)'),ntype
++     if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++     if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
++     message=callsign(1:i1)//grid//' '//cdbm
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1)
++
++! &quot;Best DX&quot; WSPR response (type 1)
++  else if(ntype.eq.1) then
++     message=grid//' DE '//callsign
++
++! CQ (msg 3; types 2,4,5)
++  else if(ntype.eq.2) then
++     message='CQ '//callsign(:i1)//grid
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1)
++
++! Reply to CQ (msg #2; type 6
++  else if(ntype.eq.6) then
++     ih=(n2-64-ntype)/128
++     if(dcall(ih)(1:1).ne.' ') then
++        i2=index(dcall(ih),' ')
++        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1-1)
++     else
++        message='&lt;...&gt; '//callsign
++     endif
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! Reply to CQ (msg #2; type 8
++  else if(ntype.eq.8) then
++     message='DE '//callsign(:i1)//grid
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! Calls and report (msg #3; types -1 to -9)
++  else if(ntype.le.-1 .and. ntype.ge.-9) then
++     write(crpt,1010) -ntype
++1010 format('S',i1)
++     ih=(n2-62-ntype)/128
++     if(dcall(ih)(1:1).ne.' ') then
++        i2=index(dcall(ih),' ')
++        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; '//crpt
++     else
++        message=callsign(:i1)//'&lt;...&gt; '//crpt
++     endif
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! Calls and R and report (msg #4; types -28 to -36)
++  else if(ntype.le.-28 .and. ntype.ge.-36) then
++     write(crpt,1010) -(ntype+27)
++     ih=(n2-64+28-ntype)/128
++     if(dcall(ih)(1:1).ne.' ') then
++        i2=index(dcall(ih),' ')
++        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; '//'R '//crpt
++     else
++        message=callsign(:i1)//'&lt;...&gt; '//'R '//crpt
++     endif
++
++! Calls and RRR (msg#5; type 12)
++  else if(ntype.eq.12) then
++     ih=(n2-64+28-ntype)/128
++     if(dcall(ih)(1:1).ne.' ') then
++        i2=index(dcall(ih),' ')
++        message=callsign(:i1)//'&lt;'//dcall(ih)(:i2-1)//'&gt; RRR'
++     else
++        message=callsign(:i1)//'&lt;...&gt; RRR'
++     endif
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! Calls and RRR (msg#5; type 14)
++  else if(ntype.eq.14) then
++     ih=(n2-64+28-ntype)/128
++     if(dcall(ih)(1:1).ne.' ') then
++        i2=index(dcall(ih),' ')
++        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1)//' RRR'
++     else
++        message=callsign(:i1)//'&lt;...&gt; RRR'
++     endif
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! TNX [name] 73 GL (msg #6; type 18)
++  else if(ntype.eq.18) then
++     ng=(n2-18-64)/128
++     call unpackname(n1,ng,name,len)
++     message='TNX '//name(:len)//' 73 GL'
++
++! OP [name] 73 GL (msg #6; type 18)
++  else if(ntype.eq.-56) then
++     ng=(n2+56-64)/128
++     call unpackname(n1,ng,name,len)
++     message='OP '//name(:len)//' 73 GL'
++
++! 73 DE [call] [grid] (msg #6; type 19)
++  else if(ntype.eq.19) then
++     ng=(n2-19-64)/128
++     message='73 DE '//callsign(:i1)//grid
++     call hash(callsign,i1-1,ih)
++     dcall(ih)=callsign(:i1-1)
++
++! [power] W [gain] DBD 73 GL (msg#6; type 24)
++  else if(ntype.eq.24) then
++     ng=(n2-24-64)/128 - 32
++     i1=1
++     if(n1.gt.0) i1=log10(float(n1)) + 1
++     i2=1
++     if(ng.ge.10) i2=2
++     if(ng.lt.0) i2=i2+1
++     fmt=&quot;(i4,' W ',i2,' DBD 73 GL')&quot;
++     fmt(3:3)=char(48+i1)
++     fmt(12:12)=char(48+i2)
++     write(message,fmt) n1,ng
++
++! [plain text] (msg#6; type -57)
++  else if(ntype.eq.-57) then
++     ng=n2/128
++     call unpacktext2(n1,ng,message)
++  endif
++
++  return
++end subroutine wqdecode
+
+Added: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/wqencode.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -0,0 +1,225 @@
++subroutine wqencode(msg,ntype,data0)
++
++!  Parse and encode a WSPR message.
++
++  parameter (MASK15=32767)
++  character*22 msg
++  character*12 call1,call2,callsign
++  character*4 grid
++  character*3 cdbm
++  character*9 name
++  logical lbad1,lbad2
++  integer*1 data0(11)
++  integer nu(0:9)
++  data nu/0,-1,1,0,-1,2,1,0,-1,1/
++
++  if(msg(1:6).eq.'73 DE ') go to 80
++  if(index(msg,' W ').gt.0 .and. index(msg,' DBD 73 GL').gt.0) go to 90
++
++! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
++  i1=index(msg,' ')
++  if(i1.lt.4 .or. i1.gt.7) go to 10
++  call1=msg(:i1-1)
++  grid=msg(i1+1:i1+4)
++  call packcall(call1,n1,lbad1)
++  call packgrid(grid,ng,lbad2)
++  if(lbad1 .or. lbad2) go to 10
++  ndbm=0
++  read(msg(i1+5:),*,err=10,end=800) ndbm
++  if(ndbm.lt.0 .or. ndbm.gt.60) go to 800
++  ndbm=ndbm+nu(mod(ndbm,10))
++  n2=128*ng + (ndbm+64)
++  call pack50(n1,n2,data0)
++  ntype=ndbm
++  go to 900
++
++! &quot;BestDX&quot; automated WSPR reply (type 1)
++10 if(i1.ne.5 .or. msg(5:8).ne.' DE ') go to 20
++  grid=msg(1:4)
++  call packgrid(grid,ng,lbad2)
++  if(lbad2) go to 800
++  call1=msg(9:)
++  call packcall(call1,n1,lbad1)
++  if(lbad1) go to 800
++  ntype=1
++  n2=128*ng + (ntype+64)
++  call pack50(n1,n2,data0)             !Pack 8 bits per byte, add tail
++  go to 900
++
++! CQ (msg #1; types 2, 4, 5)
++20  if(msg(1:3).ne.'CQ ') go to 30
++  if(index(msg,'/').le.0) then
++     i2=index(msg(4:),' ')
++     call1=msg(4:i2+3)
++     grid=msg(i2+4:)
++     call packcall(call1,n1,lbad1)
++     if(lbad1) go to 30
++     call packgrid(grid,ng,lbad2)
++     if(lbad2) go to 30
++     ntype=2
++     n2=128*ng + (ntype+64)
++     call pack50(n1,n2,data0)
++  else
++     ntype=4                                     ! or 5
++     call1=msg(4:)
++! The rest is not yet implemented (NYI).
++  endif
++  go to 900
++
++! Reply to CQ (msg #2; types 6,8,9,11)
++30 if(msg(1:1).ne.'&lt;' .and. msg(1:3).ne.'DE ') go to 40
++  if(index(msg,' RRR ').gt.0) go to 50
++  if(msg(1:1).eq.'&lt;') then
++     ntype=6
++     i1=index(msg,'&gt;')
++     call1=msg(2:i1-1)
++     call2=msg(i1+2:)
++     call hash(call1,i1-2,ih)
++     call packcall(call2,n1,lbad1)
++     n2=128*ih + (ntype+64)
++     call pack50(n1,n2,data0)
++  else
++     i1=index(msg(4:),' ')
++     call1=msg(4:i1+2)
++     if(index(msg,'/').le.0) then
++        ntype=8
++        ih=0
++        call packcall(call2,n1,lbad1)
++        grid=msg(i1+4:i1+7)
++        call packgrid(grid,ng,lbad2)
++        n2=128*ng + (ntype+64)
++        call pack50(n1,n2,data0)
++     else
++        ntype=9                                   ! or 11
++     endif
++  endif
++  go to 900
++
++! Call(s) + report (msg #3; types -1 to -27)
++! Call(s) + R + report (msg #4; types -28 to -54)
++40 if(index(msg,' RRR').gt.0) go to 50
++  i1=index(msg,'&lt;')
++  if(i1.lt.5 .or. i1.gt.8) go to 50
++  i2=index(msg,'/')
++  if(i2.gt.0 .and.i2.le.4) then
++     ntype=-10                                   ! -10 to -27
++     go to 900
++  endif
++  call1=msg(:i1-2)                               !-1 to -9
++  i2=index(msg,'&gt;')
++  call2=msg(i1+1:i2-1)
++  call hash(call2,i2-i1-1,ih)
++  i3=index(msg,' R ')
++  if(i3.gt.0) i2=i2+2                            !-28 to -36
++  read(msg(i2+3:i2+3),*) nrpt
++  ntype=-nrpt
++  if(i3.gt.0) ntype=-(nrpt+27)
++  call packcall(call1,n1,lbad1)
++  n2=128*ih + (ntype+64)
++  call pack50(n1,n2,data0)
++  go to 900
++
++50 i0=index(msg,'&lt;')
++  if(i0.le.0 .and. msg(1:3).ne.'DE ') go to 60
++  i3=index(msg,' RRR')
++  if(i3.le.0) go to 60
++! Call or calls and RRR (msg#5; type2 12,14,15,16)
++  i0=index(msg,'&lt;')
++  if(i0.eq.1) then
++     if(index(msg,'/').le.0) then
++        ntype=14
++        i1=index(msg,'&gt;')
++        call1=msg(2:i1-1)
++        call2=msg(i1+2:)
++        i2=index(call2,' ')
++        call2=call2(:i2-1)
++        call packcall(call2,n1,lbad1)
++        call hash(call1,i1-2,ih)
++        n2=128*ih + (ntype+64)
++        call pack50(n1,n2,data0)
++     else
++        ntype=-55
++     endif
++  else if(i0.ge.5 .and. i0.le.8) then
++     if(index(msg,'/').le.0) then
++        ntype=12
++        i1=index(msg,'&gt;')
++        call1=msg(:i0-2)
++        call2=msg(i0+1:i1-1)
++        call packcall(call1,n1,lbad1)
++        call hash(call2,i1-i0-1,ih)
++        n2=128*ih + (ntype+64)
++        call pack50(n1,n2,data0)
++     else
++        ntype=15                               !???
++     endif
++  else
++     i1=index(msg(4:),' ')
++     call1=msg(4:i1+2)
++     if(index(msg,'/').le.0) then
++        ntype=9
++        grid=msg(i1+4:i1+7)
++     else
++        ntype=15                                  ! ???
++     endif
++  endif
++  go to 900
++
++! TNX &lt;name&gt; 73 GL (msg #6; type 18 ...)
++60 if(msg(1:4).ne.'TNX ') go to 70
++  ntype=18
++  n1=0
++  i2=index(msg(5:),' ')
++  call packname(msg(5:i2+4),i2-1,n1,ng)
++  n2=128*ng + (ntype+64)
++  call pack50(n1,n2,data0)
++  go to 900
++
++! TNX [name] 73 GL (msg #6; type -56 ...)
++70 if(msg(1:3).ne.'OP ') go to 80
++  ntype=-56
++  n1=0
++  i2=index(msg(4:),' ')
++  call packname(msg(4:i2+3),i2-1,n1,ng)
++  n2=128*ng + (ntype+64)
++  call pack50(n1,n2,data0)
++  go to 900
++
++! 73 DE [call[ [grid] (msg #6; type 19)
++80 if(msg(1:6).ne.'73 DE ') go to 90
++  ntype=19
++  i1=index(msg(7:),' ')
++  call1=msg(7:i1+6)
++  grid=msg(i1+7:i1+10)
++  call packcall(call1,n1,lbad1)
++  call packgrid(grid,ng,lbad2)
++  if(lbad1 .or. lbad2) go to 800
++  n2=128*ng + (ntype+64)
++  call pack50(n1,n2,data0)
++  go to 900
++
++! [pwr] W [gain] DB ANT 73 GL (msg #6; type 24)
++90  if(index(msg,' W ').le.0 .or. index(msg,' DBD 73 GL').le.0) go to 100
++  ntype=24
++  i1=index(msg,' ')
++  read(msg(:i1-1),*,err=800) nwatts
++  i2=index(msg(i1+3:),' ')
++  read(msg(i1+3:i1+i2+1),*) ndbd
++  n1=nwatts
++  ng=ndbd + 32
++  n2=128*ng + (ntype+64)
++  call pack50(n1,n2,data0)
++  go to 900
++
++! Plain text
++100  ntype=-57
++  call packtext2(msg(:8),n1,ng)
++  n2=128*ng + ntype + 64
++  call pack50(n1,n2,data0)
++  go to 900
++
++800 print*,'Error in structure of Tx message'
++
++900 continue
++  return
++end subroutine wqencode
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/wspr.py	2008-05-06 13:34:34 UTC (rev 758)
+@@ -77,16 +77,20 @@
+ newspec=1
+ npal=IntVar()
+ npal.set(2)
++nqso=IntVar()
+ nsave=IntVar()
+ nscroll=0
+ nsec0=0
+ nspeed0=IntVar()
+ ntr0=0
++ntxfirst=IntVar()
+ NX=500
+ NY=160
+ param20=&quot;&quot;
+ pctx=[-1,0,20,25,33,100]
+ sftx=StringVar()
++txmsg=StringVar()
++
+ a=array.array('h')
+ im=Image.new('P',(NX,NY))
+ draw=ImageDraw.Draw(im)
+@@ -426,14 +430,14 @@
+         for i in range(len(lines)):
+             if len(lines[i])&lt;6: break                    #Skip $EOF
+             text.insert(END,lines[i][:63]+&quot;\n&quot;)
+-            callsign=lines[i][42:49]
++            callsign=lines[i][41:48]
+             if callsign[:1] != ' ':
+                 i1=callsign.find(' ')
+                 callsign=callsign[:i1]
+                 try:
+                     nseq=1440*int(lines[i][4:6]) + 60*int(lines[i][7:9]) + \
+                           int(lines[i][9:11])
+-                    ndf=int(lines[i][29:32])
++                    ndf=int(lines[i][28:31])
+                     bm[callsign]=(ndf,nseq)
+                 except:
+                     pass
+@@ -533,17 +537,23 @@
+         pass
+     w.acom1.callsign=(options.MyCall.get().strip().upper()+'      ')[:6]
+     w.acom1.grid=(options.MyGrid.get().strip().upper()+'    ')[:4]
++    w.acom1.ctxmsg=(txmsg.get().strip().upper()+'                      ')[:22]
+     try:
+         w.acom1.nport=int(options.PttPort.get())
+     except:
+         w.acom1.nport=0
+ 
+     for i in range(len(pwrlist)):
+-        if pwrlist[i]==options.dBm.get():
+-            w.acom1.ndbm=10+i
+-            break
++        try:
++            if pwrlist[i]==options.dBm.get():
++                w.acom1.ndbm=pwrlist[i]
++                break
++        except:
++            pass
+     w.acom1.pctx=pctx[ipctx.get()]
+     w.acom1.idsec=idsec
++    w.acom1.ntxfirst=ntxfirst.get()
++    w.acom1.nqso=nqso.get()
+     w.acom1.nsave=nsave.get()
+     try:
+         g.ndevin.set(options.DevinName.get())
+@@ -562,7 +572,7 @@
+ def update():
+     global root_geom,isec0,im,pim,ndbm0,nsec0,a, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+-        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0
++        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0,txmsg
+ 
+     tsec=time.time() + 0.1*idsec
+     utc=time.gmtime(tsec)
+@@ -862,6 +872,14 @@
+ 
+ #------------------------------------------------------------ Status Bar
+ iframe6 = Frame(frame, bd=1, relief=SUNKEN)
++bqso=Checkbutton(iframe6,text='QSO Mode',justify=LEFT,variable=nqso)
++bqso.place(x=100,y=0)
++btxfirst=Checkbutton(iframe6,text='Tx First',justify=LEFT,variable=ntxfirst)
++btxfirst.place(x=200,y=0)
++TxMsg=Pmw.EntryField(iframe6,labelpos=W,label_text='Tx msg:',
++        value='CQ K1JT FN20',entry_textvariable=txmsg,entry_width=22)
++TxMsg.place(x=300,y=2)
++
+ ##msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+ ##msg1.pack(side=LEFT, fill=X, padx=1)
+ ##msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2008-05-01 18:39:39 UTC (rev 757)
++++ branches/wspr/wspr2.f90	2008-05-06 13:34:34 UTC (rev 758)
+@@ -87,18 +87,29 @@
+   go to 20
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
++  neven=1-mod(nsec/120,2)
++  if(nqso.eq.1) then                          !### Test only ###
++     if(neven.eq.ntxfirst) then
++        message=ctxmsg
++        nrx=0
++     else
++        nrx=1
++     endif
++  endif
+   if(pctx.eq.0.0) nrx=1
+   if(nrx.eq.0) then
+-     call random_number(x)
+-     nrx=nint(rxavg + rr*(x-0.5))
+      transmitting=.true.
+-     write(message(13:16),'(i4)') ndbm
+-     message(1:12)='&quot;'//callsign//' '//grid
+-     message(17:17)='&quot;'
+-     do i=1,4
+-        i1=index(message,'  ')
+-        message=message(:i1)//message(i1+2:)
+-     enddo
++     if(nqso.eq.0) then
++        call random_number(x)
++        nrx=nint(rxavg + rr*(x-0.5))
++        write(message(13:16),'(i4)') ndbm
++        message(1:12)='&quot;'//callsign//' '//grid
++        message(17:17)='&quot;'
++        do i=1,4
++           i1=index(message,'  ')
++           message=message(:i1)//message(i1+2:)
++        enddo
++     endif
+ 
+ #ifdef CVF
+      open(13,file='ALL_MEPT.TXT',status='unknown',                   &amp;
+@@ -110,7 +121,6 @@
+      write(13,1030) cdate(3:8),utctime(1:4),ftx,message
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a17)
+      close(13)
+-
+      ntr=-1
+      nsectx=mod(nsec,86400)
+      call starttx
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000445.html">[WSJT-SVN] r757 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000447.html">[WSJT-SVN] r759 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#446">[ date ]</a>
+              <a href="thread.html#446">[ thread ]</a>
+              <a href="subject.html#446">[ subject ]</a>
+              <a href="author.html#446">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

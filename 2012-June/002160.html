@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2468 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2468%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120604170251.5BE0355B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002161.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2468 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2468%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120604170251.5BE0355B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2468 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jun  4 19:02:51 CEST 2012</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002161.html">[WSJT-SVN] r2469 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2160">[ date ]</a>
+              <a href="thread.html#2160">[ thread ]</a>
+              <a href="subject.html#2160">[ subject ]</a>
+              <a href="author.html#2160">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-06-04 19:02:50 +0200 (Mon, 04 Jun 2012)
+New Revision: 2468
+
+Modified:
+   branches/map65/astro.cpp
+   branches/map65/libm65/symspec.f90
+   branches/map65/libm65/timf2.f90
+   branches/map65/mainwindow.cpp
+Log:
+Temporary(?) fix for the &quot;ghost signal&quot; problem.
+NB: it occurred only with nwindow=2.
+(Have not yet determined why data are being picked from dd() array beyond
+where new data should appear... so for now, I have zeroed the whole 
+array at start of a new minute.)
+
+
+Modified: branches/map65/astro.cpp
+===================================================================
+--- branches/map65/astro.cpp	2012-05-31 15:36:49 UTC (rev 2467)
++++ branches/map65/astro.cpp	2012-06-04 17:02:50 UTC (rev 2468)
+@@ -54,7 +54,7 @@
+ 
+   sprintf(cc,&quot;Az:    %6.1f\n&quot;
+           &quot;El:    %6.1f\n&quot;
+-          &quot;Dop:   %6d\n&quot;
++          &quot;MyDop: %6d\n&quot;
+           &quot;DxAz:  %6.1f\n&quot;
+           &quot;DxEl:  %6.1f\n&quot;
+           &quot;DxDop: %6d\n&quot;
+
+Modified: branches/map65/libm65/symspec.f90
+===================================================================
+--- branches/map65/libm65/symspec.f90	2012-05-31 15:36:49 UTC (rev 2467)
++++ branches/map65/libm65/symspec.f90	2012-06-04 17:02:50 UTC (rev 2468)
+@@ -38,13 +38,20 @@
+      ihsym=0
+      go to 999             !Wait for enough samples to start
+   endif
+-  if(k.lt.k0) k1=0
+   if(k0.eq.99999999) then
+      pi=4.0*atan(1.0)
+      do i=1,NFFT
+         w(i)=(sin(i*pi/NFFT))**2
+      enddo
+   endif
++  if(k.lt.k0) then
++     ts=1.d0 - hsym
++     savg=0.
++     ihsym=0
++     k1=0
++     dd(1:4,k+1:5760000)=0.             !### Should not be needed ??? ###
++  endif
++  k0=k
+ 
+   nzap=0
+   sigmas=1.5*(10.0**(0.01*nbslider)) + 0.7
+@@ -57,6 +64,7 @@
+   iqadjust0=0
+   if(iqadjust.ne.0) iqapply0=0
+   nwindow=2
++!  nwindow=0                                    !### No wondowing ###
+   nfft2=1024
+   kstep=nfft2
+   if(nwindow.ne.0) kstep=nfft2/2
+@@ -67,7 +75,7 @@
+         cx0(i)=cmplx(dd(1,j+i),dd(2,j+i))
+         if(nxpol.ne.0) cy0(i)=cmplx(dd(3,j+i),dd(4,j+i))
+      enddo
+-     call timf2(nxpol,nfft2,nwindow,nb,peaklimit,iqadjust0,iqapply0,faclim,  &amp;
++     call timf2(k,nxpol,nfft2,nwindow,nb,peaklimit,iqadjust0,iqapply0,faclim,  &amp;
+           cx0,cy0,gainx,gainy,phasex,phasey,cx1,cy1,slimit,lstrong,          &amp;
+           px,py,nzap)
+ 
+@@ -86,12 +94,6 @@
+   if(nfsample.eq.95238)   hsym=2048.d0*95238.1d0/11025.d0
+   npts=NFFT                           !Samples used in each half-symbol FFT
+ 
+-  if(k.lt.k0) then
+-     ts=1.d0 - hsym
+-     savg=0.
+-     ihsym=0
+-  endif
+-  k0=k
+   ihsym=ihsym+1
+   ja=ts+hsym                          !Index of first sample
+   jb=ja+npts-1                        !Last sample
+
+Modified: branches/map65/libm65/timf2.f90
+===================================================================
+--- branches/map65/libm65/timf2.f90	2012-05-31 15:36:49 UTC (rev 2467)
++++ branches/map65/libm65/timf2.f90	2012-06-04 17:02:50 UTC (rev 2468)
+@@ -1,4 +1,4 @@
+-subroutine timf2(nxpol,nfft,nwindow,nb,peaklimit,iqadjust,iqapply,faclim,   &amp;
++subroutine timf2(k,nxpol,nfft,nwindow,nb,peaklimit,iqadjust,iqapply,faclim,   &amp;
+   cx0,cy0,gainx,gainy,phasex,phasey,cx1,cy1,slimit,lstrong,px,py,nzap)
+ 
+ ! Sequential processing of time-domain I/Q data, using Linrad-like
+@@ -37,17 +37,14 @@
+   complex h,u,v
+   logical first
+   data first/.true./
+-  save w,covxs,covxw,covys,covyw,s,ntc,ntot,nh,kstep,fac,first
++  data k0/99999999/
++  save w,covxs,covxw,covys,covyw,s,ntc,ntot,nh,kstep,fac,first,k0
+ 
+   if(first) then
+      pi=4.0*atan(1.0)
+      do i=0,nfft-1
+         w(i)=(sin(i*pi/nfft))**2
+      enddo
+-     covxs=0.
+-     covxw=0.
+-     covys=0.
+-     covyw=0.
+      s=0.
+      ntc=0
+      ntot=0
+@@ -59,6 +56,14 @@
+      first=.false.
+   endif
+ 
++  if(k.lt.k0) then
++     covxs=0.
++     covxw=0.
++     covys=0.
++     covyw=0.
++  endif
++  k0=k
++
+   cx(0:nfft-1)=cx0
+   if(nwindow.eq.2) cx(0:nfft-1)=w(0:nfft-1)*cx(0:nfft-1)
+   call four2a(cx,nfft,1,1,1)                       !First forward FFT
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-05-31 15:36:49 UTC (rev 2467)
++++ branches/map65/mainwindow.cpp	2012-06-04 17:02:50 UTC (rev 2468)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002161.html">[WSJT-SVN] r2469 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2160">[ date ]</a>
+              <a href="thread.html#2160">[ thread ]</a>
+              <a href="subject.html#2160">[ subject ]</a>
+              <a href="author.html#2160">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

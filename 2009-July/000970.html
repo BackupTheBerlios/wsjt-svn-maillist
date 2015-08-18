@@ -1,0 +1,331 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1276 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1276%20-%20trunk&In-Reply-To=%3C200907221932.n6MJWh1l008659%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000969.html">
+   <LINK REL="Next"  HREF="000971.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1276 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1276%20-%20trunk&In-Reply-To=%3C200907221932.n6MJWh1l008659%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1276 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 22 21:32:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000969.html">[WSJT-SVN] r1275 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000971.html">[WSJT-SVN] r1277 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#970">[ date ]</a>
+              <a href="thread.html#970">[ thread ]</a>
+              <a href="subject.html#970">[ subject ]</a>
+              <a href="author.html#970">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-22 21:32:39 +0200 (Wed, 22 Jul 2009)
+New Revision: 1276
+
+Modified:
+   trunk/Makefile.in
+   trunk/astro.F
+   trunk/astro0.F90
+   trunk/fthread.c
+   trunk/rfile2.f
+   trunk/thnix.f90
+   trunk/wsjt.py
+   trunk/wsjt65.f
+Log:
+WSJT7 nor running with mutexes under Linux, compiled with g95.
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/Makefile.in	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -57,7 +57,8 @@
+ 	wsjtgen.F90 runqqq.F90 fivehz.F90 msgparms.f90 chkt0.f90 \
+ 	genwspr.f90 wqencode.f90 wqdecode.f90 packpfx.f90 unpackpfx.f90 \
+ 	packname.f90 unpackname.f90 packtext2.f90 unpacktext2.f90 \
+-	packprop.f90 unpackprop.f90 hash.f90 wsjtwspr.f90 gen64.f90
++	packprop.f90 unpackprop.f90 hash.f90 wsjtwspr.f90 gen64.f90 \
++	thnix.f90
+ 
+ OBJS2F90 = ${SRCS2F90:.f90=.o}
+ 
+@@ -85,8 +86,8 @@
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+-SRCS2C	= init_rs.c encode_rs.c decode_rs.c fano.c azelout.c w21.c \
+-	tab.c nhash.c cutil.c
++SRCS2C	= init_rs.c encode_rs.c decode_rs.c fano.c tab.c nhash.c \
++	cutil.c fthread.c
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+ SRCS3C	= ptt_unix.c igray.c wrapkarn.c
+
+Modified: trunk/astro.F
+===================================================================
+--- trunk/astro.F	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/astro.F	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -22,6 +22,7 @@
+       save first,poloffset2
+ 
+       if(first) then
++         call cs_lock('astro')
+          do i=80,1,-1
+             if(ichar(AppDir(i:i)).ne.0 .and. 
+      +           ichar(AppDir(i:i)).ne.32) goto 1
+@@ -49,6 +50,7 @@
+ #endif
+          ltsky=.true.
+          first=.false.
++         call cs_unlock
+       endif
+       go to 20
+  10   ltsky=.false.
+
+Modified: trunk/astro0.F90
+===================================================================
+--- trunk/astro0.F90	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/astro0.F90	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -52,6 +52,7 @@
+   if(mode(1:4).eq.'WSPR') nmode=8
+   if(mode(1:4).eq.'JT64') nmode=9
+   uth=uth8
++  call cs_unlock
+ 
+   call astro(AppDir,nyear,month,nday,uth,nfreq,hisgrid,2,nmode,1,    &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+@@ -101,6 +102,7 @@
+   isec=3600*uth8
+ 
+   if(isec.ne.isec0 .and. ndecoding.eq.0) then
++     call cs_lock('astro0')
+      ih=uth8
+      im=mod(imin,60)
+      is=mod(isec,60)
+@@ -115,8 +117,8 @@
+             i4,',',f8.1,',',f8.2,',',f8.1,',',f8.2,',Doppler')
+      rewind 14
+ 800  isec0=isec
++     call cs_unlock
+   endif
+ 
+-  call cs_unlock
+   return
+ end subroutine astro0
+
+Modified: trunk/fthread.c
+===================================================================
+--- trunk/fthread.c	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/fthread.c	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -14,13 +14,11 @@
+   pthread_create(theThread, NULL, thread_func, NULL);
+ } 
+ 
+-/*
+ // Yield control to other threads
+ void fthread_yield_() 
+ {
+   pthread_yield();
+ } 
+-*/
+ 
+ // Return my own thread ID
+ pthread_t fthread_self_() 
+@@ -29,11 +27,16 @@
+ } 
+ 
+ // Lock the execution of all threads until we have the mutex
+-void fthread_mutex_lock_(pthread_mutex_t **theMutex) 
++int fthread_mutex_lock_(pthread_mutex_t **theMutex) 
+ {
+-  pthread_mutex_lock(*theMutex);
++  return(pthread_mutex_lock(*theMutex));
+ }
+ 
++int fthread_mutex_trylock_(pthread_mutex_t **theMutex) 
++{
++  return(pthread_mutex_trylock(*theMutex));
++}
++
+ // Unlock the execution of all threads that were stopped by this mutex
+ void fthread_mutex_unlock_(pthread_mutex_t **theMutex) 
+ {
+
+Modified: trunk/rfile2.f
+===================================================================
+--- trunk/rfile2.f	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/rfile2.f	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -18,11 +18,9 @@
+       enddo
+ 
+  10   fname=fname(1:iz)//char(0)
+-      call cs_lock('rfile2')
+       fd=open(fname,RMODE)                  !Open file for reading
+       nr=read(fd,buf,n)
+       i=close(fd)
+-      call cs_unlock
+ 
+       return
+       end
+
+Modified: trunk/thnix.f90
+===================================================================
+--- trunk/thnix.f90	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/thnix.f90	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -1,9 +1,16 @@
+-subroutine cs_init(mtx)
++subroutine cs_init
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  ltrace=1
++  mtxstate=0
++  csub0='**unlocked**'
+   call fthread_mutex_init(mtx)
+   return
+ end subroutine cs_init
+ 
+-subroutine cs_destroy(mtx)
++subroutine cs_destroy
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
+   call fthread_mutex_destroy(mtx)
+   return
+ end subroutine cs_destroy
+@@ -18,12 +25,31 @@
+   return
+ end subroutine th_exit
+ 
+-subroutine cs_lock(mtx)
+-  call fthread_mutex_lock(mtx)
++subroutine cs_lock(csub)
++  character*(*) csub
++  character*12 csub0
++  integer fthread_mutex_lock,fthread_mutex_trylock
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  n=fthread_mutex_trylock(mtx)
++  if(n.ne.0) then
++! Another thread has already locked the mutex
++     n=fthread_mutex_lock(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested mutex when &quot;',   &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
+   return
+ end subroutine cs_lock
+ 
+-subroutine cs_unlock(mtx)
++subroutine cs_unlock(csub)
++  character*(*) csub
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++  if(ltrace.ge.3) print*,'Mutex unlocked'
+   call fthread_mutex_unlock(mtx)
+   return
+ end subroutine cs_unlock
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/wsjt.py	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt65.f
+===================================================================
+--- trunk/wsjt65.f	2009-07-22 18:34:43 UTC (rev 1275)
++++ trunk/wsjt65.f	2009-07-22 19:32:39 UTC (rev 1276)
+@@ -131,7 +131,7 @@
+       jdf=ndf+idf
+       if(nstest.gt.0) jdf=ndf
+ 
+-      call cs_lock('')
++      call cs_lock('wsjt65')
+       write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,
+      +    nint(width),csync,special,decoded(1:19),cooo,kvqual,nqual
+  1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4)
+@@ -144,8 +144,6 @@
+          line(15:19)='     '
+          line=line(:35)
+           ccfblue(-5)=-9999.0
+-!         if(ndiag.gt.0) write(line(51:57),1012) iderrsh,idriftsh
+-! 1012    format(i3,i4)
+       else
+          nspecial=0
+       endif
+@@ -154,6 +152,7 @@
+  1011 format(a67)
+ C  Write decoded msg unless this is an &quot;Exclude&quot; request:
+       if(MinSigdB.lt.99) write(lumsg,1011) line
++      call cs_unlock
+ 
+       if(nsave.ge.1) call avemsg65(1,mode65,ndepth,nchallenge,
+      +   avemsg1,nused1,nq1,nq2,neme,mycall,hiscall,hisgrid,qual1,
+@@ -173,6 +172,7 @@
+ C  Write the average line
+ !      if(ns1.ge.1 .and. ns1.ne.ns10) then
+       if(ns1.ge.1) then
++         call cs_lock('wsjt65')
+          if(ns1.lt.10) write(ave1,1021) cfile6,1,nused1,ns1,avemsg1,
+      +      nc1,nqual1
+  1021    format(a6,i3,i4,'/',i1,20x,a19,i8,i4)
+@@ -185,8 +185,8 @@
+          if(lcum .and. (avemsg1.ne.'                  ')) 
+      +      write(21,1011) ave1
+          ns10=ns1
++         call cs_unlock
+       endif
+-      call cs_unlock
+ 
+ C  If Monitor segment #2 is available, write that line also
+ !      if(ns2.ge.1 .and. ns2.ne.ns20) then     !***Why the 2nd part?? ***
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000969.html">[WSJT-SVN] r1275 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000971.html">[WSJT-SVN] r1277 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#970">[ date ]</a>
+              <a href="thread.html#970">[ thread ]</a>
+              <a href="subject.html#970">[ subject ]</a>
+              <a href="author.html#970">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,514 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2406 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2406%20-%20trunk&In-Reply-To=%3C20110421183841.3D16748144E%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002097.html">
+   <LINK REL="Next"  HREF="002099.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2406 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2406%20-%20trunk&In-Reply-To=%3C20110421183841.3D16748144E%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2406 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 21 20:38:40 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002097.html">[WSJT-SVN] r2405 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002099.html">[WSJT-SVN] r2407 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2098">[ date ]</a>
+              <a href="thread.html#2098">[ thread ]</a>
+              <a href="subject.html#2098">[ subject ]</a>
+              <a href="author.html#2098">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-21 20:38:40 +0200 (Thu, 21 Apr 2011)
+New Revision: 2406
+
+Modified:
+   trunk/decdiana.f90
+   trunk/diana.f90
+   trunk/specdiana.f90
+   trunk/syncdiana.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Diana decoder now includes AFC and maximizes value of &quot;worst&quot;.
+
+
+Modified: trunk/decdiana.f90
+===================================================================
+--- trunk/decdiana.f90	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/decdiana.f90	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -1,4 +1,4 @@
+-subroutine decdiana(s0,jsym,ipk,jpk,msglen,msg,nsnr)
++subroutine decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
+ 
+   parameter (NSZ=646)
+   real s0(1024,NSZ)
+@@ -10,20 +10,24 @@
+   data c42/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /.?+-'/
+ 
+   nblk=24
++  jb=jsym
+   fs1=0.
+   k=0
+   n=0
+   do j=jpk,jpk+4*125,4                !Fold from s0 into fs1, modulo msglen
+      k=k+1
+-     if(mod(k-1,nblk)+1.gt.6) then    !Use only message symbols
++     km=mod(k-1,nblk)+1
++     if(km.gt.6) then    !Use only message symbols
+         n=n+1
+         m=mod(n-1,msglen)+1
+         iblk=(j-jpk)/(4*nblk)         !iblk runs from 0 to 4
+         ioffset=7*iblk
++        ii=nint(idfpk*float(j-jb/2)/float(jb))
+         do i=0,41
+-           ii=i+ioffset
+-           if(ii.ge.42) ii=ii-42
+-           fs1(i,m)=fs1(i,m) + s0(ipk+2*ii,j)
++           iii=i+ioffset
++           if(iii.ge.42) iii=iii-42
++           i3=ipk + 2*iii + ii
++           fs1(i,m)=fs1(i,m) + s0(i3,j)
+         enddo
+      endif
+   enddo
+@@ -44,14 +48,14 @@
+   sum1=0.
+   sum2=0.
+   do m=1,msglen                           !Read out message contents
+-     smax=0.
++     smax1=0.
+      do i=0,41
+-        if(fs1(i,m).gt.smax) then         !Find highest peak
+-           smax=fs1(i,m)
++        if(fs1(i,m).gt.smax1) then         !Find highest peak
++           smax1=fs1(i,m)
+            ipk3=i
+         endif
+      enddo
+-     sum1=sum1+smax
++     sum1=sum1+smax1
+ 
+      smax2=0.
+      do i=0,41
+@@ -67,14 +71,8 @@
+   
+   ave1=sum1/msglen                        !Average signal
+   ave2=sum2/msglen                        !Average second-best
+-  averel=sum1/sum2                        !Average reliability indicator
+-
++  avg=sum1/sum2                        !Average reliability indicator
+   snrx=db(ave1) - 26.7 + 1.0              !Last number is empirical
+-  nsnr=nint(snrx)
+-  if(nsnr.le.-27) then
+-     nsnr=-27
+-     msg=' '
+-  endif
+ 
+   return
+ end subroutine decdiana
+
+Modified: trunk/diana.f90
+===================================================================
+--- trunk/diana.f90	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/diana.f90	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -1,5 +1,5 @@
+ subroutine diana(dat,npts,cfile6,MinSigdB,DFTolerance,NFreeze,       &amp;
+-     MouseDF,ccfblue,ccfred)
++     MouseDF,nafc,ccfblue,ccfred)
+ 
+ ! Decode a Diana signal
+ 
+@@ -7,10 +7,8 @@
+   parameter (NSZ=646)                     !Quarter-symbols in 30 s
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+   character cfile6*6                      !File time
+-  character c42*42
+   character msg*28
+   real s0(1024,NSZ)
+-  real fs0(1024,96)                       !Folded-for-sync symbol spectra
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   integer dftolerance
+@@ -23,24 +21,22 @@
+   df=11025.0/nfft
+   kstep=nsps/4
+ 
+-  call specdiana(dat,npts,s0,jsym,fs0)   !Get symbol spectra, fold for sync
++! Get symbol spectra, fold for sync
++  call specdiana(dat,npts,s0,jsym)
+ 
+-  call syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
+-     ipk,jpk,dfx,dtx,msglen,ccfblue,ccfred)     !Get sync: DF, DT, msglen
+-  
+-  msg=' '
+-  nsnr=-25
+-  jsync=syncx
+-  if(jsync.ge.MinSigdB .and. msglen.gt.0) call decdiana(s0,jsym,ipk,jpk,  &amp;
+-       msglen,msg,nsnr)                               !Decode message
++! Get sync: DF, DT, msglen
++  call syncdiana(s0,jsym,kstep,nfreeze,mousedf,dftolerance,nafc,xsync,   &amp;
++     ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,ccfblue,ccfred)
++
+   jdf=nint(dfx)
+-  nwidth=0
++  nfdot=nint(idfpk*df)
++  jsync=xsync
+ 
+   call cs_lock('iscat')
+-!  write(*,1020) cfile6,jsync,nsnr,dtx,jdf,nwidth,msg
+-  write(11,1020) cfile6,jsync,nsnr,dtx,jdf,nwidth,msg
+-  write(21,1020) cfile6,jsync,nsnr,dtx,jdf,nwidth,msg
+-1020 format(a6,i3,i5,f5.1,i5,i3,7x,a28)
++  write(*,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++  write(11,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++  write(21,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++1020 format(a6,i3,i5,f5.1,i5,i4,7x,a28,i5,2i3)
+   call cs_unlock
+ 
+   return
+
+Modified: trunk/specdiana.f90
+===================================================================
+--- trunk/specdiana.f90	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/specdiana.f90	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -1,11 +1,10 @@
+-subroutine specdiana(dat,npts,s0,jsym,fs0)
++subroutine specdiana(dat,npts,s0,jsym)
+ 
+   parameter (NSZ=646)
+   real dat(npts)                          !Raw signal, 30 s at 11025 sps
+   real x(4096),x2(4096)
+   complex c(0:4096)
+   real s0(1024,NSZ)                       !Symbol spectra at 1/4-symbol steps
+-  real fs0(1024,96)                       !Folded-for-sync spectra
+   real b(1024)
+   equivalence (x,c)
+ 
+@@ -44,13 +43,5 @@
+      s0(1:nq,j)=s0(1:nq,j)/b(1:nq)
+   enddo
+ 
+-  fs0=0.
+-  jb=(jsym-4*nblk+1)/4
+-  jb=4*jb
+-  do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
+-     k=mod(j-1,4*nblk)+1
+-     fs0(1:nq,k)=fs0(1:nq,k) + s0(1:nq,j)
+-  enddo
+-
+   return
+ end subroutine specdiana
+
+Modified: trunk/syncdiana.f90
+===================================================================
+--- trunk/syncdiana.f90	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/syncdiana.f90	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -1,9 +1,12 @@
+-subroutine syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
+-     ipk,jpk,dfx,dtx,msglen,ccfblue,ccfred)
++subroutine syncdiana(s0,jsym,kstep,nfreeze,mousedf,dftolerance,nafc,xsync,  &amp;
++     ipk,jpk,idfpk,dfx,dtx,msglen,msg,nsnr,nworst,navg,ccfblue,ccfred)
+ 
++  parameter (NSZ=646)                     !Quarter-symbols in 30 s
++  real s0(1024,NSZ)
+   real fs0(1024,96)                       !Folded-for-sync spectra
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
++  character msg*28
+   integer dftolerance
+   integer isync(4)
+   data isync/8,16,32,24/
+@@ -11,58 +14,163 @@
+   df=11025.0/4096.0
+   nblk=24
+   i0=2*236
+-  smax=0.
++  xsyncbest=0.
++  bigworst=0.
+   ipk=9999
+   jpk=9999
++  nq=1024
++  jb=(jsym-4*nblk+1)/4
++  jb=4*jb
+ 
+-  ia=-600.0/df
+-  ib=600.0/df
+-  if(nfreeze.eq.1) then
+-     ia=(mousedf-dftolerance)/df
+-     ib=(mousedf+dftolerance)/df
+-  endif
++  idfmax=0
++  if(nafc.eq.1) idfmax=10
++  do idf=-idfmax,idfmax,2
+ 
+-  do i=ia,ib                          !Search over DF range
+-     sm1=0.
+-     do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
+-        ss=0.
+-        do n=1,4                      !Sum the four sync tones
+-           k=j+4*n-3
+-           if(k.gt.4*nblk) k=k-4*nblk
+-           ss=ss + fs0(i0+i+2*isync(n),k)
++     fs0=0.
++     do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
++        k=mod(j-1,4*nblk)+1
++        ii=nint(idf*float(j-jb/2)/float(jb))
++        i1=max(1,1-ii)
++        i2=min(nq,nq-ii)
++        fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
++     enddo
++
++     ia=-600.0/df
++     ib=600.0/df
++     if(nfreeze.eq.1) then
++        ia=(mousedf-dftolerance)/df
++        ib=(mousedf+dftolerance)/df
++     endif
++
++     smax=0.
++     do i=ia,ib                          !Search over DF range
++        sm1=0.
++        do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
++           ss=0.
++           do n=1,4                      !Sum the four sync tones
++              k=j+4*n-3
++              if(k.gt.4*nblk) k=k-4*nblk
++              ss=ss + fs0(i0+i+2*isync(n),k)
++           enddo
++           if(ss.gt.sm1) then
++              sm1=ss
++              jpk1=j+1
++           endif
++!           if(abs(i).le.224) ccfred(i)=sm1
+         enddo
+-        if(ss.gt.sm1) then
+-           sm1=ss
+-           jpk1=j+1
++        if(sm1.gt.smax) then
++           smax=sm1
++           ipk=i0+i                   !Frequency offset, DF
++           jpk=jpk1
++           idfpk=idf
+         endif
+-        if(abs(i).le.224) ccfred(i)=sm1
+      enddo
+-     if(sm1.gt.smax) then
+-        smax=sm1
+-        ipk=i0+i                   !Frequency offset, DF
+-        jpk=jpk1
++
++     ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)
++     j=jpk+4
++     if(j.gt.96) j=j-96
++     ref=ref + fs0(ipk,j) + fs0(ipk+4,j) + fs0(ipk+6,j)
++     j=jpk+8
++     if(j.gt.96) j=j-96
++     ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+4,j)
++     j=jpk+12
++     if(j.gt.96) j=j-96
++     ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+6,j)
++
++     ref=ref/3.0                         !Reference level near (DF,DT)
++     xsync=smax/ref - 1.0
++
++     smax=0.
++     j1=jpk+16
++     if(j1.gt.4*nblk) j1=j1-4*nblk
++     j2=jpk+20
++     if(j2.gt.4*nblk) j2=j2-4*nblk
++     do i=ipk+2,ipk+56,2                         !Find User's message length
++        ss=fs0(i,j1) + fs0(i+10,j2)
++        if(ss.gt.smax) then
++           smax=ss
++           ipk2=i
++        endif
++     enddo
++     msglen=(ipk2-ipk)/2
++
++!###
++     call decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
++!     write(*,3001) xsync,worst,avg,msglen,msg
++!3001 format(3f6.2,i3,1x,a28)
++!###
++
++!     if(xsync.ge.xsyncbest) then
++     if(worst.gt.bigworst) then
++        bigworst=worst
++        xsyncbest=xsync
++        ipkbest=ipk
++        jpkbest=jpk
++        idfpkbest=idfpk
++        msglenbest=msglen        
+      endif
++
+   enddo
+ 
++  worst=bigworst
++  xsync=xsyncbest
++  ipk=ipkbest
++  jpk=jpkbest
++  idfpk=idfpkbest
++  msglen=msglenbest
+   dfx=(ipk-i0)*df
+   dtx=jpk*kstep/11025.0 - 1.4
+ 
+-  ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)
+-  j=jpk+4
+-  if(j.gt.96) j=j-96
+-  ref=ref + fs0(ipk,j) + fs0(ipk+4,j) + fs0(ipk+6,j)
+-  j=jpk+8
+-  if(j.gt.96) j=j-96
+-  ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+4,j)
+-  j=jpk+12
+-  if(j.gt.96) j=j-96
+-  ref=ref + fs0(ipk,j) + fs0(ipk+2,j) + fs0(ipk+6,j)
++  msg=' '
++  nsnr=-25
++  jsync=xsync
++! Decode the message
++  if(jsync.ge.MinSigdB .and. msglen.gt.0) then
++     call decdiana(s0,jsym,ipk,jpk,idfpk,msglen,msg,snrx,worst,avg)
++  endif
+ 
+-  ref=ref/3.0                         !Reference level near (DF,DT)
++  nsnr=nint(snrx)
++  if(nsnr.le.-27) then
++     nsnr=-27
++     msg=' '
++  endif
++
++  nworst=10.0*(worst-1.0)
++  navg=10.0*(avg-1.0)
++  if(nworst.gt.10) nworst=10
++  if(navg.gt.10) navg=10
++  if(navg.le.0) msg=' '
++
++!###
++! Final computation of ccfred and ccfblue
++  fs0=0.
++  do j=1,jb                           !Fold s0 into fs0, modulo 4*nblk
++     k=mod(j-1,4*nblk)+1
++     ii=nint(idfpk*float(j-jb/2)/float(jb))
++     i1=max(1,1-ii)
++     i2=min(nq,nq-ii)
++     fs0(i1:i2,k)=fs0(i1:i2,k) + s0(i1+ii:i2+ii,j)
++  enddo
++
++  ia=-600.0/df
++  ib=600.0/df
++  if(nfreeze.eq.1) then
++     ia=(mousedf-dftolerance)/df
++     ib=(mousedf+dftolerance)/df
++  endif
++
++  do i=ia,ib                          !Search over DF range
++     j=jpk-1                          !No search over j, use jpk
++     ss=0.
++     do n=1,4                      !Sum the four sync tones
++        k=j+4*n-3
++        if(k.gt.4*nblk) k=k-4*nblk
++        ss=ss + fs0(i0+i+2*isync(n),k)
++     enddo
++     if(abs(i).le.224) ccfred(i)=ss
++  enddo
+   ccfred=0.5*ccfred/ref - 1.0
+-  syncx=smax/ref - 1.0
+ 
+-  kk=0
+   do j=0,4*nblk-1                     !Compute ccfblue
+      ss=0.
+      do n=1,4
+@@ -74,19 +182,7 @@
+      ccfblue(jj)=0.5*(ss/ref - 1.0)
+   enddo
+ 
+-  smax=0.
+-  ja=jpk+16
+-  if(ja.gt.4*nblk) ja=ja-4*nblk
+-  jb=jpk+20
+-  if(jb.gt.4*nblk) jb=jb-4*nblk
+-  do i=ipk+2,ipk+56,2                         !Find User's message length
+-     ss=fs0(i,ja) + fs0(i+10,jb)
+-     if(ss.gt.smax) then
+-        smax=ss
+-        ipk2=i
+-     endif
+-  enddo
+-  msglen=(ipk2-ipk)/2
++!###
+ 
+   return
+ end subroutine syncdiana
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/wsjt.py	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-20 19:24:08 UTC (rev 2405)
++++ trunk/wsjt1.f90	2011-04-21 18:38:40 UTC (rev 2406)
+@@ -251,9 +251,10 @@
+   endif
+ 
+   if(mode.eq.10) then
+-!     write(74) jz,cfile6,(dat(j),j=1,jz)
+      jza=min(jz,11025*30)
+-     call diana(dat,jza,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,ccf,psavg)
++!     write(74) jza,cfile6,(dat(j),j=1,jza)
++     call diana(dat,jza,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,     &amp;
++          nafc,ccf,psavg)
+      go to 900
+   endif
+      
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002097.html">[WSJT-SVN] r2405 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002099.html">[WSJT-SVN] r2407 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2098">[ date ]</a>
+              <a href="thread.html#2098">[ thread ]</a>
+              <a href="subject.html#2098">[ subject ]</a>
+              <a href="author.html#2098">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

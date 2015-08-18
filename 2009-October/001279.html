@@ -1,0 +1,376 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1588 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1588%20-%20branches/wspr&In-Reply-To=%3C200910281841.n9SIfbor010235%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001278.html">
+   <LINK REL="Next"  HREF="001280.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1588 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1588%20-%20branches/wspr&In-Reply-To=%3C200910281841.n9SIfbor010235%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1588 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct 28 19:41:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001278.html">[WSJT-SVN] r1587 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001280.html">[WSJT-SVN] r1589 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1279">[ date ]</a>
+              <a href="thread.html#1279">[ thread ]</a>
+              <a href="subject.html#1279">[ subject ]</a>
+              <a href="author.html#1279">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-28 19:41:32 +0100 (Wed, 28 Oct 2009)
+New Revision: 1588
+
+Modified:
+   branches/wspr/acom1.f90
+   branches/wspr/genwspr.f90
+   branches/wspr/mept162.F
+   branches/wspr/tx.F90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.F90
+Log:
+Several minor bugs fixed.
+Added &quot;Tune&quot; button.
+Validate frequency entries.
+
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/acom1.f90	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -12,6 +12,6 @@
+        nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,idint,       &amp;
+        ntransmitting,ndiskdat,ndecoding,ntr,ndebug,idevin,idevout,      &amp;
+        idsec,nsectx,nbfo,ntxfirst,ntest,ncat,ltest,iwave(NMAX),         &amp;
+-       ndevsok,nsec1,nsec2,rms1,xdb1,infile,outfile,pttport,            &amp;
++       idle,ntune,ndevsok,nsec1,nsec2,rms1,xdb1,infile,outfile,pttport, &amp;
+        cdate,utctime,callsign,grid,grid6,rxtime,ctxmsg,sending,         &amp;
+        thisfile,cmd,pttmode
+
+Modified: branches/wspr/genwspr.f90
+===================================================================
+--- branches/wspr/genwspr.f90	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/genwspr.f90	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -80,20 +80,22 @@
+               dphi=twopi*dt*f
+            endif
+            sig=0.9999
+-        endif
+-        phi=phi+dphi
+-        if(snrdb.gt.50.0) then
+-           n=32767.0*sin(phi)           !Normal transmission, signal only
+-        else
+-           if(isig.eq.1) then
+-              n=fac*(gran(idum) + sig*snr*sin(phi))
++           phi=phi+dphi
++           if(snrdb.gt.50.0) then
++              n=32767.0*sin(phi)           !Normal transmission, signal only
+            else
+-              n=iwave(i) + fac*sig*snr*sin(phi)
++              if(isig.eq.1) then
++                 n=fac*(gran(idum) + sig*snr*sin(phi))
++              else
++                 n=iwave(i) + fac*sig*snr*sin(phi)
++              endif
++              if(n.gt.32767) n=32767
++              if(n.lt.-32767) n=-32767
+            endif
+-           if(n.gt.32767) n=32767
+-           if(n.lt.-32767) n=-32767
++           iwave(i)=n
++        else
++           iwave(i)=0
+         endif
+-        iwave(i)=n
+      enddo
+   enddo
+ 
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/mept162.F	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -68,7 +68,8 @@
+                endif
+                call decode162(c4,45000,message,ncycles,metric,nerr)
+                if(message(1:6).ne.'      ' .and. 
+-     +            message(1:6).ne.'000AAA') go to 23
++     +            message(1:6).ne.'000AAA' .and.
++     +            index(message,'A000AA').le.0) go to 23
+             enddo
+             go to 24
+ 
+@@ -79,10 +80,10 @@
+             nf1=nint(-a(2))
+ 
+ #ifdef CVF
+-            open(13,file='ALL_MEPT.TXT',status='unknown',
++            open(13,file='ALL_WSPR.TXT',status='unknown',
+      +                position='append',share='denynone')
+ #else
+-            open(13,file='ALL_MEPT.TXT',status='unknown',
++            open(13,file='ALL_WSPR.TXT',status='unknown',
+      +                position='append')
+ #endif
+             write(13,1010) datetime,nsync,nsnrx,dtx,freq,message,nf1,
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/tx.F90	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -83,7 +83,9 @@
+   endif
+ 
+   sending=msg2
++  if(ntune.eq.1) npts=12000*pctx
+   ierr=soundout(ndevout,jwave,npts)
++  ntune=0
+   if(ierr.ne.0) then
+      print*,'Error in soundout',ierr
+      stop
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/wqdecode.f90	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -52,14 +52,10 @@
+         dcall(ih)=callsign(:i2)
+      endif
+   else if(ntype.lt.0) then
+-     nu=mod(-(ntype+1),10)
+-     nadd=nu
+-     if(nu.gt.3) nadd=nu-3
+-     if(nu.gt.7) nadd=nu-7
++     ndbm=-(ntype+1)
+      grid6=callsign(6:6)//callsign(1:5)
+      ih=(n2-ntype-64)/128
+      callsign=dcall(ih)
+-     ndbm=-(ntype+1)-nadd
+      write(cdbm,'(i3)'),ndbm
+      if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+      if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/wspr.py	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -224,7 +224,8 @@
+ 
+ #------------------------------------------------------ options1
+ def options1(event=NONE):
+-    options.options2(root_geom[root_geom.index(&quot;+&quot;):])
++#    options.options2(root_geom[root_geom.index(&quot;+&quot;):])
++    options.options2(&quot;&quot;)
+ 
+ #------------------------------------------------------ stub
+ def stub(event=NONE):
+@@ -337,6 +338,7 @@
+ 
+ #------------------------------------------------------ tune
+ def tune(event=NONE):
++    w.acom1.ntune=1
+     btune.configure(bg='green')
+ 
+ #----------------------------------------------------- df_readout
+@@ -649,7 +651,8 @@
+ def update():
+     global root_geom,isec0,im,pim,ndbm0,nsec0,a,ftx0,nin0,nout0, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+-        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0,txmsg,iband0
++        modpixmap0,tw,s0,c0,fmid,fmid0,idsec,loopall,ntr0,txmsg,iband0, \
++        bandmap,bm
+ 
+     tsec=time.time() + 0.1*idsec
+     utc=time.gmtime(tsec)
+@@ -674,6 +677,11 @@
+                  (options.rignum.get(), options.serial_rate.get(), \
+                   options.serial_handshake.get(), nHz)
+             ierr=os.system(cmd)
++        bandmap=[]
++        bm={}
++        text1.configure(state=NORMAL)
++        text1.delete('1.0',END)
++        text1.configure(state=DISABLED)
+         iband0=iband.get()
+     freq0[iband.get()]=f0.get()
+     freqtx[iband.get()]=ftx.get()
+@@ -728,12 +736,20 @@
+         t='Receiving'
+         bgcolor='green'
+     msg6.configure(text=t,bg=bgcolor)
++    if w.acom1.ntune==0:
++        btune.configure(bg='gray85')
++    w.acom1.pctx=ipctx.get()
++    w.acom1.idle=idle.get()
+     if idle.get()==0:
+-        w.acom1.pctx=ipctx.get()
+         bidle.configure(bg='gray85')
++        btune.configure(state=DISABLED)
+     else:
+-        w.acom1.pctx=-1
+         bidle.configure(bg='yellow')
++        btune.configure(state=NORMAL)
++    if upload.get()==1:
++        bupload.configure(bg='gray85')
++    else:
++        bupload.configure(bg='yellow')
+ 
+ # If new decoded text has appeared, display it.
+     if w.acom1.ndecdone:
+@@ -820,8 +836,8 @@
+     options.inbad.set(inbad)
+     options.outbad.set(outbad)
+     if inbad or outbad:
++        w.acom1.ndevsok=0
+         options1()
+-        w.acom1.ndevsok=0
+     else:
+         w.acom1.ndevsok=1
+ 
+@@ -965,8 +981,7 @@
+ c=Canvas(iframe1, bg='white', width=40, height=NY,bd=0)
+ c.pack(side=LEFT)
+ 
+-#text1=Text(iframe1, height=10, width=12, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+-text1=Text(iframe1, height=10, width=12, bg='RoyalBlue2', fg=&quot;yellow&quot;)
++text1=Text(iframe1, height=10, width=12, bg='Navy', fg=&quot;yellow&quot;)
+ text1.pack(side=LEFT, padx=1)
+ text1.tag_configure('age0',foreground='red')
+ text1.tag_configure('age1',foreground='yellow')
+@@ -1000,10 +1015,10 @@
+ iframe2a = Frame(frame, bd=1, relief=FLAT)
+ g1=Pmw.Group(iframe2a,tag_text=&quot;Frequencies (MHz)&quot;)
+ lf0=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Dial:',
+-        value=10.1387,entry_textvariable=sf0,entry_width=12)
++        value=10.1387,entry_textvariable=sf0,entry_width=12,validate='real')
+ laberr=Label(g1.interior(), bg='gray85', fg='gray85', text='*')
+ lftx=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Tx:',
+-        entry_textvariable=sftx,entry_width=12)
++        value=10.140000,entry_textvariable=sftx,entry_width=12,validate='real')
+ widgets = (lf0,laberr,lftx)
+ for widget in widgets:
+     widget.pack(side=LEFT,padx=5,pady=2)
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-10-28 00:01:35 UTC (rev 1587)
++++ branches/wspr/wspr2.F90	2009-10-28 18:41:32 UTC (rev 1588)
+@@ -12,12 +12,12 @@
+ !  17  audio_caps
+ !  18  test.snr
+ 
+-  character*17 message
++  character message*24,cdbm*4
+   real*8 tsec
+-  logical idle,receiving,transmitting,decoding
++  logical receiving,transmitting,decoding
+   include 'acom1.f90'
+   common/patience/npatience
+-  data idle/.true./,receiving/.false./,transmitting/.false./
++  data receiving/.false./,transmitting/.false./
+   data decoding/.false./,ns1200/-999/
+ 
+ #ifdef CVF
+@@ -57,17 +57,23 @@
+      ntxdone=0
+   endif
+ 
+-  idle=.false.
+-  if(pctx.lt.0.0) idle=.true.
+-
+-  if(ns120.ge.114) then
++  if(ns120.ge.114 .and. ntune.eq.0) then
+      transmitting=.false.
+      receiving=.false.
+      ntr=0
+   endif
+ 
++  if(pctx.lt.1.0) ntune=0
++  if (ntune.eq.1 .and. ndevsok.eq.1.and. (.not.transmitting) .and.   &amp;
++       (.not.receiving) .and. pctx.ge.1.0) then
++! Test transmission of length pctx seconds.
++     nsectx=mod(nsec,86400)
++     transmitting=.true.
++     call starttx
++  endif
++
+   if(ns120.eq.0 .and. (.not.transmitting) .and. (.not.receiving) .and. &amp;
+-       (.not.idle)) go to 30
++       (idle.eq.0)) go to 30
+ 
+   call chklevel
+   call msleep(200)
+@@ -79,23 +85,19 @@
+      transmitting=.true.
+      call random_number(x)
+      nrx=nint(rxavg + rr*(x-0.5))
+-     write(message(13:16),'(i4)') ndbm
+-     message(1:12)='&quot;'//callsign//' '//grid
+-     message(17:17)='&quot;'
+-     do i=1,4
+-        i1=index(message,'  ')
+-        message=message(:i1)//message(i1+2:)
+-     enddo
++     write(cdbm,'(i4)') ndbm
++     message=callsign//grid//cdbm
++     call msgtrim(message,msglen)
+ 
+ #ifdef CVF
+-     open(13,file='ALL_MEPT.TXT',status='unknown',                   &amp;
++     open(13,file='ALL_WSPR.TXT',status='unknown',                   &amp;
+           position='append',share='denynone')
+ #else
+-     open(13,file='ALL_MEPT.TXT',status='unknown',position='append')
++     open(13,file='ALL_WSPR.TXT',status='unknown',position='append')
+ #endif
+ 
+      write(13,1030) cdate(3:8),utctime(1:4),ftx,message
+-1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a17)
++1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a24)
+      close(13)
+      ntr=-1
+      nsectx=mod(nsec,86400)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001278.html">[WSJT-SVN] r1587 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001280.html">[WSJT-SVN] r1589 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1279">[ date ]</a>
+              <a href="thread.html#1279">[ thread ]</a>
+              <a href="subject.html#1279">[ subject ]</a>
+              <a href="author.html#1279">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

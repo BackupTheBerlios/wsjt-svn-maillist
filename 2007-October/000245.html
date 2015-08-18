@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r560 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r560%20-%20branches/map65&In-Reply-To=%3C200710241740.l9OHe1Lq012254%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000244.html">
+   <LINK REL="Next"  HREF="000246.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r560 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r560%20-%20branches/map65&In-Reply-To=%3C200710241740.l9OHe1Lq012254%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r560 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct 24 19:40:01 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000244.html">[WSJT-SVN] r559 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000246.html">[WSJT-SVN] r561 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#245">[ date ]</a>
+              <a href="thread.html#245">[ thread ]</a>
+              <a href="subject.html#245">[ subject ]</a>
+              <a href="author.html#245">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-10-24 19:39:52 +0200 (Wed, 24 Oct 2007)
+New Revision: 560
+
+Modified:
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/spec.f90
+   branches/map65/specjt.py
+   branches/map65/symspec.f90
+Log:
+Waterfall AGC based on 40th percentile of avg spectrum.
+Double-click in zoomed spectrum sets Tol=100.
+Lower threshold for quick decode (nqd=1), if TOL.le.100.
+Fixed display of shorthand S/N in main text window.
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-10-18 16:34:25 UTC (rev 559)
++++ branches/map65/map65.py	2007-10-24 17:39:52 UTC (rev 560)
+@@ -1007,9 +1007,14 @@
+         astrotext.insert(END,&quot;Dgrd:%6.1f\n&quot; % g.Dgrd)
+ 
+     if g.freeze_decode and mode.get()[:4]=='JT65':
+-        itol=5
+-        ltol.configure(text='Tol    '+str(500))
+-        Audio.gcom2.dftolerance=500
++        if g.freeze_decode==1:
++            itol=5
++            ltol.configure(text='Tol    '+str(500))
++            Audio.gcom2.dftolerance=500
++        else:
++            itol=3
++            ltol.configure(text='Tol    '+str(100))
++            Audio.gcom2.dftolerance=100
+         nfreeze.set(1)
+         Audio.gcom2.nfreeze=1
+         if Audio.gcom2.monitoring:
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-10-18 16:34:25 UTC (rev 559)
++++ branches/map65/map65a.F90	2007-10-24 17:39:52 UTC (rev 560)
+@@ -44,7 +44,7 @@
+   if(nutc.ne.nutc0) nfile=nfile+1
+   nutc0=nutc
+   nutcdata=nutc
+-  df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
++  df=96000.0/NFFT                     !df = 96000/NFFT = 2.930 Hz
+   ftol=0.020                          !Frequency tolerance (kHz)
+   foffset=0.001*(1270 + nfcal)
+   fselect=mousefqso + foffset
+@@ -60,12 +60,12 @@
+   iloop=0
+ 2 if(ndphi.eq.1) dphi=30*iloop/57.2957795
+   do nqd=1,0,-1
+-     if(nqd.eq.1) then
++     if(nqd.eq.1) then                     !Quick decode, at fQSO
+         fa=1000.0*(fselect+0.001*mousedf-100.0) - dftolerance
+         fb=1000.0*(fselect+0.001*mousedf-100.0) + dftolerance
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+         ib=nint((fb+23000.0)/df + 1.0)
+-     else
++     else                                  !Wideband decode at all freqs
+         fa=1000*(nfa-100)
+         fb=1000*(nfb-100)
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+@@ -168,7 +168,9 @@
+ 
+ ! ########################### Search for Normal Messages ###########
+ !  Is sync1 above threshold?
+-           if(sync1.gt.1.0) then
++           thresh1=1.0
++           if(nqd.eq.1 .and. dftolerance.le.100) thresh1=0.  !Lower threshold at fQSO
++           if(sync1.gt.thresh1) then
+ 
+ !  Keep only the best candidate within ftol.
+ !  (Am I deleting any good decodes by doing this?)
+@@ -186,7 +188,6 @@
+                  if(i1.ge.5 .or. i2.ge.9) then
+                     nhispol=nint(57.2957795*pol)
+                  endif
+-
+                  km=km+1
+                  sig(km,1)=nfile
+                  sig(km,2)=nutc
+@@ -244,6 +245,8 @@
+ !              ndf2=nint(a(3))
+               nsync1=sync1
+               nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
++              if(decoded(1:4).eq.'RO  ' .or. decoded(1:4).eq.'RRR  ' .or.  &amp;
++                 decoded(1:4).eq.'73  ') nsync2=nsync2-6
+               nw=0                                !### Fix this! ###
+               nwrite=nwrite+1
+               if(ndphi.eq.0) then
+
+Modified: branches/map65/spec.f90
+===================================================================
+--- branches/map65/spec.f90	2007-10-18 16:34:25 UTC (rev 559)
++++ branches/map65/spec.f90	2007-10-24 17:39:52 UTC (rev 560)
+@@ -17,7 +17,7 @@
+ 
+ !  Could save memory by doing the averaging-by-7 (or 10?) of ss5 in symspec.
+   include 'spcom.f90'
+-  real s(NFFT,NY)
++  real s(NFFT,NY),savg2(NFFT),tmp(NFFT)
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+@@ -45,7 +45,16 @@
+         enddo
+      enddo
+   enddo
++  call zero(savg2,NFFT)
++  do j=1,nlines
++     call add(savg2,s(1,j),savg2,NFFT)
++  enddo
+ 
++  ia=0.03*NFFT
++  nn=0.94*NFFT
++  call pctile(savg2(ia),tmp,nn,40,base)
++  base=base/(nadd*nlines)
++
+   newpts=NX*nlines
+   do i=newpts+1,NX*NY
+      a(i)=a(i-newpts)
+@@ -56,6 +65,7 @@
+   gamma=1.3 + 0.01*contrast
+   offset=(brightness+64.0)/2
+   fac=20.0/nadd
++  fac=fac*(0.1537/base)
+   foffset=0.001*(1270+nfcal)
+   nbpp=(nfb-nfa)*NFFT/(96.0*NX)  !Bins per pixel in wideband (upper) waterfall
+   fselect=mousefqso + foffset
+@@ -73,7 +83,6 @@
+   do j=nlines,1,-1               !Reverse order so last will be on top
+      do i=1,NX
+         k=k+1
+-
+         n=0
+         x=0.
+         iia=(i-1)*nbpp + ii0 + 1
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-10-18 16:34:25 UTC (rev 559)
++++ branches/map65/specjt.py	2007-10-24 17:39:52 UTC (rev 560)
+@@ -245,7 +245,7 @@
+ # If decoder is busy or we are not monitoring, ignore request
+     if Audio.gcom2.ndecoding==0 or Audio.gcom2.monitoring==0:
+         set_freezedf(event)
+-        g.freeze_decode=1
++        g.freeze_decode=2
+ 
+ #---------------------------------------------------- update
+ def update():
+
+Modified: branches/map65/symspec.f90
+===================================================================
+--- branches/map65/symspec.f90	2007-10-18 16:34:25 UTC (rev 559)
++++ branches/map65/symspec.f90	2007-10-24 17:39:52 UTC (rev 560)
+@@ -24,8 +24,8 @@
+   if(nagc.ne.0) fac=0.0002 * 10.0**(0.05*(-rxnoise))
+   hsym=2048.d0*96000.d0/11025.d0          !Samples per half symbol
+   npts=hsym                               !Integral samples per half symbol
+-  ntot=322                               !Half symbols per transmission
+-!  ntot=279                                !Half symbols in 51.8 sec
++  ntot=322                                !Half symbols per transmission
++!  ntot=279                               !Half symbols in 51.8 sec
+ 
+   if(kbuf.ne.kbuf0 .or. ndiskdat.eq.1) then
+      kkdone=0
+@@ -41,10 +41,10 @@
+ 
+   do nn=1,ntot
+      i0=ts+hsym                           !Starting sample pointer
+-     if((i0+npts-1).gt.kkk) go to 998      !See if we have enough points
++     if((i0+npts-1).gt.kkk) go to 998     !See if we have enough points
+      i1=ts+2*hsym                         !Next starting sample pointer
+-     ts=ts+hsym                         !OK, update the exact sample pointer
+-     do i=1,npts                        !Copy data to FFT arrays
++     ts=ts+hsym                           !OK, update the exact sample pointer
++     do i=1,npts                          !Copy data to FFT arrays
+         xr=fac*id(1,i0+i,kbuf)
+         xi=fac*id(2,i0+i,kbuf)
+         cx(i)=cmplx(xr,xi)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000244.html">[WSJT-SVN] r559 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000246.html">[WSJT-SVN] r561 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#245">[ date ]</a>
+              <a href="thread.html#245">[ thread ]</a>
+              <a href="subject.html#245">[ subject ]</a>
+              <a href="author.html#245">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

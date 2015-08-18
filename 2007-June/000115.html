@@ -1,0 +1,375 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r430 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r430%20-%20branches/map65&In-Reply-To=%3C200706281834.l5SIYb8L013823%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000114.html">
+   <LINK REL="Next"  HREF="000116.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r430 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r430%20-%20branches/map65&In-Reply-To=%3C200706281834.l5SIYb8L013823%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r430 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 28 20:34:37 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000114.html">[WSJT-SVN] r429 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000116.html">[WSJT-SVN] r431 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-28 20:34:13 +0200 (Thu, 28 Jun 2007)
+New Revision: 430
+
+Modified:
+   branches/map65/decode1.F90
+   branches/map65/deep65.F
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/specjt.py
+   branches/map65/symspec.f
+Log:
+Good performance, including QD (quick decode) at selected fQSO.
+
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/decode1.F90	2007-06-28 18:34:13 UTC (rev 430)
+@@ -28,7 +28,7 @@
+      newdat=1
+   endif
+ 
+-  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise)
++  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise,newspec)
+ 
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/deep65.F	2007-06-28 18:34:13 UTC (rev 430)
+@@ -94,13 +94,11 @@
+             call encode65(message,ncode(1,k))
+             nflip(k)=flip
+ C  Insert CQ message
+-            if(m.eq.1 .and. flip.gt.0.0) then
+-               message='CQ '//callgrid(icall)
+-               k=k+1
+-               testmsg(k)=message
+-               call encode65(message,ncode(1,k))
+-               nflip(k)=flip
+-            endif
++            message='CQ '//callgrid(icall)
++            k=k+1
++            testmsg(k)=message
++            call encode65(message,ncode(1,k))
++            nflip(k)=flip
+          enddo
+          if(nsked.eq.1) go to 20
+  10      continue
+@@ -118,8 +116,10 @@
+       enddo
+ 
+       p1=-1.e30
++      p2=-1.e30
+       do k=1,ntot
+-         if(flip.gt.0.0 .or. nflip(k).lt.0) then         !Skip CQ msg if flip=-1
++         pp(k)=0.
++!         if(flip.gt.0.0 .or. nflip(k).lt.0) then       !Skip CQ msg if flip=-1
+             sum=0.
+             ref=ref0
+             do j=1,63
+@@ -135,10 +135,9 @@
+                p1=p
+                ip1=k
+             endif
+-         endif
++!         endif
+       enddo
+ 
+-      p2=-1.e30
+       do i=1,ntot
+          if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
+       enddo
+@@ -155,7 +154,7 @@
+       if(mode65.eq.2) bias=max(1.08*p2,0.405)
+       if(mode65.ge.4) bias=max(1.04*p2,0.505)
+ 
+-      if(p2.eq.p1) stop 'Error in deep65'
++      if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep65'
+       qual=100.0*(p1-bias)
+ 
+       decoded='                      '
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/map65.py	2007-06-28 18:34:13 UTC (rev 430)
+@@ -959,9 +959,9 @@
+         graph2.create_text(13,109,anchor=W,text=&quot;Dgrd:%5.1f&quot; % g.Dgrd,font=g2font)
+ 
+     if g.freeze_decode and mode.get()[:4]=='JT65':
+-        itol=2
+-        ltol.configure(text='Tol    '+str(50))
+-        Audio.gcom2.dftolerance=50
++        itol=5
++        ltol.configure(text='Tol    '+str(500))
++        Audio.gcom2.dftolerance=500
+         nfreeze.set(1)
+         Audio.gcom2.nfreeze=1
+         if Audio.gcom2.monitoring:
+@@ -1002,14 +1002,14 @@
+     msg3.configure(text=t)    
+     t=&quot;QSO DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+     msg4.configure(text=t)    
+-    bdecode.configure(bg='gray85',activebackground='gray95')
+     if mode.get()[:4]=='JT65' and Audio.gcom2.ndecoding:
+ #Set button bg while decoding
+         bc='#66FFFF'
+-        if g.ndecphase==1: bc='orange'
+-        if g.ndecphase==2: bc='yellow'
+-        bdecode.configure(bg=bc,activebackground=bc)
++#        if g.ndecphase==1: bc='orange'
++#        if g.ndecphase==2: bc='yellow'
++        bdecode.configure(bg=bc,activebackground=bc,state=DISABLED)
+     else:
++        bdecode.configure(bg='gray85',activebackground='gray95',state=ACTIVE)
+         g.ndecphase=0
+ 
+     tx1.configure(bg='white')
+@@ -1065,7 +1065,7 @@
+             except:
+                 lines=&quot;&quot;
+             text.configure(state=NORMAL)
+-            for i in range(len(lines)):
++            for i in range(len(lines)-1):
+                 text.insert(END,lines[i])
+             text.see(END)
+             g.ndecphase=1
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/map65a.f90	2007-06-28 18:34:13 UTC (rev 430)
+@@ -39,7 +39,7 @@
+   utcdata=utcdata(1:2)//':'//utcdata(3:4)
+   open(23,file='CALL3.TXT',status='old')
+ 
+-  fselect=mousefqso + 1.6 + 0.001*mousedf
++  fselect=mousefqso + 1.6
+   df=96000.0/NFFT                    !df = 96000/NFFT = 2.930 Hz
+   ftol=0.020                          !Frequency tolerance (kHz)
+   nfilt=1
+@@ -47,11 +47,10 @@
+ 
+   do nqd=1,0,-1
+      if(nqd.eq.1) then
+-        fa=1000.0*(fselect-100.0) - dftolerance
+-        fb=1000.0*(fselect-100.0) + dftolerance
++        fa=1000.0*(fselect+0.001*mousedf-100.0) - dftolerance
++        fb=1000.0*(fselect+0.001*mousedf-100.0) + dftolerance
+         ia=nint((fa+23000.0)/df + 1.0)     ! 23000 = 48000 - 25000
+         ib=nint((fb+23000.0)/df + 1.0)
+-        print*,dftolerance,ia,ib
+      else
+         fa=0.0
+         fb=60000.0
+@@ -63,15 +62,12 @@
+      nkk=1
+      nz=n/8
+ 
+-     ndecdone=1
+-
+      do i=1,NFFT
+         short(1,i)=0.
+         short(2,i)=0.
+         short(3,i)=0.
+      enddo
+ 
+-     newspec=1
+      freq0=-999.
+      sync10=-999.
+      fshort0=-999.
+@@ -159,14 +155,12 @@
+ !  (Am I deleting any good decodes by doing this?  Any harm in omitting
+ !  these statements??)
+               if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.         &amp;
+-                   nkk.eq.1) kk=kk-1
++                   nkk.eq.1 .and.nqd.eq.0) kk=kk-1
+ 
+-              if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
++              if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .and. nqd.eq.0) then
+                  nflip=nint(flipk)
+                  call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,dphi,  &amp;
+                       ipol,sync2,a,dt,pol,nkv,nhist,qual,decoded)
+-!              i9=index(decoded,'AA1YN')
+-!              if(i9.gt.0) print*,i,i9,fselect,freq,decoded
+                  kk=kk+1
+                  sig(kk,1)=nfile
+                  sig(kk,2)=nutc
+@@ -195,21 +189,41 @@
+         endif
+      enddo
+      if(nqd.eq.1) then
+-        nkHz=nint(freq-1.600)
+-        npol=nint(57.2957795*pol)
+-        nqual=qual
+-        if(nflip.eq.-1) then                      !Should this be in decode1a ?
+-           do i=22,9,-1
+-              if(decoded(i:i).ne.' ') then
+-                 decoded(i+2:i+4)='OOO'
+-                 go to 6
++        do k=1,kk
++           decoded=msg(k)
++           if(decoded.ne.'                      ') then
++              nutc=sig(k,2)
++              freq=sig(k,3)
++              sync1=sig(k,4)
++              dt=sig(k,5)
++              npol=nint(57.2957795*sig(k,6))
++              flip=sig(k,7)
++              sync2=sig(k,8)
++              nkv=sig(k,9)
++              nqual=sig(k,10)
++              if(flip.lt.0.0) then
++                 do i=22,1,-1
++                    if(decoded(i:i).ne.' ') go to 8
++                 enddo
++                 stop 'Error in message format'
++8                if(i.le.18) decoded(i+2:i+4)='OOO'
+               endif
+-           enddo
+-        endif
+-        nw=0
+-6       write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
+-1010    format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
++              nkHz=nint(freq-1.600)
++              f0=144.0+0.001*nkHz
++              ndf=nint(1000.0*(freq-1.600-nkHz))
++!              ndf0=nint(a(1))
++!              ndf1=nint(a(2))
++!              ndf2=nint(a(3))
++              nsync1=sync1
++              nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
++              nw=0
++              write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
++1010          format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
++           endif
++        enddo
++        write(11,*) '$EOF'
+         call flushqqq(11)
++        ndecdone=1
+      endif
+      if(nagain.eq.1) go to 999
+   enddo
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/specjt.py	2007-06-28 18:34:13 UTC (rev 430)
+@@ -175,10 +175,17 @@
+     if fmid&lt;1000*nfr.get(): fmid=1000*nfr.get()
+     if fmid&gt;5000-1000*nfr.get(): fmid=5000-1000*nfr.get()
+ 
+-#---------------------------------------------------- freeze_decode
+-def freeze_decode(event):
++#---------------------------------------------------- freeze_decode1
++def freeze_decode1(event):
+ # If decoder is busy or we are not monitoring, ignore request
+     if Audio.gcom2.ndecoding==0 or Audio.gcom2.monitoring==0:
++        set_fqso(event)
++        g.freeze_decode=1
++
++#---------------------------------------------------- freeze_decode2
++def freeze_decode2(event):
++# If decoder is busy or we are not monitoring, ignore request
++    if Audio.gcom2.ndecoding==0 or Audio.gcom2.monitoring==0:
+         set_freezedf(event)
+         g.freeze_decode=1
+ 
+@@ -400,7 +407,7 @@
+ graph1.pack(side=TOP)
+ Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,fdf_change)
+ Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,set_fqso)
+-Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
++Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode1)
+ iframe1.pack(expand=1, fill=X)
+ 
+ c2=Canvas(iframe1, bg='white', width=NX, height=25,bd=0)
+@@ -413,7 +420,7 @@
+ graph2.pack(side=TOP)
+ Widget.bind(graph2,&quot;&lt;Motion&gt;&quot;,fdf_change2)
+ Widget.bind(graph2,&quot;&lt;Button-1&gt;&quot;,set_freezedf)
+-Widget.bind(graph2,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
++Widget.bind(graph2,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode2)
+ iframe1.pack(expand=1, fill=X)
+ 
+ 
+
+Modified: branches/map65/symspec.f
+===================================================================
+--- branches/map65/symspec.f	2007-06-28 15:14:35 UTC (rev 429)
++++ branches/map65/symspec.f	2007-06-28 18:34:13 UTC (rev 430)
+@@ -1,4 +1,4 @@
+-      subroutine symspec(id,kbuf,kk,kkdone,rxnoise)
++      subroutine symspec(id,kbuf,kk,kkdone,rxnoise,newspec)
+ 
+ C  Compute spectra at four polarizations, using half-symbol steps.
+ 
+@@ -84,7 +84,10 @@
+             ss5(n,i)=0.707*sqrt(q*q + u*u)
+ 
+          enddo
+-         if(n.eq.ntot) go to 999
++         if(n.eq.ntot) then
++            newspec=1
++            go to 999
++         endif
+       enddo
+ 
+  999  return
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000114.html">[WSJT-SVN] r429 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000116.html">[WSJT-SVN] r431 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

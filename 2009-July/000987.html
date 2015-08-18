@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1293 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1293%20-%20trunk&In-Reply-To=%3C200907241939.n6OJdREa003599%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000986.html">
+   <LINK REL="Next"  HREF="000988.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1293 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1293%20-%20trunk&In-Reply-To=%3C200907241939.n6OJdREa003599%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1293 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 24 21:39:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000986.html">[WSJT-SVN] r1292 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000988.html">[WSJT-SVN] r1294 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#987">[ date ]</a>
+              <a href="thread.html#987">[ thread ]</a>
+              <a href="subject.html#987">[ subject ]</a>
+              <a href="author.html#987">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-24 21:39:22 +0200 (Fri, 24 Jul 2009)
+New Revision: 1293
+
+Modified:
+   trunk/astro.F
+   trunk/astro0.F90
+   trunk/ftn_init.F90
+   trunk/ftsky.f
+   trunk/wsjt.py
+Log:
+Move the TSKY initialization to ftn_init.
+
+
+Modified: trunk/astro.F
+===================================================================
+--- trunk/astro.F	2009-07-24 16:12:38 UTC (rev 1292)
++++ trunk/astro.F	2009-07-24 19:39:22 UTC (rev 1293)
+@@ -1,4 +1,4 @@
+-      subroutine astro(AppDir,nyear,month,nday,uth,nfreq,Mygrid,
++      subroutine astro(nyear,month,nday,uth,nfreq,Mygrid,
+      +     NStation,mode,MoonDX,AzSun,ElSun,AzMoon,ElMoon0,
+      +     ntsky,doppler00,doppler,dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,
+      +     poloffset,xnr,auxra,auxdec,azaux,elaux)
+@@ -8,53 +8,16 @@
+ 
+       character*80 AppDir,fname
+       character*6 MyGrid,HisGrid
+-      logical first,ltsky
++      logical ltsky
+       real LST
+       real lat,lon
+       real ldeg
+-      real poloffset2
+       integer*2 nsky
+-      common/sky/ nsky(360,180)
++      common/sky/ nsky(360,180),ltsky
+       common/echo/xdop(2),techo,ElMoon,mjd
+-      data ltsky/.false./
+-      data first/.true./
+       data rad/57.2957795/
+-      save first,poloffset2
++      save
+ 
+-      if(first) then
+-         call cs_lock('astro')
+-         do i=80,1,-1
+-            if(ichar(AppDir(i:i)).ne.0 .and. 
+-     +           ichar(AppDir(i:i)).ne.32) goto 1
+-         enddo
+- 1       lenappdir=i
+-         call zero(nsky,180*180)
+-         fname=Appdir(1:lenappdir)//'/TSKY.DAT'
+-#ifdef CVF
+-         open(13,file=fname,status='old',form='binary',err=10)
+-         read(13) nsky
+-         close(13)
+-#else
+-         call rfile2(fname,nsky,129600,nr)
+-!         if(nr.ne.129600) go to 10
+-         nsky4=nsky(1,1)
+-         if (iabs(nsky4).gt.500) then
+-            write(*,1000)
+- 1000       format('Converting TSKY.DAT')
+-            do i=1,360
+-               do j=1,180
+-                  nsky(i,j) = iswap_short(nsky(i,j))
+-               enddo
+-            enddo
+-         endif 
+-#endif
+-         ltsky=.true.
+-         first=.false.
+-         call cs_unlock
+-      endif
+-      go to 20
+- 10   ltsky=.false.
+- 
+  20   call grid2deg(MyGrid,elon,lat)
+       lon=-elon
+       call sun(nyear,month,nday,uth,lon,lat,RASun,DecSun,LST,
+
+Modified: trunk/astro0.F90
+===================================================================
+--- trunk/astro0.F90	2009-07-24 16:12:38 UTC (rev 1292)
++++ trunk/astro0.F90	2009-07-24 19:39:22 UTC (rev 1293)
+@@ -54,13 +54,13 @@
+   uth=uth8
+   call cs_unlock
+ 
+-  call astro(AppDir,nyear,month,nday,uth,nfreq,hisgrid,2,nmode,1,    &amp;
++  call astro(nyear,month,nday,uth,nfreq,hisgrid,2,nmode,1,    &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,auxra,auxdec,  &amp;
+        AzAux,ElAux)
+   AzMoonB8=AzMoon
+   ElMoonB8=ElMoon
+-  call astro(AppDir,nyear,month,nday,uth,nfreq,grid,1,nmode,1,       &amp;
++  call astro(nyear,month,nday,uth,nfreq,grid,1,nmode,1,       &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,auxra,auxdec,  &amp;
+        AzAux,ElAux)
+
+Modified: trunk/ftn_init.F90
+===================================================================
+--- trunk/ftn_init.F90	2009-07-24 16:12:38 UTC (rev 1292)
++++ trunk/ftn_init.F90	2009-07-24 19:39:22 UTC (rev 1293)
+@@ -18,13 +18,16 @@
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+ 
+-  character*1 cjunk
++  character*1 cjunk,fname*80
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+   include 'gcom4.f90'
+   character*12 csub0
+   common/mtxcom/ltrace,mtx,mtxstate,csub0
++  integer*2 nsky
++  logical ltsky
++  common/sky/ nsky(360,180),ltsky
+ 
+   call cs_init
+   call cs_lock('ftn_init')
+@@ -93,7 +96,31 @@
+        status='unknown')
+ #endif
+ 
+-  call cs_unlock
++  call zero(nsky,180*180)
++  fname=appdir(:iz)//'/TSKY.DAT'
++#ifdef CVF
++  open(13,file=fname,status='old',form='binary',err=10)
++  read(13) nsky
++  close(13)
++#else
++  call rfile2(fname,nsky,129600,nr)
++  if(nr.ne.129600) go to 10
++  nsky4=nsky(1,1)
++  if (iabs(nsky4).gt.500) then
++     write(*,1000)
++1000 format('Converting TSKY.DAT')
++     do i=1,360
++        do j=1,180
++           nsky(i,j) = iswap_short(nsky(i,j))
++        enddo
++     enddo
++  endif
++#endif
++  ltsky=.true.
++  go to 20
++10 ltsky=.false.
++
++20 call cs_unlock
+   return
+ 
+ 910 print*,'Error opening DECODED.TXT'
+
+Modified: trunk/ftsky.f
+===================================================================
+--- trunk/ftsky.f	2009-07-24 16:12:38 UTC (rev 1292)
++++ trunk/ftsky.f	2009-07-24 19:39:22 UTC (rev 1293)
+@@ -6,7 +6,8 @@
+ 
+       real*4 l,b
+       integer*2 nsky
+-      common/sky/ nsky(360,180)
++      logical ltsky
++      common/sky/ nsky(360,180),ltsky
+       save
+ 
+       j=nint(b+91.0)
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2009-07-24 16:12:38 UTC (rev 1292)
++++ trunk/wsjt.py	2009-07-24 19:39:22 UTC (rev 1293)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000986.html">[WSJT-SVN] r1292 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000988.html">[WSJT-SVN] r1294 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#987">[ date ]</a>
+              <a href="thread.html#987">[ thread ]</a>
+              <a href="subject.html#987">[ subject ]</a>
+              <a href="author.html#987">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

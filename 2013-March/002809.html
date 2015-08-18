@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3117 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3117%20-%20branches/wsjtx&In-Reply-To=%3C20130329002126.C7C2455B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002808.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3117 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3117%20-%20branches/wsjtx&In-Reply-To=%3C20130329002126.C7C2455B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3117 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Mar 29 01:21:26 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002808.html">[WSJT-SVN] r3116 - branches/wsjtx
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2809">[ date ]</a>
+              <a href="thread.html#2809">[ thread ]</a>
+              <a href="subject.html#2809">[ subject ]</a>
+              <a href="author.html#2809">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-29 01:21:26 +0100 (Fri, 29 Mar 2013)
+New Revision: 3117
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+Log:
+1. Blank line (gray background) to decoded text window at start of new 
+decoding minute.
+2. LogQSO confirmation screen no longer blocks GUIupdate().
+3. Remove an unused item from Help menu.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-28 17:22:40 UTC (rev 3116)
++++ branches/wsjtx/mainwindow.cpp	2013-03-29 00:21:26 UTC (rev 3117)
+@@ -121,6 +121,10 @@
+   ptt1Timer-&gt;setSingleShot(true);
+   connect(ptt1Timer, SIGNAL(timeout()), this, SLOT(startTx2()));
+ 
++  logQSOTimer = new QTimer(this);
++  logQSOTimer-&gt;setSingleShot(true);
++  connect(logQSOTimer, SIGNAL(timeout()), this, SLOT(on_logQSOButton_clicked()));
++
+   m_auto=false;
+   m_waterfallAvg = 1;
+   m_txFirst=false;
+@@ -155,6 +159,7 @@
+   m_COMportOpen=0;
+   m_secID=0;
+   m_promptToLog=false;
++  m_blankLine=false;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -1157,6 +1162,7 @@
+       decodeBusy(false);
+       m_RxLog=0;
+       m_startAnother=m_loopall;
++      m_blankLine=true;
+       return;
+     } else {
+ 
+@@ -1172,17 +1178,30 @@
+       out &lt;&lt; t.mid(0,n-2) &lt;&lt; endl;
+       f.close();
+ 
++      QTextCursor cursor;
++      QTextBlockFormat bf;
++      if(m_blankLine) {
++        QString bg=&quot;#9fb6cd&quot;;
++        bf.setBackground(QBrush(QColor(bg)));
++        QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
++            bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + &quot; &quot; + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
++        cursor = ui-&gt;decodedTextBrowser-&gt;textCursor();
++        cursor.movePosition(QTextCursor::End);
++        bf = cursor.blockFormat();
++        bf.setBackground(QBrush(QColor(bg)));
++        cursor.insertHtml(s);
++        m_blankLine=false;
++      }
++
+       QString bg=&quot;white&quot;;
+       if(t.indexOf(&quot; CQ &quot;)&gt;0) bg=&quot;#66ff66&quot;;                //Light green
+       if(m_myCall!=&quot;&quot; and t.indexOf(&quot; &quot;+m_myCall+&quot; &quot;)&gt;0) bg=&quot;#ff6666&quot;; //Light red
+-      //ui-&gt;decodedTextBrowser-&gt;setTextBackgroundColor(bg);
+-      //t=t.mid(0,n-2) + &quot;                                                  &quot;;
+-      //ui-&gt;decodedTextBrowser-&gt;append(t);
+ 
+-      QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot;+ bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t.replace(&quot;\n&quot;,&quot;&quot;) + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
+-      QTextCursor cursor = ui-&gt;decodedTextBrowser-&gt;textCursor();
++      QString s = &quot;&lt;table border=0 cellspacing=0 width=100%&gt;&lt;tr&gt;&lt;td bgcolor=\&quot;&quot; +
++          bg + &quot;\&quot;&gt;&lt;pre&gt;&quot; + t.replace(&quot;\n&quot;,&quot;&quot;) + &quot;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;;
++      cursor = ui-&gt;decodedTextBrowser-&gt;textCursor();
+       cursor.movePosition(QTextCursor::End);
+-      QTextBlockFormat bf = cursor.blockFormat();
++      bf = cursor.blockFormat();
+       bf.setBackground(QBrush(QColor(bg)));
+       cursor.insertHtml(s);
+       ui-&gt;decodedTextBrowser-&gt;setTextCursor(cursor);
+@@ -1353,7 +1372,8 @@
+     icw[0]=0;
+     if(m_After73 and (t==&quot;73&quot; or itext!=0)) {
+       icw[0]=m_ncw;
+-      if(m_promptToLog) on_logQSOButton_clicked();
++//      if(m_promptToLog) on_logQSOButton_clicked();
++      if(m_promptToLog) logQSOTimer-&gt;start(200);
+     }
+ 
+     if(m_idInt&gt;0) {
+@@ -1485,7 +1505,7 @@
+   }
+   iptt0=m_iptt;
+   btxok0=btxok;
+-}
++}               //End of GUIupdate
+ 
+ QString MainWindow::rig_command()
+ {
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-28 17:22:40 UTC (rev 3116)
++++ branches/wsjtx/mainwindow.h	2013-03-29 00:21:26 UTC (rev 3117)
+@@ -211,6 +211,7 @@
+     bool    m_catEnabled;
+     bool    m_After73;
+     bool    m_promptToLog;
++    bool    m_blankLine;
+ 
+     char    m_decoded[80];
+ 
+@@ -237,8 +238,9 @@
+     QProcess proc_jt9;
+     QProcess p3;
+ 
+-    QTimer* ptt0Timer;
+-    QTimer* ptt1Timer;
++    QTimer* ptt1Timer;                 //StartTx delay
++    QTimer* ptt0Timer;                 //StopTx delay
++    QTimer* logQSOTimer;
+ 
+     QString m_path;
+     QString m_pbdecoding_style1;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2013-03-28 17:22:40 UTC (rev 3116)
++++ branches/wsjtx/mainwindow.ui	2013-03-29 00:21:26 UTC (rev 3117)
+@@ -911,7 +911,7 @@
+            &lt;/size&gt;
+           &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Tx first&lt;/string&gt;
++           &lt;string&gt;Tx even&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+@@ -1717,7 +1717,6 @@
+     &lt;addaction name=&quot;actionOnline_Users_Guide&quot;/&gt;
+     &lt;addaction name=&quot;actionKeyboard_shortcuts&quot;/&gt;
+     &lt;addaction name=&quot;actionSpecial_mouse_commands&quot;/&gt;
+-    &lt;addaction name=&quot;actionAvailable_suffixes_and_add_on_prefixes&quot;/&gt;
+     &lt;addaction name=&quot;actionAbout&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;widget class=&quot;QMenu&quot; name=&quot;menuMode&quot;&gt;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002808.html">[WSJT-SVN] r3116 - branches/wsjtx
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2809">[ date ]</a>
+              <a href="thread.html#2809">[ thread ]</a>
+              <a href="subject.html#2809">[ subject ]</a>
+              <a href="author.html#2809">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

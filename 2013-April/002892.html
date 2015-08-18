@@ -1,0 +1,884 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3200 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3200%20-%20branches/wsjtx&In-Reply-To=%3C20130423005251.AD1A855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002891.html">
+   <LINK REL="Next"  HREF="002893.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3200 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3200%20-%20branches/wsjtx&In-Reply-To=%3C20130423005251.AD1A855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3200 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 23 02:52:51 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002891.html">[WSJT-SVN] r3199 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002893.html">[WSJT-SVN] r3201 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2892">[ date ]</a>
+              <a href="thread.html#2892">[ thread ]</a>
+              <a href="subject.html#2892">[ subject ]</a>
+              <a href="author.html#2892">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-23 02:52:51 +0200 (Tue, 23 Apr 2013)
+New Revision: 3200
+
+Added:
+   branches/wsjtx/rigclass.cpp
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Once again, working to implement direct calls to basic hamlib functiions.
+*** This code is not finished, and may not work correctly! ***
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-22 15:43:02 UTC (rev 3199)
++++ branches/wsjtx/mainwindow.cpp	2013-04-23 00:52:51 UTC (rev 3200)
+@@ -22,6 +22,7 @@
+            18.104,21.078,24.918,28.078,50.293,70.091,144.489,432.178};
+ 
+ WideGraph* g_pWideGraph = NULL;
++Rig* rig = NULL;
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSJT-X   v0.9, r&quot; + rev.mid(6,4) +
+@@ -180,6 +181,7 @@
+   m_watchdogLimit=5;
+   m_tune=false;
+   m_repeatMsg=0;
++  m_bRigOpen=false;
+   m_secBandChanged=0;
+   decodeBusy(false);
+ 
+@@ -298,7 +300,6 @@
+ 
+   ui-&gt;label_9-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+   ui-&gt;label_10-&gt;setStyleSheet(&quot;QLabel{background-color: #aabec8}&quot;);
+-
+ }                                          // End of MainWindow constructor
+ 
+ //--------------------------------------------------- MainWindow destructor
+@@ -831,13 +832,14 @@
+ void MainWindow::statusChanged()
+ {
+   QFile f(&quot;wsjtx_status.txt&quot;);
+-  if(!f.open(QFile::WriteOnly | QIODevice::Text)) {
++  if(f.open(QFile::WriteOnly | QIODevice::Text)) {
++    QTextStream out(&amp;f);
++    out &lt;&lt; m_dialFreq &lt;&lt; &quot;;&quot; &lt;&lt; m_mode &lt;&lt; &quot;;&quot; &lt;&lt; m_hisCall &lt;&lt; endl;
++    f.close();
++  } else {
+     msgBox(&quot;Cannot open file \&quot;wsjtx_status.txt\&quot;.&quot;);
+     return;
+   }
+-  QTextStream out(&amp;f);
+-  out &lt;&lt; m_dialFreq &lt;&lt; &quot;;&quot; &lt;&lt; m_mode &lt;&lt; &quot;;&quot; &lt;&lt; m_hisCall &lt;&lt; endl;
+-  f.close();
+ }
+ 
+ bool MainWindow::eventFilter(QObject *object, QEvent *event)  //eventFilter()
+@@ -1587,6 +1589,10 @@
+     on_actionOpen_next_in_directory_triggered();
+   }
+ 
++  if(m_catEnabled and !m_bRigOpen) {
++    rigOpen();
++  }
++
+   if(nsec != m_sec0) {                                     //Once per second
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     if(m_transmitting) {
+@@ -1621,6 +1627,12 @@
+     }
+     m_hsym0=khsym;
+     m_sec0=nsec;
++
++    if(m_catEnabled) {
++      double fMHz=rig-&gt;getFreq(RIG_VFO_CURR)/1000000.0;
++      int ndiff=1000000.0*(fMHz-m_dialFreq);
++      if(ndiff!=0) dialFreqChanged2(fMHz);
++    }
+   }
+ 
+   iptt0=m_iptt;
+@@ -2427,13 +2439,7 @@
+   m_repeatMsg=0;
+   m_secBandChanged=QDateTime::currentMSecsSinceEpoch()/1000;
+   if(m_catEnabled) {
+-    int nHz=int(1000000.0*m_dialFreq + 0.5);
+-    QString cmnd1,cmnd3;
+-    cmnd1=rig_command();
+-    cmnd3.sprintf(&quot; F %d&quot;,nHz);
+-    m_cmnd=cmnd1 + cmnd3;
+-    p3.start(m_cmnd);
+-    p3.waitForFinished();
++    rig-&gt;setFreq(MHz(m_dialFreq));
+   }
+ }
+ 
+@@ -2590,3 +2596,26 @@
+   m_repeatMsg=0;
+   ui-&gt;tuneButton-&gt;setStyleSheet(&quot;&quot;);
+ }
++
++void MainWindow::rigOpen()
++{
++  rig = new Rig(m_rig);
++  try {
++    rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
++    char buf[80];
++    sprintf(buf,&quot;%d&quot;,m_serialRate);
++    rig-&gt;setConf(&quot;serial_speed&quot;,buf);
++    sprintf(buf,&quot;%d&quot;,m_dataBits);
++    rig-&gt;setConf(&quot;data_bits&quot;,buf);
++    sprintf(buf,&quot;%d&quot;,m_stopBits);
++    rig-&gt;setConf(&quot;stop_bits&quot;,buf);
++    rig-&gt;setConf(&quot;serial_handshake&quot;,m_handshake.toAscii().data());
++    rig-&gt;open();
++    m_bRigOpen=true;
++  }
++  catch (const RigException &amp;Ex) {
++    m_catEnabled=false;
++    m_bRigOpen=false;
++    msgBox(&quot;Failed to open rig&quot;);
++  }
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-22 15:43:02 UTC (rev 3199)
++++ branches/wsjtx/mainwindow.h	2013-04-23 00:52:51 UTC (rev 3200)
+@@ -7,6 +7,7 @@
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
+ #include &quot;psk_reporter.h&quot;
++#include &lt;hamlib/rigclass.h&gt;
+ 
+ #ifdef WIN32
+ #include &quot;PSKReporter.h&quot;
+@@ -247,6 +248,7 @@
+     bool    m_runaway;
+     bool    m_tx2QSO;
+     bool    m_tune;
++    bool    m_bRigOpen;
+ 
+     char    m_decoded[80];
+ 
+@@ -332,6 +334,7 @@
+     void dialFreqChanged2(double f);
+     void freeText();
+     void displayTxMsg(QString t);
++    void rigOpen();
+     bool gridOK(QString g);
+     QString rig_command();
+     QString baseCall(QString t);
+
+Added: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	                        (rev 0)
++++ branches/wsjtx/rigclass.cpp	2013-04-23 00:52:51 UTC (rev 3200)
+@@ -0,0 +1,613 @@
++/**
++ * \file src/rigclass.cc
++ * \brief Ham Radio Control Libraries C++ interface
++ * \author Stephane Fillod
++ * \date 2001-2003
++ *
++ * Hamlib C++ interface is a frontend implementing wrapper functions.
++ */
++
++/*
++ *  Hamlib C++ bindings - main file
++ *  Copyright (c) 2001-2003 by Stephane Fillod
++ *
++ *
++ *   This library is free software; you can redistribute it and/or
++ *   modify it under the terms of the GNU Lesser General Public
++ *   License as published by the Free Software Foundation; either
++ *   version 2.1 of the License, or (at your option) any later version.
++ *
++ *   This library is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *   Lesser General Public License for more details.
++ *
++ *   You should have received a copy of the GNU Lesser General Public
++ *   License along with this library; if not, write to the Free Software
++ *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
++ *
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;hamlib/rig.h&gt;
++#include &lt;hamlib/rigclass.h&gt;
++
++#define CHECK_RIG(cmd) { int _retval = cmd; if (_retval != RIG_OK) \
++  THROW(new RigException (_retval)); }
++
++static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg);
++
++static int hamlibpp_freq_event(RIG *rig, vfo_t vfo, freq_t freq, rig_ptr_t arg)
++{
++  if (!rig || !rig-&gt;state.obj)
++    return -RIG_EINVAL;
++
++/* assert rig == ((Rig*)rig-&gt;state.obj).theRig */
++  return ((Rig*)rig-&gt;state.obj)-&gt;FreqEvent(vfo, freq, arg);
++}
++
++Rig::Rig(rig_model_t rig_model) {
++  theRig = rig_init(rig_model);
++  if (!theRig)
++    THROW(new RigException (&quot;Rig initialization error&quot;));
++
++  caps = theRig-&gt;caps;
++  theRig-&gt;callbacks.freq_event = &amp;hamlibpp_freq_event;
++  theRig-&gt;state.obj = (rig_ptr_t)this;
++}
++
++Rig::~Rig() {
++  theRig-&gt;state.obj = NULL;
++  CHECK_RIG( rig_cleanup(theRig) );
++  caps = NULL;
++}
++
++void Rig::open(void) {
++  CHECK_RIG( rig_open(theRig) );
++}
++
++void Rig::close(void) {
++  CHECK_RIG( rig_close(theRig) );
++}
++
++void Rig::setConf(token_t token, const char *val)
++{
++  CHECK_RIG( rig_set_conf(theRig, token, val) );
++}
++
++void Rig::setConf(const char *name, const char *val)
++{
++  CHECK_RIG( rig_set_conf(theRig, tokenLookup(name), val) );
++}
++
++void Rig::getConf(token_t token, char *val)
++{
++  CHECK_RIG( rig_get_conf(theRig, token, val) );
++}
++
++void Rig::getConf(const char *name, char *val)
++{
++  CHECK_RIG( rig_get_conf(theRig, tokenLookup(name), val) );
++}
++
++token_t Rig::tokenLookup(const char *name)
++{
++  return rig_token_lookup(theRig, name);
++}
++
++void Rig::setFreq(freq_t freq, vfo_t vfo) {
++  CHECK_RIG( rig_set_freq(theRig, vfo, freq) );
++}
++
++freq_t Rig::getFreq(vfo_t vfo)
++{
++  freq_t freq;
++  CHECK_RIG( rig_get_freq(theRig, vfo, &amp;freq) );
++  return freq;
++}
++
++void Rig::setMode(rmode_t mode, pbwidth_t width, vfo_t vfo) {
++  CHECK_RIG(rig_set_mode(theRig, vfo, mode, width));
++}
++
++rmode_t Rig::getMode(pbwidth_t&amp; width, vfo_t vfo) {
++  rmode_t mode;
++  CHECK_RIG( rig_get_mode(theRig, vfo, &amp;mode, &amp;width) );
++  return mode;
++}
++
++void Rig::setVFO(vfo_t vfo)
++{
++  CHECK_RIG( rig_set_vfo(theRig, vfo) );
++}
++
++vfo_t Rig::getVFO()
++{
++  vfo_t vfo;
++  CHECK_RIG( rig_get_vfo(theRig, &amp;vfo) );
++  return vfo;
++}
++
++void Rig::setPTT(ptt_t ptt, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_ptt(theRig, vfo, ptt) );
++}
++
++ptt_t Rig::getPTT(vfo_t vfo)
++{
++  ptt_t ptt;
++  CHECK_RIG( rig_get_ptt(theRig, vfo, &amp;ptt) );
++  return ptt;
++}
++
++dcd_t Rig::getDCD(vfo_t vfo)
++{
++  dcd_t dcd;
++  CHECK_RIG( rig_get_dcd(theRig, vfo, &amp;dcd) );
++  return dcd;
++}
++
++void Rig::setLevel(setting_t level, int vali, vfo_t vfo)
++{
++  value_t val;
++  val.i = vali;
++  CHECK_RIG( rig_set_level(theRig, vfo, level, val) );
++}
++
++void Rig::setLevel(setting_t level, float valf, vfo_t vfo)
++{
++  value_t val;
++  val.f = valf;
++  CHECK_RIG( rig_set_level(theRig, vfo, level, val) );
++}
++
++
++void Rig::getLevel(setting_t level, int&amp; vali, vfo_t vfo)
++{
++  value_t val;
++  if (RIG_LEVEL_IS_FLOAT(level)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_level(theRig, vfo, level, &amp;val) );
++  vali = val.i;
++}
++
++void Rig::getLevel(setting_t level, float&amp; valf, vfo_t vfo)
++{
++  value_t val;
++  if (!RIG_LEVEL_IS_FLOAT(level)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_level(theRig, vfo, level, &amp;val) );
++  valf = val.f;
++}
++
++int Rig::getLevelI(setting_t level, vfo_t vfo)
++{
++  value_t val;
++  if (RIG_LEVEL_IS_FLOAT(level)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_level(theRig, vfo, level, &amp;val) );
++  return val.i;
++}
++
++float Rig::getLevelF(setting_t level, vfo_t vfo)
++{
++  value_t val;
++  if (!RIG_LEVEL_IS_FLOAT(level)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_level(theRig, vfo, level, &amp;val) );
++  return val.f;
++}
++
++void Rig::setParm(setting_t parm, int vali)
++{
++  value_t val;
++  val.i = vali;
++  CHECK_RIG( rig_set_parm(theRig, parm, val) );
++}
++
++void Rig::setParm(setting_t parm, float valf)
++{
++  value_t val;
++  val.f = valf;
++  CHECK_RIG( rig_set_parm(theRig, parm, val) );
++}
++
++
++void Rig::getParm(setting_t parm, int&amp; vali)
++{
++  value_t val;
++  if (RIG_LEVEL_IS_FLOAT(parm)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_parm(theRig, parm, &amp;val) );
++  vali = val.i;
++}
++
++void Rig::getParm(setting_t parm, float&amp; valf)
++{
++  value_t val;
++  if (!RIG_LEVEL_IS_FLOAT(parm)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_parm(theRig, parm, &amp;val) );
++  valf = val.f;
++}
++
++int Rig::getParmI(setting_t parm)
++{
++  value_t val;
++  if (RIG_LEVEL_IS_FLOAT(parm))
++    THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_parm(theRig, parm, &amp;val) );
++  return val.i;
++}
++
++float Rig::getParmF(setting_t parm)
++{
++  value_t val;
++  if (!RIG_LEVEL_IS_FLOAT(parm)) THROW(new RigException (-RIG_EINVAL));
++  CHECK_RIG( rig_get_parm(theRig, parm, &amp;val) );
++  return val.f;
++}
++
++void Rig::setSplitFreq(freq_t tx_freq, vfo_t vfo) {
++  CHECK_RIG( rig_set_split_freq(theRig, vfo, tx_freq) );
++}
++
++freq_t Rig::getSplitFreq(vfo_t vfo)
++{
++  freq_t freq;
++  CHECK_RIG( rig_get_split_freq(theRig, vfo, &amp;freq) );
++  return freq;
++}
++
++void Rig::setSplitMode(rmode_t mode, pbwidth_t width, vfo_t vfo) {
++  CHECK_RIG(rig_set_split_mode(theRig, vfo, mode, width));
++}
++
++rmode_t Rig::getSplitMode(pbwidth_t&amp; width, vfo_t vfo) {
++  rmode_t mode;
++  CHECK_RIG( rig_get_split_mode(theRig, vfo, &amp;mode, &amp;width) );
++  return mode;
++}
++
++void Rig::setSplitVFO(split_t split, vfo_t vfo, vfo_t tx_vfo) {
++  CHECK_RIG(rig_set_split_vfo(theRig, vfo, split, tx_vfo));
++}
++
++split_t Rig::getSplitVFO(vfo_t &amp;tx_vfo, vfo_t vfo) {
++  split_t split;
++  CHECK_RIG( rig_get_split_vfo(theRig, vfo, &amp;split, &amp;tx_vfo) );
++  return split;
++}
++
++bool Rig::hasGetLevel (setting_t level)
++{
++  return rig_has_get_level(theRig, level) == level;
++}
++
++bool Rig::hasSetLevel (setting_t level)
++{
++  return rig_has_set_level(theRig, level) == level;
++}
++
++bool Rig::hasGetParm (setting_t parm)
++{
++  return rig_has_get_parm(theRig, parm) == parm;
++}
++bool Rig::hasSetParm (setting_t parm)
++{
++  return rig_has_set_parm(theRig, parm) == parm;
++}
++
++const char *Rig::getInfo (void)
++{
++  return rig_get_info(theRig);
++}
++
++pbwidth_t Rig::passbandNormal (rmode_t mode)
++{
++  return rig_passband_normal(theRig, mode);
++}
++
++pbwidth_t Rig::passbandNarrow (rmode_t mode)
++{
++  return rig_passband_narrow(theRig, mode);
++}
++
++pbwidth_t Rig::passbandWide (rmode_t mode)
++{
++  return rig_passband_wide(theRig, mode);
++}
++
++void Rig::setRptrShift (rptr_shift_t rptr_shift, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_rptr_shift(theRig, vfo, rptr_shift) );
++}
++
++rptr_shift_t Rig::getRptrShift (vfo_t vfo)
++{
++  rptr_shift_t rptr_shift;
++  CHECK_RIG( rig_get_rptr_shift(theRig, vfo, &amp;rptr_shift) );
++  return rptr_shift;
++}
++
++void Rig::setRptrOffs (shortfreq_t rptr_offs, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_rptr_offs(theRig, vfo, rptr_offs) );
++}
++
++shortfreq_t Rig::getRptrOffs (vfo_t vfo)
++{
++  shortfreq_t rptr_offs;
++  CHECK_RIG( rig_get_rptr_offs(theRig, vfo, &amp;rptr_offs) );
++  return rptr_offs;
++}
++
++void Rig::setTs (shortfreq_t ts, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_ts(theRig, vfo, ts) );
++}
++
++shortfreq_t Rig::getTs (vfo_t vfo)
++{
++  shortfreq_t ts;
++  CHECK_RIG( rig_get_ts(theRig, vfo, &amp;ts) );
++  return ts;
++}
++
++void Rig::setCTCSS (tone_t tone, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_ctcss_tone(theRig, vfo, tone) );
++}
++
++tone_t Rig::getCTCSS (vfo_t vfo)
++{
++  tone_t tone;
++  CHECK_RIG( rig_get_ctcss_tone(theRig, vfo, &amp;tone) );
++  return tone;
++}
++
++void Rig::setDCS (tone_t code, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_dcs_code(theRig, vfo, code) );
++}
++
++tone_t Rig::getDCS (vfo_t vfo)
++{
++  tone_t code;
++  CHECK_RIG( rig_get_dcs_code(theRig, vfo, &amp;code) );
++  return code;
++}
++
++void Rig::setCTCSSsql (tone_t tone, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_ctcss_sql(theRig, vfo, tone) );
++}
++
++tone_t Rig::getCTCSSsql (vfo_t vfo)
++{
++  tone_t tone;
++  CHECK_RIG( rig_get_ctcss_sql(theRig, vfo, &amp;tone) );
++  return tone;
++}
++
++void Rig::setDCSsql (tone_t code, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_dcs_sql(theRig, vfo, code) );
++}
++
++tone_t Rig::getDCSsql (vfo_t vfo)
++{
++  tone_t code;
++  CHECK_RIG( rig_get_dcs_sql(theRig, vfo, &amp;code) );
++  return code;
++}
++
++
++void Rig::setFunc (setting_t func, bool status, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_func(theRig, vfo, func, status? 1:0) );
++}
++
++bool Rig::getFunc (setting_t func, vfo_t vfo)
++{
++  int status;
++  CHECK_RIG( rig_get_func(theRig, vfo, func, &amp;status) );
++  return status ? true : false;
++}
++
++void Rig::VFOop (vfo_op_t op, vfo_t vfo)
++{
++  CHECK_RIG( rig_vfo_op(theRig, vfo, op) );
++}
++
++bool Rig::hasVFOop (vfo_op_t op)
++{
++  return rig_has_vfo_op(theRig, op)==op;
++}
++
++void Rig::scan (scan_t scan, int ch, vfo_t vfo)
++{
++  CHECK_RIG( rig_scan(theRig, vfo, scan, ch) );
++}
++
++bool Rig::hasScan (scan_t scan)
++{
++  return rig_has_scan(theRig, scan)==scan;
++}
++
++
++void Rig::setRit(shortfreq_t rit, vfo_t vfo)
++{
++  CHECK_RIG(rig_set_rit(theRig, vfo, rit));
++}
++
++shortfreq_t Rig::getRit(vfo_t vfo)
++{
++  shortfreq_t rit;
++  CHECK_RIG( rig_get_rit(theRig, vfo, &amp;rit) );
++  return rit;
++}
++
++void Rig::setXit(shortfreq_t xit, vfo_t vfo)
++{
++  CHECK_RIG(rig_set_xit(theRig, vfo, xit));
++}
++
++shortfreq_t Rig::getXit(vfo_t vfo)
++{
++  shortfreq_t xit;
++  CHECK_RIG( rig_get_xit(theRig, vfo, &amp;xit) );
++  return xit;
++}
++
++void Rig::setAnt(ant_t ant, vfo_t vfo)
++{
++  CHECK_RIG(rig_set_ant(theRig, vfo, ant));
++}
++
++ant_t Rig::getAnt(vfo_t vfo)
++{
++  ant_t ant;
++  CHECK_RIG( rig_get_ant(theRig, vfo, &amp;ant) );
++  return ant;
++}
++
++void Rig::sendDtmf(const char *digits, vfo_t vfo)
++{
++  CHECK_RIG(rig_send_dtmf(theRig, vfo, digits));
++}
++
++int Rig::recvDtmf(char *digits, vfo_t vfo)
++{
++  int len;
++  CHECK_RIG( rig_recv_dtmf(theRig, vfo, digits, &amp;len) );
++  return len;
++}
++
++void Rig::sendMorse(const char *msg, vfo_t vfo)
++{
++  CHECK_RIG(rig_send_morse(theRig, vfo, msg));
++}
++
++
++shortfreq_t Rig::getResolution (rmode_t mode)
++{
++  shortfreq_t res;
++  res = rig_get_resolution(theRig, mode);
++  if (res &lt; 0) THROW(new RigException (res));
++  return res;
++}
++
++void Rig::reset (reset_t reset)
++{
++  CHECK_RIG( rig_reset(theRig, reset) );
++}
++
++bool Rig::hasGetFunc (setting_t func)
++{
++  return rig_has_get_func(theRig, func)==func;
++}
++
++bool Rig::hasSetFunc (setting_t func)
++{
++  return rig_has_set_func(theRig, func)==func;
++}
++
++unsigned int Rig::power2mW (float power, freq_t freq, rmode_t mode)
++{
++  unsigned int mwpower;
++  CHECK_RIG( rig_power2mW(theRig, &amp;mwpower, power, freq, mode) );
++  return mwpower;
++}
++
++float Rig::mW2power (unsigned int mwpower, freq_t freq, rmode_t mode)
++{
++  float power;
++  CHECK_RIG( rig_mW2power(theRig, &amp;power, mwpower, freq, mode) );
++  return power;
++}
++
++void Rig::setTrn (int trn)
++{
++  CHECK_RIG( rig_set_trn(theRig, trn) );
++}
++
++int Rig::getTrn ()
++{
++  int trn;
++  CHECK_RIG( rig_get_trn(theRig, &amp;trn) );
++  return trn;
++}
++
++void Rig::setBank (int bank, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_ts(theRig, vfo, bank) );
++}
++
++void Rig::setMem (int ch, vfo_t vfo)
++{
++  CHECK_RIG( rig_set_mem(theRig, vfo, ch) );
++}
++
++int Rig::getMem (vfo_t vfo)
++{
++  int mem;
++  CHECK_RIG( rig_get_mem(theRig, vfo, &amp;mem) );
++  return mem;
++}
++
++void Rig::setChannel (const channel_t *chan)
++{
++  CHECK_RIG( rig_set_channel(theRig, chan) );
++}
++
++void Rig::getChannel (channel_t *chan)
++{
++  CHECK_RIG( rig_get_channel(theRig, chan) );
++}
++
++
++void Rig::setPowerStat (powerstat_t status)
++{
++  CHECK_RIG( rig_set_powerstat(theRig, status) );
++}
++
++powerstat_t Rig::getPowerStat (void)
++{
++  powerstat_t status;
++  CHECK_RIG( rig_get_powerstat(theRig, &amp;status) );
++  return status;
++}
++
++rmode_t Rig::RngRxModes (freq_t freq)
++{
++  unsigned modes = RIG_MODE_NONE;
++  freq_range_t *rng;
++  int i;
++
++  for (i=0; i&lt;FRQRANGESIZ; i++) {
++    rng = &amp;theRig-&gt;state.rx_range_list[i];
++    if (RIG_IS_FRNG_END(*rng)) {
++      return (rmode_t)modes;
++    }
++    if (freq &gt;= rng-&gt;start &amp;&amp; freq &lt;= rng-&gt;end)
++      modes |= (unsigned)rng-&gt;modes;
++  }
++
++  return (rmode_t)modes;
++}
++
++rmode_t Rig::RngTxModes (freq_t freq)
++{
++  unsigned modes = RIG_MODE_NONE;
++  freq_range_t *rng;
++  int i;
++
++  for (i=0; i&lt;FRQRANGESIZ; i++) {
++    rng = &amp;theRig-&gt;state.tx_range_list[i];
++    if (RIG_IS_FRNG_END(*rng)) {
++      return (rmode_t)modes;
++    }
++    if (freq &gt;= rng-&gt;start &amp;&amp; freq &lt;= rng-&gt;end)
++      modes |= (unsigned)rng-&gt;modes;
++  }
++
++  return (rmode_t)modes;
++}
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-04-22 15:43:02 UTC (rev 3199)
++++ branches/wsjtx/wsjtx.pro	2013-04-23 00:52:51 UTC (rev 3200)
+@@ -9,12 +9,12 @@
+ #CONFIG   += console
+ 
+ TARGET = wsjtx
+-VERSION = 0.2
++DESTDIR = ../wsjtx_install
++VERSION = 0.9
+ TEMPLATE = app
+ 
+ win32 {
+ DEFINES = WIN32
+-DESTDIR = ../wsjtx_install
+ F90 = g95
+ g95.output = ${QMAKE_FILE_BASE}.o
+ g95.commands = $$F90 -c -O2 -o ${QMAKE_FILE_OUT} ${QMAKE_FILE_NAME}
+@@ -24,7 +24,6 @@
+ 
+ unix {
+ DEFINES = UNIX
+-DESTDIR = ../wsjtx_install
+ F90 = gfortran
+ gfortran.output = ${QMAKE_FILE_BASE}.o
+ gfortran.commands = $$F90 -c -O2 -o ${QMAKE_FILE_OUT} ${QMAKE_FILE_NAME}
+@@ -35,7 +34,7 @@
+ SOURCES += main.cpp mainwindow.cpp plotter.cpp about.cpp \
+     soundin.cpp soundout.cpp devsetup.cpp widegraph.cpp \
+     getfile.cpp displaytext.cpp getdev.cpp logqso.cpp \
+-    psk_reporter.cpp
++    psk_reporter.cpp rigclass.cpp
+ 
+ win32 {
+ SOURCES += killbyname.cpp
+@@ -61,6 +60,8 @@
+ 
+ win32 {
+ INCLUDEPATH += c:/qwt-6.0.1/include
++INCLUDEPATH += ../../hamlib-1.2.15.3/include
++LIBS += ../../hamlib-1.2.15.3/src/.libs/libhamlib.dll.a
+ LIBS += ../wsjtx/lib/libjt9.a
+ LIBS += ../wsjtx/libfftw3f_win.a
+ LIBS += ../wsjtx/libpskreporter.a
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002891.html">[WSJT-SVN] r3199 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002893.html">[WSJT-SVN] r3201 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2892">[ date ]</a>
+              <a href="thread.html#2892">[ thread ]</a>
+              <a href="subject.html#2892">[ subject ]</a>
+              <a href="author.html#2892">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

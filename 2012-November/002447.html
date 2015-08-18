@@ -1,0 +1,360 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2755 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2755%20-%20branches/wsjtx&In-Reply-To=%3C20121120203941.DEDDD55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002446.html">
+   <LINK REL="Next"  HREF="002448.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2755 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2755%20-%20branches/wsjtx&In-Reply-To=%3C20121120203941.DEDDD55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2755 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Nov 20 21:39:41 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002446.html">[WSJT-SVN] r2754 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002448.html">[WSJT-SVN] r2756 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2447">[ date ]</a>
+              <a href="thread.html#2447">[ thread ]</a>
+              <a href="subject.html#2447">[ subject ]</a>
+              <a href="author.html#2447">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-20 21:39:41 +0100 (Tue, 20 Nov 2012)
+New Revision: 2755
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Starting to implement using jt9(.exe) for decoding as a separate process.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-20 00:48:41 UTC (rev 2754)
++++ branches/wsjtx/mainwindow.cpp	2012-11-20 20:39:41 UTC (rev 2755)
+@@ -15,6 +15,7 @@
+ float c0[2*1800*1500];
+ 
+ WideGraph* g_pWideGraph = NULL;
++QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSJT-X   v0.4, r&quot; + rev.mid(6,4) +
+@@ -82,6 +83,15 @@
+           SLOT(showStatusMessage(QString)));
+   createStatusBar();
+ 
++  connect(&amp;proc_jt9, SIGNAL(readyReadStandardOutput()),
++                    this, SLOT(readFromStdout()));
++
++  connect(&amp;proc_jt9, SIGNAL(error(QProcess::ProcessError)),
++          this, SLOT(jt9_error()));
++
++  connect(&amp;proc_jt9, SIGNAL(readyReadStandardError()),
++          this, SLOT(readFromStderr()));
++
+   QTimer *guiTimer = new QTimer(this);
+   connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
+@@ -117,11 +127,32 @@
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
++
++  if(!mem_jt9.attach()) {
++    if (!mem_jt9.create(sizeof(jt9com_))) {
++      msgBox(&quot;Unable to create shared memory segment.&quot;);
++    }
++  }
++  char *to = (char*)mem_jt9.data();
++  int size=sizeof(jt9com_);
++  if(jt9com_.newdat==0) {
++//    int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
++//    to += noffset;
++//    size -= noffset;
++  }
++  memset(to,0,size);         //Zero all decoding params in shared memory
++
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+   }
+   readSettings();		             //Restore user's setup params
++  QFile lockFile(m_appDir + &quot;/.lock&quot;);     //Create .lock so m65 will wait
++  lockFile.open(QIODevice::ReadWrite);
++  QFile quitFile(m_appDir + &quot;/.lock&quot;);
++  quitFile.remove();
++//  proc_jt9.start(QDir::toNativeSeparators(m_appDir + &quot;/jt9 -s&quot;));
++
+   m_pbdecoding_style1=&quot;QPushButton{background-color: cyan; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+@@ -194,6 +225,10 @@
+     soundOutThread.quitExecution=true;
+     soundOutThread.wait(3000);
+   }
++  if(!m_decoderBusy) {
++    QFile lockFile(m_appDir + &quot;/.lock&quot;);
++    lockFile.remove();
++  }
+   delete ui;
+ }
+ 
+@@ -587,6 +622,15 @@
+ void MainWindow::OnExit()
+ {
+   g_pWideGraph-&gt;saveSettings();
++  m_killAll=true;
++  mem_jt9.detach();
++  QFile quitFile(m_appDir + &quot;/.quit&quot;);
++  quitFile.open(QIODevice::ReadWrite);
++  QFile lockFile(m_appDir + &quot;/.lock&quot;);
++  lockFile.remove();                      // Allow m65 to terminate
++  bool b=proc_jt9.waitForFinished(1000);
++  if(!b) proc_jt9.kill();
++  quitFile.remove();
+   qApp-&gt;exit(0);                                      // Exit the event loop
+ }
+ 
+@@ -850,7 +894,167 @@
+   watcher3-&gt;setFuture(*future3);
+ }
+ 
++/*
++void MainWindow::decode()                                       //decode()
++{
++  ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
++  if(datcom_.nagain==0 &amp;&amp; (!m_diskData)) {
++    qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
++    int imin=ms/60000;
++    int ihr=imin/60;
++    imin=imin % 60;
++    int isec=(ms/1000) % 60;
++    datcom_.nutc=100*(100*ihr + imin);
++    if((m_mode==&quot;JT65B2&quot; or m_mode==&quot;JT65C2&quot;) and isec&gt;30) datcom_.nutc += 30;
++  }
+ 
++  datcom_.idphi=m_dPhi;
++  datcom_.mousedf=g_pWideGraph-&gt;DF();
++  datcom_.mousefqso=g_pWideGraph-&gt;QSOfreq();
++  datcom_.ndepth=m_ndepth;
++  datcom_.ndiskdat=0;
++  if(m_diskData) datcom_.ndiskdat=1;
++  datcom_.neme=0;
++  if(ui-&gt;actionOnly_EME_calls-&gt;isChecked()) datcom_.neme=1;
++
++  int ispan=int(g_pWideGraph-&gt;fSpan());
++  if(ispan%2 == 1) ispan++;
++  int ifc=int(1000.0*(datcom_.fcenter - int(datcom_.fcenter))+0.5);
++  int nfa=g_pWideGraph-&gt;nStartFreq();
++  int nfb=nfa+ispan;
++  int nfshift=nfa + ispan/2 - ifc;
++
++  datcom_.nfa=nfa;
++  datcom_.nfb=nfb;
++  datcom_.nfcal=m_fCal;
++  datcom_.nfshift=nfshift;
++  datcom_.mcall3=0;
++  if(m_call3Modified) datcom_.mcall3=1;
++  datcom_.ntimeout=m_timeout;
++  datcom_.ntol=m_tol;
++  datcom_.nxant=0;
++  if(m_xpolx) datcom_.nxant=1;
++  if(datcom_.nutc &lt; m_nutc0) m_map65RxLog |= 1;  //Date and Time to all65.txt
++  m_nutc0=datcom_.nutc;
++  datcom_.map65RxLog=m_map65RxLog;
++  datcom_.nfsample=96000;
++  if(!m_fs96000) datcom_.nfsample=95238;
++  datcom_.nxpol=0;
++  if(m_xpol) datcom_.nxpol=1;
++  datcom_.mode65=m_mode65;
++  datcom_.nfast=m_nfast;
++  datcom_.nsave=m_nsave;
++
++  QString mcall=(m_myCall+&quot;            &quot;).mid(0,12);
++  QString mgrid=(m_myGrid+&quot;            &quot;).mid(0,6);
++  QString hcall=(ui-&gt;dxCallEntry-&gt;text()+&quot;            &quot;).mid(0,12);
++  QString hgrid=(ui-&gt;dxGridEntry-&gt;text()+&quot;      &quot;).mid(0,6);
++
++  strncpy(datcom_.mycall, mcall.toAscii(), 12);
++  strncpy(datcom_.mygrid, mgrid.toAscii(), 6);
++  strncpy(datcom_.hiscall, hcall.toAscii(), 12);
++  strncpy(datcom_.hisgrid, hgrid.toAscii(), 6);
++  strncpy(datcom_.datetime, m_dateTime.toAscii(), 20);
++
++  //newdat=1  ==&gt; this is new data, must do the big FFT
++  //nagain=1  ==&gt; decode only at fQSO +/- Tol
++
++  char *to = (char*)mem_m65.data();
++  char *from = (char*) datcom_.d4;
++  int size=sizeof(datcom_);
++  if(datcom_.newdat==0) {
++    int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
++    to += noffset;
++    from += noffset;
++    size -= noffset;
++  }
++  memcpy(to, from, qMin(mem_m65.size(), size));
++  datcom_.nagain=0;
++  datcom_.ndiskdat=0;
++  m_call3Modified=false;
++
++  QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow m65 to start
++  lockFile.remove();
++  decodeBusy(true);
++}
++
++*/
++
++void MainWindow::jt9_error()                                     //m65_error
++{
++  if(!m_killAll) {
++    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/m65 -s&quot;);
++    exit(1);
++  }
++}
++
++void MainWindow::readFromStderr()                             //readFromStderr
++{
++  QByteArray t=proc_jt9.readAllStandardError();
++  msgBox(t);
++}
++
++void MainWindow::readFromStdout()                             //readFromStdout
++{
++  while(proc_jt9.canReadLine()) {
++    QByteArray t=proc_jt9.readLine();
++    if(t.indexOf(&quot;&lt;QuickDecodeDone&gt;&quot;) &gt;= 0) {
++//      m_nsum=t.mid(17,4).toInt();
++//      m_nsave=t.mid(21,4).toInt();
++//      QString t2;
++//      t2.sprintf(&quot;Avg: %d&quot;,m_nsum);
++//      lab6-&gt;setText(t2);
++    }
++    if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
++      if(m_widebandDecode) {
++//        g_pMessages-&gt;setText(m_messagesText);
++//        g_pBandMap-&gt;setText(m_bandmapText);
++        m_widebandDecode=false;
++      }
++      QFile lockFile(m_appDir + &quot;/.lock&quot;);
++      lockFile.open(QIODevice::ReadWrite);
++      ui-&gt;DecodeButton-&gt;setStyleSheet(&quot;&quot;);
++      decodeBusy(false);
++//      m_map65RxLog=0;
++      m_startAnother=m_loopall;
++      return;
++    }
++
++    if(t.indexOf(&quot;!&quot;) &gt;= 0) {
++      int n=t.length();
++      if(n&gt;=30) ui-&gt;decodedTextBrowser-&gt;append(t.mid(1,n-3));
++      if(n&lt;30) ui-&gt;decodedTextBrowser-&gt;append(t.mid(1,n-3));
++      n=ui-&gt;decodedTextBrowser-&gt;verticalScrollBar()-&gt;maximum();
++      ui-&gt;decodedTextBrowser-&gt;verticalScrollBar()-&gt;setValue(n);
++//      m_messagesText=&quot;&quot;;
++//      m_bandmapText=&quot;&quot;;
++    }
++
++    /*
++    if(t.indexOf(&quot;@&quot;) &gt;= 0) {
++      m_messagesText += t.mid(1);
++      m_widebandDecode=true;
++    }
++
++    if(t.indexOf(&quot;&amp;&quot;) &gt;= 0) {
++      QString q(t);
++      QString callsign=q.mid(5);
++      callsign=callsign.mid(0,callsign.indexOf(&quot; &quot;));
++      if(callsign.length()&gt;2) {
++        if(m_worked[callsign]) {
++          q=q.mid(1,4) + &quot;  &quot; + q.mid(5);
++        } else {
++          q=q.mid(1,4) + &quot; *&quot; + q.mid(5);
++        }
++        m_bandmapText += q;
++      }
++    }
++    */
++  }
++}
++
++
++
+ void MainWindow::on_EraseButton_clicked()                          //Erase
+ {
+   ui-&gt;decodedTextBrowser-&gt;clear();
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-11-20 00:48:41 UTC (rev 2754)
++++ branches/wsjtx/mainwindow.h	2012-11-20 20:39:41 UTC (rev 2755)
+@@ -30,6 +30,9 @@
+   void freezeDecode(int n);
+   void guiUpdate();
+   void doubleClickOnCall(QString hiscall, bool ctrl);
++  void readFromStdout();
++  void readFromStderr();
++  void jt9_error();
+ 
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
+@@ -152,6 +155,7 @@
+     bool    m_NB;
+     bool    m_call3Modified;
+     bool    m_dataAvailable;
++    bool    m_killAll;
+     char    m_decoded[80];
+     float   m_pctZap;
+     QRect   m_wideGraphGeom;
+@@ -168,6 +172,7 @@
+     QFutureWatcher&lt;void&gt;* watcher1;
+     QFutureWatcher&lt;void&gt;* watcher2;
+     QFutureWatcher&lt;void&gt;* watcher3;
++    QProcess proc_jt9;
+     QString m_path;
+     QString m_pbdecoding_style1;
+     QString m_pbmonitor_style;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002446.html">[WSJT-SVN] r2754 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002448.html">[WSJT-SVN] r2756 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2447">[ date ]</a>
+              <a href="thread.html#2447">[ thread ]</a>
+              <a href="subject.html#2447">[ subject ]</a>
+              <a href="author.html#2447">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

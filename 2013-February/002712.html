@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3020 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3020%20-%20trunk&In-Reply-To=%3C20130227183955.3626355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002711.html">
+   <LINK REL="Next"  HREF="002713.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3020 - trunk</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3020%20-%20trunk&In-Reply-To=%3C20130227183955.3626355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3020 - trunk">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Feb 27 19:39:55 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002711.html">[WSJT-SVN] r3019 - in trunk: . WsjtMod
+</A></li>
+        <LI>Next message: <A HREF="002713.html">[WSJT-SVN] r3021 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2712">[ date ]</a>
+              <a href="thread.html#2712">[ thread ]</a>
+              <a href="subject.html#2712">[ subject ]</a>
+              <a href="author.html#2712">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-02-27 19:39:54 +0100 (Wed, 27 Feb 2013)
+New Revision: 3020
+
+Added:
+   trunk/spread.f90
+Modified:
+   trunk/fivehz.f90
+   trunk/sync4.f90
+   trunk/wsjt.py
+   trunk/wsjtgen.f90
+Log:
+Implement frequency spreading for generated test signals.
+
+
+Modified: trunk/fivehz.f90
+===================================================================
+--- trunk/fivehz.f90	2013-02-27 16:07:26 UTC (rev 3019)
++++ trunk/fivehz.f90	2013-02-27 18:39:54 UTC (rev 3020)
+@@ -307,7 +307,7 @@
+ 
+   if(txsnrdb.gt.40.0) return
+   if(txsnrdb.ne.txsnrdb0) then
+-     snr=10.0**(0.05*(txsnrdb-1))
++     snr=10.0**(0.05*(nint(txsnrdb)-1))
+      fac=3000.0
+      if(snr.gt.1.0) fac=3000.0/snr
+      txsnrdb0=txsnrdb
+
+Added: trunk/spread.f90
+===================================================================
+--- trunk/spread.f90	                        (rev 0)
++++ trunk/spread.f90	2013-02-27 18:39:54 UTC (rev 3020)
+@@ -0,0 +1,34 @@
++subroutine spread(iwave0,npts,fspread,iwave)
++
++  parameter (NMAX=48*11025)
++  integer*2 iwave0(npts)
++  integer*2 iwave(npts)
++  complex z,zf
++
++  twopi=8.0*atan(1.0)
++  tspread=1.0/fspread
++  iz=11025.0*tspread
++  nblks=npts/iz + 1
++  j=0
++  phi=0.
++  do n=1,nblks
++     call random_number(r)
++     df=fspread*(2.0*(r-0.5))**2
++     if(r.lt.0.5) df=-df
++     dphi=twopi*df/11025.0
++     do i=1,iz
++        j=j+1
++        x=iwave0(j)/32767.0
++        y=0.
++        y=sqrt(1.0-x*x)
++        if(j.ge.2 .and. iwave0(j).lt.iwave0(j-1)) y=-y
++        phi=phi+dphi
++        zf=cmplx(cos(phi),sin(phi))
++        z=zf*cmplx(x,y)
++        iwave(j)=32767.0*real(z)
++        if(j.ge.npts) exit
++     enddo
++  enddo
++
++  return
++end subroutine spread
+
+Modified: trunk/sync4.f90
+===================================================================
+--- trunk/sync4.f90	2013-02-27 16:07:26 UTC (rev 3019)
++++ trunk/sync4.f90	2013-02-27 18:39:54 UTC (rev 3020)
+@@ -144,7 +144,7 @@
+   snrx=-99.0
+   ppmax=psavg(ipk)-1.0
+ 
+-  if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 16.5        !Empirical
++  if(ppmax.gt.0.0001) snrx=db(ppmax*df/2500.0) + 16.5        !Not now used
+   if(snrx.lt.-33.0) snrx=-33.0
+ 
+   ccfred1=0.
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2013-02-27 16:07:26 UTC (rev 3019)
++++ trunk/wsjt.py	2013-02-27 18:39:54 UTC (rev 3020)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjtgen.f90
+===================================================================
+--- trunk/wsjtgen.f90	2013-02-27 16:07:26 UTC (rev 3019)
++++ trunk/wsjtgen.f90	2013-02-27 18:39:54 UTC (rev 3020)
+@@ -268,6 +268,11 @@
+ 
+ 999 continue
+   call cs_unlock
++  if(txsnrdb.lt.40.d0) then
++     s=abs(txsnrdb)
++     fspread=1000.0*(s-int(s))
++     if(fspread.gt.0.0) call spread(iwave,nwave,fspread,iwave)
++  endif
+   return
+ end subroutine wsjtgen
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002711.html">[WSJT-SVN] r3019 - in trunk: . WsjtMod
+</A></li>
+	<LI>Next message: <A HREF="002713.html">[WSJT-SVN] r3021 - in trunk: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2712">[ date ]</a>
+              <a href="thread.html#2712">[ thread ]</a>
+              <a href="subject.html#2712">[ subject ]</a>
+              <a href="author.html#2712">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

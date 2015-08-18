@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2543 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2543%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830182142.1DC2155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002234.html">
+   <LINK REL="Next"  HREF="002236.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2543 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2543%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120830182142.1DC2155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2543 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Aug 30 20:21:42 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002234.html">[WSJT-SVN] r2542 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002236.html">[WSJT-SVN] r2544 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2235">[ date ]</a>
+              <a href="thread.html#2235">[ thread ]</a>
+              <a href="subject.html#2235">[ subject ]</a>
+              <a href="author.html#2235">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-30 20:21:41 +0200 (Thu, 30 Aug 2012)
+New Revision: 2543
+
+Modified:
+   branches/map65/libm65/decode1a.f
+   branches/map65/libm65/map65a.f90
+   branches/map65/libm65/s3avg.f90
+   branches/map65/mainwindow.cpp
+Log:
+Better logic for message averaging.
+
+
+Modified: branches/map65/libm65/decode1a.f
+===================================================================
+--- branches/map65/libm65/decode1a.f	2012-08-30 17:04:57 UTC (rev 2542)
++++ branches/map65/libm65/decode1a.f	2012-08-30 18:21:41 UTC (rev 2543)
+@@ -18,7 +18,7 @@
+       character decoded*22
+       character mycall*12,hiscall*12,hisgrid*6
+       data first/.true./,jjjmin/1000/,jjjmax/-1000/
+-      data nutc0/-999/,nkhz0/-999/
++      data nutc0/-999/,nhz0/-9999999/
+       save
+ 
+ !  Mix sync tone to baseband, low-pass filter, downsample to 1378.125 Hz
+@@ -133,17 +133,18 @@
+       call timer('dec65b  ',1)
+ 
+       if(nqd.eq.1 .and. nkv.eq.0) then
+-         if(nutc.ne.nutc0 .or. nkhz.ne.nkhz0) syncbest=0.
++         nhz=1000*nkhz + ndf
++         if(nutc.ne.nutc0 .or. abs(nhz-nhz0).ge.1000) syncbest=0.   !### 1000 ??
+          if(sync2.gt.syncbest) then
+-            if(nutc.eq.nutc0 .and. nkhz.eq.nkhz0) nsave=nsave-1
+-            if(nkhz.ne.nkhz0) nsave=0
+-            nkhz0=nkhz
+-            nsave=min(32,nsave+1)
+-            nsave=max(1,nsave)
++            nsave=nsave+1
++            nsave=mod(nsave-1,64)+1
+             npol=nint(57.296*pol)
+-            call s3avg(nsave,mode65,nutc,ndf,dt+0.8,npol,s3,nsum,
++            xdt=dt+0.8
++
++            call s3avg(nsave,mode65,nutc,nhz,xdt,npol,s3,nsum,
+      +                 nkv,decoded)
+             syncbest=sync2
++            nhz0=nhz
+          endif
+          nutc0=nutc
+       endif
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-08-30 17:04:57 UTC (rev 2542)
++++ branches/map65/libm65/map65a.f90	2012-08-30 18:21:41 UTC (rev 2543)
+@@ -37,6 +37,7 @@
+   mousefqso0=mousefqso
+   xpol=(nxpol.ne.0)
+   if(.not.xpol) ndphi=0
++  nsum=0
+ 
+ !### Should use AppDir! ###
+ !  open(23,file='release/CALL3.TXT',status='unknown')
+
+Modified: branches/map65/libm65/s3avg.f90
+===================================================================
+--- branches/map65/libm65/s3avg.f90	2012-08-30 17:04:57 UTC (rev 2542)
++++ branches/map65/libm65/s3avg.f90	2012-08-30 18:21:41 UTC (rev 2543)
+@@ -1,39 +1,54 @@
+-subroutine s3avg(nsave,mode65,nutc,ndf,xdt,npol,s3,nsum,nkv,decoded)
++subroutine s3avg(nsave,mode65,nutc,nhz,xdt,npol,s3,nsum,nkv,decoded)
+ 
+ ! Save the current synchronized spectra, s3(64,63), for possible
+ ! decoding of average.
+ 
+   real s3(64,63)                        !Synchronized spectra for 63 symbols
+-  real s3a(64,63,32)                    !Saved spectra
+-  real s3b(64,63)                       !Average
+-  integer iutc(32),idf(32),ipol(32)
+-  real dt(32)
++  real s3a(64,63,64)                    !Saved spectra
++  real s3b(64,63)                       !Average spectra
++  integer iutc(64),ihz(64),ipol(64)
++  real dt(64)
+   character*22 decoded
+-  logical ltext
++  logical ltext,first
++  data first/.true./
+   save
++
++  if(first) then
++     iutc=-1
++     ihz=0
++     ipol=0
++     first=.false.
++     ihzdiff=100
++     dtdiff=0.2
++  endif
++
++  do i=1,64
++     if(nutc.eq.iutc(i) .and. abs(nhz-ihz(i)).lt.ihzdiff) then
++        nsave=mod(nsave-1+64,64)+1
++        go to 900
++     endif
++  enddo
+   
+   iutc(nsave)=nutc                          !Save UTC
+-  idf(nsave)=ndf                            !Save DF
++  ihz(nsave)=nhz                            !Save freq in Hz
+   ipol(nsave)=npol                          !Save pol
+   dt(nsave)=xdt                             !Save DT
+   s3a(1:64,1:63,nsave)=s3                   !Save the spectra
+ 
+-  write(71,3001) nsave,nutc,ndf,npol,xdt
+-3001 format(4i5,f8.1)
+-  flush(71)
+-
+   s3b=0.
+-  nsum=0
+-  idfdiff=100
+-  dtdiff=0.2
+-  do i=1,nsave                              !Accumulate avg spectra
+-     if(mod(iutc(i),2).ne.mod(nutc,2)) cycle !Use only 1st or 2nd sequence
+-     if(abs(ndf-idf(i)).gt.idfdiff) cycle   !DF must match
++  do i=1,64                                 !Accumulate avg spectra
++     if(iutc(i).lt.0) cycle
++     if(mod(iutc(i),2).ne.mod(nutc,2)) cycle !Use only same sequence
++     if(abs(nhz-ihz(i)).gt.ihzdiff) cycle   !Freq must match
+      if(abs(xdt-dt(i)).gt.dtdiff) cycle     !DT must match
+      s3b=s3b + s3a(1:64,1:63,i)
+      nsum=nsum+1
+   enddo
+ 
++!  write(71,3001) nutc,nsave,nhz,npol,xdt
++!3001 format(4i8,1f8.1)
++!  flush(71)
++ 
+   decoded='                      '
+   if(nsum.ge.2) then                        !Try decoding the sverage
+      nadd=mode65*nsum
+@@ -45,5 +60,5 @@
+      endif
+   endif
+ 
+-  return
++900 return
+ end subroutine s3avg
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-30 17:04:57 UTC (rev 2542)
++++ branches/map65/mainwindow.cpp	2012-08-30 18:21:41 UTC (rev 2543)
+@@ -822,7 +822,7 @@
+   lab5-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab5);
+ 
+-  lab6 = new QLabel(&quot;Avg: 0/0&quot;);
++  lab6 = new QLabel(&quot;Avg: 0&quot;);
+   lab6-&gt;setAlignment(Qt::AlignHCenter);
+   lab6-&gt;setMinimumSize(QSize(50,10));
+   lab6-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+@@ -1264,7 +1264,7 @@
+       m_nsum=t.mid(17,4).toInt();
+       m_nsave=t.mid(21,4).toInt();
+       QString t2;
+-      t2.sprintf(&quot;Avg: %d/%d&quot;,m_nsum,m_nsave);
++      t2.sprintf(&quot;Avg: %d&quot;,m_nsum);
+       lab6-&gt;setText(t2);
+     }
+     if(t.indexOf(&quot;&lt;DecodeFinished&gt;&quot;) &gt;= 0) {
+@@ -1337,7 +1337,6 @@
+   static int nc1=1;
+   static char msgsent[23];
+   static int nsendingsh=0;
+-  static int fQSOz=-1;
+   int khsym=0;
+ 
+   double tx1=0.0;
+@@ -1504,11 +1503,6 @@
+ 
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     int fQSO=g_pWideGraph-&gt;QSOfreq();
+-    if(fQSO != fQSOz) {
+-      qDebug() &lt;&lt; fQSOz &lt;&lt; fQSO &lt;&lt; m_nutc0;
+-      m_nsave=0;
+-      fQSOz=fQSO;
+-    }
+     g_pAstro-&gt;astroUpdate(t, m_myGrid, m_hisGrid, fQSO, m_setftx,
+                           m_txFreq, m_azelDir);
+     m_setftx=0;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002234.html">[WSJT-SVN] r2542 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002236.html">[WSJT-SVN] r2544 - in branches/map65: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2235">[ date ]</a>
+              <a href="thread.html#2235">[ thread ]</a>
+              <a href="subject.html#2235">[ subject ]</a>
+              <a href="author.html#2235">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1629 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1629%20-%20branches/wspr&In-Reply-To=%3C200911050323.nA53Nqql008837%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001319.html">
+   <LINK REL="Next"  HREF="001321.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1629 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1629%20-%20branches/wspr&In-Reply-To=%3C200911050323.nA53Nqql008837%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1629 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  5 04:23:52 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001319.html">[WSJT-SVN] r1628 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001321.html">[WSJT-SVN] r1630 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1320">[ date ]</a>
+              <a href="thread.html#1320">[ thread ]</a>
+              <a href="subject.html#1320">[ subject ]</a>
+              <a href="author.html#1320">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-05 04:23:48 +0100 (Thu, 05 Nov 2009)
+New Revision: 1629
+
+Added:
+   branches/wspr/fil1.f90
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/decode162.f
+   branches/wspr/gencwid.f
+   branches/wspr/genwspr.F90
+   branches/wspr/tx.F90
+Log:
+I think Tx is OK now, with 48 kHz sampling?
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/Makefile.in	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -51,7 +51,7 @@
+ 	startdec.F90 startrx.F90 starttx.F90 tx.F90 getfile.F90 \
+ 	paterminate.f90 wqencode.f90 chklevel.F90 genwspr.F90 \
+ 	wqdecode.f90 hash.f90 packname.f90 packtext2.f90 \
+-	unpackname.f90 unpacktext2.f90 audiodev.f90 \
++	unpackname.f90 unpacktext2.f90 audiodev.f90 fil1.f90 \
+ 	packpfx.f90 packprop.f90 unpackpfx.f90 unpackprop.f90 \
+ 	msgtrim.f90 thnix.f90
+ 
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/decode162.f	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -14,7 +14,6 @@
+       logical first
+       data first/.true./
+       integer npr3(162)
+-      common/ccom/rr(162)
+       data npr3/
+      + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+      + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
+
+Added: branches/wspr/fil1.f90
+===================================================================
+--- branches/wspr/fil1.f90	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/fil1.f90	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -0,0 +1,47 @@
++subroutine fil1(id1,n1,id2,n2)
++
++! FIR lowpass filter designed using ScopeFIR
++
++! fsample     = 48000 Hz
++! Ntaps       = 37
++! fc          = 3000  Hz
++! fstop       = 6000  Hz
++! Ripple      = 1     dB
++! Stop Atten  = 60    dB
++! fout        = 12000 Hz
++
++  parameter (NTAPS=37)
++  parameter (NH=NTAPS/2)
++  parameter (NDOWN=4)             !Downsample ratio
++  integer*2 id1(n1)
++  integer*2 id2(*)
++
++! Filter coefficients:
++  real a(-NH:NH)
++  data a/                                                                 &amp;
++        0.001377395235, 0.002852158900, 0.004767882543, 0.006240206517,   &amp;
++        0.006191755970, 0.003553573051,-0.002243564850,-0.010770446408,   &amp;
++       -0.020288158399,-0.027822309390,-0.029710933359,-0.022547471263,   &amp;
++       -0.004298056801, 0.024769757851, 0.061669077060, 0.101014185634,   &amp;
++        0.136070596894, 0.160295785231, 0.168947734090, 0.160295785231,   &amp;
++        0.136070596894, 0.101014185634, 0.061669077060, 0.024769757851,   &amp;
++       -0.004298056801,-0.022547471263,-0.029710933359,-0.027822309390,   &amp;
++       -0.020288158399,-0.010770446408,-0.002243564850, 0.003553573051,   &amp;
++        0.006191755970, 0.006240206517, 0.004767882543, 0.002852158900,   &amp;
++        0.001377395235/
++
++  n2=(n1-NTAPS+NDOWN)/NDOWN
++  k0=NH-NDOWN+1
++
++! Loop over all output samples
++  do i=1,n2
++     s=0.
++     k=k0 + NDOWN*i
++     do j=-NH,NH
++        s=s + id1(j+k)*a(j)
++     enddo
++     id2(i)=nint(s)
++  enddo
++
++  return
++end subroutine fil1
+
+Modified: branches/wspr/gencwid.f
+===================================================================
+--- branches/wspr/gencwid.f	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/gencwid.f	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -14,7 +14,7 @@
+  10   iz=i-1
+       msg2=msg(1:iz)//'                      '
+       call morse(msg2,idat,ndits) !Encode part 1 of msg
+-      nwave=4*48000
++      nwave=5*48000
+       dt=1.d0/48000.d0
+       wpm=1.2*ndits/(nwave*dt)
+       if(wpm.lt.wpm0) wpm=wpm0
+
+Modified: branches/wspr/genwspr.F90
+===================================================================
+--- branches/wspr/genwspr.F90	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/genwspr.F90	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -27,8 +27,8 @@
+     0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,   &amp;
+     0,0/
+ 
+-  data first/.true./,idum/0/,ihrtx0/99/
+-  save
++  data first/.true./,idum/0/
++  save first,idum,pi,twopi
+ 
+   if(first) then
+      pi=4.d0*atan(1.d0)
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-04 22:05:23 UTC (rev 1628)
++++ branches/wspr/tx.F90	2009-11-05 03:23:48 UTC (rev 1629)
+@@ -9,17 +9,17 @@
+   integer system
+ #endif
+ 
+-  parameter (NMAX2=120*40000)
+-  parameter (NMAX3=4*48000)
++  parameter (NMAX2=120*48000)
++  parameter (NMAX3=5*48000)
+   character message*22,call1*12,cdbm*3
+   character*22 msg0,msg1,msg2,cwmsg
+   character crig*6,cbaud*6,cdata*1,cstop*1,chs*8
+   character cmnd*120
+-  integer*2 jwave(NMAX2)
+-  integer*2 icwid(NMAX3)
++  integer*2 jwave,icwid
+   integer soundout,ptt
+   include 'acom1.f90'
+   common/bcom/ntransmitted
++  common/dcom/jwave(NMAX2),icwid(NMAX3)
+   data ntx/0/,ns0/0/
+   save ntx,ns0
+ 
+@@ -80,8 +80,8 @@
+   open(18,file='test.snr',status='old',err=10)
+   read(18,*,err=10,end=10) snr
+   close(18)
++
+ 10 call genwspr(message,ntxdf,snr,msg2,jwave)
+-
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
+   if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint) then
+@@ -91,20 +91,25 @@
+      cwmsg=call1(:i1)//'                      '
+      icwid=0
+      call gencwid(cwmsg,wpm,freqcw,icwid,ncwid)
+-     k0=114*48000
+-     k1=115*48000
++     k0=113*48000
++     k1=k0+24000
++     k2=k1+5*48000
+      jwave(k0:k1)=0
+-     jwave(k1+1:k1+48000)=icwid
+-     npts=k1+48000
++     jwave(k1+1:k2)=icwid
++     jwave(k2:)=0
++!     print*,'C',k0/48000.,k1/48000.,k2/48000.
++     npts=k2
+      ns0=nsec
+   endif
+ 
+   sending=msg2
+-  if(ntune.eq.1) npts=48000*pctx
+-  print*,'A',npts
+-  ierr=soundout(ndevout,jwave(2*48000),npts)
+-  print*,'B'
+-  ntune=0
++  if(ntune.eq.0) then
++     ierr=soundout(ndevout,jwave(48000),npts)
++  else
++     npts=48000*pctx
++     ierr=soundout(ndevout,jwave(2*48000),npts)
++     ntune=0
++  endif
+   if(ierr.ne.0) then
+      print*,'Error in soundout',ierr
+      stop
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001319.html">[WSJT-SVN] r1628 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001321.html">[WSJT-SVN] r1630 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1320">[ date ]</a>
+              <a href="thread.html#1320">[ thread ]</a>
+              <a href="subject.html#1320">[ subject ]</a>
+              <a href="author.html#1320">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

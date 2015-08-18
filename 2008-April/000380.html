@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r692 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r692%20-%20branches/wspr&In-Reply-To=%3C200804101844.m3AIiN0g014600%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000379.html">
+   <LINK REL="Next"  HREF="000381.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r692 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r692%20-%20branches/wspr&In-Reply-To=%3C200804101844.m3AIiN0g014600%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r692 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 10 20:44:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000379.html">[WSJT-SVN] r691 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000381.html">[WSJT-SVN] r693 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#380">[ date ]</a>
+              <a href="thread.html#380">[ thread ]</a>
+              <a href="subject.html#380">[ subject ]</a>
+              <a href="author.html#380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-10 20:44:20 +0200 (Thu, 10 Apr 2008)
+New Revision: 692
+
+Modified:
+   branches/wspr/decode.f90
+   branches/wspr/mept162.f
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Now reads from wave files OK.
+
+
+Modified: branches/wspr/decode.f90
+===================================================================
+--- branches/wspr/decode.f90	2008-04-10 17:55:40 UTC (rev 691)
++++ branches/wspr/decode.f90	2008-04-10 18:44:20 UTC (rev 692)
+@@ -18,8 +18,9 @@
+      call wfile5(iwave,npts,12000,outfile)
+   endif
+ 
++  call flush(14)
++  rewind 14
+   ndecdone=1
+-  call flush(14)
+ 
+   return
+ end subroutine decode
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-04-10 17:55:40 UTC (rev 691)
++++ branches/wspr/mept162.f	2008-04-10 18:44:20 UTC (rev 692)
+@@ -22,10 +22,6 @@
+       data first/.true./
+       save
+ 
+-      write(14,1000)
+- 1000 format('$EOF')
+-      rewind 14
+-
+       fac=1.e-8
+       do i=1,npts
+          x(i)=fac*id(i)
+@@ -55,7 +51,7 @@
+       do i=-137,137
+          sig=p(i)/base - 1.0
+          snr(i)=-33.
+-         if(sig.gt.0.) snr(i)=10.0*log10(sig) - 26
++         if(sig.gt.0.) snr(i)=10.0*log10(sig) - 26.5
+          p(i)=10.0*log10((p(i)/base))
+          write(53,3001) i,150.0+i*df1,p(i)
+  3001    format(i5,2f12.3)
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-10 17:55:40 UTC (rev 691)
++++ branches/wspr/wspr.py	2008-04-10 18:44:20 UTC (rev 692)
+@@ -61,8 +61,6 @@
+ isync=1
+ loopall=0
+ modpixmap0=0
+-modtext0=0
+-modtxrx0=0
+ mrudir=os.getcwd()
+ ndbm0=-999
+ newdat=1
+@@ -133,16 +131,11 @@
+         pass
+     fname=askopenfilename(filetypes=[(&quot;Wave files&quot;,&quot;*.wav *.WAV&quot;)])
+     if fname:
++        w.getfile(fname,len(fname))
++##        if w.acom1.ierr: print 'Error ',w.acom1.ierr, \
++##           'when trying to read file',fname
+         mrudir=os.path.dirname(fname)
+         fileopened=os.path.basename(fname)
+-        ipctx.set(0)
+-        i1=fileopened.find('.')
+-        t=fileopened[i1-4:i1]
+-        t=t[0:2] + ':' + t[2:4]
+-        n=len(tw)
+-        if n&gt;12: tw=tw[:n-1]
+-        tw=[t,] + tw
+-        put_params(fname)
+     os.chdir(appdir)
+ 
+ #------------------------------------------------------ opennext
+@@ -164,6 +157,7 @@
+                 break
+         if i&lt;len(lb)-1:
+             fname=mrudir+&quot;/&quot;+lb[i+1]
++            w.getfile(fname,len(fname))
+             mrudir=os.path.dirname(fname)
+             fileopened=os.path.basename(fname)
+             i1=fileopened.find('.')
+@@ -433,7 +427,7 @@
+ def update():
+     global root_geom,isec0,im,pim,ndbm0,nsec0,a, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+-        modpixmap0,modtext0,modtxrx0,tw,s0,c0,fmid,fmid0,idsec
++        modpixmap0,modtxrx0,tw,s0,c0,fmid,fmid0,idsec
+     tsec=time.time() + 0.1*idsec
+     utc=time.gmtime(tsec)
+     nsec=int(tsec)
+@@ -487,13 +481,9 @@
+     msg6.configure(text=t,bg=bgcolor)
+ 
+ # If new decoded text has appeared, display it.
+-    try:
+-        modtext=os.stat('decoded.txt')[8]
+-        if modtext!=modtext0:
+-            modtext0=os.stat('decoded.txt')[8]
+-            get_decoded()
+-    except:
+-        pass
++    if w.acom1.ndecdone:
++        get_decoded()
++        w.acom1.ndecdone=0
+ 
+ # Display the waterfall
+     try:
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2008-04-10 17:55:40 UTC (rev 691)
++++ branches/wspr/wspr2.f90	2008-04-10 18:44:20 UTC (rev 692)
+@@ -15,7 +15,6 @@
+   real*8 tsec
+   logical idle,receiving,transmitting,decoding,gui,cmnd
+   integer soundinit,soundexit
+-  integer*1 hdr(44)
+   include 'acom1.f90'
+   data idle/.true./,receiving/.false./,transmitting/.false./
+   data decoding/.false./
+@@ -62,30 +61,6 @@
+ 
+   call getutc(cdate,utctime,tsec)
+   nsec=tsec
+-
+-!  Reading data from a file?
+-!  if(infile(1:4).ne.'none' .and. (.not.transmitting) .and. &amp; 
+-!       (.not.receiving)) then
+-!#ifdef CVF
+-!     open(12,file=infile,form='binary',status='old')
+-!#else
+-!     open(12,file=infile,access='stream',status='old')
+-!#endif
+-!     npts=114*12000
+-!     read(12) hdr
+-!     read(12) (iwave(i),i=1,npts)
+-!     close(12)
+-!     call getrms(iwave,npts,ave,rms)
+-!     rewind 11
+-!     write(11,1029) 
+-!1029 format('Idle')
+-!     outfile=infile
+-!     call decode
+-!     infile='none'
+-!     idle=.true.
+-!     go to 20
+-!  endif
+-
+   ns120=mod(nsec,120)
+   if(ns120.eq.0 .and. (.not.transmitting) .and. (.not.receiving)) go to 30
+ 
+@@ -96,11 +71,6 @@
+      call startdec
+   endif
+ 
+-!  if(ndecdone.gt.0) then
+-!     ndecdone=0
+-!     decoding=.false.
+-!  endif
+-
+   if(ntxdone.gt.0) then
+      transmitting=.false.
+      ntxdone=0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000379.html">[WSJT-SVN] r691 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000381.html">[WSJT-SVN] r693 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#380">[ date ]</a>
+              <a href="thread.html#380">[ thread ]</a>
+              <a href="subject.html#380">[ subject ]</a>
+              <a href="author.html#380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,338 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1986 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1986%20-%20wsjt7a&In-Reply-To=%3C20100712194222.F2FB1480AB7%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001677.html">
+   <LINK REL="Next"  HREF="001679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1986 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1986%20-%20wsjt7a&In-Reply-To=%3C20100712194222.F2FB1480AB7%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1986 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 12 21:42:22 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001677.html">[WSJT-SVN] r1985 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001679.html">[WSJT-SVN] r1987 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1678">[ date ]</a>
+              <a href="thread.html#1678">[ thread ]</a>
+              <a href="subject.html#1678">[ subject ]</a>
+              <a href="author.html#1678">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-12 21:42:22 +0200 (Mon, 12 Jul 2010)
+New Revision: 1986
+
+Modified:
+   wsjt7a/gcom2.f90
+   wsjt7a/gcom4.f90
+   wsjt7a/jt41.f90
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt1.f90
+   wsjt7a/wsjtgen.f90
+Log:
+Improved JT41 decoder.
+
+
+Modified: wsjt7a/gcom2.f90
+===================================================================
+--- wsjt7a/gcom2.f90	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/gcom2.f90	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -96,7 +96,7 @@
+ character*80 pttport
+ character*22 t0msg
+ 
+-parameter (ND2MAX=120*12000)
++parameter (ND2MAX=120*11025)
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,iter,iyr,imo,ida,                        &amp;
+      ndecoding,ndecoding0,mousebutton,nhighpri,                       &amp;
+
+Modified: wsjt7a/gcom4.f90
+===================================================================
+--- wsjt7a/gcom4.f90	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/gcom4.f90	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -5,7 +5,7 @@
+ integer jzc            !Length of data available in d2c          GUI
+ character filename*24  !Name of wave file read from disk         GUI
+ 
+-parameter (ND2CMAX=120*12000)
++parameter (ND2CMAX=120*11025)
+ common/gcom4/addpfx,d2c(ND2CMAX),jzc,filename
+ 
+ !### volatile /gcom4/
+
+Modified: wsjt7a/jt41.f90
+===================================================================
+--- wsjt7a/jt41.f90	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/jt41.f90	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -8,11 +8,12 @@
+   character c41*41
+   character msg*28,msg1*28
+   real x(NSZ),x2(NSZ)
+-  complex c(128)
++  complex c(512)
+   real s0(128,NSZ)
+   real fs0(128,96)
+   real fs1(0:40,30)
+   real savg(128)
++  real b(128)
+   real ccfred(-10:10)
+   real ccfblue(0:95)
+   integer dftolerance
+@@ -29,7 +30,7 @@
+   nh=nfft/2
+   nq=nfft/4
+   df=11025.0/nfft
+-  fac=1.0/32768.0                      !Somewhat arbitrary
++  fac=1.0/1000.0                      !Somewhat arbitrary
+   savg=0.
+ 
+   ia=1-kstep
+@@ -48,19 +49,27 @@
+ 
+ 10 jsym=j
+ 
+-!  do i=1,nq
+-!     do j=1,jsym
+-!        x(j)=s0(i,j)
+-!     enddo
+-!     call pctile(x,x2,jsym,20,base)
+-!     savg(i)=savg(i)/(jsym*base)               !May be a problem for shorthands
+-!  enddo
++  savg=savg/jsym
++  do i=1,nq
++     ia=max(i-20,1)
++     ib=min(i+20,nq)
++     call pctile(savg(ia),x,ib-ia+1,10,b(i))
++  enddo
+ 
+-!  do i=3,nq
+-!     write(13,3001) i*df,savg(i)
+-!3001 format(2f10.3)
+-!  enddo
++! This may not be the best way to normalize s0, but ...
++!  rewind 53
++  do i=1,nq
++!     yy=savg(i)
++     savg(i)=savg(i)/b(i)
++!     write(53,3001) i*df,yy,b(i),savg(i)
++!3001 format(4f10.3)
++  enddo
++!  call flush(53)
+ 
++  do j=1,jsym
++     s0(1:nq,j)=s0(1:nq,j)/savg(1:nq)
++  enddo
++
+   fs0=0.
+   jb=(jsym-4*nblk+1)/4
+   jb=4*jb
+@@ -89,28 +98,45 @@
+         endif
+      enddo
+   enddo
++
++  ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)  +        &amp;
++      fs0(ipk,jpk+4) + fs0(ipk+4,jpk+4) + fs0(ipk+6,jpk+4) +     &amp;
++      fs0(ipk,jpk+8) + fs0(ipk+2,jpk+8) + fs0(ipk+4,jpk+8) +     &amp;
++      fs0(ipk,jpk+12) + fs0(ipk+2,jpk+12) + fs0(ipk+6,jpk+12)
++  ref=ref/3.0
++
+   tping=jpk*kstep/11025.0
+-  nsig=nint(db(smax)-22.0)
+-  ndf0=nint((ipk-i0) * 11025.0/nfft)
+-  print*,ipk,jpk,smax
++  nsig=nint(db(smax/ref)-18.0)
++  ndf0=nint((ipk-i0-1) * 11025.0/nfft)       !### Why the &quot;-1&quot; ??? ###
+ 
+   if(ipk.gt.100 .or. jpk.gt.96) then
+      print*,'ipk:',ipk,'   jpk:',jpk
+      go to 900
+   endif
+   smax=0.
++  smax1=0.
++  smax2=0.
+   ja=jpk+16
+   if(ja.gt.4*nblk) ja=ja-4*nblk
+-  jb=jpk+16
++  jb=jpk+20
+   if(jb.gt.4*nblk) jb=jb-4*nblk
+-  do i=ipk,ipk+40,2                         !Find User's message length
++  do i=ipk,ipk+60,2                         !Find User's message length
++     ss1=fs0(i,ja)
++     ss2=fs0(i,jb)
++     if(ss1.gt.smax1) then
++        smax1=ss1
++        ipk2a=i
++     endif
++     if(ss2.gt.smax2) then
++        smax2=ss2
++        ipk2b=i
++     endif
++     
+      ss=fs0(i,ja) + fs0(i+10,jb)
+      if(ss.gt.smax) then
+         smax=ss
+         ipk2=i
+      endif
+-!     write(19,3003) i,ss
+-!3003 format(i5,e12.3)
+   enddo
+   msglen=(ipk2-i0)/2
+ 
+@@ -124,35 +150,37 @@
+      if(mod(k-1,nblk)+1.gt.6) then
+         n=n+1
+         m=mod(n-1,msglen)+1
+-!        write(15,4001) j,k,m
+-!4001    format(3i6)
+         do i=0,40
+            fs1(i,m)=fs1(i,m) + s0(ipk+2*i,j)
+         enddo
+      endif
+   enddo
+ 
+-!  do i=0,40
+-!     write(16,4002) i,(nint(10*fs1(i,j)),j=1,10)
+-!4002 format(i2,10i7)
+-!  enddo
+-
+ ! Read out the message:
+-
+   msg1='                            '
+   mpk=0
++  worst=9999.
++  sum=0.
+   do m=1,msglen
+      smax=0.
++     smax2=0.
+      do i=0,40
+         if(fs1(i,m).gt.smax) then
+            smax=fs1(i,m)
+-           ipk3=i+1
++           ipk3=i
+         endif
+      enddo
+-     if(ipk3.eq.41) mpk=m
+-     msg1(m:m)=c41(ipk3:ipk3)
++     do i=0,40
++        if(fs1(i,m).gt.smax2 .and. i.ne.ipk3) smax2=fs1(i,m)
++     enddo
++     rr=smax/smax2
++     sum=sum + rr
++     if(rr.lt.worst) worst=rr
++     if(ipk3.eq.40) mpk=m
++     msg1(m:m)=c41(ipk3+1:ipk3+1)
+   enddo
+ 
++  avg=sum/msglen
+   if(mpk.eq.1) then
+      msg=msg1(2:)
+   else if(mpk.lt.msglen) then
+@@ -162,10 +190,11 @@
+   endif
+ 
+   width=0.0
+-  write(*,1010) cfile6,tping,width,nsig,ndf0,msg,msglen
+-  write(11,1010) cfile6,tping,width,nsig,ndf0,msg,msglen
+-  write(21,1010) cfile6,tping,width,nsig,ndf0,msg,msglen
+-1010 format(a6,2f5.1,i4,i5,6x,a28,i3)
++  nworst=nint(10.0*(worst-1.0))
++  navg=nint(10.0*(avg-1.0))
++  write(11,1010) cfile6,tping,width,nsig,ndf0,msg,msglen,nworst,navg
++  write(21,1010) cfile6,tping,width,nsig,ndf0,msg,msglen,nworst,navg
++1010 format(a6,2f5.1,i4,i5,6x,a28,i4,2i3)
+ 
+ 900 return
+ end subroutine jt41
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/wsjt.py	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: wsjt7a/wsjt1.f90
+===================================================================
+--- wsjt7a/wsjt1.f90	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/wsjt1.f90	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -5,7 +5,7 @@
+      ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,       &amp;
+      MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+ 
+-  parameter (NP2=120*12000)
++  parameter (NP2=120*11025)
+ 
+   integer*2 d(jz0)        !Buffer for raw one-byte data
+   integer istart          !Starting location in original d() array
+
+Modified: wsjt7a/wsjtgen.f90
+===================================================================
+--- wsjt7a/wsjtgen.f90	2010-07-12 15:41:50 UTC (rev 1985)
++++ wsjt7a/wsjtgen.f90	2010-07-12 19:42:22 UTC (rev 1986)
+@@ -12,7 +12,7 @@
+   parameter (NMSGMAX=28)             !Max characters per message
+   parameter (NSPD=25)                !Samples per dit
+   parameter (NDPC=3)                 !Dits per character
+-  parameter (NWMAX=150*12000)        !Max length of Tx waveform
++  parameter (NWMAX=150*11025)        !Max length of Tx waveform
+   parameter (NTONES=4)               !Number of FSK tones
+ 
+   integer   itone(84)
+@@ -64,7 +64,7 @@
+         txmsg=msg
+         testfile=msg(2:)
+         tfile2=testfile
+-        call rfile2(tfile2,hdr,44+2*120*12000,nr)
++        call rfile2(tfile2,hdr,44+2*120*11025,nr)
+         if(nr.le.0) then
+            print*,'Error reading ',testfile
+            stop
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001677.html">[WSJT-SVN] r1985 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001679.html">[WSJT-SVN] r1987 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1678">[ date ]</a>
+              <a href="thread.html#1678">[ thread ]</a>
+              <a href="subject.html#1678">[ subject ]</a>
+              <a href="author.html#1678">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

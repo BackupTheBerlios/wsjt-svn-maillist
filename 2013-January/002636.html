@@ -1,0 +1,441 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2944 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2944%20-%20branches/wsprx&In-Reply-To=%3C20130115171111.70A2A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002635.html">
+   <LINK REL="Next"  HREF="002637.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2944 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2944%20-%20branches/wsprx&In-Reply-To=%3C20130115171111.70A2A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2944 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 15 18:11:11 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002635.html">[WSJT-SVN] r2943 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002637.html">[WSJT-SVN] r2945 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2636">[ date ]</a>
+              <a href="thread.html#2636">[ thread ]</a>
+              <a href="subject.html#2636">[ subject ]</a>
+              <a href="author.html#2636">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-15 18:11:10 +0100 (Tue, 15 Jan 2013)
+New Revision: 2944
+
+Modified:
+   branches/wsprx/devsetup.cpp
+   branches/wsprx/devsetup.h
+   branches/wsprx/devsetup.ui
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Finished (I think!) implementing rig control.
+
+
+Modified: branches/wsprx/devsetup.cpp
+===================================================================
+--- branches/wsprx/devsetup.cpp	2013-01-15 00:38:25 UTC (rev 2943)
++++ branches/wsprx/devsetup.cpp	2013-01-15 17:11:10 UTC (rev 2944)
+@@ -94,6 +94,15 @@
+     }
+   }
+ 
++  connect(&amp;p4, SIGNAL(readyReadStandardOutput()),
++                    this, SLOT(p4ReadFromStdout()));
++  connect(&amp;p4, SIGNAL(readyReadStandardError()),
++          this, SLOT(p4ReadFromStderr()));
++  connect(&amp;p4, SIGNAL(error(QProcess::ProcessError)),
++          this, SLOT(p4Error()));
++  p4.start(&quot;rigctl -l&quot;);
++  p4.waitForFinished(1000);
++
+   ui.myCallEntry-&gt;setText(m_myCall);
+   ui.myGridEntry-&gt;setText(m_myGrid);
+   ui.idIntSpinBox-&gt;setValue(m_idInt);
+@@ -113,6 +122,12 @@
+   ui.handshakeComboBox-&gt;setEnabled(m_catEnabled);
+ 
+   ui.rigComboBox-&gt;setCurrentIndex(m_rigIndex);
++  ui.catPortComboBox-&gt;setCurrentIndex(m_catPortIndex);
++  ui.serialRateComboBox-&gt;setCurrentIndex(m_serialRateIndex);
++  ui.dataBitsComboBox-&gt;setCurrentIndex(m_dataBitsIndex);
++  ui.stopBitsComboBox-&gt;setCurrentIndex(m_stopBitsIndex);
++  ui.handshakeComboBox-&gt;setCurrentIndex(m_handshakeIndex);
++
+   QString t;
+   t.sprintf(&quot;%d&quot;,m_BFO);
+   ui.bfoLineEdit-&gt;setText(t);
+@@ -141,6 +156,11 @@
+   m_nDevOut=ui.comboBoxSndOut-&gt;currentIndex();
+   m_paOutDevice=m_outDevList[m_nDevOut];
+   m_rigIndex=ui.rigComboBox-&gt;currentIndex();
++  m_serialRateIndex=ui.serialRateComboBox-&gt;currentIndex();
++  m_dataBitsIndex=ui.dataBitsComboBox-&gt;currentIndex();
++  m_stopBitsIndex=ui.stopBitsComboBox-&gt;currentIndex();
++  m_handshakeIndex=ui.handshakeComboBox-&gt;currentIndex();
++
+   QDialog::accept();
+ }
+ 
+@@ -167,7 +187,6 @@
+   m_grid6=b;
+ }
+ 
+-
+ void DevSetup::on_cbEnableCAT_toggled(bool b)
+ {
+   m_catEnabled=b;
+@@ -184,3 +203,68 @@
+   m_rigIndex=n;
+   m_rig=ui.rigComboBox-&gt;itemText(n).split(&quot; &quot;).at(0).toInt();
+ }
++
++void DevSetup::on_catPortComboBox_activated(int index)
++{
++  m_catPortIndex=index;
++  m_catPort=ui.catPortComboBox-&gt;itemText(index);
++}
++
++void DevSetup::on_serialRateComboBox_activated(int index)
++{
++  m_serialRateIndex=index;
++  m_serialRate=ui.serialRateComboBox-&gt;itemText(index).toInt();
++}
++
++void DevSetup::on_dataBitsComboBox_activated(int index)
++{
++  m_dataBitsIndex=index;
++  m_dataBits=ui.dataBitsComboBox-&gt;itemText(index).toInt();
++}
++
++void DevSetup::on_stopBitsComboBox_activated(int index)
++{
++  m_stopBitsIndex=index;
++  m_stopBits=ui.stopBitsComboBox-&gt;itemText(index).toInt();
++}
++
++void DevSetup::on_handshakeComboBox_activated(int index)
++{
++  m_handshakeIndex=index;
++  m_handshake=ui.handshakeComboBox-&gt;itemText(index);
++}
++
++void DevSetup::p4ReadFromStdout()                        //p4readFromStdout
++{
++  while(p4.canReadLine()) {
++    QString t(p4.readLine());
++    QString t1,t2,t3;
++    if(t.mid(0,6)!=&quot; Rig #&quot;) {
++      t1=t.mid(0,6);
++      t2=t.mid(8,22).trimmed();
++      t3=t.mid(31,23).trimmed();
++      t=t1 + &quot;  &quot; + t2 + &quot;  &quot; + t3;
++//      qDebug() &lt;&lt; t;
++      ui.rigComboBox-&gt;addItem(t);
++    }
++  }
++}
++
++void DevSetup::p4ReadFromStderr()                        //p4readFromStderr
++{
++  QByteArray t=p4.readAllStandardError();
++  if(t.length()&gt;0) {
++    msgBox(t);
++  }
++}
++
++void DevSetup::p4Error()                                     //p4rror
++{
++  msgBox(&quot;Error running 'rigctl -l'.&quot;);
++}
++
++void DevSetup::msgBox(QString t)                             //msgBox
++{
++  msgBox0.setText(t);
++  msgBox0.exec();
++}
+
+Modified: branches/wsprx/devsetup.h
+===================================================================
+--- branches/wsprx/devsetup.h	2013-01-15 00:38:25 UTC (rev 2943)
++++ branches/wsprx/devsetup.h	2013-01-15 17:11:10 UTC (rev 2944)
+@@ -2,6 +2,8 @@
+ #define DEVSETUP_H
+ 
+ #include &lt;QDialog&gt;
++#include &lt;QProcess&gt;
++#include &lt;QMessageBox&gt;
+ #include &quot;ui_devsetup.h&quot;
+ 
+ class DevSetup : public QDialog
+@@ -21,12 +23,16 @@
+   qint32  m_paInDevice;
+   qint32  m_paOutDevice;
+   qint32  m_BFO;
+-  qint32  m_catPort;
++  qint32  m_catPortIndex;
+   qint32  m_rig;
+   qint32  m_rigIndex;
+   qint32  m_serialRate;
++  qint32  m_serialRateIndex;
+   qint32  m_dataBits;
++  qint32  m_dataBitsIndex;
+   qint32  m_stopBits;
++  qint32  m_stopBitsIndex;
++  qint32  m_handshakeIndex;
+ 
+   bool    m_restartSoundIn;
+   bool    m_restartSoundOut;
+@@ -38,9 +44,18 @@
+   QString m_saveDir;
+   QString m_azelDir;
+   QString m_dxccPfx;
++  QString m_catPort;
++  QString m_handshake;
+ 
++  QProcess p4;
++  QMessageBox msgBox0;
++
++
+ public slots:
+   void accept();
++  void p4ReadFromStdout();
++  void p4ReadFromStderr();
++  void p4Error();
+ 
+ private slots:
+   void on_myCallEntry_editingFinished();
+@@ -49,8 +64,16 @@
+   void on_cbGrid6_toggled(bool b);
+   void on_cbEnableCAT_toggled(bool b);
+   void on_rigComboBox_activated(int index);
++  void on_catPortComboBox_activated(int index);
++  void on_serialRateComboBox_activated(int index);
++  void on_dataBitsComboBox_activated(int index);
++  void on_stopBitsComboBox_activated(int index);
++  void on_handshakeComboBox_activated(int index);
+ 
+ private:
++  void msgBox(QString t);
++
++private:
+   Ui::DialogSndCard ui;
+ };
+ 
+
+Modified: branches/wsprx/devsetup.ui
+===================================================================
+--- branches/wsprx/devsetup.ui	2013-01-15 00:38:25 UTC (rev 2943)
++++ branches/wsprx/devsetup.ui	2013-01-15 17:11:10 UTC (rev 2944)
+@@ -302,26 +302,28 @@
+        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_7&quot;&gt;
+         &lt;item&gt;
+          &lt;widget class=&quot;QLabel&quot; name=&quot;label_12&quot;&gt;
++          &lt;property name=&quot;maximumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;26&lt;/width&gt;
++            &lt;height&gt;16777215&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Rig number:&lt;/string&gt;
++           &lt;string&gt;Rig:&lt;/string&gt;
+           &lt;/property&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
+          &lt;widget class=&quot;QComboBox&quot; name=&quot;rigComboBox&quot;&gt;
++          &lt;property name=&quot;minimumSize&quot;&gt;
++           &lt;size&gt;
++            &lt;width&gt;200&lt;/width&gt;
++            &lt;height&gt;0&lt;/height&gt;
++           &lt;/size&gt;
++          &lt;/property&gt;
+           &lt;property name=&quot;currentIndex&quot;&gt;
+-           &lt;number&gt;1&lt;/number&gt;
++           &lt;number&gt;-1&lt;/number&gt;
+           &lt;/property&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;101 Yaesu FT-847&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+-          &lt;item&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;214 Kenwood TS-2000&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/item&gt;
+          &lt;/widget&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-15 00:38:25 UTC (rev 2943)
++++ branches/wsprx/mainwindow.cpp	2013-01-15 17:11:10 UTC (rev 2944)
+@@ -266,6 +266,17 @@
+   settings.setValue(&quot;catEnabled&quot;,m_catEnabled);
+   settings.setValue(&quot;Rig&quot;,m_rig);
+   settings.setValue(&quot;RigIndex&quot;,m_rigIndex);
++  settings.setValue(&quot;CATport&quot;,m_catPort);
++  settings.setValue(&quot;CATportIndex&quot;,m_catPortIndex);
++  settings.setValue(&quot;SerialRate&quot;,m_serialRate);
++  settings.setValue(&quot;SerialRateIndex&quot;,m_serialRateIndex);
++  settings.setValue(&quot;DataBits&quot;,m_dataBits);
++  settings.setValue(&quot;DataBitsIndex&quot;,m_dataBitsIndex);
++  settings.setValue(&quot;StopBits&quot;,m_stopBits);
++  settings.setValue(&quot;StopBitsIndex&quot;,m_stopBitsIndex);
++  settings.setValue(&quot;Handshake&quot;,m_handshake);
++  settings.setValue(&quot;HandshakeIndex&quot;,m_handshakeIndex);
++
+   settings.endGroup();
+ }
+ 
+@@ -336,6 +347,17 @@
+   m_catEnabled=settings.value(&quot;catEnabled&quot;,false).toBool();
+   m_rig=settings.value(&quot;Rig&quot;,214).toInt();
+   m_rigIndex=settings.value(&quot;RigIndex&quot;,100).toInt();
++  m_catPort=settings.value(&quot;CATport&quot;,&quot;None&quot;).toString();
++  m_catPortIndex=settings.value(&quot;CATportIndex&quot;,0).toInt();
++  m_serialRate=settings.value(&quot;SerialRate&quot;,4800).toInt();
++  m_serialRateIndex=settings.value(&quot;SerialRateIndex&quot;,1).toInt();
++  m_dataBits=settings.value(&quot;DataBits&quot;,8).toInt();
++  m_dataBitsIndex=settings.value(&quot;DataBitsIndex&quot;,1).toInt();
++  m_stopBits=settings.value(&quot;StopBits&quot;,8).toInt();
++  m_stopBitsIndex=settings.value(&quot;StopBitsIndex&quot;,1).toInt();
++  m_handshake=settings.value(&quot;Handshake&quot;,&quot;None&quot;).toString();
++  m_handshakeIndex=settings.value(&quot;HandshakeIndex&quot;,0).toInt();
++
+   ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   settings.endGroup();
+ 
+@@ -435,6 +457,16 @@
+   dlg.m_catEnabled=m_catEnabled;
+   dlg.m_rig=m_rig;
+   dlg.m_rigIndex=m_rigIndex;
++  dlg.m_catPort=m_catPort;
++  dlg.m_catPortIndex=m_catPortIndex;
++  dlg.m_serialRate=m_serialRate;
++  dlg.m_serialRateIndex=m_serialRateIndex;
++  dlg.m_dataBits=m_dataBits;
++  dlg.m_dataBitsIndex=m_dataBitsIndex;
++  dlg.m_stopBits=m_stopBits;
++  dlg.m_stopBitsIndex=m_stopBitsIndex;
++  dlg.m_handshake=m_handshake;
++  dlg.m_handshakeIndex=m_handshakeIndex;
+ 
+   dlg.initDlg();
+   if(dlg.exec() == QDialog::Accepted) {
+@@ -453,6 +485,16 @@
+     m_catEnabled=dlg.m_catEnabled;
+     m_rig=dlg.m_rig;
+     m_rigIndex=dlg.m_rigIndex;
++    m_catPort=dlg.m_catPort;
++    m_catPortIndex=dlg.m_catPortIndex;
++    m_serialRate=dlg.m_serialRate;
++    m_serialRateIndex=dlg.m_serialRateIndex;
++    m_dataBits=dlg.m_dataBits;
++    m_dataBitsIndex=dlg.m_dataBitsIndex;
++    m_stopBits=dlg.m_stopBits;
++    m_stopBitsIndex=dlg.m_stopBitsIndex;
++    m_handshake=dlg.m_handshake;
++    m_handshakeIndex=dlg.m_handshakeIndex;
+ 
+     if(dlg.m_restartSoundIn) {
+       soundInThread.quit();
+@@ -1123,12 +1165,17 @@
+   ui-&gt;txFreqLineEdit-&gt;setText(t);
+   if(m_rig&gt;=1) {
+     int nHz=int(1000000.0*m_dialFreq + 0.5);
+-    QString cmnd1,cmnd2;
+-    cmnd1.sprintf(&quot;rigctl -m %d -r COM1 -s %d -C data_bits=%d&quot;,m_rig,4800,8);
+-    cmnd2.sprintf(&quot; -C stop_bits=%d -C serial_handshake=Hardware F %d&quot;,2,nHz);
+-    p3.start(cmnd1+cmnd2);
++    QString cmnd1,cmnd2,cmnd3;
++
++    cmnd1.sprintf(&quot;rigctl -m %d -r &quot;,m_rig);
++    cmnd1+=m_catPort;
++    cmnd2.sprintf(&quot; -s %d -C data_bits=%d -C stop_bits=%d -C serial_handshake=&quot;,
++                  m_serialRate,m_dataBits,m_stopBits);
++    cmnd2+=m_handshake;
++    cmnd3.sprintf(&quot; F %d&quot;,nHz);
++//    qDebug() &lt;&lt; cmnd1+cmnd2+cmnd3;
++    p3.start(cmnd1+cmnd2+cmnd3);
+   }
+-//  cmnd=&quot;rigctl -m 214 -r COM1 -s 4800 -C data_bits=8 -C stop_bits=2 -C serial_handshake=Hardware F 10138710&quot;
+ }
+ 
+ void MainWindow::on_sbTxAudio_valueChanged(int n)
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-15 00:38:25 UTC (rev 2943)
++++ branches/wsprx/mainwindow.h	2013-01-15 17:11:10 UTC (rev 2944)
+@@ -121,8 +121,16 @@
+     qint32  m_save;
+     qint32  m_BFO;
+     qint32  m_RxStartBand;
++    qint32  m_catPortIndex;
+     qint32  m_rig;
+     qint32  m_rigIndex;
++    qint32  m_serialRate;
++    qint32  m_serialRateIndex;
++    qint32  m_dataBits;
++    qint32  m_dataBitsIndex;
++    qint32  m_stopBits;
++    qint32  m_stopBitsIndex;
++    qint32  m_handshakeIndex;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+@@ -188,6 +196,8 @@
+     QString m_c2name;
+     QString m_txNext_style;
+     QString m_tune_style;
++    QString m_catPort;
++    QString m_handshake;
+ 
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002635.html">[WSJT-SVN] r2943 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002637.html">[WSJT-SVN] r2945 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2636">[ date ]</a>
+              <a href="thread.html#2636">[ thread ]</a>
+              <a href="subject.html#2636">[ subject ]</a>
+              <a href="author.html#2636">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

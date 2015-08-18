@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r463 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r463%20-%20branches/map65&In-Reply-To=%3C200707031653.l63GrqIv014529%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000147.html">
+   <LINK REL="Next"  HREF="000149.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r463 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r463%20-%20branches/map65&In-Reply-To=%3C200707031653.l63GrqIv014529%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r463 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul  3 18:53:52 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000147.html">[WSJT-SVN] r462 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000149.html">[WSJT-SVN] r464 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#148">[ date ]</a>
+              <a href="thread.html#148">[ thread ]</a>
+              <a href="subject.html#148">[ subject ]</a>
+              <a href="author.html#148">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-03 18:53:28 +0200 (Tue, 03 Jul 2007)
+New Revision: 463
+
+Modified:
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+Log:
+Fixed bug that suppressed occasional quick decodes.
+Another tweak to logic for disabling Decode button.
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-03 14:50:03 UTC (rev 462)
++++ branches/map65/map65.py	2007-07-03 16:53:28 UTC (rev 463)
+@@ -987,7 +987,7 @@
+     txminute=0
+     if Audio.gcom2.lauto and utc[4]%2 == Audio.gcom1.txfirst: txminute=1
+     if mode.get()[:4]=='JT65' and (Audio.gcom2.ndecoding&gt;0 or \
+-         (isec&gt;45 and  txminute==0 and \
++         (isec&gt;45 and  (txminute==0 or Audio.gcom2.monitoring==0) and \
+           Audio.datcom.kkdone!=-99 and Audio.gcom2.ndiskdat!=1)):
+ #Set button bg while decoding
+         bc='#66FFFF'
+@@ -1313,7 +1313,7 @@
+ 
+ #------------------------------------------------------ Labels under graphics
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+-lab2=Label(iframe2, text='Freq     DF     Pol    UTC       DT       dB')
++lab2=Label(iframe2, text='Freq      DF    Pol     UTC       DT      dB')
+ lab2.place(x=3,y=6, anchor='w')
+ lab7=Label(iframe2,text='F3',fg='gray85')
+ lab7.place(x=495,y=6, anchor=CENTER)
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-07-03 14:50:03 UTC (rev 462)
++++ branches/map65/map65a.f90	2007-07-03 16:53:28 UTC (rev 463)
+@@ -95,6 +95,7 @@
+            call ccf65(ss(1,1,i),nhsym,sync1,ipol,dt,flipk,              &amp;
+                 syncshort,snr2,ipol2,dt2)
+ 
++! ########################### Search for Shorthand Messages #################
+            shmsg='   '
+ !  Is there a shorthand tone above threshold?
+            if(syncshort.gt.1.0) then
+@@ -144,17 +145,16 @@
+                  endif
+               enddo
+            endif
+-        
++
++! ########################### Search for Normal Messages ###########
+ !  Is sync1 above threshold?
+            if(sync1.gt.1.0) then
+ 
+ !  Keep only the best candidate within ftol.
+-!  (Am I deleting any good decodes by doing this?  Any harm in omitting
+-!  these statements??)
++!  (Am I deleting any good decodes by doing this?)
+               if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.         &amp;
+-                   nkm.eq.1 .and.nqd.eq.0) km=km-1
+-
+-              if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .and. nqd.eq.0) then
++                   nkm.eq.1) km=km-1
++              if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+                  call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,    &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,      &amp;
+@@ -222,8 +222,8 @@
+            endif
+         enddo
+         if(nwrite.eq.0) then
+-           write(11,1011) mousefqso,mousedf,nutc
+-1011          format(i3,i5,4x,i5.4)
++           write(11,1011) mousefqso,nutc
++1011          format(i3,9x,i5.4)
+         endif
+    
+         write(11,*) '$EOF'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000147.html">[WSJT-SVN] r462 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000149.html">[WSJT-SVN] r464 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#148">[ date ]</a>
+              <a href="thread.html#148">[ thread ]</a>
+              <a href="subject.html#148">[ subject ]</a>
+              <a href="author.html#148">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

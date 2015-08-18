@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r533 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r533%20-%20trunk&In-Reply-To=%3C200709191409.l8JE9MBT027058%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000217.html">
+   <LINK REL="Next"  HREF="000219.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r533 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r533%20-%20trunk&In-Reply-To=%3C200709191409.l8JE9MBT027058%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r533 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 19 16:09:22 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000217.html">[WSJT-SVN] r532 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000219.html">[WSJT-SVN] r534 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#218">[ date ]</a>
+              <a href="thread.html#218">[ thread ]</a>
+              <a href="subject.html#218">[ subject ]</a>
+              <a href="author.html#218">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-19 16:09:13 +0200 (Wed, 19 Sep 2007)
+New Revision: 533
+
+Modified:
+   trunk/decode24.f
+   trunk/gen24.f
+   trunk/sync24.f
+   trunk/wsjt.py
+   trunk/wsjt24.f
+Log:
+The JT2 decoder works!
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-19 01:09:22 UTC (rev 532)
++++ trunk/decode24.f	2007-09-19 14:09:13 UTC (rev 533)
+@@ -10,10 +10,12 @@
+       real ftrack(126)
+       character decoded*22,deepmsg*22
+       character mycall*12,hiscall*12,hisgrid*6
++      character*72 c72
+       real*8 dt,df,phi,f0,dphi,twopi
+       complex c0,c1
+       integer*1 i1,symbol(207)
+-      integer*1 data1(13)                !Decoded data
++      integer*1 data1(13)                   !Decoded data (8-bit bytes)
++      integer   data4(12)                   !Decoded data (6-bit bytes)
+       integer amp,delta,scale
+       integer mettab(0:255,0:1)             !Metric table
+       integer fano
+@@ -94,29 +96,33 @@
+  3091    format(3i6)
+       enddo      
+ 
+-      nbits=72                                        !103 ???
++      nbits=72+31
+       delta=15
+       limit=10000
+       ncycles=0
+-      iret=fano(metric,ncycles,data1,symbol,nbits,mettab,
++      ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,
+      +     delta,limit)
++      print*,'Decode24  ncount:',ncount,ncycles
++      write(c72,1100) (data1(i),i=1,9)
++ 1100 format(9b8.8)
++      print*,c72
++      read(c72,1102) data4
++ 1102 format(12b6)
++      write(*,3001) (data1(i),i=1,9),(data4(i),i=1,12)
++ 3001 format('Decode24:'9(1x,z2),2x,12(1x,z2))
++
+       decoded='                      '
+-      print*,'iret:',iret,ncycles
+-      write(*,3001) data1
+- 3001 format(13i4)
++      if(ncount.ge.0) call unpackmsg(data4,decoded)
++      print*,decoded
+ 
+ !      call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
++      deepmsg='                      '
+ !      if(ndepth.ge.1) call deep65(s3,mode65,neme,nchallenge,
+ !     +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
+ 
+ C  Save symbol spectra for possible decoding of average.
+-!      do j=1,63
+-!         k=mdat(j)
+-!         if(flip.lt.0.0) k=mdat2(j)
+-!         call move(s2(8,k),ppsave(1,j,nsave),64)
+-!      enddo
+ 
+       return
+       end
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-09-19 01:09:22 UTC (rev 532)
++++ trunk/gen24.f	2007-09-19 14:09:13 UTC (rev 533)
+@@ -32,18 +32,19 @@
+       call chkmsg(message,cok,nspecial,flip)
+       call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
+       call entail(dgen,data0)
+-      write(*,3001) data0
+- 3001 format(13i4)
++      write(*,3001) (data0(i),i=1,9),(dgen(i),i=1,12)
++ 3001 format('Gen24:   ',9(1x,z2),2x,12(1x,z2))
++      call unpackmsg(dgen,msgsent)
++      print*,msgsent
+       nbytes=(72+31+7)/8
+-      call encode(data0,nbytes,symbol(2))     !Convolutional encoding
++      call encode(data0,nbytes,symbol(2))    !Convolutional encoding
+       symbol(1)=0                            !Reference phase
+-
+       sendingsh=0
+       if(iand(dgen(10),8).ne.0) sendingsh=-1 !Plain text flag
+ C###      call interleave63(sent,1) !Apply interleaving
+-      tsymbol=2520.d0/11025.d0
+ 
+ C  Set up necessary constants
++      tsymbol=2520.d0/11025.d0
+       dt=1.0/(samfac*11025.0)
+       f0=118*11025.d0/1024 + ntxdf
+       dfgen=11025.0/2520                     !4.375 Hz
+@@ -86,8 +87,7 @@
+          iwave(i)=0
+       enddo
+       nwave=i
+-      call unpackmsg(dgen,msgsent)
+-      print*,msgsent
++
+       if(flip.lt.0.0) then
+          do i=22,1,-1
+             if(msgsent(i:i).ne.' ') goto 10
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-09-19 01:09:22 UTC (rev 532)
++++ trunk/sync24.f	2007-09-19 14:09:13 UTC (rev 533)
+@@ -98,7 +98,6 @@
+       endif
+ 
+ C  Peak up in frequency to fraction of channel
+-      base=0.25*(psavg(ipk-3)+psavg(ipk-2)+psavg(ipk+2)+psavg(ipk+3))
+ !      call peakup(psavg(ipk-1),psavg(ipk),psavg(ipk+1),dx)
+ !      if(dx.lt.-1.0) dx=-1.0
+ !      if(dx.gt.1.0) dx=1.0
+@@ -131,7 +130,6 @@
+       istart=xlag*nq
+       dtx=istart*dt
+       snrx=-99.0
+-!      ppmax=psavg(ipk)/base-1.0
+       ppmax=psavg(ipk)-1.0
+ C  Plus 3 dB because sync tone is on half the time.  (Don't understand 
+ C  why an additional +2 dB is needed ...)
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-09-19 01:09:22 UTC (rev 532)
++++ trunk/wsjt.py	2007-09-19 14:09:13 UTC (rev 533)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt24.f
+===================================================================
+--- trunk/wsjt24.f	2007-09-19 01:09:22 UTC (rev 532)
++++ trunk/wsjt24.f	2007-09-19 14:09:13 UTC (rev 533)
+@@ -89,7 +89,6 @@
+       call decode24(dat,npts,dtx,dfx,flip,ndepth,neme,
+      +   mycall,hiscall,hisgrid,mode,mode4,nafc,decoded,
+      +   ncount,deepmsg,qual)
+-      if(ncount.eq.-999) qual=0                 !Bad data
+  200  kvqual=0
+       if(ncount.ge.0) kvqual=1
+       nqual=qual
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000217.html">[WSJT-SVN] r532 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000219.html">[WSJT-SVN] r534 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#218">[ date ]</a>
+              <a href="thread.html#218">[ thread ]</a>
+              <a href="subject.html#218">[ subject ]</a>
+              <a href="author.html#218">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

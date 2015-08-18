@@ -1,0 +1,293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2699 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2699%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121028154743.EB3CA55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002390.html">
+   <LINK REL="Next"  HREF="002392.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2699 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2699%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121028154743.EB3CA55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2699 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Oct 28 16:47:43 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002390.html">[WSJT-SVN] r2698 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002392.html">[WSJT-SVN] r2700 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2391">[ date ]</a>
+              <a href="thread.html#2391">[ thread ]</a>
+              <a href="subject.html#2391">[ subject ]</a>
+              <a href="author.html#2391">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-28 16:47:43 +0100 (Sun, 28 Oct 2012)
+New Revision: 2699
+
+Modified:
+   branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+   branches/wsjtx/getfile.cpp
+   branches/wsjtx/getfile.h
+   branches/wsjtx/lib/ptt.c
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundout.cpp
+Log:
+Fix the &quot;changed modes&quot; problem in soundout.cpp.
+Move the ptt function into the Qt-managed code.
+
+
+Modified: branches/wsjtx/WSJT-X_Quick_Start_Guide.docx
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/getfile.cpp
+===================================================================
+--- branches/wsjtx/getfile.cpp	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/getfile.cpp	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -3,6 +3,7 @@
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;math.h&gt;
++#include &lt;windows.h&gt;
+ 
+ void getfile(QString fname, int ntrperiod)
+ {
+@@ -114,3 +115,49 @@
+   iset++;
+   return v2*fac;
+ }
++
++int ptt(int nport, int ntx, int *iptt)
++{
++  static HANDLE hFile;
++  static int open=0;
++  char s[10];
++  int i3=1,i4=1,i5=1,i6=1,i9=1,i00=1;
++
++  if(nport==0) {
++    *iptt=ntx;
++    return(0);
++  }
++
++  if(ntx &amp;&amp; (!open)) {
++    sprintf(s,&quot;COM%d&quot;,nport);
++    hFile=CreateFile(TEXT(s),GENERIC_WRITE,0,NULL,OPEN_EXISTING,
++                     FILE_ATTRIBUTE_NORMAL,NULL);
++    if(hFile==INVALID_HANDLE_VALUE) {
++      //      printf(&quot;PTT: Cannot open COM port %d.\n&quot;,nport);
++      return 1;
++    }
++    open=1;
++  }
++
++  if(ntx &amp;&amp; open) {
++    i3=EscapeCommFunction(hFile,SETRTS);
++    i5=EscapeCommFunction(hFile,SETDTR);
++    *iptt=1;
++  }
++
++  else {
++    i4=EscapeCommFunction(hFile,CLRRTS);
++    i6=EscapeCommFunction(hFile,CLRDTR);
++    i9=EscapeCommFunction(hFile,CLRBREAK);
++    i00=CloseHandle(hFile);
++    *iptt=0;
++    open=0;
++  }
++  if(i3==0) return -(SETRTS);
++  if(i4==0) return -(CLRRTS);
++  if(i5==0) return -(SETDTR);
++  if(i6==0) return -(CLRDTR);
++  if(i9==0) return -(CLRBREAK);
++  if(i00==0) return -10;
++  return 0;
++}
+
+Modified: branches/wsjtx/getfile.h
+===================================================================
+--- branches/wsjtx/getfile.h	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/getfile.h	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -8,5 +8,6 @@
+ void getfile(QString fname, int ntrperiod);
+ void savetf2(QString fname, int ntrperiod);
+ float gran();
++int ptt(int* nport, int* ntx, int* iptt);
+ 
+ #endif // GETFILE_H
+
+Modified: branches/wsjtx/lib/ptt.c
+===================================================================
+--- branches/wsjtx/lib/ptt.c	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/lib/ptt.c	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -25,18 +25,24 @@
+   }
+ 
+   if(*ntx &amp;&amp; open) {
+-    EscapeCommFunction(hFile,3);
+-    EscapeCommFunction(hFile,5);
++    i3=EscapeCommFunction(hFile,3);
++    i5=EscapeCommFunction(hFile,5);
+     *iptt=1;
+   }
+ 
+   else {
+-    EscapeCommFunction(hFile,4);
+-    EscapeCommFunction(hFile,6);
+-    EscapeCommFunction(hFile,9);
++    i4=EscapeCommFunction(hFile,4);
++    i6=EscapeCommFunction(hFile,6);
++    i9=EscapeCommFunction(hFile,9);
+     i00=CloseHandle(hFile);
+     *iptt=0;
+     open=0;
+   }
++  if(i3==0) return 3;
++  if(i4==0) return 4;
++  if(i5==0) return 5;
++  if(i6==0) return 6;
++  if(i9==0) return 9;
++  if(i00==0) return 10;
+   return 0;
+ }
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/mainwindow.cpp	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -6,6 +6,7 @@
+ #include &quot;about.h&quot;
+ #include &quot;widegraph.h&quot;
+ #include &quot;sleep.h&quot;
++#include &quot;getfile.h&quot;
+ #include &lt;portaudio.h&gt;
+ 
+ int itone[85];                        //Tx audio tones for 85 symbols
+@@ -914,11 +915,11 @@
+ 
+     if(bTxTime and iptt==0 and !m_txMute) {
+       int itx=1;
+-      int ierr = ptt_(&amp;m_pttPort,&amp;itx,&amp;iptt);       // Raise PTT
+-      if(ierr != 0) {
++      int ierr = ptt(m_pttPort,itx,&amp;iptt);       // Raise PTT
++      if(ierr&lt;0) {
+         on_stopTxButton_clicked();
+         char s[18];
+-        sprintf(s,&quot;Cannot open COM%d&quot;,m_pttPort);
++        sprintf(s,&quot;PTT Error %d&quot;,ierr);
+         msgBox(s);
+       }
+       if(!soundOutThread.isRunning()) {
+@@ -985,7 +986,12 @@
+   if(nc0 &lt;= 0) nc0++;
+   if(nc0 == 0) {
+     int itx=0;
+-    ptt_(&amp;m_pttPort,&amp;itx,&amp;iptt);       // Lower PTT
++    int ierr=ptt(m_pttPort,itx,&amp;iptt);       // Lower PTT
++    if(ierr&lt;0) {
++      char s[18];
++      sprintf(s,&quot;PTT Error %d&quot;,ierr);
++      msgBox(s);
++    }
+     if(!m_txMute) soundOutThread.quitExecution=true;
+     m_transmitting=false;
+     if(m_auto) {
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/mainwindow.h	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -216,7 +216,9 @@
+ extern void getDev(int* numDevices,char hostAPI_DeviceName[][50],
+                    int minChan[], int maxChan[],
+                    int minSpeed[], int maxSpeed[]);
++extern int ptt(int nport, int itx, int* iptt);
+ 
++
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+ void symspec_(int* k, int* ntrperiod, int* nsps, int* nb, int* m_NBslider,
+@@ -227,8 +229,6 @@
+ void genjt9_(char* msg, char* msgsent, int itone[], int len1, int len2);
+ 
+ void decoder_(int* ntrperiod, int* mRxLog, float c0[]);
++}
+ 
+-int ptt_(int* nport, int* itx, int* iptt);
+-  }
+-
+ #endif // MAINWINDOW_H
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-10-27 18:06:48 UTC (rev 2698)
++++ branches/wsjtx/soundout.cpp	2012-10-28 15:47:43 UTC (rev 2699)
+@@ -32,14 +32,16 @@
+   short *wptr = (short*)outputBuffer;
+ 
+   static double twopi=2.0*3.141592653589793238462;
+-  static double baud=12000.0/udata-&gt;nsps;
++  static double baud;
+   static double phi=0.0;
+   static double dphi;
+   static double freq;
+   static double snr;
+   static double fac;
+   static int ic=0;
++  static int isym0=-99;
+   static short int i2;
++  int isym;
+ 
+   if(udata-&gt;bRestart) {
+  // Time according to this computer
+@@ -49,8 +51,9 @@
+     ic=(mstr-1000)*12;
+     udata-&gt;bRestart=false;
+   }
+-  int isym=ic/udata-&gt;nsps;
++  isym=ic/udata-&gt;nsps;
+   if(isym&gt;=85) return 0;
++  baud=12000.0/udata-&gt;nsps;
+   freq=udata-&gt;ntxfreq + itone[isym]*baud;
+   dphi=twopi*freq/12000.0;
+   if(udata-&gt;txsnrdb &lt; 0.0) {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002390.html">[WSJT-SVN] r2698 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002392.html">[WSJT-SVN] r2700 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2391">[ date ]</a>
+              <a href="thread.html#2391">[ thread ]</a>
+              <a href="subject.html#2391">[ subject ]</a>
+              <a href="author.html#2391">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

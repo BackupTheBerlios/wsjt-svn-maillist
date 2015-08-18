@@ -1,0 +1,365 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3368 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3368%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130610151531.0292ABF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003059.html">
+   <LINK REL="Next"  HREF="003061.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3368 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3368%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130610151531.0292ABF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3368 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jun 10 17:15:30 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003059.html">[WSJT-SVN] r3367 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003061.html">[WSJT-SVN] r3369 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3060">[ date ]</a>
+              <a href="thread.html#3060">[ thread ]</a>
+              <a href="subject.html#3060">[ subject ]</a>
+              <a href="author.html#3060">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-10 17:15:30 +0200 (Mon, 10 Jun 2013)
+New Revision: 3368
+
+Modified:
+   branches/wsjtx_k1jt_p1/commons.h
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/downsam9.f90
+   branches/wsjtx_k1jt_p1/lib/filbig.f90
+   branches/wsjtx_k1jt_p1/lib/fillcom.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/lib/jt9c.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/soundin.cpp
+Log:
+Decoder does Tx mode first, then the other one.
+
+
+Modified: branches/wsjtx_k1jt_p1/commons.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/commons.h	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/commons.h	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -10,7 +10,6 @@
+ extern struct {
+   float ss[184*NSMAX];              //This is &quot;common/jt9com/...&quot; in fortran
+   float savg[NSMAX];
+-//  float c0[2*NTMAX*1500];
+   short int d2[NTMAX*12000];
+   int nutc;                         //UTC as integer, HHMM
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+@@ -26,7 +25,7 @@
+   int nsave;
+   int nagain;
+   int ndepth;
+-  int nrxlog;
++  int ntxmode;
+   int nfsample;
+   char datetime[20];
+ } jt9com_;
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -15,7 +15,7 @@
+   real*4 dd(NTMAX*12000)
+   integer*1 i1SoftSymbols(207)
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
++       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nfsample,datetime
+   common/tracer/limtrace,lu
+   save
+ 
+@@ -28,8 +28,15 @@
+   call timer('decoder ',0)
+ 
+   open(13,file='decoded.txt',status='unknown')
++
++  npts65=52*12000
++  ntol65=100
++  if(ntxmode.eq.65) then
++     dd(1:npts65)=id2(1:npts65)
++     call jt65a(dd,npts65,newdat,nutc,ntol65,nfqso,nagain,ndiskdat)
++  endif
++
+   ntrMinutes=ntrperiod/60
+-  newdat=1
+   nsynced=0
+   ndecoded=0
+   nsps=0
+@@ -40,7 +47,6 @@
+   tstep=0.5*nsps/12000.0                      !Half-symbol step (seconds)
+   done=.false.
+ 
+-!  nf0=1000
+   nf0=0
+   ia=max(1,nint((nfa-nf0)/df3))
+   ib=min(NSMAX,nint((nfb-nf0)/df3))
+@@ -89,9 +95,7 @@
+         ccfok(ia1:ib1)=.false.
+      endif
+ 
+-     nRxLog=0
+      fgood=0.
+-
+      do i=ia,ib
+         f=(i-1)*df3
+         if(done(i) .or. (.not.ccfok(i)) .or. (ccfred(i).lt.ccflim-1.0)) cycle
+@@ -120,11 +124,6 @@
+               nsnr=nint(snrdb)
+               ndrift=nint(drift/df3)
+               
+-!              write(38,3002) nutc,nqd,nsnr,i,freq,ndrift,ccfred(i),    &amp;
+-!                   red2(i),schk,nlim,msg
+-!3002          format(i4.4,i2,i4,i5,f7.1,i4,f5.1,f6.1,f5.1,i8,1x,a22)
+-!              call flush(38)
+-
+               if(msg.ne.'                      ') then
+                  if(nqd.eq.0) ndecodes0=ndecodes0+1
+                  if(nqd.eq.1) ndecodes1=ndecodes1+1
+@@ -150,20 +149,12 @@
+      if(nagain.ne.0) exit
+   enddo
+ 
+-!###
+-  npts65=52*12000
+-  dd(1:npts65)=id2(1:npts65)
+-  newdat65=1
+-  ntol65=100
+-  nfa65=270
+-  nfb65=2270
+-  nfqso65=1270
+-  nagain65=0
+-  ndiskdat65=0
+-  call jt65a(dd,npts65,newdat65,nutc,ntol65,nfa65,nfb65,nfqso65,nagain65,  &amp;
+-       ndiskdat65)
+-!###
++  if(ntxmode.eq.9) then
++     dd(1:npts65)=id2(1:npts65)
++     call jt65a(dd,npts65,newdat,nutc,ntol65,nfqso,nagain,ndiskdat)
++  endif
+ 
++!### JT65 is not yet producing info for nsynced, ndecoded.
+   write(*,1010) nsynced,ndecoded
+ 1010 format('&lt;DecodeFinished&gt;',2i4)
+   call flush(6)
+
+Modified: branches/wsjtx_k1jt_p1/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -34,7 +34,7 @@
+            s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
+         enddo
+      enddo
+-     newdat=0
++!     newdat=0
+   endif
+ 
+   ndown=8*nsps8/16                         !Downsample factor
+
+Modified: branches/wsjtx_k1jt_p1/lib/filbig.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -78,23 +78,6 @@
+         fac=sqrt(min(30.0,1.0/ref(j)))
+         ca(i)=fac * ca(i)
+      enddo
+-
+-!###
+-!     nadd=50
+-!     iz=NFFT1/(2*nadd)
+-!     df1=nadd*12000.0/NFFT1
+-!     k=0
+-!     do i=1,iz
+-!        ss=0.
+-!        do j=1,nadd
+-!           k=k+1
+-!           ss=ss + real(ca(k))**2 + aimag(ca(k))**2
+-!        enddo
+-!        write(81,3001) i*df1,ss,db(ss)
+-!3001    format(f12.3,e12.3,f12.3)
+-!     enddo
+-!###        
+-     newdat=0
+   endif
+ 
+ ! NB: f0 is the frequency at which we want our filter centered.
+
+Modified: branches/wsjtx_k1jt_p1/lib/fillcom.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/fillcom.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/fillcom.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -1,7 +1,7 @@
+ subroutine fillcom(nutc0,ndepth0)
+   character*20 datetime
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
++       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nfsample,datetime
+   save
+ 
+   nutc=nutc0
+@@ -17,7 +17,7 @@
+   nzhsym=173
+   nsave=0
+   ndepth=ndepth0
+-  nrxlog=1
++  ntxmode=9
+   nfsample=12000
+   datetime=&quot;2013-Apr-16 15:13&quot;
+   
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -1,4 +1,4 @@
+-subroutine jt65a(dd,npts,newdat,nutc,ntol,nfa,nfb,nfqso,nagain,ndiskdat)
++subroutine jt65a(dd,npts,newdat,nutc,ntol,nfqso,nagain,ndiskdat)
+ 
+ !  Process dd() data to find and decode JT65 signals.
+ 
+@@ -69,8 +69,6 @@
+            nfreq=nint(freq)
+            s2db=10.0*log10(sync2) - 40             !### empirical ###
+            nsync2=nint(s2db)
+-!           write(*,1010) nutc,nsync2,dt,nfreq,decoded,nflip,newdat
+-!1010       format(i4.4,i6,f6.1,i6,2x,a22,3x,2i3)
+            write(*,1010) nutc,nsync2,dt,nfreq,decoded
+ 1010       format(i4.4,i4,f5.1,i5,1x,'#',1x,a22)
+            freq0=freq
+@@ -79,10 +77,8 @@
+            done(i:i2)=.true.
+         endif
+      enddo
+-     if(nagain.eq.1) go to 999
++     if(nagain.eq.1) exit
+   enddo
+ 
+-999 nagain=0
+-
+   return
+ end subroutine jt65a
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt9c.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -7,7 +7,7 @@
+   integer nparams0(21),nparams(21)
+   character*20 datetime
+   common/npar/nutc,ndiskdat,ntrperiod,nfqso,newdat,npts8,nfa,nfb,ntol,  &amp;
+-       kin,nzhsym,nsave,nagain,ndepth,nrxlog,nfsample,datetime
++       kin,nzhsym,nsave,nagain,ndepth,ntxmode,nfsample,datetime
+   equivalence (nparams,nutc)
+ 
+   nutc=id2(1)+int(savg(1))             !Silence compiler warning
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -1287,7 +1287,8 @@
+   jt9com_.ntol=3;
+   if(jt9com_.nutc &lt; m_nutc0) m_RxLog |= 1;  //Date and Time to all.txt
+   m_nutc0=jt9com_.nutc;
+-  jt9com_.nrxlog=m_RxLog;
++  jt9com_.ntxmode=9;
++  if(m_modeTx==&quot;JT65&quot;) jt9com_.ntxmode=65;
+   jt9com_.nfsample=12000;
+   jt9com_.ntrperiod=m_TRperiod;
+   m_nsave=0;
+@@ -2380,7 +2381,7 @@
+   logDlg-&gt;m_saveComments=m_saveComments;
+   logDlg-&gt;m_txPower=m_txPower;
+   logDlg-&gt;m_comments=m_logComments;
+-  logDlg-&gt;initLogQSO(m_hisCall,m_hisGrid,m_mode,m_rptSent,m_rptRcvd,
++  logDlg-&gt;initLogQSO(m_hisCall,m_hisGrid,m_modeTx,m_rptSent,m_rptRcvd,
+                      m_dateTimeQSO,m_dialFreq+m_txFreq/1.0e6,
+                      m_myCall,m_myGrid,m_noSuffix,m_toRTTY,m_dBtoComments);
+   connect(logDlg, SIGNAL(acceptQSO(bool)),this,SLOT(acceptQSO2(bool)));
+@@ -2412,7 +2413,7 @@
+ void MainWindow::on_actionJT9_1_triggered()
+ {
+   m_mode=&quot;JT9&quot;;
+-  m_modeTx=&quot;JT9&quot;;
++  if(m_modeTx!=&quot;JT9&quot;) on_pbTxMode_clicked();
+   statusChanged();
+   m_TRperiod=60;
+   m_nsps=6912;
+@@ -2431,7 +2432,7 @@
+ void MainWindow::on_actionJT65_triggered()
+ {
+   m_mode=&quot;JT65&quot;;
+-  m_modeTx=&quot;JT65&quot;;
++  if(m_modeTx!=&quot;JT65&quot;) on_pbTxMode_clicked();
+   statusChanged();
+   m_TRperiod=60;
+   m_nsps=6912;                   //For symspec only
+@@ -2450,7 +2451,7 @@
+ void MainWindow::on_actionJT9_JT65_triggered()
+ {
+   m_mode=&quot;JT9+JT65&quot;;
+-  m_modeTx=&quot;JT9&quot;;
++  if(m_modeTx!=&quot;JT9&quot;) on_pbTxMode_clicked();
+   statusChanged();
+   m_TRperiod=60;
+   m_nsps=6912;
+
+Modified: branches/wsjtx_k1jt_p1/soundin.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/soundin.cpp	2013-06-10 13:42:31 UTC (rev 3367)
++++ branches/wsjtx_k1jt_p1/soundin.cpp	2013-06-10 15:15:30 UTC (rev 3368)
+@@ -27,7 +27,7 @@
+   int nsave;
+   int nagain;
+   int ndepth;
+-  int nrxlog;
++  int ntxmode;
+   int nfsample;
+   char datetime[20];
+ } jt9com_;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003059.html">[WSJT-SVN] r3367 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003061.html">[WSJT-SVN] r3369 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3060">[ date ]</a>
+              <a href="thread.html#3060">[ thread ]</a>
+              <a href="subject.html#3060">[ subject ]</a>
+              <a href="author.html#3060">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

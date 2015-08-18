@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r967 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r967%20-%20trunk&In-Reply-To=%3C200807152307.m6FN7734024709%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000657.html">
+   <LINK REL="Next"  HREF="000659.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r967 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r967%20-%20trunk&In-Reply-To=%3C200807152307.m6FN7734024709%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r967 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 16 01:07:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000657.html">[WSJT-SVN] r966 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000659.html">[WSJT-SVN] r968 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#658">[ date ]</a>
+              <a href="thread.html#658">[ thread ]</a>
+              <a href="subject.html#658">[ subject ]</a>
+              <a href="author.html#658">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-16 01:06:55 +0200 (Wed, 16 Jul 2008)
+New Revision: 967
+
+Modified:
+   trunk/decode1.F90
+   trunk/filbig2.F
+   trunk/ftn_quit.f90
+   trunk/gcom2.f90
+   trunk/wsjt.py
+   trunk/wsjtwspr.f90
+Log:
+I had &quot;newdat&quot; confused with its use in MAP65.  Introduced newdat2
+to fix this problem.
+Corrected a mistake in the setting of FreezeDF with mouse click on
+the red curve.
+
+
+Modified: trunk/decode1.F90
+===================================================================
+--- trunk/decode1.F90	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/decode1.F90	2008-07-15 23:06:55 UTC (rev 967)
+@@ -28,6 +28,7 @@
+        mode(1:4).eq.'JT64') then
+      if(rxdone) then
+         call savedata
++        newdat2=1
+         rxdone=.false.
+      endif
+   else
+
+Modified: trunk/filbig2.F
+===================================================================
+--- trunk/filbig2.F	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/filbig2.F	2008-07-15 23:06:55 UTC (rev 967)
+@@ -1,4 +1,4 @@
+-      subroutine filbig2(dat,nmax,f0,newdat,c4a,n4)
++      subroutine filbig2(dat,nmax,f0,newdat2,c4a,n4)
+ 
+ C  Filter and downsample real data for one polarization, stored
+ C  in array dat(nmax).  Output is downsampled from 11025 (or 12000?) Hz
+@@ -74,7 +74,7 @@
+ C  When new data comes along, we need to compute a new &quot;big FFT&quot;
+ C  If we just have a new f0, continue with the existing ca.
+ 
+-      if(newdat.ne.0) then
++      if(newdat2.ne.0) then
+          nz=min(nmax,NFFT1)
+          do i=1,nz
+             ca(i)=dat(i)
+@@ -89,7 +89,7 @@
+ #else
+          call sfftw_execute(plan1)
+ #endif
+-         newdat=0
++         newdat2=0
+       endif
+ 
+ C  NB: f0 is the frequency at which we want our filter centered.
+
+Modified: trunk/ftn_quit.f90
+===================================================================
+--- trunk/ftn_quit.f90	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/ftn_quit.f90	2008-07-15 23:06:55 UTC (rev 967)
+@@ -1,5 +1,5 @@
+ subroutine ftn_quit
+   call four2a(a,-1,1,1,1)
+-  call filbig2(dat,-1,f0,newdat,c4a,n4)
++  call filbig2(dat,-1,f0,newdat2,c4a,n4)
+   return
+ end subroutine ftn_quit
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/gcom2.f90	2008-07-15 23:06:55 UTC (rev 967)
+@@ -32,6 +32,7 @@
+ integer nsavecum       !(why is this here?)
+ integer minsigdb       !Decoder threshold setting               GUI
+ integer nclearave      !Set to 1 to clear JT65 avg         GUI,Decoder
++integer newdat2        !Set to 1 when new WSPR data           Decoder
+ integer nfreeze        !Is Freeze checked?                      GUI
+ integer nafc           !Is AFC checked?                         GUI
+ integer nmode          !Which WSJT mode?                   GUI,Decoder
+@@ -102,7 +103,8 @@
+      ndecoding,ndecoding0,mousebutton,                                &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+-     nclearave,nfreeze,nafc,nmode,mode65,mode4,nclip,ndebug,nblank,nport,   &amp;
++     nclearave,newdat2,nfreeze,nafc,nmode,mode65,mode4,nclip,ndebug,  &amp;
++     nblank,nport,   &amp;
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf, &amp;
+      shok,sendingsh,d2a(ND2MAX),d2b(ND2MAX),b(60000),jza,jzb,ntime,   &amp;
+      idinterval,msmax,lenappdir,idf,ndiskdat,nfsam,nlines,nflat,      &amp;
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/wsjt.py	2008-07-15 23:06:55 UTC (rev 967)
+@@ -1285,8 +1285,8 @@
+                mode.get()[:3]=='JT4' or mode.get()[:4]=='JT64':
+             Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)
+         elif mode.get()=='WSPR':
+-# Fix this: ??
+-            Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)            
++# Fix this: ??  (idf dependence?)
++            Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*0.7324)
+         else:
+             if Audio.gcom2.ndecoding==0:              #If decoder is busy, ignore
+                 Audio.gcom2.nagain=1
+
+Modified: trunk/wsjtwspr.f90
+===================================================================
+--- trunk/wsjtwspr.f90	2008-07-15 21:30:40 UTC (rev 966)
++++ trunk/wsjtwspr.f90	2008-07-15 23:06:55 UTC (rev 967)
+@@ -9,9 +9,9 @@
+   include 'gcom2.f90'
+ 
+   f0=1500 + mousedf
+-  if(nagain.eq.1) newdat=0
+-  if(nforce.eq.1) newdat=1
+-  call filbig2(dat,jz,f0,newdat,c2,n4)
++  if(nagain.eq.1) newdat2=0
++  if(nforce.eq.1) newdat2=1
++  call filbig2(dat,jz,f0,newdat2,c2,n4)
+   call mept162a(c2,n4,f0,cfile6,ndiag,minsigdb,mousedf,DFTolerance,ndwspr, &amp;
+        ccfblue,ccfred)
+   return
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000657.html">[WSJT-SVN] r966 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000659.html">[WSJT-SVN] r968 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#658">[ date ]</a>
+              <a href="thread.html#658">[ thread ]</a>
+              <a href="subject.html#658">[ subject ]</a>
+              <a href="author.html#658">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

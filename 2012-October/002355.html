@@ -1,0 +1,705 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2663 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2663%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121015174349.E29E655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002354.html">
+   <LINK REL="Next"  HREF="002356.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2663 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2663%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121015174349.E29E655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2663 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Oct 15 19:43:49 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002354.html">[WSJT-SVN] r2662 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002356.html">[WSJT-SVN] r2664 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2355">[ date ]</a>
+              <a href="thread.html#2355">[ thread ]</a>
+              <a href="subject.html#2355">[ subject ]</a>
+              <a href="author.html#2355">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-15 19:43:49 +0200 (Mon, 15 Oct 2012)
+New Revision: 2663
+
+Added:
+   branches/wsjtx/lib/redsync.f90
+Modified:
+   branches/wsjtx/jt9.txt
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/lib/sync9.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+   branches/wsjtx/widegraph.ui
+Log:
+Working toward implementing JT9 decoder in WSJT-X.
+
+
+Modified: branches/wsjtx/jt9.txt
+===================================================================
+--- branches/wsjtx/jt9.txt	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/jt9.txt	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -10,26 +10,26 @@
+ Exact symbol lengths are chosen so that nsps, the number of samples
+ per symbol (at 12000 samples per second) is a number with no prime
+ factor greater than 7.  This choice makes for efficient FFTs.  Tone
+-spacing of the 9-FSK modulation is df=1/tsym=12000/nsps, the same as
++spacing of the 9-FSK modulation is df=1/tsym=12000/nsps, equal to
+ the keying rate.  The total occupied bandwidth is 9*df.
+ 
+ Parameters of five JT9 sub-modes are summarized in the following
+ table, along with S/N thresholds measured by simulation on an AWGN
+ channel.
+ 
+--------------------------------------------------------------------------
+-Mode     nsps nsps2   df    tsym  BW    S/N*   Tdec  Tfree   Factors 
+-        12000  1500  (Hz)   (s)  (Hz)   (dB)   (s)    (s)    of nsps
+--------------------------------------------------------------------------
+-JT9-1    6912   864  1.736  0.58 15.6  -26.9   52.5   7.5   2^8 3^3
+-JT9-2   15360  1920  0.781  1.28  7.0  -30.2  112.3   7.7   2^10 3 5
+-JT9-5   40960  5120  0.293  3.41  2.6  -34.4  293.6   6.4   2^13 5
+-JT9-10  82944 10368  0.145  6.91  1.3  -37.5  591.0   9.0   2^10 3^4
+-JT9-30 252000 31500  0.048 21.00  0.4  -42.3 1788.5  11.5   2^5 3^2 5^3 7
+--------------------------------------------------------------------------
++--------------------------------------------------------------------------
++Mode     nsps nsps2  df    tsym  BW   S/N*   Tdec Tfree Factors 
++        12000  1500 (Hz)   (s)  (Hz)  (dB)   (s)   (s)  of nsps      nfft3
++--------------------------------------------------------------------------
++JT9-1    6912   864 1.736  0.58 15.6 -26.9   52.5  7.5 2^8 3^3        1024
++JT9-2   15360  1920 0.781  1.28  7.0 -30.2  112.3  7.7 2^10 3 5       2048
++JT9-5   40960  5120 0.293  3.41  2.6 -34.4  293.6  6.4 2^13 5         6144
++JT9-10  82944 10368 0.145  6.91  1.3 -37.5  591.0  9.0 2^10 3^4      12288
++JT9-30 252000 31500 0.048 21.00  0.4 -42.3 1788.5 11.5 2^5 3^2 5^3 7 32768
++--------------------------------------------------------------------------
+ * Noise power measured in a 2500 Hz bandwidth.
++NB: nfft3 might be doubled and used with a sin^2 window.
+ 
+-
+ Transmitting
+ ------------
+ 1. Source encode the structured message to 72 bits
+@@ -37,27 +37,27 @@
+ 3. Interleave to scramble the bit order
+ 4. Assemble 3-bit groups to make (206+1)/3 = 69 symbols
+ 5. Gray-code the symbol values
+-6. Insert 16 sync symbols ==&gt; 69+15=81 channel symbols, values 0-8
++6. Insert 16 sync symbols ==&gt; 69+16=85 channel symbols, values 0-8
+ 
+ 
+ Receiving
+ ---------
+ 1.  Apply noise blanking with the timf2 method
+ 2.  Filter to 1000 Hz bandwidth and downsample (1/8) to 1500 Hz, saving
+-    complex data to array c0(1350000).  (use FIR?  NFFT2/NFFT2A?)
+-3.  Compute symbol-length spectra at half-symbol steps.  Use for
+-    waterfall display s(22000) and save in ss(184,22000) and 
++    complex data to array c0(2,700,000).
++3.  Compute spectra at half-symbol steps.  Use for waterfall display 
++    s(22000) and save in ss(184,22000) and 
+     savg(22000), for detecting sync vectors.
+-4.  At time Tdec, find sync vectors in ss(); get estimates of DF, DT
++4.  At time Tdec, find sync vectors in ss(); get approx DF or list of DFs
+ 5.  Do full-length FFT, NFFT1=96*nsps2, zero-padded as required.
+-6.  For each candidate signal, do inverse FFT of length 1536.  This 
+-    yields 16 complex samples per symbol, and sync tone should be 
++6.  For each candidate signal, do inverse FFT of length 1536 (or 3072?).  
++    This yields 16 complex samples per symbol, and sync tone should be 
+     close to zero frequency.
+ 7.  Use afc65b method to get improved values of DF, DT.
+ 8.  Tweak freq and time offset to 0.
+-9.  Compute 8-bin spectra of 69 data symbols: s2(8,69).  Re-order bins
+-    by removing Gray code.
+-10. Compute soft symbols for 206 bits.
++9.  Compute 8-bin spectra of 69 data symbols: ssym(0:7,69).  Re-order the
++    bins to remove Gray code.
++10. Compute soft symbols for 206 bits (bit 207 is always 0).
+ 11. Remove interleaving
+ 12. Pack bits into bytes, send to Fano decoder
+ 13. If Fano succeeds, remove source encoding and display user message.
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/lib/jt9.f90	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -11,7 +11,7 @@
+   parameter (NSMAX=22000)            !Max length of saved spectra
+   integer*4 ihdr(11)
+   real*4 s(NSMAX)
+-  real*4 ccfred(NSMAX)
++  real*4 red(NSMAX)
+   logical*1 lstrong(0:1023)
+   integer*1 i1SoftSymbols(207)
+   character*22 msg
+@@ -83,7 +83,7 @@
+         if(nhsym.ge.1 .and. nhsym.ne.nhsym0) then
+ ! Emit signal readyForFFT
+            call symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,   &amp;
+-                s,f0a,df3,ihsym,nzap,slimit,lstrong)
++                s,red,f0a,df3,ihsym,nzap,slimit,lstrong)
+            nhsym0=nhsym
+            if(ihsym.ge.184) go to 10
+         endif
+@@ -99,13 +99,13 @@
+      nfqso=1500
+ 
+ ! Get sync, approx freq
+-     call sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,ccfred)    
++     call sync9(ss,tstep,f0a,df3,ntol,nfqso,sync,fpk,red)    
+      fpk0=fpk
+      iz=1000.0/df3
+      do i=1,iz
+         freq=1000.0 + (i-1)*df3
+-        write(72,3001) freq,ccfred(i)
+-3001    format(2f10.3)
++        write(72,3001) freq,red(i),db(red(i))
++3001    format(3f10.3)
+      enddo
+      flush(72)
+ 
+
+Added: branches/wsjtx/lib/redsync.f90
+===================================================================
+--- branches/wsjtx/lib/redsync.f90	                        (rev 0)
++++ branches/wsjtx/lib/redsync.f90	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -0,0 +1,44 @@
++subroutine redsync(ss,ntrperiod,ihsym,iz,red)
++
++  Parameter (NSMAX=22000)
++  real*4 ss(184,NSMAX)
++  real*4 red(NSMAX)
++  integer ii(16)                     !Locations of sync half-symbols
++  data ii/1,11,21,31,41,51,61,77,89,101,113,125,137,149,161,169/
++
++  lagmax=9
++  if(ntrperiod.eq.2) lagmax=5
++  if(ntrperiod.eq.5) lagmax=2
++  if(ntrperiod.eq.10) lagmax=1
++  if(ntrperiod.eq.30) lagmax=1
++
++  do i=1,iz
++     smax=0.
++     do lag=-lagmax,lagmax
++        sig=0.
++        ns=0
++        ref=0.
++        nr=0
++        do j=1,16
++           k=ii(j)+lag
++           if(k.ge.1 .and. k.le.ihsym) then
++              sig=sig + ss(k,i)
++              ns=ns+1
++           endif
++           do n=k+2,k+8,2
++              if(n.ge.1 .and. n.le.ihsym) then
++                 ref=ref + ss(n,i)
++                 nr=nr+1
++              endif
++           enddo
++        enddo
++        s=0.
++        if(ref.gt.0.0) s=(sig/ns)/(ref/nr)
++        if(s.gt.smax) smax=s
++     enddo
++     red(i)=db(smax)
++  enddo
++
++  return
++end subroutine redsync
++        
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/lib/symspec.f90	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -1,5 +1,5 @@
+-subroutine symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,f0a,df3,    &amp;
+-     ihsym,nzap,slimit,lstrong)
++subroutine symspec(k,ntrperiod,nsps,ndiskdat,nb,nbslider,pxdb,s,red,    &amp;
++     f0a,df3,ihsym,nzap,slimit,lstrong)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -23,11 +23,11 @@
+   parameter (NFFT1=1024)
+   parameter (NFFT2=1024,NFFT2A=NFFT2/8)
+   parameter (MAXFFT3=32768)
+-  real*4 s(NSMAX),w(NFFT1),w3(MAXFFT3)
++  real*4 s(NSMAX),w3(MAXFFT3)
+   real*4 x0(NFFT1),x1(NFFT1)
+   real*4 x2(NFFT1+105)
+-  real*4 xx(NMAX)
+   real*4 ssum(NSMAX)
++  real*4 red(NSMAX)
+   complex cx(0:MAXFFT3-1)
+   logical*1 lstrong(0:1023)               !Should be (0:512)
+   integer*2 id2
+@@ -73,7 +73,6 @@
+   peaklimit=sigmas*max(10.0,rms)
+   faclim=3.0
+   px=0.
+-  df2=12000.0/NFFT2
+ 
+   nwindow=2
+ !  nwindow=0                                    !### No windowing ###
+@@ -137,20 +136,22 @@
+ 
+ 999 continue
+ 
+-
+   call pctile(s,iz,50,xmed0)
+   s(1:iz)=s(1:iz)/xmed0
+   call pctile(ssum,iz,50,xmed1)
+   savg(1:iz)=ssum(1:iz)/xmed1
+ 
+-!  if(ihsym.eq.160) then
+-!     rewind 71
+-!     do i=1,iz
+-!        write(71,3003) 1000+i*df3,savg(i)
+-!3003    format(2f12.3)
+-!     enddo
+-!     flush(71)
+-!  endif
++  call redsync(ss,ntrperiod,ihsym,iz,red)
+ 
++  if(ihsym.eq.160) then
++     rewind 71
++     do i=1,iz
++        write(71,3003) 1000+i*df3,savg(i),red(i)
++3003    format(3f12.3)
++     enddo
++     flush(71)
++  endif
++
++
+   return
+ end subroutine symspec
+
+Modified: branches/wsjtx/lib/sync9.f90
+===================================================================
+--- branches/wsjtx/lib/sync9.f90	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/lib/sync9.f90	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -4,7 +4,6 @@
+   real ss(184,NSMAX)
+   real ccfred(NSMAX)
+ 
+-  integer ii0(16)
+   integer ii(16)                     !Locations of sync half-symbols
+   data ii/1,11,21,31,41,51,61,77,89,101,113,125,137,149,161,169/
+   integer isync(85)                  !Sync vector for half-symbols
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/mainwindow.cpp	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -97,7 +97,7 @@
+   m_myGrid=&quot;FN20qi&quot;;
+   m_appDir = QApplication::applicationDirPath();
+   m_saveDir=&quot;/users/joe/wsjtx/install/save&quot;;
+-  m_txFreq=125;
++  m_txFreq=1500;
+   m_setftx=0;
+   m_loopall=false;
+   m_startAnother=false;
+@@ -153,7 +153,7 @@
+   m_monitoring=true;                           // Start with Monitoring ON
+   soundInThread.setMonitoring(m_monitoring);
+   m_diskData=false;
+-  m_tol=500;
++  m_tol=50;
+   g_pWideGraph-&gt;setTol(m_tol);
+ 
+ // Create &quot;m_worked&quot;, a dictionary of all calls in wsjt.log
+@@ -301,7 +301,7 @@
+ //-------------------------------------------------------------- dataSink()
+ void MainWindow::dataSink(int k)
+ {
+-  static float s[NSMAX],splot[NSMAX];
++  static float s[NSMAX],red[NSMAX],splot[NSMAX];
+   static int n=0;
+   static int ihsym=0;
+   static int nzap=0;
+@@ -328,7 +328,7 @@
+   nb=0;
+   if(m_NB) nb=1;
+   trmin=m_TRperiod/60;
+-  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;px, s,
++  symspec_(&amp;k, &amp;trmin, &amp;m_nsps, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;px, s, red,
+            &amp;f0a, &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong);
+   if(ihsym &lt;=0) return;
+   QString t;
+@@ -337,7 +337,7 @@
+   lab4-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);   //Update the thermometer
+   if(m_monitoring || m_diskData) {
+-    g_pWideGraph-&gt;dataSink2(s,df3,ihsym,m_diskData,lstrong);
++    g_pWideGraph-&gt;dataSink2(s,red,df3,ihsym,m_diskData,lstrong);
+   }
+ 
+   //Average over specified number of spectra
+@@ -594,7 +594,7 @@
+ 
+ void MainWindow::on_tolSpinBox_valueChanged(int i)             //tolSpinBox
+ {
+-  static int ntol[] = {10,20,50,100,200,500,1000};
++  static int ntol[] = {1,2,5,10,20,50,100,200,500,1000};
+   m_tol=ntol[i];
+   g_pWideGraph-&gt;setTol(m_tol);
+   ui-&gt;labTol1-&gt;setText(QString::number(ntol[i]));
+@@ -753,12 +753,6 @@
+   }
+ }
+ 
+-void MainWindow::on_actionFind_Delta_Phi_triggered()              //Find dPhi
+-{
+-  m_RxLog |= 8;
+-  on_DecodeButton_clicked();
+-}
+-
+ void MainWindow::on_actionF4_sets_Tx6_triggered()                //F4 sets Tx6
+ {
+   m_kb8rq = !m_kb8rq;
+@@ -810,7 +804,7 @@
+ 
+ void MainWindow::on_DecodeButton_clicked()                    //Decode request
+ {
+-
++  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; g_pWideGraph-&gt;QSOfreq() &lt;&lt; m_tol;
+ }
+ 
+ void MainWindow::freezeDecode(int n)                          //freezeDecode()
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/mainwindow.h	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -65,7 +65,6 @@
+   void on_actionOpen_next_in_directory_triggered();
+   void on_actionDecode_remaining_files_in_directory_triggered();
+   void on_actionDelete_all_wav_files_in_SaveDir_triggered();
+-  void on_actionFind_Delta_Phi_triggered();
+   void on_actionF4_sets_Tx6_triggered();
+   void on_actionNo_shorthands_if_Tx1_triggered();
+   void on_actionNo_Deep_Search_triggered();
+@@ -213,7 +212,7 @@
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+ void symspec_(int* k, int* ntrperiod, int* nsps, int* ndiskdat,
+-              int* nb, int* m_NBslider, float* px, float s[],
++              int* nb, int* m_NBslider, float* px, float s[], float red[],
+               float* f0a, float* df3, int* nhsym, int* nzap,
+                float* slimit, uchar lstrong[]);
+ void genjt9_(char* msg, int* minutes, char* msgsent, int itone[],
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/mainwindow.ui	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -35,7 +35,7 @@
+    &lt;string notr=&quot;true&quot;/&gt;
+   &lt;/property&gt;
+   &lt;widget class=&quot;QWidget&quot; name=&quot;centralWidget&quot;&gt;
+-   &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++   &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+     &lt;property name=&quot;geometry&quot;&gt;
+      &lt;rect&gt;
+       &lt;x&gt;11&lt;/x&gt;
+@@ -627,7 +627,7 @@
+               &lt;/size&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;text&quot;&gt;
+-              &lt;string&gt;500&lt;/string&gt;
++              &lt;string&gt;50&lt;/string&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;alignment&quot;&gt;
+               &lt;set&gt;Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter&lt;/set&gt;
+@@ -661,7 +661,7 @@
+               &lt;number&gt;0&lt;/number&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;maximum&quot;&gt;
+-              &lt;number&gt;6&lt;/number&gt;
++              &lt;number&gt;9&lt;/number&gt;
+              &lt;/property&gt;
+              &lt;property name=&quot;value&quot;&gt;
+               &lt;number&gt;5&lt;/number&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/plotter.cpp	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -27,7 +27,7 @@
+   m_ScalePixmap = QPixmap(0,0);
+   m_OverlayPixmap = QPixmap(0,0);
+   m_Size = QSize(0,0);
+-  m_fQSO = 125;
++  m_fQSO = 1050;
+   m_line = 0;
+   m_fSample = 12000;
+   m_nsps=6912;
+@@ -84,9 +84,9 @@
+   m_paintEventBusy=false;
+ }
+ 
+-void CPlotter::draw(float swide[], int i0)             //draw()
++void CPlotter::draw(float swide[], float red[], int i0)             //draw()
+ {
+-  int j;
++  int j,y2;
+   float y;
+ 
+   m_i0=i0;
+@@ -103,6 +103,8 @@
+   }
+ 
+   painter2D.setPen(Qt::green);
++  if(m_bJT9Sync) painter2D.setPen(Qt::red);
++
+   QPoint LineBuf[MAX_SCREENSIZE];
+   j=0;
+   bool strong0=false;
+@@ -124,8 +126,9 @@
+     m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+-    int y2 = gain*y + 30;
+-    if(!m_bCurrent) y2=gain*10.0*log10(jt9com_.savg[i]);
++    if(m_bCurrent) y2 = gain*y + 30;
++    if(m_bCumulative) y2=gain*10.0*log10(jt9com_.savg[i]);
++    if(m_bJT9Sync) y2=3*gain*red[i];
+     if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+       j=0;
+@@ -297,20 +300,11 @@
+   painter0.setPen(pen0);
+   x = m_xClick;
+   painter0.drawLine(x,15,x,30);
+-  int x0=(16384-m_i0)/m_binsPerPixel;
+-  m_fGreen=(x-x0)*df;
+-  x0 += (x0-x);
+-  QPen pen3(Qt::red, 3);
+-  painter0.setPen(pen3);
+-  if(x0&gt;0 and x0&lt;w) painter0.drawLine(x0,15,x0,30);
++  int x1=x - m_tol/df;
++  int x2=x + m_tol/df;
++  pen0.setWidth(6);
++  painter0.drawLine(x1,28,x2,28);
+ 
+-  // Now make the lower scale, using m_LowerScalePixmap and painter3
+-  QRect rect1;
+-//  QPainter painter3(&amp;m_LowerScalePixmap);
+-//  painter3.initFrom(this);
+-//  painter3.setFont(Font);
+-//  painter3.setPen(Qt::black);
+-
+   df = 12000.0/m_nsps;
+   int nlabs=df*w/m_freqPerDiv + 1.0;
+ //  m_LowerScalePixmap.fill(Qt::white);
+@@ -322,16 +316,6 @@
+     if ((i%10) == 0) y=18;
+ //    painter3.drawLine(x,y,x,30);
+   }
+-
+-  /*
+-  //draw frequency values
+-  MakeFrequencyStrs();
+-  for( int i=0; i&lt;=nlabs; i++) {
+-    x = (int)( (float)i*pixperdiv - pixperdiv/2);
+-    rect1.setRect(x,0, (int)pixperdiv, 20);
+-//    painter3.drawText(rect1, Qt::AlignHCenter|Qt::AlignVCenter,m_HDivText[i]);
+-  }
+-  */
+ }
+ 
+ void CPlotter::MakeFrequencyStrs()                       //MakeFrequencyStrs
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/plotter.h	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -27,6 +27,8 @@
+   QSize sizeHint() const;
+   QColor  m_ColorTbl[256];
+   bool    m_bCurrent;
++  bool    m_bCumulative;
++  bool    m_bJT9Sync;
+   int     m_plotZero;
+   int     m_plotGain;
+   float   m_fSpan;
+@@ -37,7 +39,7 @@
+   qint32  m_tol;
+   qint32  m_fCal;
+ 
+-  void draw(float sw[], int i0);		//Update the waterfalls
++  void draw(float sw[], float red[], int i0);		//Update the waterfall
+   void SetRunningState(bool running);
+   void setPlotZero(int plotZero);
+   int  getPlotZero();
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/widegraph.cpp	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -41,8 +41,11 @@
+   m_dialFreq=settings.value(&quot;DialFreqMHz&quot;,473.000).toDouble();
+   ui-&gt;fDialLineEdit-&gt;setText(QString::number(m_dialFreq));
+   ui-&gt;widePlot-&gt;m_bCurrent=settings.value(&quot;Current&quot;,true).toBool();
++  ui-&gt;widePlot-&gt;m_bCumulative=settings.value(&quot;Cumulative&quot;,false).toBool();
++  ui-&gt;widePlot-&gt;m_bJT9Sync=settings.value(&quot;JT9Sync&quot;,false).toBool();
+   ui-&gt;rbCurrent-&gt;setChecked(ui-&gt;widePlot-&gt;m_bCurrent);
+-  ui-&gt;rbCumulative-&gt;setChecked(!ui-&gt;widePlot-&gt;m_bCurrent);
++  ui-&gt;rbCumulative-&gt;setChecked(ui-&gt;widePlot-&gt;m_bCumulative);
++  ui-&gt;rbJT9Sync-&gt;setChecked(ui-&gt;widePlot-&gt;m_bJT9Sync);
+   int nbpp=settings.value(&quot;BinsPerPixel&quot;,1).toInt();
+   ui-&gt;widePlot-&gt;setBinsPerPixel(nbpp);
+   settings.endGroup();
+@@ -70,12 +73,14 @@
+   settings.setValue(&quot;WaterfallAvg&quot;,ui-&gt;waterfallAvgSpinBox-&gt;value());
+   settings.setValue(&quot;DialFreqMHz&quot;,m_dialFreq);
+   settings.setValue(&quot;Current&quot;,ui-&gt;widePlot-&gt;m_bCurrent);
++  settings.setValue(&quot;Cumulative&quot;,ui-&gt;widePlot-&gt;m_bCumulative);
++  settings.setValue(&quot;JT9Sync&quot;,ui-&gt;widePlot-&gt;m_bJT9Sync);
+   settings.setValue(&quot;BinsPerPixel&quot;,ui-&gt;widePlot-&gt;binsPerPixel());
+   settings.endGroup();
+ }
+ 
+-void WideGraph::dataSink2(float s[], float df3, int ihsym, int ndiskdata,
+-                          uchar lstrong[])
++void WideGraph::dataSink2(float s[], float red[], float df3, int ihsym,
++                          int ndiskdata, uchar lstrong[])
+ {
+   static float splot[NSMAX];
+   static float swide[2048];
+@@ -139,7 +144,7 @@
+       }
+     }
+     ntr0=ntr;
+-    ui-&gt;widePlot-&gt;draw(swide,i0);
++    ui-&gt;widePlot-&gt;draw(swide,red,i0);
+   }
+ }
+ 
+@@ -266,12 +271,23 @@
+   ui-&gt;widePlot-&gt;setNsps(nsps);
+ }
+ 
+-void WideGraph::on_rbCurrent_toggled(bool checked)
++void WideGraph::on_rbCurrent_clicked()
+ {
+-  ui-&gt;widePlot-&gt;m_bCurrent=checked;
++  ui-&gt;widePlot-&gt;m_bCurrent=true;
++  ui-&gt;widePlot-&gt;m_bCumulative=false;
++  ui-&gt;widePlot-&gt;m_bJT9Sync=false;
+ }
+ 
+-void WideGraph::on_rbCumulative_toggled(bool checked)
++void WideGraph::on_rbCumulative_clicked()
+ {
+-  ui-&gt;widePlot-&gt;m_bCurrent=!checked;
++  ui-&gt;widePlot-&gt;m_bCurrent=false;
++  ui-&gt;widePlot-&gt;m_bCumulative=true;
++  ui-&gt;widePlot-&gt;m_bJT9Sync=false;
+ }
++
++void WideGraph::on_rbJT9Sync_clicked()
++{
++  ui-&gt;widePlot-&gt;m_bCurrent=false;
++  ui-&gt;widePlot-&gt;m_bCumulative=false;
++  ui-&gt;widePlot-&gt;m_bJT9Sync=true;
++}
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/widegraph.h	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -16,8 +16,8 @@
+ 
+   double m_dialFreq;
+ 
+-  void   dataSink2(float s[], float df3, int ihsym, int ndiskdata,
+-                   uchar lstrong[]);
++  void   dataSink2(float s[], float red[], float df3, int ihsym,
++                   int ndiskdata, uchar lstrong[]);
+   int    QSOfreq();
+   int    nSpan();
+   int    nStartFreq();
+@@ -53,11 +53,10 @@
+   void on_gainSpinBox_valueChanged(int arg1);
+   void on_autoZeroPushButton_clicked();
+   void on_fDialLineEdit_editingFinished();
++  void on_rbCurrent_clicked();
++  void on_rbCumulative_clicked();
++  void on_rbJT9Sync_clicked();
+ 
+-  void on_rbCurrent_toggled(bool checked);
+-
+-  void on_rbCumulative_toggled(bool checked);
+-
+ private:
+   qint32 m_waterfallAvg;
+   qint32 m_fCal;
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2012-10-11 22:59:36 UTC (rev 2662)
++++ branches/wsjtx/widegraph.ui	2012-10-15 17:43:49 UTC (rev 2663)
+@@ -298,6 +298,13 @@
+         &lt;/widget&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
++        &lt;widget class=&quot;QRadioButton&quot; name=&quot;rbJT9Sync&quot;&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;JT9 Sync&lt;/string&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
+         &lt;spacer name=&quot;horizontalSpacer_5&quot;&gt;
+          &lt;property name=&quot;orientation&quot;&gt;
+           &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002354.html">[WSJT-SVN] r2662 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002356.html">[WSJT-SVN] r2664 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2355">[ date ]</a>
+              <a href="thread.html#2355">[ thread ]</a>
+              <a href="subject.html#2355">[ subject ]</a>
+              <a href="author.html#2355">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

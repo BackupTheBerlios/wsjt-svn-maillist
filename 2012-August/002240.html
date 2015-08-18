@@ -1,0 +1,352 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2548 - in branches/map65: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2548%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120831182955.0F86C55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002239.html">
+   <LINK REL="Next"  HREF="002241.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2548 - in branches/map65: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2548%20-%20in%20branches/map65%3A%20.%20libm65&In-Reply-To=%3C20120831182955.0F86C55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2548 - in branches/map65: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Aug 31 20:29:54 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002239.html">[WSJT-SVN] r2547 - in branches/map65: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002241.html">[WSJT-SVN] r2549 - branches/map65/libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2240">[ date ]</a>
+              <a href="thread.html#2240">[ thread ]</a>
+              <a href="subject.html#2240">[ subject ]</a>
+              <a href="author.html#2240">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-08-31 20:29:54 +0200 (Fri, 31 Aug 2012)
+New Revision: 2548
+
+Modified:
+   branches/map65/libm65/decode0.f90
+   branches/map65/libm65/gen65.f90
+   branches/map65/libm65/m65.f90
+   branches/map65/libm65/map65a.f90
+   branches/map65/libm65/mapsim.f90
+   branches/map65/mainwindow.cpp
+   branches/map65/mainwindow.h
+   branches/map65/soundout.cpp
+Log:
+Tx may now be correct for B2, C2 modes.  Still working on decoder.
+
+
+Modified: branches/map65/libm65/decode0.f90
+===================================================================
+--- branches/map65/libm65/decode0.f90	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/libm65/decode0.f90	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -54,7 +54,7 @@
+   call map65a(dd,ss,savg,newdat,nutc,fcenter,ntol,idphi,nfa,nfb,           &amp;
+        mousedf,mousefqso,nagain,ndecdone,ndiskdat,nfshift,ndphi,           &amp;
+        nfcal,nkeep,mcall3b,nsum,nsave,nxant,rmsdd,mycall,mygrid,          &amp;
+-       neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65)
++       neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65,nfast)
+ 
+   call timer('map65a  ',1)
+   call timer('decode0 ',1)
+
+Modified: branches/map65/libm65/gen65.f90
+===================================================================
+--- branches/map65/libm65/gen65.f90	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/libm65/gen65.f90	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -1,4 +1,4 @@
+-subroutine gen65(message,mode65,samfac,nsendingsh,msgsent,iwave,nwave)
++subroutine gen65(message,mode65,nfast,samfac,nsendingsh,msgsent,iwave,nwave)
+ 
+ ! Encodes a JT65 message into a wavefile.  
+ ! Executes in 17 ms on opti-745.
+@@ -41,9 +41,9 @@
+      call interleave63(sent,1)           !Apply interleaving
+      call graycode(sent,63,1)            !Apply Gray code
+      nsym=126                            !Symbols per transmission
+-     nsps=4096
++     nsps=4096/nfast
+   else
+-     nsym=32
++     nsym=32/nfast
+      nsps=16384
+      nsendingsh=1                         !Flag for shorthand message
+   endif
+
+Modified: branches/map65/libm65/m65.f90
+===================================================================
+--- branches/map65/libm65/m65.f90	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/libm65/m65.f90	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -20,12 +20,12 @@
+        nfast,nsave,mycall,mygrid,hiscall,hisgrid,datetime
+ 
+   nargs=iargc()
+-  if(nargs.lt.1) then
+-     print*,'Usage: m65 [95238] file1 [file2 ...]'
+-     print*,'       Reads data from *.tf2 files.'
++  if(nargs.lt.1 .or. nargs.eq.2) then
++     print*,'Usage: m65 &lt;submode&gt; &lt;95238|96000&gt; file1 [file2 ...]'
++     print*,'  (Reads data from *.tf2 files.)'
+      print*,''
+      print*,'       m65 -s'
+-     print*,'       Gets data from shared memory region.'
++     print*,'  (Gets data from MAP65, via shared memory region.)'
+      go to 999
+   endif
+   call getarg(1,arg)
+@@ -34,16 +34,20 @@
+      call ftnquit
+      go to 999
+   endif
++  if(arg(1:1).eq.'A') mode65=1
++  if(arg(1:1).eq.'B') mode65=2
++  if(arg(1:1).eq.'C') mode65=4
++  nfast=1
++  if(arg(2:2).eq.'2') nfast=2
+   nfsample=96000
+-  nxpol=1
+-  mode65=2
+-  ifile1=1
++  call getarg(2,arg)
+   if(arg.eq.'95238') then
+      nfsample=95238
+-     call getarg(2,arg)
+-     ifile1=2
++     call getarg(3,arg)
+   endif
+ 
++  nxpol=1
++  ifile1=3
+   limtrace=0
+   lu=12
+   nfa=100
+@@ -69,7 +73,7 @@
+      k=0
+      fcenter=144.125d0
+      mousedf=0
+-     mousefqso=125
++     mousefqso=126
+      newdat=1
+      mycall='K1JT'
+ 
+@@ -95,8 +99,8 @@
+ ! Emit signal readyForFFT
+            call timer('symspec ',0)
+            fgreen=-13.0
+-           iqadjust=1
+-           iqapply=1
++           iqadjust=0
++           iqapply=0
+            nbslider=100
+            gainx=0.9962
+            gainy=1.0265
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/libm65/map65a.f90	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -1,7 +1,7 @@
+ subroutine map65a(dd,ss,savg,newdat,nutc,fcenter,ntol,idphi,nfa,nfb,        &amp;
+      mousedf,mousefqso,nagain,ndecdone,ndiskdat,nfshift,ndphi,              &amp;
+      nfcal,nkeep,mcall3b,nsum,nsave,nxant,rmsdd,mycall,mygrid,              &amp;
+-     neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65)
++     neme,ndepth,hiscall,hisgrid,nhsym,nfsample,nxpol,mode65,nfast)
+ 
+ !  Processes timf2 data from Linrad to find and decode JT65 signals.
+ 
+
+Modified: branches/map65/libm65/mapsim.f90
+===================================================================
+--- branches/map65/libm65/mapsim.f90	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/libm65/mapsim.f90	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -57,8 +57,8 @@
+   open(12,file='msgs.txt',status='old')
+ 
+   write(*,1000)
+-1000 format('  N   freq     S/N  pol  Message'/    &amp;
+-            '-----------------------------------------------')
++1000 format('File  N   freq     S/N  pol  Message'/    &amp;
++            '---------------------------------------------------')
+ 
+   do ifile=1,nfiles
+      nmin=ifile-1
+@@ -93,8 +93,8 @@
+         snrdbx=snrdb
+         if(snrdb.ge.-1.0) snrdbx=-15.0 - 15.0*(isig-1.0)/nsigs
+         sig=sqrt(2.2*2500.0/96000.0) * 10.0**(0.05*snrdbx)
+-        write(*,1020) isig,0.001*f,snrdbx,nint(pol),msgsent
+-1020    format(i3,f8.3,f7.1,i5,2x,a22)
++        write(*,1020) ifile,isig,0.001*f,snrdbx,nint(pol),msgsent
++1020    format(i3,i4,f8.3,f7.1,i5,2x,a22)
+ 
+         phi=0.
+         i0=fsample*(3.5d0+0.05d0*(isig-1))
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/mainwindow.cpp	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -1354,7 +1354,7 @@
+   int khsym=0;
+ 
+   double tx1=0.0;
+-  double tx2=126.0*4096.0/11025.0 + 1.8;          //### depend on TxDelay? ###
++  double tx2=126.0*4096.0/(m_nfast*11025.0) + 1.8;    //### depend on TxDelay?
+ 
+   if(!m_txFirst) {
+     tx1 += m_TRperiod;
+@@ -1363,8 +1363,8 @@
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+-  double t120=fmod(tsec,120.0);
+-  bool bTxTime = t120 &gt;= tx1 &amp;&amp; t120 &lt; tx2;
++  double t2p=fmod(tsec,120.0/m_nfast);
++  bool bTxTime = t2p &gt;= tx1 &amp;&amp; t2p &lt; tx2;
+ 
+   if(m_auto) {
+     if(bTxTime and iptt==0 and !m_txMute) {
+@@ -1399,9 +1399,11 @@
+     ba2msg(ba,message);
+     int len1=22;
+     int mode65=m_mode65;
++    int nfast=m_nfast;
+     double samfac=1.0;
+ 
+-    gen65_(message,&amp;mode65,&amp;samfac,&amp;nsendingsh,msgsent,iwave,&amp;nwave,len1,len1);
++    gen65_(message,&amp;mode65,&amp;nfast,&amp;samfac,&amp;nsendingsh,msgsent,iwave,
++           &amp;nwave,len1,len1);
+     msgsent[22]=0;
+ 
+     if(m_restart) {
+@@ -1819,7 +1821,9 @@
+   int i1=t.indexOf(&quot; OOO&quot;);
+   QByteArray s=t.toUpper().toLocal8Bit();
+   ba2msg(s,message);
+-  gen65_(message,&amp;mode65,&amp;samfac,&amp;nsendingsh,msgsent,iwave,&amp;mwave,len1,len1);
++  int nfast=m_nfast;
++  gen65_(message,&amp;mode65,&amp;nfast,&amp;samfac,&amp;nsendingsh,msgsent,iwave,
++         &amp;mwave,len1,len1);
+ 
+   QPalette p(tx-&gt;palette());
+   if(nsendingsh==1) {
+@@ -1990,6 +1994,7 @@
+   m_nfast=2;
+   m_TRperiod=30;
+   soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
+   g_pWideGraph-&gt;setMode65(m_mode65);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT65B2-&gt;setChecked(true);
+@@ -2002,6 +2007,7 @@
+   m_nfast=2;
+   m_TRperiod=30;
+   soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
+   g_pWideGraph-&gt;setMode65(m_mode65);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT65C2-&gt;setChecked(true);
+
+Modified: branches/map65/mainwindow.h
+===================================================================
+--- branches/map65/mainwindow.h	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/mainwindow.h	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -274,8 +274,9 @@
+                 float* py, float s[], int* nkhz, int* nhsym, int* nzap,
+                 float* slimit, uchar lstrong[]);
+ 
+-  void gen65_(char* msg, int* mode65, double* samfac, int* nsendingsh,
+-              char* msgsent, short iwave[], int* nwave, int len1, int len2);
++  void gen65_(char* msg, int* mode65, int* nfast, double* samfac,
++              int* nsendingsh, char* msgsent, short iwave[], int* nwave,
++              int len1, int len2);
+ 
+   int ptt_(int* nport, int* itx, int* iptt);
+   }
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2012-08-31 15:51:58 UTC (rev 2547)
++++ branches/map65/soundout.cpp	2012-08-31 18:29:54 UTC (rev 2548)
+@@ -30,7 +30,7 @@
+   unsigned int i,n;
+   static int ic=0;
+   static bool btxok0=false;
+-  static int nminStart=0;
++  static int nStart=0;
+   double tsec,tstart;
+   int nsec;
+   int nTRperiod=udata-&gt;nTRperiod;
+@@ -45,12 +45,12 @@
+     tstart=tsec - n*nTRperiod - 1.0;
+ 
+     if(tstart&lt;1.0) {
+-      ic=0;                      //Start of minute, set starting index to 0
+-      nminStart=n;
++      ic=0;                      //Start of Tx cycle, set starting index to 0
++      nStart=n;
+     } else {
+-      if(n != nminStart) { //Late start in new minute: compute starting index
++      if(n != nStart) { //Late start in new Tx cycle: compute starting index
+         ic=(int)(tstart*11025.0);
+-        nminStart=n;
++        nStart=n;
+       }
+     }
+   }
+@@ -95,14 +95,12 @@
+   outParam.hostApiSpecificStreamInfo=NULL;
+ 
+   udata.nTRperiod=m_TRperiod;
+-
+   paerr=Pa_IsFormatSupported(NULL,&amp;outParam,11025.0);
+   if(paerr&lt;0) {
+     qDebug() &lt;&lt; &quot;PortAudio says requested output format not supported.&quot;;
+     qDebug() &lt;&lt; paerr;
+     return;
+   }
+-
+   paerr=Pa_OpenStream(&amp;outStream,           //Output stream
+         NULL,                               //No input parameters
+         &amp;outParam,                          //Output parameters
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002239.html">[WSJT-SVN] r2547 - in branches/map65: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002241.html">[WSJT-SVN] r2549 - branches/map65/libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2240">[ date ]</a>
+              <a href="thread.html#2240">[ thread ]</a>
+              <a href="subject.html#2240">[ subject ]</a>
+              <a href="author.html#2240">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

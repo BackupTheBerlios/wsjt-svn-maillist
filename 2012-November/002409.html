@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2717 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2717%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121106212859.A19FE55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002408.html">
+   <LINK REL="Next"  HREF="002410.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2717 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2717%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121106212859.A19FE55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2717 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Nov  6 22:28:59 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002408.html">[WSJT-SVN] r2716 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002410.html">[WSJT-SVN] r2718 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2409">[ date ]</a>
+              <a href="thread.html#2409">[ thread ]</a>
+              <a href="subject.html#2409">[ subject ]</a>
+              <a href="author.html#2409">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-06 22:28:59 +0100 (Tue, 06 Nov 2012)
+New Revision: 2717
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Add a decent calculation of snrdb for a synced signal.
+Bring jt9.f90 up to date.
+Bump version number to 0.3.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-06 20:27:08 UTC (rev 2716)
++++ branches/wsjtx/lib/decoder.f90	2012-11-06 21:28:59 UTC (rev 2717)
+@@ -79,7 +79,7 @@
+   do i=ia,ib
+      f=(i-1)*df3
+      if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+-        call spec9(c0,npts8,nsps,f,fpk,xdt,i1SoftSymbols)
++        call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
+         call decode9(i1SoftSymbols,limit,nlim,msg)
+         snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
+         sync=ccfred(i) - 2.0
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-11-06 20:27:08 UTC (rev 2716)
++++ branches/wsjtx/lib/jt9.f90	2012-11-06 21:28:59 UTC (rev 2717)
+@@ -101,10 +101,11 @@
+      do i=ia,ib
+         f=(i-1)*df3
+         if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+-           call spec9(c0,npts8,nsps,f,fpk,xdt,i1SoftSymbols)
++           call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
+            call decode9(i1SoftSymbols,limit,nlim,msg)
+-           print*,msg
+-           snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
++!           print*,msg
++!           snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
++           snr=snrdb
+            sync=ccfred(i) - 2.0
+            if(sync.lt.0.0) sync=0.0
+            nsync=sync
+@@ -119,9 +120,8 @@
+            endif
+ 
+            if(msg.ne.'                      ') then
+-              write(13,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
++              write(*,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
+ 1010          format(i4.4,i4,i5,f6.1,f8.2,f6.2,3x,a22)
+-              write(14,1010) nutc,nsync,nsnr,xdt,1000.0+fpk,width,msg
+               fgood=f
+               nsynced=1
+               ndecoded=1
+@@ -130,8 +130,7 @@
+      enddo
+ 
+      if(fgood.eq.0.0) then
+-        write(13,1020) line
+-        write(14,1020) line
++        write(*,1020) line
+ 1020    format(a33)
+      endif
+ 
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-11-06 20:27:08 UTC (rev 2716)
++++ branches/wsjtx/lib/spec9.f90	2012-11-06 21:28:59 UTC (rev 2717)
+@@ -1,4 +1,4 @@
+-subroutine spec9(c0,npts8,nsps,fpk0,fpk,xdt,i1SoftSymbols)
++subroutine spec9(c0,npts8,nsps,fpk0,fpk,xdt,snrdb,i1SoftSymbols)
+ 
+   parameter (MAXFFT=31500)
+   complex c0(0:npts8-1)
+@@ -71,16 +71,23 @@
+   enddo
+ 
+   sum=0.
++  sig=0.
+   do j=1,69
+      smax=0.
+      do i=0,7
+         smax=max(smax,ssym(i,j))
+         sum=sum+ssym(i,j)
+      enddo
++     sig=sig+smax
+      sum=sum-smax
+   enddo
+   ave=sum/(69*7)
+   ssym=ssym/ave
++  sig=sig/69.
++  snr=sig/ave
++  df8=1500.0/nsps8
++  snrdb=db(snr) - db(2500.0/df8)
++!  print*,ave,sig,snr,df8,snrdb
+      
+   m0=3
+   ntones=8
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-06 20:27:08 UTC (rev 2716)
++++ branches/wsjtx/mainwindow.cpp	2012-11-06 21:28:59 UTC (rev 2717)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -17,7 +17,7 @@
+ WideGraph* g_pWideGraph = NULL;
+ 
+ QString rev=&quot;$Rev$&quot;;
+-QString Program_Title_Version=&quot;  WSJT-X   v0.2, r&quot; + rev.mid(6,4) +
++QString Program_Title_Version=&quot;  WSJT-X   v0.3, r&quot; + rev.mid(6,4) +
+                               &quot;    by K1JT&quot;;
+ 
+ //-------------------------------------------------- MainWindow constructor
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002408.html">[WSJT-SVN] r2716 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002410.html">[WSJT-SVN] r2718 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2409">[ date ]</a>
+              <a href="thread.html#2409">[ thread ]</a>
+              <a href="subject.html#2409">[ subject ]</a>
+              <a href="author.html#2409">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

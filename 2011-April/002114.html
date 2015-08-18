@@ -1,0 +1,227 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2422 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2422%20-%20trunk&In-Reply-To=%3C20110427134502.856D74813D7%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002113.html">
+   <LINK REL="Next"  HREF="002115.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2422 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2422%20-%20trunk&In-Reply-To=%3C20110427134502.856D74813D7%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2422 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 27 15:45:01 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002113.html">[WSJT-SVN] r2421 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002115.html">[WSJT-SVN] r2423 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2114">[ date ]</a>
+              <a href="thread.html#2114">[ thread ]</a>
+              <a href="subject.html#2114">[ subject ]</a>
+              <a href="author.html#2114">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-27 15:45:01 +0200 (Wed, 27 Apr 2011)
+New Revision: 2422
+
+Modified:
+   trunk/ana932.f90
+   trunk/diana.f90
+   trunk/fivehz.f90
+   trunk/gendiana.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+Log:
+Working on Diana mode.  Reduce Tx length to nominal; save cfft array 
+for use in pkdiana.
+
+
+Modified: trunk/ana932.f90
+===================================================================
+--- trunk/ana932.f90	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/ana932.f90	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -1,19 +1,21 @@
+ subroutine ana932(dat,npts0,cdat,npts)
+ 
+   real dat(npts0)
+-  complex cdat(368640)
++  complex cdat(262144)
++  complex cfft
++  common/down932/cfft(147456),nfft2,df932
+ 
+-!  nfft1=184320
+-!  if(npts0.gt.nfft1) nfft1=2*nfft1
+   n=log(float(npts0))/log(2.0)
+   nfft1=2**(n+1)
+   nfft2=9*nfft1/32
++  df932=11025.0/nfft1
+   fac=2.0/nfft1
+   do i=1,npts0/2
+      cdat(i)=fac*cmplx(dat(2*i-1),dat(2*i))
+   enddo
+   cdat(npts0/2+1:nfft1/2)=0.
+   call four2a(cdat,nfft1,1,-1,0)               !Forward r2c FFT
++  cfft(1:nfft2)=cdat(1:nfft2)
+   call four2a(cdat,nfft2,1,1,1)                !Inverse c2c FFT
+   npts=npts0*9.0/32.0                          !Downsampled data length
+ 
+
+Modified: trunk/diana.f90
+===================================================================
+--- trunk/diana.f90	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/diana.f90	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -11,6 +11,8 @@
+   real ccfblue(-5:540)
+   real ccfred(-224:224)
+   integer dftolerance
++  complex cfft
++  common/down932/cfft(147456),nfft2,df932
+   data nsps/576/,nsync/4/,nlen/2/,ndat/18/
+ 
+   nsym=npts/nsps                      !Total symbol intervals in file
+@@ -28,12 +30,12 @@
+ 
+   jdf=nint(dfx)
+   nfdot=nint(idfpk*df)
+-  jsync=xsync
++  isync=xsync
+ 
+   call cs_lock('iscat')
+-!  write(*,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+-  write(11,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+-  write(21,1020) cfile6,jsync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++!  write(*,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++  write(11,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
++  write(21,1020) cfile6,isync,nsnr,dtx,jdf,nfdot,msg,msglen,nworst,navg
+ 1020 format(a6,i3,i5,f5.1,i5,i4,7x,a28,i5,2i3)
+   call cs_unlock
+ 
+
+Modified: trunk/fivehz.f90
+===================================================================
+--- trunk/fivehz.f90	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/fivehz.f90	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -142,6 +142,10 @@
+      if(nwave.lt.126*4096) nwave=126*4096
+      tx2=txdelay + nwave/11025.0
+      if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
++  else if(mode(1:5).eq.'Diana') then
++     if(nwave.lt.126*2048) nwave=126*2048
++     tx2=txdelay + nwave/11025.0
++     if(tx2.gt.(trperiod-2.0)) tx2=trperiod-tlatency-1.0
+   endif
+ 
+   if(TxFirst.eq.0 .and. ntxboth.eq.0) then
+@@ -157,6 +161,11 @@
+           (t.ge.tx1+trperiod .and. t.lt.tx2+trperiod)
+   endif
+ 
++  if(n1.ne.n1z) then
++     print*,nwave,tx1,tx2,t,txtime
++     n1z=n1
++  endif
++
+   n2a=mod(n2/900,2)
+   if(mode(1:4).eq.'JT65' .and. nlowbeacon.ne.0 .and. n2a.eq.1) txtime=.false.
+ 
+
+Modified: trunk/gendiana.f90
+===================================================================
+--- trunk/gendiana.f90	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/gendiana.f90	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -62,20 +62,28 @@
+ 
+   k=0
+   pha=0.
++!  f1=0.3*twopi/(11025.d0**2)                        !###
++!  kh=(nsym*nsps)/2                              !###
+   do m=1,nsym                                    !Generate iwave
+      if(nspecial.eq.0) then
+         f=f0 + itone(m)*df
+      else
+-        f=f0 + mod(m-1,2)*5*nspecial*df
++        f=f0 + mod(m-1,2)*10*nspecial*df
+      endif
+      dpha=twopi*f*dt
+      do i=1,NSPS
+         k=k+1
+         pha=pha+dpha
++!        pha=pha+dpha + f1*(k-kh)                      !###
+         iwave(k)=nint(32767.0*sin(pha))
+      enddo
+   enddo
+   nwave=k
++  iwave(k:)=0
+ 
++  print*,nsym,msglen,nwave
++  write(*,3003) (itone(i),i=1,nsym)
++3003 format(24i3)
++
+   return
+ end subroutine gendiana
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/wsjt.py	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-25 15:43:35 UTC (rev 2421)
++++ trunk/wsjt1.f90	2011-04-27 13:45:01 UTC (rev 2422)
+@@ -36,7 +36,7 @@
+   integer resample
+   real*8 samfacin,samratio
+   real dat2(NP2)
+-  complex cdat(368640)
++  complex cdat(256*1024)
+   character msg3*3
+   character cfile6*6
+   logical lcum
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002113.html">[WSJT-SVN] r2421 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002115.html">[WSJT-SVN] r2423 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2114">[ date ]</a>
+              <a href="thread.html#2114">[ thread ]</a>
+              <a href="subject.html#2114">[ subject ]</a>
+              <a href="author.html#2114">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

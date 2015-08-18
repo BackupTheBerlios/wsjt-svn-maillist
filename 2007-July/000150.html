@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r465 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r465%20-%20branches/map65&In-Reply-To=%3C200707031858.l63IwvlB003908%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000149.html">
+   <LINK REL="Next"  HREF="000151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r465 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r465%20-%20branches/map65&In-Reply-To=%3C200707031858.l63IwvlB003908%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r465 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul  3 20:58:57 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000149.html">[WSJT-SVN] r464 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000151.html">[WSJT-SVN] r466 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-03 20:58:29 +0200 (Tue, 03 Jul 2007)
+New Revision: 465
+
+Modified:
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/specjt.py
+Log:
+Can now change brightess or contrast of next spectrum.  Waterfall still
+updates only at end of minute, hoiwever.
+
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-03 17:34:35 UTC (rev 464)
++++ branches/map65/map65.py	2007-07-03 18:58:29 UTC (rev 465)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- MAP65
++#--------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-07-03 17:34:35 UTC (rev 464)
++++ branches/map65/map65a.f90	2007-07-03 18:58:29 UTC (rev 465)
+@@ -30,11 +30,9 @@
+ 
+   rewind 11
+   rewind 12
+-  if(nrw26.ne.0) then
+-     print*,'Rewinding 26'
+-     rewind 26
+-     nrw26=0
+-  endif
++  if(nrw26.ne.0) rewind 26
++  nrw26=0
++
+   if(nutc.ne.nutc0) nfile=nfile+1
+   nutc0=nutc
+   nutcdata=nutc
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-07-03 17:34:35 UTC (rev 464)
++++ branches/map65/specjt.py	2007-07-03 18:58:29 UTC (rev 465)
+@@ -219,31 +219,25 @@
+     newspec=Audio.gcom2.newspec                   #True if new data available
+     if newspec:
+         Audio.spec(brightness,contrast,g0,nspeed,a,a2) #Call Fortran routine spec
++        n=Audio.gcom2.nlines
++        box=(0,0,NX,130-n)                  #Define region
++        region=im.crop(box)                 #Get all but last line(s)
++        region2=im2.crop(box)               #Get all but last line(s)
++        box=(125,0,624,120)
++        try:
++            im.paste(region,(0,n))          #Move waterfall down
++            im2.paste(region2,(0,n))        #Move waterfall down
++        except:
++            print &quot;Images did not match, continuing anyway.&quot;
++        for i in range(n):
++            line0.putdata(a[NX*i:NX*(i+1)]) #One row of pixels to line0
++            im.paste(line0,(0,i))           #Paste in new top line(s)
++            line02.putdata(a2[NX*i:NX*(i+1)])#One row of pixels to line0
++            im2.paste(line02,(0,i))         #Paste in new top line(s)
++        nscroll=nscroll+n
++#        b0=brightness                       #Save scale values
++#        c0=contrast
+ 
+-    if newspec or brightness!=b0 or contrast!=c0:
+-        if brightness==b0 and contrast==c0:
+-            n=Audio.gcom2.nlines
+-            box=(0,0,NX,130-n)                  #Define region
+-            region=im.crop(box)                 #Get all but last line(s)
+-            region2=im2.crop(box)               #Get all but last line(s)
+-            box=(125,0,624,120)
+-            try:
+-                im.paste(region,(0,n))          #Move waterfall down
+-                im2.paste(region2,(0,n))        #Move waterfall down
+-            except:
+-                print &quot;Images did not match, continuing anyway.&quot;
+-            for i in range(n):
+-                line0.putdata(a[NX*i:NX*(i+1)]) #One row of pixels to line0
+-                im.paste(line0,(0,i))           #Paste in new top line(s)
+-                line02.putdata(a2[NX*i:NX*(i+1)])#One row of pixels to line0
+-                im2.paste(line02,(0,i))         #Paste in new top line(s)
+-            nscroll=nscroll+n
+-        else:                                   #A scale factor has changed
+-            im.putdata(a)                       #Compute whole new image
+-            im2.putdata(a2)                     #Compute whole new image
+-            b0=brightness                       #Save scale values
+-            c0=contrast
+-
+     if newspec:
+         if Audio.gcom2.monitoring:
+             if newMinute:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000149.html">[WSJT-SVN] r464 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000151.html">[WSJT-SVN] r466 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

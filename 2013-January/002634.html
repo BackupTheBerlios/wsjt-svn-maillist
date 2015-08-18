@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2942 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2942%20-%20branches/wsprx&In-Reply-To=%3C20130115003633.06DFD55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002633.html">
+   <LINK REL="Next"  HREF="002635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2942 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2942%20-%20branches/wsprx&In-Reply-To=%3C20130115003633.06DFD55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2942 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 15 01:36:32 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002633.html">[WSJT-SVN] r2941 - in branches/wsprx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002635.html">[WSJT-SVN] r2943 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2634">[ date ]</a>
+              <a href="thread.html#2634">[ thread ]</a>
+              <a href="subject.html#2634">[ subject ]</a>
+              <a href="author.html#2634">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-15 01:36:32 +0100 (Tue, 15 Jan 2013)
+New Revision: 2942
+
+Modified:
+   branches/wsprx/devsetup.cpp
+   branches/wsprx/devsetup.h
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Band switching now working for TS-2000.
+
+
+Modified: branches/wsprx/devsetup.cpp
+===================================================================
+--- branches/wsprx/devsetup.cpp	2013-01-14 23:34:30 UTC (rev 2941)
++++ branches/wsprx/devsetup.cpp	2013-01-15 00:36:32 UTC (rev 2942)
+@@ -111,6 +111,8 @@
+   ui.dataBitsComboBox-&gt;setEnabled(m_catEnabled);
+   ui.stopBitsComboBox-&gt;setEnabled(m_catEnabled);
+   ui.handshakeComboBox-&gt;setEnabled(m_catEnabled);
++
++  ui.rigComboBox-&gt;setCurrentIndex(m_rigIndex);
+   QString t;
+   t.sprintf(&quot;%d&quot;,m_BFO);
+   ui.bfoLineEdit-&gt;setText(t);
+@@ -138,6 +140,7 @@
+   m_paInDevice=m_inDevList[m_nDevIn];
+   m_nDevOut=ui.comboBoxSndOut-&gt;currentIndex();
+   m_paOutDevice=m_outDevList[m_nDevOut];
++  m_rigIndex=ui.rigComboBox-&gt;currentIndex();
+   QDialog::accept();
+ }
+ 
+@@ -176,9 +179,8 @@
+   ui.handshakeComboBox-&gt;setEnabled(b);
+ }
+ 
+-void DevSetup::on_rigComboBox_activated(const QString &amp;arg1)
++void DevSetup::on_rigComboBox_activated(int n)
+ {
+-  int i1=arg1.indexOf(&quot; &quot;);
+-  m_rig=arg1.mid(0,i1).toInt();
+-  qDebug() &lt;&lt; m_rig &lt;&lt; ui.rigComboBox-&gt;itemText(0) &lt;&lt; ui.rigComboBox-&gt;itemText(1);
++  m_rigIndex=n;
++  m_rig=ui.rigComboBox-&gt;itemText(n).split(&quot; &quot;).at(0).toInt();
+ }
+
+Modified: branches/wsprx/devsetup.h
+===================================================================
+--- branches/wsprx/devsetup.h	2013-01-14 23:34:30 UTC (rev 2941)
++++ branches/wsprx/devsetup.h	2013-01-15 00:36:32 UTC (rev 2942)
+@@ -23,6 +23,7 @@
+   qint32  m_BFO;
+   qint32  m_catPort;
+   qint32  m_rig;
++  qint32  m_rigIndex;
+   qint32  m_serialRate;
+   qint32  m_dataBits;
+   qint32  m_stopBits;
+@@ -47,7 +48,7 @@
+   void on_bfoLineEdit_editingFinished();
+   void on_cbGrid6_toggled(bool b);
+   void on_cbEnableCAT_toggled(bool b);
+-  void on_rigComboBox_activated(const QString &amp;arg1);
++  void on_rigComboBox_activated(int index);
+ 
+ private:
+   Ui::DialogSndCard ui;
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2013-01-14 23:34:30 UTC (rev 2941)
++++ branches/wsprx/mainwindow.cpp	2013-01-15 00:36:32 UTC (rev 2942)
+@@ -133,6 +133,7 @@
+   m_nseq=0;
+   m_ntr=0;
+   m_BFO=1500;
++  m_rig=-1;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -263,6 +264,8 @@
+   settings.setValue(&quot;Iband&quot;,m_band);
+   settings.setValue(&quot;BFO&quot;,m_BFO);
+   settings.setValue(&quot;catEnabled&quot;,m_catEnabled);
++  settings.setValue(&quot;Rig&quot;,m_rig);
++  settings.setValue(&quot;RigIndex&quot;,m_rigIndex);
+   settings.endGroup();
+ }
+ 
+@@ -328,10 +331,12 @@
+   m_dBm=settings.value(&quot;dBm&quot;,37).toInt();
+   ui-&gt;dBmComboBox-&gt;setCurrentIndex(int(0.3*(m_dBm + 30.0)+0.2));
+   m_band=settings.value(&quot;Iband&quot;,6).toInt();
+-  ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   m_grid6=settings.value(&quot;Grid6&quot;,false).toBool();
+   m_BFO=settings.value(&quot;BFO&quot;,1500).toInt();
+   m_catEnabled=settings.value(&quot;catEnabled&quot;,false).toBool();
++  m_rig=settings.value(&quot;Rig&quot;,214).toInt();
++  m_rigIndex=settings.value(&quot;RigIndex&quot;,100).toInt();
++  ui-&gt;bandComboBox-&gt;setCurrentIndex(m_band);
+   settings.endGroup();
+ 
+   if(!ui-&gt;actionLinrad-&gt;isChecked() &amp;&amp; !ui-&gt;actionCuteSDR-&gt;isChecked() &amp;&amp;
+@@ -428,6 +433,8 @@
+   dlg.m_grid6=m_grid6;
+   dlg.m_BFO=m_BFO;
+   dlg.m_catEnabled=m_catEnabled;
++  dlg.m_rig=m_rig;
++  dlg.m_rigIndex=m_rigIndex;
+ 
+   dlg.initDlg();
+   if(dlg.exec() == QDialog::Accepted) {
+@@ -444,6 +451,8 @@
+     m_BFO=dlg.m_BFO;
+     g_pWideGraph-&gt;setBFO(m_BFO);
+     m_catEnabled=dlg.m_catEnabled;
++    m_rig=dlg.m_rig;
++    m_rigIndex=dlg.m_rigIndex;
+ 
+     if(dlg.m_restartSoundIn) {
+       soundInThread.quit();
+@@ -1112,6 +1121,14 @@
+   ui-&gt;dialFreqLineEdit-&gt;setText(t);
+   t.sprintf(&quot;%.6f&quot;,m_dialFreq+0.000001*m_txFreq);
+   ui-&gt;txFreqLineEdit-&gt;setText(t);
++  if(m_rig&gt;=1) {
++    int nHz=int(1000000.0*m_dialFreq + 0.5);
++    QString cmnd1,cmnd2;
++    cmnd1.sprintf(&quot;rigctl -m %d -r COM1 -s %d -C data_bits=%d&quot;,m_rig,4800,8);
++    cmnd2.sprintf(&quot; -C stop_bits=%d -C serial_handshake=Hardware F %d&quot;,2,nHz);
++    p3.start(cmnd1+cmnd2);
++  }
++//  cmnd=&quot;rigctl -m 214 -r COM1 -s 4800 -C data_bits=8 -C stop_bits=2 -C serial_handshake=Hardware F 10138710&quot;
+ }
+ 
+ void MainWindow::on_sbTxAudio_valueChanged(int n)
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2013-01-14 23:34:30 UTC (rev 2941)
++++ branches/wsprx/mainwindow.h	2013-01-15 00:36:32 UTC (rev 2942)
+@@ -121,6 +121,8 @@
+     qint32  m_save;
+     qint32  m_BFO;
+     qint32  m_RxStartBand;
++    qint32  m_rig;
++    qint32  m_rigIndex;
+ 
+     bool    m_receiving;
+     bool    m_transmitting;
+@@ -167,6 +169,7 @@
+     QNetworkAccessManager* mNetworkManager;
+     QProcess p1;
+     QProcess p2;
++    QProcess p3;
+ 
+     QTimer* ptt0Timer;
+     QTimer* ptt1Timer;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002633.html">[WSJT-SVN] r2941 - in branches/wsprx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002635.html">[WSJT-SVN] r2943 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2634">[ date ]</a>
+              <a href="thread.html#2634">[ thread ]</a>
+              <a href="subject.html#2634">[ subject ]</a>
+              <a href="author.html#2634">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

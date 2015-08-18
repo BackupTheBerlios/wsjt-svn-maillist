@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r655 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r655%20-%20branches/wspr&In-Reply-To=%3C200803212057.m2LKvcWT030321%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000341.html">
+   <LINK REL="Next"  HREF="000343.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r655 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r655%20-%20branches/wspr&In-Reply-To=%3C200803212057.m2LKvcWT030321%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r655 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 21 21:57:38 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000341.html">[WSJT-SVN] r654 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000343.html">[WSJT-SVN] r656 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#342">[ date ]</a>
+              <a href="thread.html#342">[ thread ]</a>
+              <a href="subject.html#342">[ subject ]</a>
+              <a href="author.html#342">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-03-21 21:57:35 +0100 (Fri, 21 Mar 2008)
+New Revision: 655
+
+Modified:
+   branches/wspr/spec162.f
+   branches/wspr/wspr.py
+Log:
+Save waterfall scale and offset.
+
+
+Modified: branches/wspr/spec162.f
+===================================================================
+--- branches/wspr/spec162.f	2008-03-21 20:41:42 UTC (rev 654)
++++ branches/wspr/spec162.f	2008-03-21 20:57:35 UTC (rev 655)
+@@ -69,7 +69,7 @@
+       gain=40 * 5.0**(0.01*contrast)
+       offset=-90.
+       fac=20.0/nadd
+-      fac=fac*20000./base
++      fac=fac*25000./base
+ 
+       do k=1,kz
+          j=k-kz+NX
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-03-21 20:41:42 UTC (rev 654)
++++ branches/wspr/wspr.py	2008-03-21 20:57:35 UTC (rev 655)
+@@ -78,6 +78,8 @@
+ receiving=0
+ scale0=1.0
+ offset0=0.0
++s0=0.0
++c0=0.0
+ slabel=&quot;MinSync  &quot;
+ transmitting=0
+ tw=[]
+@@ -122,19 +124,6 @@
+         t=&quot;%.1f W&quot; % (0.001*mW,)
+     balloon.bind(ldBm,t)
+ 
+-#------------------------------------------------------ all_hdr
+-def all_hdr():
+-    lines=&quot;\n &quot; + time.asctime(time.gmtime()) + &quot; UTC\n&quot; + \
+-        &quot; UTC Sync dB    DT     Freq    Message          \n&quot; + \
+-        &quot;------------------------------------------------\n&quot;
+-    try:
+-        f=open(appdir+'/ALL_MEPT.TXT',mode='a')
+-        f.writelines(lines)
+-        f.close()
+-    except:
+-        print 'Write to ALL_MEPT.TXT failed.'
+-        pass
+-
+ #------------------------------------------------------ openfile
+ def openfile(event=NONE):
+     global mrudir,fileopened,nopen,tw
+@@ -426,12 +415,10 @@
+ def update():
+     global root_geom,isec0,im,pim,cmap0,lauto,ndbm0,nsec0,a, \
+         receiving,transmitting,newdat,nscroll,newspec,scale0,offset0, \
+-        modtime0,tw
++        modtime0,tw,s0,c0
+     tsec=time.time()
+     utc=time.gmtime(tsec+0.1*idsec)
+     nsec=int(tsec)
+-    if nsec&lt;nsec0:
+-        all_hdr()
+     nsec0=nsec
+     ns120=nsec%120
+     if ns120==0 and (not transmitting) and (not receiving) and lauto:
+@@ -500,7 +487,9 @@
+         scale0=scale
+         offset0=offset
+         newdat=0
+-    
++
++    s0=sc1.get()
++    c0=sc2.get()
+     ldate.after(200,update)
+     
+ #------------------------------------------------------ Top level frame
+@@ -758,6 +747,8 @@
+         elif key == 'Nsave': nsave.set(value)
+         elif key == 'Sync': isync=int(value)
+         elif key == 'Debug': ndebug.set(value)
++        elif key == 'WatScale': sc1.set(value)
++        elif key == 'WatOffset': sc2.set(value)
+         elif key == 'MRUDir': mrudir=value.replace(&quot;#&quot;,&quot; &quot;)
+ except:
+     print 'Error reading WSPR.INI, continuing with defaults.'
+@@ -790,7 +781,6 @@
+ erase()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title('  WSPR      by K1JT')
+-all_hdr()
+ toggleauto()
+ try:
+     os.remove('pixmap.dat')
+@@ -816,6 +806,8 @@
+ f.write(&quot;Sync &quot; + str(isync) + &quot;\n&quot;)
+ mrudir2=mrudir.replace(&quot; &quot;,&quot;#&quot;)
+ f.write(&quot;MRUDir &quot; + mrudir2 + &quot;\n&quot;)
++f.write(&quot;WatScale &quot; + str(s0)+ &quot;\n&quot;)
++f.write(&quot;WatOffset &quot; + str(c0)+ &quot;\n&quot;)
+ f.close()
+ 
+ #Terminate audio streams
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000341.html">[WSJT-SVN] r654 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000343.html">[WSJT-SVN] r656 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#342">[ date ]</a>
+              <a href="thread.html#342">[ thread ]</a>
+              <a href="subject.html#342">[ subject ]</a>
+              <a href="author.html#342">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

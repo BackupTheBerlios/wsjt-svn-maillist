@@ -1,0 +1,1066 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1525 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1525%20-%20branches/wsjt8a&In-Reply-To=%3C200910162004.n9GK4fP6010977%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001215.html">
+   <LINK REL="Next"  HREF="001217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1525 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1525%20-%20branches/wsjt8a&In-Reply-To=%3C200910162004.n9GK4fP6010977%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1525 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 16 22:04:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001215.html">[WSJT-SVN] r1524 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001217.html">[WSJT-SVN] r1526 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1216">[ date ]</a>
+              <a href="thread.html#1216">[ thread ]</a>
+              <a href="subject.html#1216">[ subject ]</a>
+              <a href="author.html#1216">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-10-16 22:04:34 +0200 (Fri, 16 Oct 2009)
+New Revision: 1525
+
+Added:
+   branches/wsjt8a/enc416.f90
+   branches/wsjt8a/partab.f90
+   branches/wsjt8a/vit416.f90
+Removed:
+   branches/wsjt8a/fano.c
+   branches/wsjt8a/vit416.c
+Modified:
+   branches/wsjt8a/chdec.f90
+   branches/wsjt8a/chenc.f90
+   branches/wsjt8a/jt8.f90
+   branches/wsjt8a/syncjt8.f90
+   branches/wsjt8a/wsjt.py
+   branches/wsjt8a/wsjtgen.F90
+Log:
+We now have a functioning JT8 decoder!
+
+
+Modified: branches/wsjt8a/chdec.f90
+===================================================================
+--- branches/wsjt8a/chdec.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/chdec.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -68,6 +68,7 @@
+         if(gsym(i).eq.1) n=-127
+         symbols(i)=n
+      enddo
++
+      if(cmode.eq.'JTMS') call vit213(symbols,nbit,mettab,ddec,metric)
+      if(cmode.eq.'JT8')  call vit416(symbols,nbit,mettab,ddec,metric)
+      iz=(nbit+7)/8
+
+Modified: branches/wsjt8a/chenc.f90
+===================================================================
+--- branches/wsjt8a/chenc.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/chenc.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -2,15 +2,16 @@
+ 
+ ! Apply FEC and generate channel symbols
+ 
++  parameter (MAXSYM=380)
+   character*5 cmode
+   integer iu(3)
+   integer iu6(13)
+   integer*1 iu6a(96)
+-  integer*1 gsym1(372)
++  integer*1 gsym1(MAXSYM)
+   integer*1 dat1(10)
+   integer*1 i1a,i1b,i1c,i1d
+-  integer gsym(372)
+-  integer gsym2(372)
++  integer gsym(MAXSYM)
++  integer gsym2(MAXSYM)
+   integer igray1(0:7)
+ !  data igray0/0,1,3,2,7,6,4,5/    !Use this to remove the gray code
+   data igray1/0,1,3,2,6,7,5,4/
+@@ -51,7 +52,8 @@
+               gsym2(i+1)=gsym1(j+1)    !Exchange i and j to remove interleaving
+            enddo
+         enddo
+-! Apply gray code and insert 3-bit data symbols
++
++! Insert bits into 3-bit data symbols and apply gray code.
+         do i=1,124
+            n=4*gsym2(3*i-2) + 2*gsym2(3*i-1) + gsym2(3*i)
+            gsym(i)=igray1(n)              !Use igray0() to remove the gray code
+
+Added: branches/wsjt8a/enc416.f90
+===================================================================
+--- branches/wsjt8a/enc416.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/enc416.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -0,0 +1,55 @@
++subroutine enc416(dat1,nbits,symbols,nsymbols,kk0,nn0)
++
++! Convolutional encoder for a K=16, r=1/4 code.
++
++  parameter (KK=16)                  !Constraint length, K = 16
++  parameter (NN=4)                   !Rate = r = 1/N = 1/4
++  parameter (MAXNBITS=80)            !Max number of information bits in frame
++  parameter (MAXSYM=NN*(MAXNBITS+KK-1)) !Max number of one-bit channel symbols
++  integer*1 dat1(0:(MAXNBITS+7)/8-1) !User information, 8 bits per byte
++  integer nbits                      !Number of user information bits
++  integer*1 symbols(0:MAXSYM-1)      !Encoded one-bit symbols
++  integer nsymbols                   !Number of encoded one-bit symbols
++  integer*1 i1
++  integer startstate,endstate,encstate !Encoder state variables
++  integer polys(0:3)                 !Generator polynomials
++  data polys/O'0127757',O'0115143',O'0171665',O'0131351'/
++  include 'partab.f90'               !Parity table
++
++  startstate=0
++  endstate=0
++  encstate=startstate
++  nbytes=(nbits+7)/8           !Always encode a multiple of 8 information bits
++  i1=1
++  n=-1
++
++! Do the encoding
++  do k=0,nbytes-1
++     do i=7,0,-1
++        encstate=encstate + encstate + iand(ishft(dat1(k),-i),i1)
++        do j=0,NN-1
++           n=n+1
++           m=iand(encstate,polys(j))
++           m=ieor(m,ishft(m,-16))
++           symbols(n)=partab(iand(ieor(m,ishft(m,-8)),255))
++        enddo
++     enddo
++  enddo
++
++! Flush out with zero tail
++  do i=0,KK-2
++     encstate=ior(ishft(encstate,1),iand(ishft(endstate,-i),1))
++     do j=0,NN-1
++        n=n+1
++        m=iand(encstate,polys(j))
++        m=ieor(m,ishft(m,-16))
++        symbols(n)=partab(iand(ieor(m,ishft(m,-8)),255))
++     enddo
++  enddo
++
++  nsymbols=(nbits+KK-1)*NN
++  kk0=KK
++  nn0=NN
++
++  return
++end subroutine enc416
+
+Deleted: branches/wsjt8a/fano.c
+===================================================================
+--- branches/wsjt8a/fano.c	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/fano.c	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -1,279 +0,0 @@
+-/*
+- * Soft decision Fano sequential decoder for K=32 r=1/2 convolutional code
+- * Copyright 1994, Phil Karn, KA9Q
+- */
+-#define	LL 1	/* Select Layland-Lushbaugh code */
+-
+-#include &lt;stdio.h&gt;
+-#include &lt;stdlib.h&gt;
+-#include &lt;math.h&gt;
+-#include &quot;fano.h&quot;
+-
+-struct node {
+-	unsigned long encstate;	/* Encoder state of next node */
+-	long gamma;		/* Cumulative metric to this node */
+-	int metrics[4];		/* Metrics indexed by all possible tx syms */
+-	int tm[2];		/* Sorted metrics for current hypotheses */
+-	int i;			/* Current branch being tested */
+-};
+-
+-/* Convolutional coding polynomials. All are rate 1/2, K=32 */
+-#ifdef	NASA_STANDARD
+-/* &quot;NASA standard&quot; code by Massey &amp; Costello
+- * Nonsystematic, quick look-in, dmin=11, dfree=23
+- * used on Pioneer 10-12, Helios A,B
+- */
+-#define	POLY1	0xbbef6bb7
+-#define	POLY2	0xbbef6bb5
+-#endif
+-
+-#ifdef	MJ
+-/* Massey-Johannesson code
+- * Nonsystematic, quick look-in, dmin=13, dfree&gt;=23
+- * Purported to be more computationally efficient than Massey-Costello
+- */
+-#define	POLY1	0xb840a20f
+-#define POLY2	0xb840a20d
+-#endif
+-
+-#ifdef	LL
+-/* Layland-Lushbaugh code
+- * Nonsystematic, non-quick look-in, dmin=?, dfree=?
+- */
+-#define	POLY1	0xf2d05351
+-#define	POLY2	0xe4613c47
+-#endif
+-
+-/* Convolutional encoder macro. Takes the encoder state, generates
+- * a rate 1/2 symbol pair and stores it in 'sym'. The symbol generated from
+- * POLY1 goes into the 2-bit of sym, and the symbol generated from POLY2
+- * goes into the 1-bit.
+- */
+-#define	ENCMAC(sym,encstate){\
+-	unsigned long _tmp;\
+-\
+-	_tmp = (encstate) &amp; POLY1;\
+-	_tmp ^= _tmp &gt;&gt; 16;\
+-	(sym) = Partab[(_tmp ^ (_tmp &gt;&gt; 8)) &amp; 0xff] &lt;&lt; 1;\
+-	_tmp = (encstate) &amp; POLY2;\
+-	_tmp ^= _tmp &gt;&gt; 16;\
+-	(sym) |= Partab[(_tmp ^ (_tmp &gt;&gt; 8)) &amp; 0xff];\
+-}
+-
+-
+-/* Convolutionally encode a packet. The input data bytes are read
+- * high bit first and the encoded packet is written into 'symbols',
+- * one symbol per byte. The first symbol is generated from POLY1,
+- * the second from POLY2.
+- *
+- * Storing only one symbol per byte uses more space, but it is faster
+- * and easier than trying to pack them more compactly.
+- */
+-
+-#ifdef CVF
+-int __stdcall ENCODE(char *data, int *nbytes0,char *symbols)
+-#else
+-int encode_(char *data, int *nbytes0,char *symbols)
+-#endif
+-{
+-	unsigned long encstate;
+-	int sym;
+-	int i;
+-	unsigned nbytes;
+-
+-	nbytes=*nbytes0;
+-	encstate = 0;
+-	while(nbytes-- != 0){
+-		for(i=7;i&gt;=0;i--){
+-			encstate = (encstate &lt;&lt; 1) | ((*data &gt;&gt; i) &amp; 1);
+-			ENCMAC(sym,encstate);
+-			*symbols++ = sym &gt;&gt; 1;
+-			*symbols++ = sym &amp; 1;
+-		}
+-		data++;
+-	}
+-	return 0;
+-}
+-
+-/* Decode packet with the Fano algorithm.
+- * Return 0 on success, -1 on timeout
+- */
+-
+-#ifdef CVF
+-int __stdcall FANO(
+-unsigned long *metric,	/* Final path metric (returned value) */
+-unsigned long *cycles,	/* Cycle count (returned value) */
+-unsigned char *data,	/* Decoded output data */
+-unsigned char *symbols,	/* Raw deinterleaved input symbols */
+-unsigned int *nbits0,	/* Number of output bits */
+-int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
+-int *delta0,		/* Threshold adjust parameter */
+-unsigned long *maxcycles0)/* Decoding timeout in cycles per bit */
+-
+-#else
+-int fano_(
+-unsigned long *metric,	/* Final path metric (returned value) */
+-unsigned long *cycles,	/* Cycle count (returned value) */
+-unsigned char *data,	/* Decoded output data */
+-unsigned char *symbols,	/* Raw deinterleaved input symbols */
+-unsigned int *nbits0,	/* Number of output bits */
+-int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
+-int *delta0,		/* Threshold adjust parameter */
+-unsigned long *maxcycles0)/* Decoding timeout in cycles per bit */
+-#endif
+-
+-{
+-	struct node *nodes;		/* First node */
+-	register struct node *np;	/* Current node */
+-	struct node *lastnode;		/* Last node */
+-	struct node *tail;		/* First node of tail */
+-	long t;				/* Threshold */
+-	long m0,m1;
+-	long ngamma;
+-	unsigned int lsym;
+-	unsigned long i;
+-	unsigned int nbits;
+-	int delta;
+-	unsigned long maxcycles;
+-
+-	nbits=*nbits0;
+-	delta=*delta0;
+-	maxcycles=*maxcycles0;
+-	if((nodes = (struct node *)malloc(nbits*sizeof(struct node))) == NULL){
+-		printf(&quot;alloc failed\n&quot;);
+-		return 0;
+-	}
+-	lastnode = &amp;nodes[nbits-1];
+-	tail = &amp;nodes[nbits-31];           /* Was nbits-33 in Karn code */
+-
+-	/* Compute all possible branch metrics for each symbol pair
+-	 * This is the only place we actually look at the raw input symbols
+-	 */
+-	for(np=nodes;np &lt;= lastnode;np++){
+-		np-&gt;metrics[0] = mettab[0][symbols[0]] + mettab[0][symbols[1]];
+-		np-&gt;metrics[1] = mettab[0][symbols[0]] + mettab[1][symbols[1]];
+-		np-&gt;metrics[2] = mettab[1][symbols[0]] + mettab[0][symbols[1]];
+-		np-&gt;metrics[3] = mettab[1][symbols[0]] + mettab[1][symbols[1]];
+-		symbols += 2;
+-	}
+-	np = nodes;
+-	np-&gt;encstate = 0;
+-
+-	/* Compute and sort branch metrics from root node */
+-	ENCMAC(lsym,np-&gt;encstate);	/* 0-branch (LSB is 0) */
+-	m0 = np-&gt;metrics[lsym];
+-
+-	/* Now do the 1-branch. To save another ENCMAC call here and
+-	 * inside the loop, we assume that both polynomials are odd,
+-	 * providing complementary pairs of branch symbols.
+-
+-	 * This code should be modified if a systematic code were used.
+-	 */
+-	m1 = np-&gt;metrics[3^lsym];
+-	if(m0 &gt; m1){
+-		/* 0-branch has better metric */
+-		np-&gt;tm[0] = m0;
+-		np-&gt;tm[1] = m1;
+-	} else {
+-		/* 1-branch is better */
+-		np-&gt;tm[0] = m1;
+-		np-&gt;tm[1] = m0;
+-		np-&gt;encstate++;	/* Set low bit */
+-	}
+-	np-&gt;i = 0;	/* Start with best branch */
+-	maxcycles *= nbits;
+-	np-&gt;gamma = t = 0;
+-
+-	/* Start the Fano decoder */
+-	for(i=1;i &lt;= maxcycles;i++){
+-#ifdef	debug
+-		printf(&quot;k=%ld, g=%ld, t=%ld, m[%d]=%d\n&quot;,
+-		 np-nodes,np-&gt;gamma,t,np-&gt;i,np-&gt;tm[np-&gt;i]);
+-#endif
+-		/* Look forward */
+-		ngamma = np-&gt;gamma + np-&gt;tm[np-&gt;i];
+-		if(ngamma &gt;= t){
+-			/* Node is acceptable */
+-			if(np-&gt;gamma &lt; t + delta){
+-				/* First time we've visited this node;
+-				 * Tighten threshold.
+-				 *
+-				 * This loop could be replaced with
+-				 *   t += delta * ((ngamma - t)/delta);
+-				 * but the multiply and divide are slower.
+-				 */
+-				while(ngamma &gt;= t + delta)
+-					t += delta;
+-			}
+-			/* Move forward */
+-			np[1].gamma = ngamma;
+-			np[1].encstate = np-&gt;encstate &lt;&lt; 1;
+-			if(++np == lastnode)
+-				break;	/* Done! */
+-
+-			/* Compute and sort metrics, starting with the 
+-			 * zero branch
+-			 */
+-			ENCMAC(lsym,np-&gt;encstate);
+-			if(np &gt;= tail){
+-				/* The tail must be all zeroes, so don't even
+-				 * bother computing the 1-branches there.
+-				 */
+-				np-&gt;tm[0] = np-&gt;metrics[lsym];
+-			} else {
+-				m0 = np-&gt;metrics[lsym];
+-				m1 = np-&gt;metrics[3^lsym];
+-				if(m0 &gt; m1){
+-					/* 0-branch is better */
+-					np-&gt;tm[0] = m0;
+-					np-&gt;tm[1] = m1;
+-				} else {
+-					/* 1-branch is better */
+-					np-&gt;tm[0] = m1;
+-					np-&gt;tm[1] = m0;
+-					np-&gt;encstate++;	/* Set low bit */
+-				}
+-			}
+-			np-&gt;i = 0;	/* Start with best branch */
+-			continue;
+-		}
+-		/* Threshold violated, can't go forward */
+-		for(;;){
+-			/* Look backward */
+-			if(np == nodes || np[-1].gamma &lt; t){
+-				/* Can't back up either.
+-				 * Relax threshold and and look
+-				 * forward again to better branch.
+-				 */
+-				t -= delta;
+-				if(np-&gt;i != 0){
+-					np-&gt;i = 0;
+-					np-&gt;encstate ^= 1;
+-				}
+-				break;
+-			}
+-			/* Back up */
+-			if(--np &lt; tail &amp;&amp; np-&gt;i != 1){
+-				/* Search next best branch */
+-				np-&gt;i++;
+-				np-&gt;encstate ^= 1;
+-				break;
+-			} /* else keep looking back */
+-		}
+-	}
+-	*metric =  np-&gt;gamma;	/* Return final path metric */
+-
+-	/* Copy decoded data to user's buffer */
+-	nbits &gt;&gt;= 3;
+-	np = &amp;nodes[7];
+-	while(nbits-- != 0){
+-		*data++ = np-&gt;encstate;
+-		np += 8;
+-	}
+-
+-	free(nodes);
+-	*cycles = i+1;
+-	if(i &gt;= maxcycles)
+-		return -1;	/* Decoder timed out */
+-	return 0;		/* Successful completion */
+-}
+
+Modified: branches/wsjt8a/jt8.f90
+===================================================================
+--- branches/wsjt8a/jt8.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/jt8.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -8,26 +8,101 @@
+   real dat(jz)                        !Raw data
+   integer DFTolerance
+   real ccfblue(-5:540),ccfred(-224:224)
++  real s3(0:7,124)                    !2d spectrum, synchronized, data only
+   character line*90,decoded*24,deepmsg*24,special*5
+-  character csync*1,cfile6*6
++  character csync*2,cfile6*6,cmode*5
++  integer iu(3)
++  integer*1 symbols(372)
++  integer*1 ddec(10)
++  integer*1 gsym1(372)
++  integer*1 gsym2(372)
++  integer mettab(0:255,0:1)
++  integer igray0(0:7)
++  logical first
++  data igray0/0,1,3,2,7,6,4,5/    !Use this to remove the gray code
++  data first/.true./
++  save first,mettab
+ 
++  if(first) then
++! Get the metric table
++     bias=0.0                        !Metric bias: viterbi=0, seq=rate
++     scale=10                        !Optimize?
++     open(19,file='met8.21',status='old')
++     do i=0,255
++        read(19,*) xjunk,d0,d1
++        mettab(i,0)=nint(scale*(d0-bias))
++        mettab(i,1)=nint(scale*(d1-bias))    !### Check range, etc.  ###
++     enddo
++     close(19)
++     first=.false.
++  endif
++
+ ! Attempt to synchronize: get DF and DT.
++  csymc='  '
+   call syncjt8(dat,jz,DFTolerance,NFreeze,MouseDF,dtx,dfx,snrx,      &amp;
+-       snrsync,ccfblue,ccfred)
++       snrsync,ccfblue,ccfred,s3)
+   nsync=nint(snrsync)
+-  nsnr=nint(snrx)
+-  ncount=0
+-  decoded='                        '
+ 
+-! If we get here, we have achieved sync!
+-  NSyncOK=1
+-  csync='*'
+-  ndf=nint(dfx)
++  if(nsync.ge.minsigdb) then
++! We have achieved sync.  Remove gray code and compute single-bit soft symbols.
++     fac=2.0
++     do j=1,124
++        k=3*j-2
++        r1=max(s3(4,j),s3(5,j),s3(6,j),s3(7,j))
++        r2=max(s3(0,j),s3(1,j),s3(2,j),s3(3,j))
++        gsym2(k)=min(127,max(-127,nint(fac*(r1-r2)))) + 128
+ 
+-  call cs_lock('jt8')
+-  write(11,1010) cfile6,nsync,nsnr,dtx,ndf,csync,decoded
+-1010 format(a6,i3,i5,f5.1,i5,1x,a1,1x,a24)
+-  call cs_unlock
++        r1=max(s3(2,j),s3(3,j),s3(4,j),s3(5,j))
++        r2=max(s3(0,j),s3(1,j),s3(6,j),s3(7,j))
++        gsym2(k+1)=min(127,max(-127,nint(fac*(r1-r2)))) + 128
+ 
++        r1=max(s3(1,j),s3(2,j),s3(4,j),s3(7,j))
++        r2=max(s3(0,j),s3(3,j),s3(5,j),s3(6,j))
++        gsym2(k+2)=min(127,max(-127,nint(fac*(r1-r2)))) + 128
++     enddo
++
++! Remove interleaving
++     do i1=0,30
++        do i2=0,11
++           i=31*i2+i1
++           j=12*i1+i2
++           gsym1(j+1)=gsym2(i+1)
++        enddo
++     enddo
++
++     nbit=78
++     call vit416(gsym1,nbit,mettab,ddec,metric)
++     iz=(nbit+7)/8
++     ddec(iz+1:)=0
++     n1=ddec(1)
++     n2=ddec(2)
++     n3=ddec(3)
++     n4=ddec(4)
++     iu(1)=ishft(iand(n1,255),24) + ishft(iand(n2,255),16) +         &amp;
++           ishft(iand(n3,255),8) + iand(n4,255)
++     n1=ddec(5)
++     n2=ddec(6)
++     n3=ddec(7)
++     n4=ddec(8)
++     iu(2)=ishft(iand(n1,255),24) + ishft(iand(n2,255),16) +         &amp;
++           ishft(iand(n3,255),8) + iand(n4,255)
++     n1=ddec(9)
++     n2=ddec(10)
++     iu(3)=ishft(iand(n1,255),24) + ishft(iand(n2,255),16)
++
++     decoded='                        '
++     cmode='JT8'
++     call srcdec(cmode,nbit,iu,decoded)
++     nsnr=nint(snrx)
++     ndf=nint(dfx)
++     csync='3*'
++     NSyncOK=1
++
++     call cs_lock('jt8')
++     write(11,1010) cfile6,nsync,nsnr,dtx,ndf,csync,decoded
++1010 format(a6,i3,i5,f5.1,i5,1x,a2,1x,a24)
++     call cs_unlock
++  endif
++
+   return
+ end subroutine jt8
+
+Added: branches/wsjt8a/partab.f90
+===================================================================
+--- branches/wsjt8a/partab.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/partab.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -0,0 +1,34 @@
++  integer*1 partab(0:255)
++  data partab/                  &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        0, 1, 1, 0, 1, 0, 0, 1, &amp;
++        1, 0, 0, 1, 0, 1, 1, 0/
+
+Modified: branches/wsjt8a/syncjt8.f90
+===================================================================
+--- branches/wsjt8a/syncjt8.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/syncjt8.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -1,5 +1,5 @@
+ subroutine syncjt8(dat,jz,DFTolerance,NFreeze,MouseDF,dtx,dfx,snrx,      &amp;
+-     snrsync,ccfblue,ccfred)
++     snrsync,ccfblue,ccfred,s3)
+ 
+ ! Synchronizes JT8 data, finding the best-fit DT and DF.  
+ ! NB: data are already downsampled to 6 kHz.
+@@ -11,6 +11,7 @@
+   integer DFTolerance              !Range of DF search
+   real dat(jz)                     !Raw data, downsampled to 6 kHz
+   real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++  real s3(8,124)                   !2d spectrum, synchronized, data only
+   real x(NFFTMAX)                  !Temp array for computing FFTs
+   real ccfblue(-5:540)             !CCF with pseudorandom sequence
+   real ccfred(-224:224)            !Peak of ccfblue, as function of freq
+@@ -126,6 +127,14 @@
+ !3002 format(i5,f12.3)
+   enddo
+ 
++  do i=1,8
++     ii=ipk + 2*(i-1)
++     j0=4*8 - 3 + lagbest
++     do j=1,124
++        s3(i,j)=s2(ii,j0+4*j)
++     enddo
++  enddo
++
+   snrsync=syncbest/ave - 1.0
+   snrx=-31.
+   if(syncbest.gt.1.0) snrx=db(snrsync) - 27.0
+
+Deleted: branches/wsjt8a/vit416.c
+===================================================================
+--- branches/wsjt8a/vit416.c	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/vit416.c	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -1,223 +0,0 @@
+-/* Viterbi decoder for arbitrary convolutional code
+- * viterbi27 and viterbi37 for the r=1/2 and r=1/3 K=7 codes are faster
+- * Copyright 1999 Phil Karn, KA9Q
+- * May be used under the terms of the GNU Public License
+- */
+-
+-/* Select code here */
+-
+-#define V416
+-
+-
+-#ifdef V416
+-#define	K 16			/* Constraint length */
+-#define N 4			/* Number of symbols per data bit */
+-#define Polys	Poly416		/* Select polynomials here */
+-#endif
+-
+-/* Rate 1/2 codes */
+-unsigned int Poly416[] = {0127757,0115143,0171665,0131351}; // k = 16
+-
+-#include &lt;memory.h&gt;
+-#define NULL ((void *)0)
+-
+-#define LONGBITS 32
+-#define LOGLONGBITS 5
+-
+-#undef max
+-#define max(x,y) ((x) &gt; (y) ? (x) : (y))
+-#define D       (1 &lt;&lt; max(0,K-LOGLONGBITS-1))
+-#define MAXNBITS 200            /* Maximum frame size (user bits) */
+-
+-extern unsigned char Partab[];	/* Parity lookup table */
+-
+-int Syms[1 &lt;&lt; K];
+-
+-/*
+-int parity(int x)
+-{
+-  x ^= (x &gt;&gt; 16);
+-  x ^= (x &gt;&gt; 8);
+-  return Partab[x &amp; 0xff];
+-}
+-*/
+-
+-// Wrapper for calling encoder from Fortran:
+-#ifdef CVF
+-void __stdcall ENC416(
+-#else
+-void enc416_(
+-#endif
+-unsigned char data[],           // User data, 8 bits per byte
+-int *nbits,                     // Number of user bits
+-unsigned char symbols[],        // Encoded one-bit symbols, 8 per byte
+-int *nsymbols,                  // Number of symbols
+-int *kk,                        // K
+-int *nn)                        // N
+-{
+-  int nbytes;
+-  nbytes=(*nbits+7)/8;          // Always encode multiple of 8 information bits
+-  enc416(symbols,data,nbytes,0,0); // Do the encoding
+-  *nsymbols=(*nbits+K-1)*N;        // Return number of encoded symbols
+-  *kk=K;
+-  *nn=N;
+-}
+-
+-/* Convolutionally encode data into binary symbols */
+-  enc416(unsigned char symbols[], unsigned char data[],
+-       unsigned int nbytes, unsigned int startstate,
+-       unsigned int endstate)
+-{
+-  int i,j,k,n=-1;
+-  unsigned int encstate = startstate;
+-
+-  for(k=0; k&lt;nbytes; k++) {
+-    for(i=7;i&gt;=0;i--){
+-      encstate = (encstate + encstate) + ((data[k] &gt;&gt; i) &amp; 1);
+-      for(j=0;j&lt;N;j++) {
+-	n=n+1;
+-	symbols[n] = parity(encstate &amp; Polys[j]);
+-      }
+-    }
+-  }
+-  // Flush out with zero tail.  (No need, if tail-biting code.)
+-  for(i=0; i&lt;K-1;i++){
+-    encstate = (encstate &lt;&lt; 1) | ((endstate &gt;&gt; i) &amp; 1);
+-    for(j=0;j&lt;N;j++) {
+-      n=n+1;
+-      symbols[n] = parity(encstate &amp; Polys[j]);
+-    }
+-  }
+-  return 0;
+-}
+-
+-// Wrapper for calling decoder from Fortran:
+-#ifdef CVF
+-void __stdcall VIT416(
+-#else
+-void vit416_(
+-#endif
+-unsigned char symbols[],  /* Raw deinterleaved input symbols */
+-unsigned int *Nbits,	  /* Number of decoded information bits */
+-int mettab[2][256],	  /* Metric table, [sent sym][rx symbol] */
+-unsigned char ddec[],	  /* Decoded output data */
+-long *Metric              /* Final path metric (bigger is better) */
+-){
+-  long metric;
+-  vit416(&amp;metric,ddec,symbols,*Nbits,mettab,0,0);
+-  *Metric=metric;
+-}
+-
+-/* Viterbi decoder */
+-int vit416(
+-long *metric,           /* Final path metric (returned value) */
+-unsigned char *data,	/* Decoded output data */
+-unsigned char *symbols,	/* Raw deinterleaved input symbols */
+-unsigned int nbits,	/* Number of output bits */
+-int mettab[2][256],	/* Metric table, [sent sym][rx symbol] */
+-unsigned int startstate,         /* Encoder starting state */
+-unsigned int endstate            /* Encoder ending state */
+-){
+-  int bitcnt = -(K-1);
+-  long m0,m1;
+-  int i,j,sym,ipp;
+-  int mets[1 &lt;&lt; N];
+-  unsigned long paths[(MAXNBITS+K-1)*D];
+-  unsigned long *pp,mask;
+-  long cmetric[1 &lt;&lt; (K-1)],nmetric[1 &lt;&lt; (K-1)];
+-  static int VDInit=0;
+-  
+-  memset(paths,0,sizeof(paths));
+-
+-  // Initialize on first time through:
+-  if(!VDInit){
+-    for(i=0;i&lt;(1&lt;&lt;K);i++){
+-      sym = 0;
+-      for(j=0;j&lt;N;j++)
+-	sym = (sym &lt;&lt; 1) + parity(i &amp; Polys[j]);
+-      Syms[i] = sym;
+-    }
+-    VDInit++;
+-  }
+-
+-  // Keep only lower K-1 bits of specified startstate and endstate
+-  startstate &amp;= ~((1&lt;&lt;(K-1)) - 1);
+-  endstate &amp;=   ~((1&lt;&lt;(K-1)) - 1);
+-
+-  /* Initialize starting metrics */
+-  for(i=0;i&lt; 1&lt;&lt;(K-1);i++)
+-    cmetric[i] = -999999;
+-  cmetric[startstate] = 0;
+-
+-  pp = paths;
+-  ipp=0;
+-  for(;;){ /* For each data bit */
+-    /* Read input symbols and compute branch metrics */
+-    for(i=0;i&lt; 1&lt;&lt;N;i++){
+-      mets[i] = 0;
+-      for(j=0;j&lt;N;j++){
+-	mets[i] += mettab[(i &gt;&gt; (N-j-1)) &amp; 1][symbols[j]];
+-      }
+-    }
+-    symbols += N;
+-    /* Run the add-compare-select operations */
+-    mask = 1;
+-    for(i=0;i&lt; 1 &lt;&lt; (K-1);i+=2){
+-      int b1,b2;
+-      
+-      b1 = mets[Syms[i]];
+-      nmetric[i] = m0 = cmetric[i/2] + b1; 
+-      b2 = mets[Syms[i+1]];
+-      b1 -= b2;
+-      m1 = cmetric[(i/2) + (1&lt;&lt;(K-2))] + b2;
+-
+-      if(m1 &gt; m0){
+-	nmetric[i] = m1;
+-	*pp |= mask;
+-      }
+-
+-      m0 -= b1;
+-      nmetric[i+1] = m0;
+-      m1 += b1;
+-
+-      if(m1 &gt; m0){
+-	nmetric[i+1] = m1;
+-	*pp |= mask &lt;&lt; 1;
+-      }
+-
+-      mask &lt;&lt;= 2;
+-      if(mask == 0){
+-	mask = 1;
+-	pp++;
+-	ipp++;
+-      }
+-    }
+-    if(mask != 1){
+-      pp++;
+-      ipp++;
+-    }
+-    if(++bitcnt == nbits){
+-      *metric = nmetric[endstate];
+-      break;
+-    }
+-    memcpy(cmetric,nmetric,sizeof(cmetric));
+-  }
+-
+-  /* Chain back from terminal state to produce decoded data */
+-  if(data == NULL)
+-    return 0;/* Discard output */
+-  memset(data,0,(nbits+7)/8); /* round up in case nbits % 8 != 0 */
+-
+-  for(i=nbits-1;i &gt;= 0;i--){
+-    pp -= D;
+-    ipp -= D;
+-    m0=endstate &gt;&gt; LOGLONGBITS;
+-    m1=1L &lt;&lt; (endstate &amp; (LONGBITS-1));
+-    if(pp[m0] &amp; m1) {
+-      endstate |= (1 &lt;&lt; (K-1));
+-      data[i&gt;&gt;3] |= 0x80 &gt;&gt; (i&amp;7);
+-    }
+-    endstate &gt;&gt;= 1;
+-  }
+-  return 0;
+-}
+
+Added: branches/wsjt8a/vit416.f90
+===================================================================
+--- branches/wsjt8a/vit416.f90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/vit416.f90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -0,0 +1,132 @@
++subroutine vit416(symbols,nbits,mettab,ddec,metric)
++
++! Viterbi decoder for K=16, r=1/4 convolutional code.
++! Translated from the C routine written by Phil Karn, KA9Q.
++
++  parameter (LONGBITS=32,LOGLONGBITS=5)
++  parameter (NN=4,KK=16,NDD=2**(KK-LOGLONGBITS-1))
++  parameter (MAXNBITS=80)             !Max frame size, user information bits
++  parameter (N2K=2**KK)
++  parameter (N2KM1=2**(KK-1))
++  parameter (N2KM2=2**(KK-2))
++  parameter (N2N=2**NN)
++  parameter (MAXSYM=NN*(MAXNBITS+KK-1))
++  integer*1 symbols(0:MAXSYM-1)
++  integer*1 ddec(0:(MAXNBITS+7)/8-1)
++  integer*1 i1,i128
++  integer mettab(0:255,0:1)
++  integer paths(0:NDD*(MAXNBITS+KK-1)-1)
++  integer cmetric(0:N2KM1-1)
++  integer nmetric(0:N2KM1-1)
++  integer mets(0:N2N-1)
++  integer syms(0:N2K-1)
++  integer bitcnt,sym,b1,b2
++  integer startstate,endstate
++  integer polys(0:3)
++  logical first
++  data first/.true./
++  data polys/O'0127757',O'0115143',O'0171665',O'0131351'/
++  include 'partab.f90'
++  save first,syms
++  
++  startstate=0
++  endstate=0
++  bitcnt=-(KK-1)
++  mets=ishft(1,NN)
++  paths=0
++  if(first) then
++     do i=0,N2K-1
++        sym=0
++        do j=0,3
++           n=iand(i,polys(j))
++           n=ieor(n,ishft(n,-16))
++           sym=sym+sym+partab(iand(ieor(n,ishft(n,-8)),255))
++        enddo
++        syms(i)=sym
++     enddo
++     first=.false.
++  endif
++
++!  startstate=iand(startstate,N2KM1-1)
++!  endstate=iand(endstate,N2KM1-1)
++  cmetric=-999999
++  cmetric(startstate)=0
++
++  j0=0
++  jpp=0
++  ipp=0
++10 do i=0,N2N-1
++     mets(i)=0
++     do j=0,NN-1
++        k=symbols(j+j0)
++        if(k.lt.0) k=k+256
++        mets(i)=mets(i) + mettab(k,iand(ishft(i,1+j-NN),1))
++     enddo
++  enddo
++
++  j0=j0+NN
++  mask=1
++  do i=0,N2KM1-1,2
++     b1=mets(syms(i))
++     m0=cmetric(i/2) + b1
++     nmetric(i)=m0
++     b2=mets(syms(i+1))
++     b1=b1-b2
++     m1=cmetric(i/2 + N2KM2) + b2
++
++!     write(61,3001) i,b1,b2
++!3001 format(3i10)
++
++     if(m1.gt.m0) then
++        nmetric(i)=m1
++        paths(jpp)=ior(paths(jpp),mask)
++     endif
++
++     m0=m0-b1
++     nmetric(i+1)=m0
++     m1=m1+b1
++
++     if(m1.gt.m0) then
++        nmetric(i+1)=m1
++        paths(jpp)=ior(paths(jpp),mask+mask)
++     endif
++
++     mask=ishft(mask,2)
++     if(mask.eq.0) then
++        mask=1
++        jpp=jpp+1
++        ipp=ipp+1
++     endif
++  enddo
++
++  if(mask.ne.1) then
++     jpp=jpp+1
++     ipp=ipp+1
++  endif
++
++  bitcnt=bitcnt+1
++  if(bitcnt.eq.nbits) then
++     metric=nmetric(endstate)
++     go to 100
++  endif
++  cmetric=nmetric
++  go to 10
++
++! Chain back from terminal state to produce decoded data
++
++100 ddec=0
++  i128=-128
++  do i=nbits-1,0,-1
++     jpp=jpp-NDD
++     ipp=ipp-NDD
++     m0=ishft(endstate,-LOGLONGBITS)
++     m1=ishft(1,iand(endstate,LONGBITS-1))
++     if(iand(paths(jpp+m0),m1).ne.0) then
++        endstate=ior(endstate,N2KM1)
++        i1=ishft(i128,-iand(i,7))
++        k=i/8
++        ddec(k)=ior(ddec(k),i1)
++     endif
++     endstate=ishft(endstate,-1)
++  enddo
++end subroutine vit416
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/wsjt.py	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT8
++#----------------------------------------------------------------------- WSJT8
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wsjt8a/wsjtgen.F90
+===================================================================
+--- branches/wsjt8a/wsjtgen.F90	2009-10-08 18:45:24 UTC (rev 1524)
++++ branches/wsjt8a/wsjtgen.F90	2009-10-16 20:04:34 UTC (rev 1525)
+@@ -138,8 +138,7 @@
+      goto 900
+   endif
+   
+-900 sending=txmsg
+-  if(mode(1:4).eq.'JT64' .and. sendingsh.ne.1) sending=msgsent
++900 sending=msgsent
+   do i=NMSGMAX,1,-1
+      if(sending(i:i).ne.' '.and. ichar(sending(i:i)).ne.0) go to 910
+   enddo
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001215.html">[WSJT-SVN] r1524 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001217.html">[WSJT-SVN] r1526 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1216">[ date ]</a>
+              <a href="thread.html#1216">[ thread ]</a>
+              <a href="subject.html#1216">[ subject ]</a>
+              <a href="author.html#1216">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,287 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2788 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2788%20-%20branches/wsjtx&In-Reply-To=%3C20121130135656.7286755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002479.html">
+   <LINK REL="Next"  HREF="002481.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2788 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2788%20-%20branches/wsjtx&In-Reply-To=%3C20121130135656.7286755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2788 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Nov 30 14:56:56 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002479.html">[WSJT-SVN] r2787 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002481.html">[WSJT-SVN] r2789 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2480">[ date ]</a>
+              <a href="thread.html#2480">[ thread ]</a>
+              <a href="subject.html#2480">[ subject ]</a>
+              <a href="author.html#2480">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-30 14:56:55 +0100 (Fri, 30 Nov 2012)
+New Revision: 2788
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/plotter.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+   branches/wsjtx/widegraph.ui
+   branches/wsjtx/wsjtx.iss
+Log:
+Remove the Auto Zero button and associated code.
+Other code cleanup.
+Display UTC at start of sequence on decoded text line.
+Install DLLs to {app} rather than {sys}.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/mainwindow.cpp	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//---------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -887,6 +887,7 @@
+     int imin=ms/60000;
+     int ihr=imin/60;
+     imin=imin % 60;
++    imin=imin - (imin % (m_TRperiod/60));
+     jt9com_.nutc=100*ihr + imin;
+   }
+ 
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/mainwindow.ui	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -59,7 +59,7 @@
+          &lt;/size&gt;
+         &lt;/property&gt;
+         &lt;property name=&quot;title&quot;&gt;
+-         &lt;string&gt;     UTC      Sync       dB            DT          Freq            Drift&lt;/string&gt;
++         &lt;string&gt;     UTC      Sync       dB            DT          Freq          Drift&lt;/string&gt;
+         &lt;/property&gt;
+         &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_9&quot;&gt;
+          &lt;item&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/plotter.cpp	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -97,10 +97,6 @@
+   m_2DPixmap = m_OverlayPixmap.copy(0,0,m_w,m_h2);
+   QPainter painter2D(&amp;m_2DPixmap);
+ 
+-  for(int i=0; i&lt;256; i++) {                     //Zero the histograms
+-    m_hist1[i]=0;
+-  }
+-
+   painter2D.setPen(Qt::green);
+   if(m_bJT9Sync) painter2D.setPen(Qt::red);
+ 
+@@ -122,13 +118,12 @@
+     if (y1&lt;0) y1=0;
+     if (y1&gt;254) y1=254;
+     if (swide[i]&gt;1.e29) y1=255;
+-    m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+     y2=0;
+-    if(m_bCurrent) y2 = gain*y + 30;
+-    if(m_bCumulative) y2=3*gain*10.0*log10(jt9com_.savg[i]);
+-    if(m_bJT9Sync) y2=3.0*gain*red[i] - 20;
++    if(m_bCurrent) y2 = 0.4*gain*y - 15;
++    if(m_bCumulative) y2=1.5*gain*10.0*log10(jt9com_.savg[i]) - 20;
++    if(m_bJT9Sync) y2=3.0*gain*red[i] - 15;
+     if(strong != strong0 or i==m_w-1) {
+       painter2D.drawPolyline(LineBuf,j);
+       j=0;
+@@ -442,28 +437,6 @@
+   emit freezeDecode1(2);                  //### ???
+ }
+ 
+-int CPlotter::autoZero()                                        //autoZero()
+-{
+-  int w = m_Size.width();
+-  m_z1=0;
+-  int sum1=0;
+-  for(int i=0; i&lt;256; i++) {
+-    sum1 += m_hist1[i];
+-    if(sum1 &gt; int(0.7*w)) {
+-      m_z1=i;
+-      break;
+-    }
+-  }
+-
+-  double gain = pow(10.0,0.05*(m_plotGain+7));
+-  if(m_z1 &lt; 255) {
+-    double dz1 = m_z1/(5.0*gain);
+-    m_plotZero = int(m_plotZero + dz1 + 0.5);
+-    if(m_z1==0) m_plotZero = m_plotZero - 5;
+-  }
+-  return m_plotZero;
+-}
+-
+ void CPlotter::setNSpan(int n)                                  //setNSpan()
+ {
+   m_nSpan=n;
+
+Modified: branches/wsjtx/plotter.h
+===================================================================
+--- branches/wsjtx/plotter.h	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/plotter.h	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -58,7 +58,6 @@
+   void setFcal(int n);
+   void DrawOverlay();
+   int  fQSO();
+-  int  autoZero();
+   void setPalette(QString palette);
+   void setFsample(int n);
+   void setNsps(int ntrperiod, int nsps);
+@@ -102,9 +101,6 @@
+   bool    m_dataFromDisk;
+   char    m_sutc[5];
+   qint32  m_line;
+-  qint32  m_hist1[256];
+-  qint32  m_z1;
+-  qint32  m_z2;
+   qint32  m_fSample;
+   qint32  m_i0;
+   qint32  m_xClick;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/widegraph.cpp	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -221,12 +221,6 @@
+   ui-&gt;widePlot-&gt;setFcal(n);
+ }
+ 
+-void WideGraph::on_autoZeroPushButton_clicked()
+-{
+-   int nzero=ui-&gt;widePlot-&gt;autoZero();
+-   ui-&gt;zeroSpinBox-&gt;setValue(nzero);
+-}
+-
+ void WideGraph::setPalette(QString palette)
+ {
+   ui-&gt;widePlot-&gt;setPalette(palette);
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/widegraph.h	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -49,7 +49,6 @@
+   void on_freqSpanSpinBox_valueChanged(int arg1);
+   void on_zeroSpinBox_valueChanged(int arg1);
+   void on_gainSpinBox_valueChanged(int arg1);
+-  void on_autoZeroPushButton_clicked();
+   void on_fDialLineEdit_editingFinished();
+   void on_rbCurrent_clicked();
+   void on_rbCumulative_clicked();
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/widegraph.ui	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -258,29 +258,6 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QPushButton&quot; name=&quot;autoZeroPushButton&quot;&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;Auto Zero&lt;/string&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+-        &lt;spacer name=&quot;horizontalSpacer_3&quot;&gt;
+-         &lt;property name=&quot;orientation&quot;&gt;
+-          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;sizeType&quot;&gt;
+-          &lt;enum&gt;QSizePolicy::Preferred&lt;/enum&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;20&lt;/width&gt;
+-           &lt;height&gt;20&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-        &lt;/spacer&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;widget class=&quot;QRadioButton&quot; name=&quot;rbCurrent&quot;&gt;
+          &lt;property name=&quot;text&quot;&gt;
+           &lt;string&gt;Current&lt;/string&gt;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-11-29 19:01:48 UTC (rev 2787)
++++ branches/wsjtx/wsjtx.iss	2012-11-30 13:56:55 UTC (rev 2788)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.5 r2783
++AppVerName=wsjtx Version 0.5 r2788
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+@@ -13,7 +13,7 @@
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\blue.dat&quot;;          DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;;
+ Source: &quot;c:\Users\joe\wsjt\wsjtx\WSJT-X_Users_Guide.pdf&quot;;    DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\QtSupport\*.dll&quot;;                 DestDir: &quot;{sys}&quot;;  Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\QtSupport\*.dll&quot;;                 DestDir: &quot;{app}&quot;;  Flags: onlyifdoesntexist
+ Source: &quot;c:\Users\joe\wsjt\wsjtx_install\save\Samples\000000_0000.wav&quot;;   DestDir: &quot;{app}\save\Samples&quot;;
+ 
+ [Icons]
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002479.html">[WSJT-SVN] r2787 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002481.html">[WSJT-SVN] r2789 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2480">[ date ]</a>
+              <a href="thread.html#2480">[ thread ]</a>
+              <a href="subject.html#2480">[ subject ]</a>
+              <a href="author.html#2480">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

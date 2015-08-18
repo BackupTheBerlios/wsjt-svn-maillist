@@ -1,0 +1,307 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r373 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r373%20-%20trunk&In-Reply-To=%3C200704261712.l3QHCu2v027375%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000057.html">
+   <LINK REL="Next"  HREF="000059.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r373 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r373%20-%20trunk&In-Reply-To=%3C200704261712.l3QHCu2v027375%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r373 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 26 19:12:56 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000057.html">[WSJT-SVN] r372 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000059.html">[WSJT-SVN] r374 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#58">[ date ]</a>
+              <a href="thread.html#58">[ thread ]</a>
+              <a href="subject.html#58">[ subject ]</a>
+              <a href="author.html#58">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-04-26 19:12:46 +0200 (Thu, 26 Apr 2007)
+New Revision: 373
+
+Modified:
+   trunk/astro.F
+   trunk/decode3.F90
+   trunk/extract.f
+   trunk/fivehz.F90
+   trunk/gcom2.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+Log:
+Implemented &quot;Quick decode&quot; option.
+Added HF bands and 2304 MHz to band menu.
+
+
+Modified: trunk/astro.F
+===================================================================
+--- trunk/astro.F	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/astro.F	2007-04-26 17:12:46 UTC (rev 373)
+@@ -49,6 +49,8 @@
+      +    AzSun,ElSun,mjd)
+ 
+       freq=nfreq*1.e6
++      if(nfreq.eq.2) freq=1.8e6
++      if(nfreq.eq.4) freq=3.5e6
+ 
+       call MoonDop(nyear,month,nday,uth,lon,lat,RAMoon,DecMoon,
+      +  LST,HA,AzMoon,ElMoon,ldeg,bdeg,vr,dist)
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/decode3.F90	2007-04-26 17:12:46 UTC (rev 373)
+@@ -59,7 +59,7 @@
+   endif
+   call wsjt1(d2d,jz,istart,samfacin,FileID,ndepth,MinSigdB,           &amp;
+        NQRN,DFTolerance,MouseButton,NClearAve,nforce,                 &amp;
+-       nMode,NFreeze,NAFC,NZap,mode65,idf,                            &amp;
++       nMode,NFreeze,NAFC,NZap,mode65,idf,ntdecode,                   &amp;
+        MyCall,HisCall,HisGrid,neme,ntx2,s2,                           &amp;
+        ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,        &amp;
+        MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+
+Modified: trunk/extract.f
+===================================================================
+--- trunk/extract.f	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/extract.f	2007-04-26 17:12:46 UTC (rev 373)
+@@ -5,6 +5,7 @@
+       integer era(51),dat4(12),indx(63)
+       integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
+       logical first
++      common/extcom/ntdecode
+       data first/.true./,nsec1/0/
+       save
+ 
+@@ -23,6 +24,11 @@
+       nemax=30
+       maxe=8
+       xlambda=15.0
++      naddsynd=200
++      if(ntdecode.eq.48) then
++         xlambda=12.0
++         naddsynd=50
++      endif
+ 
+       if(ndec.eq.1) then
+          call graycode(mr2sym,63,-1)
+@@ -30,7 +36,7 @@
+          call interleave63(mr2prob,-1)
+ 
+          nsec1=nsec1+1
+-         write(22,rec=1) nsec1,xlambda,maxe,200,
++         write(22,rec=1) nsec1,xlambda,maxe,naddsynd,
+      +        mrsym,mrprob,mr2sym,mr2prob
+          call flushqqq(22)
+          call runqqq('kvasd.exe','-q',iret)
+
+Modified: trunk/fivehz.F90
+===================================================================
+--- trunk/fivehz.F90	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/fivehz.F90	2007-04-26 17:12:46 UTC (rev 373)
+@@ -152,8 +152,8 @@
+   nbufs=ibuf-ibuf0
+   if(nbufs.lt.0) nbufs=nbufs+1024
+   tdata=nbufs*2048.0/11025.0
+-  if(mode(1:4).eq.'JT65' .and. monitoring.eq.1 .and. tdata.gt.53.0    &amp;
+-       .and. ibuf0.ne.ibuf00) then
++  if(mode(1:4).eq.'JT65' .and. monitoring.eq.1 .and. &amp;
++       tdata.gt.float(ntdecode) .and. ibuf0.ne.ibuf00) then
+      rxdone=.true.
+      ibuf00=ibuf0
+   endif
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/gcom2.f90	2007-04-26 17:12:46 UTC (rev 373)
+@@ -64,6 +64,7 @@
+ integer ndiskdat       !1 if data read from disk, 0 otherwise   GUI
+ integer nlines         !Available lines of waterfall data       GUI
+ integer nflat          !Is waterfall to be flattened?           GUI
++integer ntdecode       !Time to start decoding in JT65 modes    GUI
+ integer ntxreq         !Tx msg# requested                       GUI
+ integer ntxnow         !Tx msg# being sent now                  GUI
+ integer ndepth         !Requested &quot;depth&quot; of JT65 decoding      GUI
+@@ -94,7 +95,8 @@
+      nclearave,nfreeze,nafc,nmode,mode65,nclip,ndebug,nblank,nport,   &amp;
+      mousedf,neme,nsked,naggressive,ntx2,nslim2,nagain,nsavelast,ntxdf, &amp;
+      shok,sendingsh,d2a(661500),d2b(661500),b(60000),jza,jzb,ntime,   &amp;
+-     idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntxreq,ntxnow,  &amp;
++     idinterval,msmax,lenappdir,idf,ndiskdat,nlines,nflat,ntdecode,   &amp;
++     ntxreq,ntxnow,  &amp;
+      ndepth,nspecial,ndf,nfmid,nforce,nfrange,ss1(-224:224),ss2(-224:224),   &amp;
+      mycall,hiscall,hisgrid,txmsg,sending,mode,fname0,fnamea,         &amp;
+      fnameb,decodedfile,AppDir,filetokilla,filetokillb,utcdate,pttport
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/wsjt.py	2007-04-26 17:12:46 UTC (rev 373)
+@@ -90,6 +90,7 @@
+ nopen=0
+ nosh441=IntVar()
+ noshjt65=IntVar()
++qdecode=IntVar()
+ setseq=IntVar()
+ ShOK=IntVar()
+ slabel=&quot;Sync   &quot;
+@@ -194,7 +195,10 @@
+ #------------------------------------------------------ logqso
+ def logqso(event=NONE):
+     t=time.strftime(&quot;%Y-%b-%d,%H:%M&quot;,time.gmtime())
+-    t=t+&quot;,&quot;+hiscall+&quot;,&quot;+hisgrid+&quot;,&quot;+str(g.nfreq)+&quot;,&quot;+g.mode+&quot;\n&quot;
++    tf=str(g.nfreq)
++    if g.nfreq==2: tf=&quot;1.8&quot;
++    if g.nfreq==4: tf=&quot;3.5&quot;
++    t=t+&quot;,&quot;+hiscall+&quot;,&quot;+hisgrid+&quot;,&quot;+tf+&quot;,&quot;+g.mode+&quot;\n&quot;
+     t2=&quot;Please confirm making the following entry in WSJT.LOG:\n\n&quot; + t
+     msg=Pmw.MessageDialog(root,buttons=('Yes','No'),message_text=t2)
+     msg.geometry(msgpos())
+@@ -1359,6 +1363,8 @@
+             options.MyGrid.get().upper(),HisGrid.get().upper(),utchours)
+         azdist()
+         g.nfreq=nfreq.get()
++        Audio.gcom2.ntdecode=52
++        if qdecode.get(): Audio.gcom2.ntdecode=48
+ 
+         if Audio.gcom2.ndecoding==0:
+             g.AzSun,g.ElSun,g.AzMoon,g.ElMoon,g.AzMoonB,g.ElMoonB,g.ntsky, \
+@@ -1695,8 +1701,9 @@
+ decodemenu.FSK441=Menu(decodemenu,tearoff=0)
+ decodemenu.FSK441.add_checkbutton(label='No shorthands',variable=nosh441)
+ decodemenu.JT65=Menu(decodemenu,tearoff=0)
+-decodemenu.JT65.add_checkbutton(label='Only EME calls',variable=neme)
++decodemenu.JT65.add_checkbutton(label='Only EME calls in Deep Search',variable=neme)
+ decodemenu.JT65.add_checkbutton(label='No Shorthands if Tx 1',variable=noshjt65)
++decodemenu.JT65.add_checkbutton(label='Quick Decode',variable=qdecode)
+ decodemenu.JT65.add_separator()
+ decodemenu.JT65.add_radiobutton(label = 'No Deep Search',
+                                 variable=ndepth, value=0)
+@@ -1727,11 +1734,20 @@
+ bandmenu = Menu(bandbutton, tearoff=1)
+ bandbutton['menu'] = bandmenu
+ nfreq=IntVar()
++bandmenu.add_radiobutton(label = '1.8', variable=nfreq,value=2)
++bandmenu.add_radiobutton(label = '3.5', variable=nfreq,value=4)
++bandmenu.add_radiobutton(label = '7', variable=nfreq,value=7)
++bandmenu.add_radiobutton(label = '14', variable=nfreq,value=14)
++bandmenu.add_radiobutton(label = '18', variable=nfreq,value=18)
++bandmenu.add_radiobutton(label = '21', variable=nfreq,value=21)
++bandmenu.add_radiobutton(label = '24', variable=nfreq,value=24)
++bandmenu.add_radiobutton(label = '28', variable=nfreq,value=28)
+ bandmenu.add_radiobutton(label = '50', variable=nfreq,value=50)
+ bandmenu.add_radiobutton(label = '144', variable=nfreq,value=144)
+ bandmenu.add_radiobutton(label = '222', variable=nfreq,value=222)
+ bandmenu.add_radiobutton(label = '432', variable=nfreq,value=432)
+ bandmenu.add_radiobutton(label = '1296', variable=nfreq,value=1296)
++bandmenu.add_radiobutton(label = '2304', variable=nfreq,value=2304)
+ nfreq.set(144)
+ #------------------------------------------------------ Help menu
+ helpbutton = Menubutton(mbar, text = 'Help')
+@@ -2072,6 +2088,7 @@
+ frame.pack()
+ 
+ ldate.after(100,update)
++
+ lauto=0
+ isync=1
+ ntx.set(1)
+@@ -2196,6 +2213,7 @@
+         elif key == 'NAFC': nafc.set(value)
+         elif key == 'NoSh441': nosh441.set(value)
+         elif key == 'NoShJT65': noshjt65.set(value)
++        elif key == 'QDecode': qdecode.set(value)
+         elif key == 'NEME': neme.set(value)
+         elif key == 'NDepth': ndepth.set(value)
+         elif key == 'Debug': ndebug.set(value)
+@@ -2289,6 +2307,7 @@
+ f.write(&quot;NAFC &quot; + str(nafc.get()) + &quot;\n&quot;)
+ f.write(&quot;NoSh441 &quot; + str(nosh441.get()) + &quot;\n&quot;)
+ f.write(&quot;NoShJT65 &quot; + str(noshjt65.get()) + &quot;\n&quot;)
++f.write(&quot;QDecode &quot; + str(qdecode.get()) + &quot;\n&quot;)
+ f.write(&quot;NEME &quot; + str(neme.get()) + &quot;\n&quot;)
+ f.write(&quot;NDepth &quot; + str(ndepth.get()) + &quot;\n&quot;)
+ f.write(&quot;Debug &quot; + str(ndebug.get()) + &quot;\n&quot;)
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2007-04-26 14:56:56 UTC (rev 372)
++++ trunk/wsjt1.F	2007-04-26 17:12:46 UTC (rev 373)
+@@ -1,6 +1,6 @@
+ 	subroutine wsjt1(d,jz0,istart,samfacin,FileID,ndepth,MinSigdB,
+      +    NQRN,DFTolerance,MouseButton,NClearAve,nforce,
+-     +    Mode,NFreeze,NAFC,NZap,mode65,idf,
++     +    Mode,NFreeze,NAFC,NZap,mode65,idf,ntdecode0,
+      +    MyCall,HisCall,HisGrid,neme,ntx2,s2,
+      +    ps0,npkept,lumsg,basevb,rmspower,nslim2,psavg,ccf,Nseg,
+      +    MouseDF,NAgain,LDecoded,nspecial,ndf,ss1,ss2)
+@@ -48,11 +48,13 @@
+ 	common/avecom/dat(NP2),labdat,jza,modea
+ 	common/ccom/nline,tping(100),line(100)
+ 	common/limcom/ nslim2a
++	common/extcom/ntdecode
+ 	common/clipcom/ nclip
+ 	save
+ 
+ 	lcum=.true.
+ 	jz=jz0
++	ntdecode=ntdecode0
+ 	modea=Mode
+ 	nclip=NQRN-5
+ 	nslim2a=nclip
+@@ -189,7 +191,9 @@
+  	   hiscall=HisCall(1:i-1)//'            '
+ 
+ !  Offset data by about 1 s.
+- 	   if(jz.ge.126*2048) call wsjt65(dat(4097),jz-4096,cfile6,
++! 	    jztest=126*2048
++	   jztest=11025*ntdecode/2 - 2755
++ 	   if(jz.ge.jztest) call wsjt65(dat(4097),jz-4096,cfile6,
+      +        NClearAve,MinSigdB,DFTolerance,NFreeze,NAFC,mode65,Nseg,
+      +        MouseDF2,NAgain,ndepth,neme,idf,idfsh,
+      +        mycall,hiscall,hisgrid,lumsg,lcum,nspecial,ndf,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000057.html">[WSJT-SVN] r372 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000059.html">[WSJT-SVN] r374 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#58">[ date ]</a>
+              <a href="thread.html#58">[ thread ]</a>
+              <a href="subject.html#58">[ subject ]</a>
+              <a href="author.html#58">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

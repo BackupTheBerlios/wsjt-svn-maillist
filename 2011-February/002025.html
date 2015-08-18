@@ -1,0 +1,617 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2333 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2333%20-%20branches/wspr&In-Reply-To=%3C20110208124738.1920D48102F%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002024.html">
+   <LINK REL="Next"  HREF="002026.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2333 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2333%20-%20branches/wspr&In-Reply-To=%3C20110208124738.1920D48102F%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2333 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Feb  8 13:47:37 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002024.html">[WSJT-SVN] r2332 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002026.html">[WSJT-SVN] r2334 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2025">[ date ]</a>
+              <a href="thread.html#2025">[ thread ]</a>
+              <a href="subject.html#2025">[ subject ]</a>
+              <a href="author.html#2025">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-02-08 13:47:37 +0100 (Tue, 08 Feb 2011)
+New Revision: 2333
+
+Added:
+   branches/wspr/averms.f90
+   branches/wspr/ffa.f90
+   branches/wspr/fold1pps.f90
+   branches/wspr/libsamplerate.a
+   branches/wspr/read_wav.f90
+   branches/wspr/resample.c
+   branches/wspr/samplerate.h
+   branches/wspr/thnix_stub.f90
+Modified:
+   branches/wspr/hftoa.f90
+Log:
+Add code for hftoa and ccf.
+
+
+Added: branches/wspr/averms.f90
+===================================================================
+--- branches/wspr/averms.f90	                        (rev 0)
++++ branches/wspr/averms.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,20 @@
++subroutine getrms(x,npts,ave,rms,xmax)
++
++  real x(npts)
++
++  s=0.
++  xmax=0.
++  do i=1,npts
++     s=s + x(i)
++     xmax=max(xmax,abs(x(i)))
++  enddo
++  ave=s/npts
++
++  sq=0.
++  do i=1,npts
++     sq=sq + (x(i)-ave)**2
++  enddo
++  rms=sqrt(sq/(npts-1))
++  
++  return
++end subroutine getrms
+
+Added: branches/wspr/ffa.f90
+===================================================================
+--- branches/wspr/ffa.f90	                        (rev 0)
++++ branches/wspr/ffa.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,102 @@
++subroutine ffa(dat,ndim,npts,ip,prof,pmax,pk,ipk)
++
++! Copyright (C) 1995 by Peter Mueller, MPIfR.   <A HREF="https://lists.berlios.de/mailman/listinfo/wsjt-svn">peter at mpifr-bonn.mpg.de</A>
++!
++! Permission to use, copy, modify, and distribute this software and its
++! documentation for any purpose and without fee is hereby granted, provided
++! that the above copyright notice appear in all copies and that both that
++! copyright notice and this permission notice appear in supporting
++! documentation.  This software is provided &quot;as is&quot; without express or
++! implied warranty.
++
++!     dat(1:npts)           Raw data
++!     ip                    Period is between ip and ip+1
++!     prof(1:ip)            Folded profile   
++!     pmax                  Best period
++!     xmax                  Peak of profile
++
++  implicit real*4 (a-h,o-z)
++  real puls(NDIM)
++  real prof(*)
++  real*8 p,p1,p2,p3,p4,p5,ps,dp,pmax
++  real*4 x,xp,xmax,xmax0,xmax1
++  real dat(NDIM)
++
++  xmax=-1.e30
++  nmax=ip*2**int(log(float(npts)/float(ip))/log(2.0) + 0.95)
++  if(nmax .gt. NDIM) nmax=nmax/2
++ 
++  lmax=nmax/(ip +1)
++  kp=nint(log(lmax+1.0)/log(2.0))
++  dp=dfloat(ip+1)/dfloat(nmax)
++  p1=1.d0/dfloat(ip)
++  p2=p1*p1
++  p3=p2*p1
++  p4=p3*p1
++  p5=p4*p1
++  ps=p1+p2+p3+p4+p5
++
++  do n=0, lmax-1
++     x=dp*n
++     xp=(((((p5*x + p4)*x + p3)*x + p2)* x - ps)*x + p1)*x
++     p=ip+x-xp
++     do nn=0,kp-1
++        if(mod(n,2**nn) .eq. 0) kp1=kp-nn 
++     enddo
++     do k=kp1,kp
++        np=2**(kp-k)
++        joff=nmax - nmax/2**(k-1)
++        ioff=nmax - nmax/2**max(k-2,0)
++        ish=mod((n+np) / np / 2, ip)
++        do i=0,np-1
++           iip=i*ip
++           i0=iip+joff
++           i1=2*iip + ioff
++           i2=i1+ip
++           do j=1,ip
++              j1=j+ish
++              if(j1.gt.ip) j1=j1-ip
++              ind=j+i0
++              jnd=j+i1
++              knd=j1+i2
++              if(kp1.eq.1 .and. k.eq.1) then
++                 puls(ind)=dat(jnd) + dat(knd)
++              else
++                 puls(ind)=puls(jnd) + puls(knd)
++              endif
++           enddo
++        enddo
++     enddo
++     
++     xmax1=xmax
++     xmax0=-1.e30
++     do j=1,ip
++        pp=puls(j+joff)
++        pp=abs(pp)                          !JHT (for hftoa)
++        xmax0=max(pp,xmax0)
++     enddo
++     xmax=max(xmax0,xmax)
++
++!     write(22,3001) p,xmax0/lmax
++!3001 format(2f12.6)
++
++     if(xmax.gt.xmax1) then
++        pmax=p
++        do j=1,ip
++           prof(j)=puls(j+joff)/lmax
++        enddo
++     endif
++  enddo
++
++  pk=0.
++  do i=1,ip
++!     ptest=abs(prof(i))
++     ptest=-prof(i)
++     if(ptest.gt.pk) then
++        pk=ptest
++        ipk=i
++     endif
++  enddo
++         
++  return
++end subroutine ffa
+
+Added: branches/wspr/fold1pps.f90
+===================================================================
+--- branches/wspr/fold1pps.f90	                        (rev 0)
++++ branches/wspr/fold1pps.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,19 @@
++subroutine fold1pps(x,npts,ip1,ip2,prof,p,pk,ipk)
++
++  real x(npts)
++  real proftmp(12005),prof(12005)
++  real*8 p,ptmp
++
++  pk=0.
++  do ip=ip1,ip2
++     call ffa(x,npts,npts,ip,proftmp,ptmp,pktmp,ipktmp)
++     if(pktmp.gt.pk) then
++        p=ptmp
++        pk=pktmp
++        ipk=ipktmp
++        prof=proftmp
++     endif
++  enddo
++
++  return
++end subroutine fold1pps
+
+Modified: branches/wspr/hftoa.f90
+===================================================================
+--- branches/wspr/hftoa.f90	2011-02-04 19:41:07 UTC (rev 2332)
++++ branches/wspr/hftoa.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -9,16 +9,13 @@
+   character label*7                          !Label for filename
+   character cdate*8                          !CCYYMMDD
+   character ctime*10                         !HHMMSS.SSS
+-  character hdr_ctime*10                     !HHMMSS.SSS
+   character start_time*4                     !Requested start time (HHMM)
+   character outfile*40                       !Output filename
+   character cmnd*120                         !Command to set rig frequency
+-  character*4 mode,hdrmode
+-  character*6 mycall,mygrid,hdrcall,hdrgrid
+-  real*8 fkhz,hdrfreq,tsec,hdrtsec
++  character*4 mode
++  character*6 mycall,mygrid
++  real*8 fkhz,tsec
+   integer soundin
+-  common/toacom/hdrtsec,hdrfreq,hdrcall,hdrgrid,hdrmode,hdr_ctime
+-  equivalence (id2,hdrfreq)
+ 
+   nargs=iargc()
+   if(nargs.ne.4) then
+@@ -92,13 +89,8 @@
+ 
+   call fil1(id1,npts,id2,ntot)                     !Downsample to 12 kHz
+ 
+-  hdrtsec=tsec
+-  hdrfreq=fkhz               !Copy hdr info over the first few samples in id2
+-  hdrcall=mycall
+-  hdrgrid=mygrid
+-  hdrmode=mode
+-  hdr_ctime=ctime
+   call write_wav(12,id2,ntot,nfsample/4,nchan)     !Write wav file to disk
++  write(12) tsec,fkhz,mycall,mygrid,mode,ctime     !Append header information
+ 
+   sum=0.
+   xmax1=0.
+
+Added: branches/wspr/libsamplerate.a
+===================================================================
+(Binary files differ)
+
+
+Property changes on: branches/wspr/libsamplerate.a
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Added: branches/wspr/read_wav.f90
+===================================================================
+--- branches/wspr/read_wav.f90	                        (rev 0)
++++ branches/wspr/read_wav.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,20 @@
++subroutine read_wav(lu,idat,npts,nfsample,nchan)
++
++! Write a wavefile to logical unit lu.
++
++  integer*2 idat(*)
++  integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
++  character*4 ariff,awave,afmt,adata
++  integer*1 hdr(44)
++  common/hdr/ariff,nchunk,awave,afmt,lenfmt,nfmt2,nchan2,nsamrate,   &amp;
++       nbytesec,nbytesam2,nbitsam2,adata,ndata
++  equivalence (hdr,ariff)
++
++  read(lu) hdr
++  npts=ndata/(nchan2*nbitsam2/8)
++  nfsample=nsamrate
++  nchan=nchan2
++  read(lu) (idat(i),i=1,npts*nchan)
++
++  return
++end subroutine read_wav
+
+Added: branches/wspr/resample.c
+===================================================================
+--- branches/wspr/resample.c	                        (rev 0)
++++ branches/wspr/resample.c	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,30 @@
++#include &lt;stdio.h&gt;
++#include &lt;samplerate.h&gt;
++
++int resample_( float din[], float dout[], double *samfac, int *jz, int *ntype)
++{
++  SRC_DATA src_data;
++  int input_len;
++  int output_len;
++  int ierr;
++  int nchan=1;
++  double src_ratio;
++
++  src_ratio=*samfac;
++  input_len=*jz;
++  output_len=(int) (input_len*src_ratio);
++
++  src_data.data_in=din;
++  src_data.data_out=dout;
++  src_data.src_ratio=src_ratio;
++  src_data.input_frames=input_len;
++  src_data.output_frames=output_len;
++
++  ierr=src_simple(&amp;src_data,*ntype,nchan);
++  *jz=output_len;
++  /*  printf(&quot;%d  %d  %d  %d  %f\n&quot;,input_len,output_len,
++	 src_data.input_frames_used,
++	 src_data.output_frames_gen,src_ratio);
++  */
++  return ierr;
++}
+
+Added: branches/wspr/samplerate.h
+===================================================================
+--- branches/wspr/samplerate.h	                        (rev 0)
++++ branches/wspr/samplerate.h	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,196 @@
++/*
++** Copyright (C) 2002-2004 Erik de Castro Lopo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/wsjt-svn">erikd at mega-nerd.com</A>&gt;
++**
++** This program is free software; you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation; either version 2 of the License, or
++** (at your option) any later version.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++**
++** You should have received a copy of the GNU General Public License
++** along with this program; if not, write to the Free Software
++** Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++*/
++
++/*
++** API documentation is available here:
++**     <A HREF="http://www.mega-nerd.com/SRC/api.html">http://www.mega-nerd.com/SRC/api.html</A>
++*/
++
++#ifndef SAMPLERATE_H
++#define SAMPLERATE_H
++
++#ifdef __cplusplus
++extern &quot;C&quot; {
++#endif	/* __cplusplus */
++
++
++/* Opaque data type SRC_STATE. */
++typedef struct SRC_STATE_tag SRC_STATE ;
++
++/* SRC_DATA is used to pass data to src_simple() and src_process(). */
++typedef struct
++{	float	*data_in, *data_out ;
++
++	long	input_frames, output_frames ;
++	long	input_frames_used, output_frames_gen ;
++
++	int		end_of_input ;
++
++	double	src_ratio ;
++} SRC_DATA ;
++
++/* SRC_CB_DATA is used with callback based API. */
++typedef struct
++{	long	frames ;
++	float	*data_in ;
++} SRC_CB_DATA ;
++
++/*
++** User supplied callback function type for use with src_callback_new()
++** and src_callback_read(). First parameter is the same pointer that was
++** passed into src_callback_new(). Second parameter is pointer to a
++** pointer. The user supplied callback function must modify *data to
++** point to the start of the user supplied float array. The user supplied
++** function must return the number of frames that **data points to.
++*/
++
++typedef long (*src_callback_t) (void *cb_data, float **data) ;
++
++/*
++**	Standard initialisation function : return an anonymous pointer to the
++**	internal state of the converter. Choose a converter from the enums below.
++**	Error returned in *error.
++*/
++
++SRC_STATE* src_new (int converter_type, int channels, int *error) ;
++
++/*
++**	Initilisation for callback based API : return an anonymous pointer to the
++**	internal state of the converter. Choose a converter from the enums below.
++**	The cb_data pointer can point to any data or be set to NULL. Whatever the
++**	value, when processing, user supplied function &quot;func&quot; gets called with
++**	cb_data as first parameter.
++*/
++
++SRC_STATE* src_callback_new (src_callback_t func, int converter_type, int channels,
++				int *error, void* cb_data) ;
++
++/*
++**	Cleanup all internal allocations.
++**	Always returns NULL.
++*/
++
++SRC_STATE* src_delete (SRC_STATE *state) ;
++
++/*
++**	Standard processing function.
++**	Returns non zero on error.
++*/
++
++int src_process (SRC_STATE *state, SRC_DATA *data) ;
++
++/*
++**	Callback based processing function. Read up to frames worth of data from
++**	the converter int *data and return frames read or -1 on error.
++*/
++long src_callback_read (SRC_STATE *state, double src_ratio, long frames, float *data) ;
++
++/*
++**	Simple interface for performing a single conversion from input buffer to
++**	output buffer at a fixed conversion ratio.
++**	Simple interface does not require initialisation as it can only operate on
++**	a single buffer worth of audio.
++*/
++
++int src_simple (SRC_DATA *data, int converter_type, int channels) ;
++
++/*
++** This library contains a number of different sample rate converters,
++** numbered 0 through N.
++**
++** Return a string giving either a name or a more full description of each
++** sample rate converter or NULL if no sample rate converter exists for
++** the given value. The converters are sequentially numbered from 0 to N.
++*/
++
++const char *src_get_name (int converter_type) ;
++const char *src_get_description (int converter_type) ;
++const char *src_get_version (void) ;
++
++/*
++**	Set a new SRC ratio. This allows step responses
++**	in the conversion ratio.
++**	Returns non zero on error.
++*/
++
++int src_set_ratio (SRC_STATE *state, double new_ratio) ;
++
++/*
++**	Reset the internal SRC state.
++**	Does not modify the quality settings.
++**	Does not free any memory allocations.
++**	Returns non zero on error.
++*/
++
++int src_reset (SRC_STATE *state) ;
++
++/*
++** Return TRUE if ratio is a valid conversion ratio, FALSE
++** otherwise.
++*/
++
++int src_is_valid_ratio (double ratio) ;
++
++/*
++**	Return an error number.
++*/
++
++int src_error (SRC_STATE *state) ;
++
++/*
++**	Convert the error number into a string.
++*/
++const char* src_strerror (int error) ;
++
++/*
++** The following enums can be used to set the interpolator type
++** using the function src_set_converter().
++*/
++
++enum
++{
++	SRC_SINC_BEST_QUALITY		= 0,
++	SRC_SINC_MEDIUM_QUALITY		= 1,
++	SRC_SINC_FASTEST			= 2,
++	SRC_ZERO_ORDER_HOLD			= 3,
++	SRC_LINEAR					= 4
++} ;
++
++/*
++** Extra helper functions for converting from short to float and
++** back again.
++*/
++
++void src_short_to_float_array (const short *in, float *out, int len) ;
++void src_float_to_short_array (const float *in, short *out, int len) ;
++
++
++#ifdef __cplusplus
++}		/* extern &quot;C&quot; */
++#endif	/* __cplusplus */
++
++#endif	/* SAMPLERATE_H */
++
++/*
++** Do not edit or modify anything in this comment block.
++** The arch-tag line is a file identity tag for the GNU Arch
++** revision control system.
++**
++** arch-tag: 5421ef3e-c898-4ec3-8671-ea03d943ee00
++*/
++
+
+Added: branches/wspr/thnix_stub.f90
+===================================================================
+--- branches/wspr/thnix_stub.f90	                        (rev 0)
++++ branches/wspr/thnix_stub.f90	2011-02-08 12:47:37 UTC (rev 2333)
+@@ -0,0 +1,58 @@
++subroutine cs_init
++  character*12 csub0
++  integer*8 mtx
++  common/mtxcom/mtx,ltrace,mtxstate,csub0
++  ltrace=0
++  mtxstate=0
++  csub0='**unlocked**'
++!  call fthread_mutex_init(mtx)
++  return
++end subroutine cs_init
++
++subroutine cs_destroy
++  character*12 csub0
++  integer*8 mtx
++  common/mtxcom/mtx,ltrace,mtxstate,csub0
++!  call fthread_mutex_destroy(mtx)
++  return
++end subroutine cs_destroy
++
++subroutine th_create(sub)
++!  call fthread_create(sub,id)
++  return
++end subroutine th_create
++
++subroutine th_exit
++!  call fthread_exit
++  return
++end subroutine th_exit
++
++subroutine cs_lock(csub)
++  character*(*) csub
++  character*12 csub0
++  integer fthread_mutex_lock,fthread_mutex_trylock
++  integer*8 mtx
++  common/mtxcom/mtx,ltrace,mtxstate,csub0
++!  n=fthread_mutex_trylock(mtx)
++  if(n.ne.0) then
++! Another thread has already locked the mutex
++!     n=fthread_mutex_lock(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested mutex when &quot;',   &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
++  return
++end subroutine cs_lock
++
++subroutine cs_unlock
++  character*12 csub0
++  integer*8 mtx
++  common/mtxcom/mtx,ltrace,mtxstate,csub0
++  if(ltrace.ge.3) print*,'Mutex unlocked,',ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++!  call fthread_mutex_unlock(mtx)
++  return
++end subroutine cs_unlock
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002024.html">[WSJT-SVN] r2332 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002026.html">[WSJT-SVN] r2334 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2025">[ date ]</a>
+              <a href="thread.html#2025">[ thread ]</a>
+              <a href="subject.html#2025">[ subject ]</a>
+              <a href="author.html#2025">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

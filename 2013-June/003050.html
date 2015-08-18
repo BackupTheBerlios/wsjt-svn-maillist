@@ -1,0 +1,288 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3358 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3358%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608150224.CD2CF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003049.html">
+   <LINK REL="Next"  HREF="003051.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3358 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3358%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608150224.CD2CF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3358 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jun  8 17:02:24 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003049.html">[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003051.html">[WSJT-SVN] r3359 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3050">[ date ]</a>
+              <a href="thread.html#3050">[ thread ]</a>
+              <a href="subject.html#3050">[ subject ]</a>
+              <a href="author.html#3050">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-08 17:02:24 +0200 (Sat, 08 Jun 2013)
+New Revision: 3358
+
+Added:
+   branches/wsjtx_k1jt_p1/lib/smo121.f90
+   branches/wsjtx_k1jt_p1/lib/twkfreq65.f90
+Modified:
+   branches/wsjtx_k1jt_p1/lib/Makefile.MinGW
+   branches/wsjtx_k1jt_p1/lib/filbig.f90
+   branches/wsjtx_k1jt_p1/lib/jt65.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/lib/symspec65.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+Now flattening the big FFT.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/Makefile.MinGW
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/Makefile.MinGW	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/lib/Makefile.MinGW	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -57,7 +57,7 @@
+ OBJS5 = jt65.o jt65a.o symspec65.o flat65.o ccf65.o decode1a.o \
+ 	filbig.o fil6521.o afc65b.o decode65b.o s3avg.o setup65.o \
+ 	extract.o fchisq65.o demod64a.o chkhist.o interleave63.o ccf2.o \
+-	move.o indexx.o graycode65.o twkfreq65.o \
++	move.o indexx.o graycode65.o twkfreq65.o smo121.o \
+ 	wrapkarn.o init_rs.o encode_rs.o decode_rs.o
+ jt65.exe: $(OBJS5) libjt9.a 
+ 	$(FC) -o jt65.exe $(OBJS5) libjt9.a ../libfftw3f_win.a
+
+Modified: branches/wsjtx_k1jt_p1/lib/filbig.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -3,6 +3,7 @@
+ ! Filter and real data in array dd(npts), sampled at 12000 Hz.
+ ! Output is complex, sampled at 1375.125 Hz.
+ 
++  parameter (NSZ=3413)
+   parameter (NFFT1=672000,NFFT2=77175)
+   real*4  dd(npts)                           !Input data
+   complex ca(NFFT1)                          !FFT of input
+@@ -18,6 +19,7 @@
+   data first/.true./,npatience/0/
+   data halfpulse/114.97547150,36.57879257,-20.93789101,              &amp;
+        5.89886379,1.59355187,-2.49138308,0.60910773,-0.04248129/
++  common/refspec/dfref,ref(NSZ)
+   save
+ 
+   if(npts.lt.0) go to 900
+@@ -68,10 +70,19 @@
+      call timer('FFTbig  ',0)
+      call sfftw_execute(plan1)
+      call timer('FFTbig  ',1)
++
++     do i=1,NFFT1/2                             !Flatten the spectrum
++        j=nint(i*df/dfref)
++        if(j.lt.1) j=1
++        if(j.gt.NSZ) j=NSZ
++        fac=sqrt(min(30.0,1.0/ref(j)))
++        ca(i)=fac * ca(i)
++     enddo
++
+ !###
+ !     nadd=50
+ !     iz=NFFT1/(2*nadd)
+-!     df=nadd*12000.0/NFFT1
++!     df1=nadd*12000.0/NFFT1
+ !     k=0
+ !     do i=1,iz
+ !        ss=0.
+@@ -79,7 +90,7 @@
+ !           k=k+1
+ !           ss=ss + real(ca(k))**2 + aimag(ca(k))**2
+ !        enddo
+-!        write(81,3001) i*df,ss,db(ss)
++!        write(81,3001) i*df1,ss,db(ss)
+ !3001    format(f12.3,e12.3,f12.3)
+ !     enddo
+ !###        
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -43,10 +43,10 @@
+      read(10) ihdr
+      nutc=ihdr(1)                           !Silence compiler warning
+      i1=index(infile,'.wav')
+-     read(infile(i1-4:i1-1),*,err=1) nutc
+-     go to 2
+-1    nutc=0
+-2    npts=52*12000
++     read(infile(i1-4:i1-1),*,err=10) nutc
++     go to 20
++10    nutc=0
++20    npts=52*12000
+      read(10) id2(1:npts)
+      call timer('read    ',1)
+      dd(1:npts)=id2(1:npts)
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -13,7 +13,9 @@
+   character decoded*22
+   save
+ 
++  call timer('symsp65 ',0)
+   call symspec65(dd,npts,ss,nhsym,savg)    !Get normalized symbol spectra
++  call timer('symsp65 ',1)
+ 
+   df=12000.0/NFFT                     !df = 12000.0/16384 = 0.732 Hz
+   ftol=15.0                           !Frequency tolerance (Hz)
+
+Added: branches/wsjtx_k1jt_p1/lib/smo121.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/smo121.f90	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/smo121.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -0,0 +1,13 @@
++subroutine smo121(x,nz)
++
++  real x(nz)
++
++  x0=x(1)
++  do i=2,nz-1
++     x1=x(i)
++     x(i)=0.5*x(i) + 0.25*(x0+x(i+1))
++     x0=x1
++  enddo
++
++  return
++end subroutine smo121
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec65.f90	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/lib/symspec65.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -1,5 +1,7 @@
+ subroutine symspec65(dd,npts,ss,nhsym,savg)
+ 
++! Compute symbol spectra at half-symbol steps
++
+   parameter (NFFT=8192)
+   parameter (NSZ=3413)                         !NFFT*5000/12000
+   parameter (MAXHSYM=322)
+@@ -7,10 +9,11 @@
+   real*4 dd(npts)
+   real*4 ss(MAXHSYM,NSZ)
+   real*4 savg(NSZ)
+-  real*4 ref(NSZ)
+   real*4 x(NFFT)
+   complex c(0:NFFT/2)
++  common/refspec/dfref,ref(NSZ)
+   equivalence (x,c)
++  save /refspec/
+ 
+   hstep=2048.d0*12000.d0/11025.d0              !half-symbol = 2229.116 samples
+   nsps=nint(2*hstep)
+@@ -33,20 +36,12 @@
+   savg=savg/nhsym
+ 
+   call flat65(ss,nhsym,MAXHSYM,NSZ,ref)
++  dfref=df
+ 
+-!  do i=1,NSZ
+-!     write(71,3001) i*df,savg(i),db(savg(i)),ref(i),db(ref(i))
+-!3001 format(5f15.3)
+-!  enddo
+-
+   savg=savg/ref
+   do j=1,nhsym
+      ss(j,1:NSZ)=ss(j,1:NSZ)/ref
+   enddo
+ 
+-!  do i=1,NSZ
+-!     write(72,3001) i*df,savg(i),db(savg(i))
+-!  enddo
+-
+   return
+ end subroutine symspec65
+
+Added: branches/wsjtx_k1jt_p1/lib/twkfreq65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/twkfreq65.f90	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/twkfreq65.f90	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -0,0 +1,25 @@
++subroutine twkfreq65(c4aa,n5,a)
++
++  complex c4aa(n5)
++  real a(5)
++  complex w,wstep
++  data twopi/6.283185307/
++
++! Apply AFC corrections to the c4aa data
++  w=1.0
++  wstep=1.0
++  x0=0.5*(n5+1)
++  s=2.0/n5
++  do i=1,n5
++     x=s*(i-x0)
++     if(mod(i,1000).eq.1) then
++        p2=1.5*x*x - 0.5
++        dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/1378.125)
++        wstep=cmplx(cos(dphi),sin(dphi))
++     endif
++     w=w*wstep
++     c4aa(i)=w*c4aa(i)
++  enddo
++
++  return
++end subroutine twkfreq65
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 12:03:05 UTC (rev 3357)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 15:02:24 UTC (rev 3358)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003049.html">[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003051.html">[WSJT-SVN] r3359 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3050">[ date ]</a>
+              <a href="thread.html#3050">[ thread ]</a>
+              <a href="subject.html#3050">[ subject ]</a>
+              <a href="author.html#3050">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

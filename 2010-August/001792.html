@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2100 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2100%20-%20wsjt7a&In-Reply-To=%3C20100809152312.6D4CC4802F3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001791.html">
+   <LINK REL="Next"  HREF="001793.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2100 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2100%20-%20wsjt7a&In-Reply-To=%3C20100809152312.6D4CC4802F3%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2100 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug  9 17:23:12 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001791.html">[WSJT-SVN] r2099 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001793.html">[WSJT-SVN] r2101 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1792">[ date ]</a>
+              <a href="thread.html#1792">[ thread ]</a>
+              <a href="subject.html#1792">[ subject ]</a>
+              <a href="author.html#1792">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-09 17:23:12 +0200 (Mon, 09 Aug 2010)
+New Revision: 2100
+
+Modified:
+   wsjt7a/decode24.f
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt24.f
+Log:
+JT4 displays width indicator for decoded message.
+
+
+Modified: wsjt7a/decode24.f
+===================================================================
+--- wsjt7a/decode24.f	2010-08-09 13:41:38 UTC (rev 2099)
++++ wsjt7a/decode24.f	2010-08-09 15:23:12 UTC (rev 2100)
+@@ -1,11 +1,12 @@
+       subroutine decode24(dat,npts,dtx,dfx,flip,mode,mode4,
+-     +  decoded,ncount,deepmsg,qual)
++     +  decoded,ncount,deepmsg,qual,submode)
+ 
+ C  Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+       real dat(npts)                        !Raw data
+       character decoded*22,deepmsg*22
+       character*72 c72
++      character submode*1
+       real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+       complex*16 cz,cz1,c0,c1
+       integer*1 symbol(207)
+@@ -128,7 +129,11 @@
+       call cs_unlock
+ 
+       decoded='                      '
+-      if(ncount.ge.0) call unpackmsg(data4,decoded)
++      submode=' '
++      if(ncount.ge.0) then
++         call unpackmsg(data4,decoded)
++         submode=char(ichar('A')+ich-1)
++      endif
+       if(decoded(1:6).eq.'000AAA') then
+          decoded='***WRONG MODE?***'
+          ncount=-1
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-09 13:41:38 UTC (rev 2099)
++++ wsjt7a/wsjt.py	2010-08-09 15:23:12 UTC (rev 2100)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#----------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: wsjt7a/wsjt24.f
+===================================================================
+--- wsjt7a/wsjt24.f	2010-08-09 13:41:38 UTC (rev 2099)
++++ wsjt7a/wsjt24.f	2010-08-09 15:23:12 UTC (rev 2100)
+@@ -11,11 +11,12 @@
+       logical lcum
+       character decoded*22,cfile6*6,special*5,cooo*3
+       character*22 avemsg1,avemsg2,deepmsg
+-      character*67 line,ave1,ave2
++      character*69 line,ave1,ave2
+       character*1 csync,c1
+       character*12 mycall
+       character*12 hiscall
+       character*6 hisgrid
++      character submode*1
+       real ccfblue(-5:540),ccfred(-224:224)
+       include 'avecom.h'
+       data first/.true./,ns10/0/,ns20/0/
+@@ -86,7 +87,8 @@
+       endif
+ 
+       call decode24(dat,npts,dtx,dfx,flip,mode,mode4,decoded,
+-     +   ncount,deepmsg,qual)
++     +   ncount,deepmsg,qual,submode)
++
+  200  kvqual=0
+       if(ncount.ge.0) kvqual=1
+       nqual=qual
+@@ -104,15 +106,15 @@
+       jdf=ndf+idf
+ 
+       call cs_lock('wsjt24')
+-      write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,
+-     +    nint(width),csync,special,decoded(1:19),cooo,kvqual,nqual
+- 1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4)
++      write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,nint(width),
++     +    csync,special,decoded(1:19),cooo,kvqual,nqual,submode
++ 1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4,1x,a1)
+ 
+ C  Blank all end-of-line stuff if no decode
+       if(line(31:40).eq.'          ') line=line(:30)
+ 
+       if(lcum) write(21,1011) line
+- 1011 format(a67)
++ 1011 format(a69)
+ 
+ C  Write decoded msg unless this is an &quot;Exclude&quot; request:
+       if(MinSigdB.lt.99) write(lumsg,1011) line
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001791.html">[WSJT-SVN] r2099 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001793.html">[WSJT-SVN] r2101 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1792">[ date ]</a>
+              <a href="thread.html#1792">[ thread ]</a>
+              <a href="subject.html#1792">[ subject ]</a>
+              <a href="author.html#1792">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r564 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r564%20-%20branches/map65&In-Reply-To=%3C200710251631.l9PGVUY1020222%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000248.html">
+   <LINK REL="Next"  HREF="000250.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r564 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r564%20-%20branches/map65&In-Reply-To=%3C200710251631.l9PGVUY1020222%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r564 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Oct 25 18:31:30 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000248.html">[WSJT-SVN] r563 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000250.html">[WSJT-SVN] r565 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#249">[ date ]</a>
+              <a href="thread.html#249">[ thread ]</a>
+              <a href="subject.html#249">[ subject ]</a>
+              <a href="author.html#249">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-10-25 18:31:19 +0200 (Thu, 25 Oct 2007)
+New Revision: 564
+
+Modified:
+   branches/map65/deep65.F
+   branches/map65/map65.py
+Log:
+Corrected deep search so that it does not test &quot;CQ+call+rpt&quot; messages
+and any messages starting with &quot;CQ &quot; if flip is negative.
+
+Implemented &quot;double-right-click&quot; to generate messages with 
+MyCall+HisCall+rpt.
+
+Fixed timeout of mouse-selected lists of calls at top of waterfall.
+
+
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2007-10-24 19:46:45 UTC (rev 563)
++++ branches/map65/deep65.F	2007-10-25 16:31:19 UTC (rev 564)
+@@ -12,7 +12,6 @@
+       character*180 line
+       character*4 rpt(MAXRPT)
+       integer ncode(63,2*MAXCALLS + 2 + MAXRPT)
+-      integer nflip(2*MAXCALLS + 2 + MAXRPT)
+       integer istat23(13)
+       real pp(2*MAXCALLS + 2 + MAXRPT)
+       common/mrscom/ mrs(63),mrs2(63)
+@@ -76,15 +75,14 @@
+          j2=index(callsign,' ') - 1
+          if(j2.le.-1) j2=12
+          if(j2.lt.3) j2=6
+-         j3=index(mycall,'/')
+-         j4=index(callsign,'/')
++         j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
++         j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
+          callgrid(icall)=callsign(1:j2)
+ 
+          mz=1
+          if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.
+-     +      callsign(1:6).ne.'      ') mz=MAXRPT+1
++     +     callsign(1:6).ne.'      ') mz=MAXRPT+1 !Allow MyCall + HisCall + rpt
+ 
+-C  Test for messages with MyCall + HisCall + report
+          do m=1,mz
+             if(m.gt.1) grid=rpt(m-1)
+             if(j3.lt.1 .and.j4.lt.1) 
+@@ -93,15 +91,15 @@
+             k=k+1
+             testmsg(k)=message
+             call encode65(message,ncode(1,k))
+-            nflip(k)=flip
+ 
++            if(n.ge.2) then
+ C  Insert CQ message
+-            if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+-            message='CQ '//callgrid(icall)
+-            k=k+1
+-            testmsg(k)=message
+-            call encode65(message,ncode(1,k))
+-            nflip(k)=flip
++               if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++               message='CQ '//callgrid(icall)
++               k=k+1
++               testmsg(k)=message
++               call encode65(message,ncode(1,k))
++            endif
+          enddo
+  10      continue
+       enddo
+@@ -121,7 +119,8 @@
+       p2=-1.e30
+       do k=1,ntot
+          pp(k)=0.
+-!         if(flip.gt.0.0 .or. nflip(k).lt.0) then       !Skip CQ msg if flip=-1
++! Test all messages if flip=+1; skip the CQ messages if flip=-1.
++         if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
+             sum=0.
+             ref=ref0
+             do j=1,63
+@@ -137,7 +136,7 @@
+                p1=p
+                ip1=k
+             endif
+-!         endif
++         endif
+       enddo
+ 
+       do i=1,ntot
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-10-24 19:46:45 UTC (rev 563)
++++ branches/map65/map65.py	2007-10-25 16:31:19 UTC (rev 564)
+@@ -253,24 +253,33 @@
+ def dbl_click_text(event):
+     t=text.get('1.0',END)           #Entire contents of text box
+     t1=text.get('1.0',CURRENT)      #Contents from start to cursor
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
++#------------------------------------------------------ dbl_click3_text
++def dbl_click3_text(event):
++        t=text.get('1.0',END)           #Entire contents of text box
++        t1=text.get('1.0',CURRENT)      #Contents from start to mouse pointer
++        n=t1.rfind(&quot;\n&quot;)
++        rpt=t1[n+24:n+27]
++        if rpt[0:1] == &quot; &quot;: rpt=rpt[1:]
++        print n,rpt,t1
++        dbl_click_call(t,t1,rpt,event)
+ #------------------------------------------------------ dbl_click_msgtext
+ def dbl_click_msgtext(event):
+     t=msgtext.get('1.0',END)           #Entire contents of text box
+     t1=msgtext.get('1.0',CURRENT)      #Contents from start to cursor
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
+ #------------------------------------------------------ dbl_click_bmtext
+ def dbl_click_bmtext(event):
+     t=bmtext.get('1.0',END)           #Entire contents of text box
+     t1=bmtext.get('1.0',CURRENT)      #Contents from start to cursor
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
+ #------------------------------------------------------ dbl_click_ave
+ def dbl_click_ave(event):
+     t=avetext.get('1.0',END)        #Entire contents of text box
+     t1=avetext.get('1.0',CURRENT)   #Contents from start to cursor
+-    dbl_click_call(t,t1,event)
++    dbl_click_call(t,t1,'OOO',event)
+ #------------------------------------------------------ dbl_click_call
+-def dbl_click_call(t,t1,event):
++def dbl_click_call(t,t1,rpt,event):
+     global hiscall
+     i=len(t1)                       #Length to mouse pointer
+     i1=t1.rfind(' ')+1              #index of preceding space
+@@ -281,12 +290,23 @@
+     i3=t1.rfind('\n')+1             #start of selected line
+     if i&gt;6 and i2&gt;i1:
+         try:
+-            nsec=3600*int(t1[i3+13:i3+15]) + 60*int(t1[i3+15:i3+17])
++            nsec=60*int(t1[i3+2:i3+4]) + int(t1[i3+4:i3+6])
+         except:
+             nsec=0
+         if setseq.get(): TxFirst.set((nsec/Audio.gcom1.trperiod)%2)
+         lookup()
+         GenStdMsgs()
++        if rpt &lt;&gt; &quot;OOO&quot;:
++            n=tx1.get().rfind(&quot; &quot;)
++            t2=tx1.get()[0:n+1]
++            tx2.delete(0,END)
++            tx2.insert(0,t2+rpt)
++            tx3.delete(0,END)
++            tx3.insert(0,t2+&quot;R&quot;+rpt)
++            tx4.delete(0,END)
++            tx4.insert(0,t2+&quot;RRR&quot;)
++            tx5.delete(0,END)
++            tx5.insert(0,t2+&quot;73&quot;)
+         i3=t[:i1].strip().rfind(' ')+1
+         if t[i3:i1].strip() == 'CQ':
+             ntx.set(1)
+@@ -1161,6 +1181,7 @@
+                 lines=&quot;&quot;
+             bmtext.configure(state=NORMAL)
+             bmtext.delete('1.0',END)
++            g.fc=[&quot;&quot; for i in range(200)]
+             for i in range(len(lines)):
+                 for j in range(3):
+                     ka=14*j
+@@ -1430,7 +1451,7 @@
+ iframe4 = Frame(frame, bd=2, relief=SUNKEN)
+ text=Text(iframe4, height=16, width=65)
+ text.bind('&lt;Double-Button-1&gt;',dbl_click_text)
+-#text.bind('&lt;Double-Button-3&gt;',dbl_click_text)
++text.bind('&lt;Double-Button-3&gt;',dbl_click3_text)
+ text.bind('&lt;Key&gt;',textkey)
+ 
+ root.bind_all('&lt;F1&gt;', shortcuts)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000248.html">[WSJT-SVN] r563 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000250.html">[WSJT-SVN] r565 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#249">[ date ]</a>
+              <a href="thread.html#249">[ thread ]</a>
+              <a href="subject.html#249">[ subject ]</a>
+              <a href="author.html#249">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

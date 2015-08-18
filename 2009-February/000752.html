@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1058 - branches/map65iq
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1058%20-%20branches/map65iq&In-Reply-To=%3C200902131518.n1DFIZtr015200%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000751.html">
+   <LINK REL="Next"  HREF="000753.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1058 - branches/map65iq</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1058%20-%20branches/map65iq&In-Reply-To=%3C200902131518.n1DFIZtr015200%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1058 - branches/map65iq">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Feb 13 16:18:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000751.html">[WSJT-SVN] r1057 - branches/map65iq
+</A></li>
+        <LI>Next message: <A HREF="000753.html">[WSJT-SVN] r1059 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#752">[ date ]</a>
+              <a href="thread.html#752">[ thread ]</a>
+              <a href="subject.html#752">[ subject ]</a>
+              <a href="author.html#752">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-02-13 16:18:33 +0100 (Fri, 13 Feb 2009)
+New Revision: 1058
+
+Modified:
+   branches/map65iq/filbig.f
+Log:
+Removed half of FFTs from filbig.
+
+
+Modified: branches/map65iq/filbig.f
+===================================================================
+--- branches/map65iq/filbig.f	2009-02-13 15:08:49 UTC (rev 1057)
++++ branches/map65iq/filbig.f	2009-02-13 15:18:33 UTC (rev 1058)
+@@ -8,14 +8,14 @@
+       parameter (NFFT1=5376000,NFFT2=77175)
+       integer*2 id(4,nmax)                       !Input data
+       complex c4a(NFFT2),c4b(NFFT2)              !Output data
+-      complex ca(NFFT1),cb(NFFT1)                !FFTs of input
++      complex ca(NFFT1)                          !FFT of input
+       real*8 df
+ C Impulse response of filter (one side)
+       real halfpulse(8)
+       complex cfilt(NFFT2)
+                        !Filter (complex; imag = 0)
+       real rfilt(NFFT2)                          !Filter (real)
+-      integer plan1,plan2,plan3,plan4,plan5
++      integer plan1,plan3,plan5
+       logical first
+       include 'fftw3.f'
+       equivalence (rfilt,cfilt)
+@@ -31,12 +31,8 @@
+ C  Plan the FFTs just once
+          call sfftw_plan_dft_1d_(plan1,NFFT1,ca,ca,
+      +        FFTW_BACKWARD,npatience)
+-         call sfftw_plan_dft_1d_(plan2,NFFT1,cb,cb,
+-     +        FFTW_BACKWARD,npatience)
+          call sfftw_plan_dft_1d_(plan3,NFFT2,c4a,c4a,
+      +        FFTW_FORWARD,npatience)
+-         call sfftw_plan_dft_1d_(plan4,NFFT2,c4b,c4b,
+-     +        FFTW_FORWARD,npatience)
+          call sfftw_plan_dft_1d_(plan5,NFFT2,cfilt,cfilt,
+      +        FFTW_BACKWARD,npatience)
+ 
+@@ -68,17 +64,14 @@
+          nz=min(nmax,NFFT1)
+          do i=1,nz
+             ca(i)=cmplx(float(int(id(1,i))),float(int(id(2,i))))
+-            cb(i)=cmplx(float(int(id(3,i))),float(int(id(4,i))))
+          enddo
+ 
+          if(nmax.lt.NFFT1) then
+             do i=nmax+1,NFFT1
+                ca(i)=0.
+-               cb(i)=0.
+             enddo
+          endif
+          call sfftw_execute_(plan1)
+-         call sfftw_execute_(plan2)
+          newdat=0
+       endif
+ 
+@@ -90,25 +83,26 @@
+       do i=1,nh                                !Copy data into c4a and c4b,
+          j=i0+i-1                              !and apply the filter function
+          c4a(i)=rfilt(i)*ca(j)
+-         c4b(i)=rfilt(i)*cb(j)
+       enddo
+       do i=nh+1,NFFT2
+          j=i0+i-1-NFFT2
+          if(j.lt.1) j=j+NFFT1                  !NFFT1 was NFFT2
+          c4a(i)=rfilt(i)*ca(j)
+-         c4b(i)=rfilt(i)*cb(j)
+       enddo
+ 
+ C  Do the short reverse transform, to go back to time domain.
+       call sfftw_execute_(plan3)
+-      call sfftw_execute_(plan4)
++
++C### temp:
++      do i=1,NFFT2
++         c4b(i)=c4a(i)
++      enddo
++
+       n4=min(nmax/64,NFFT2)
+       go to 999
+ 
+  900  call sfftw_destroy_plan_(plan1)
+-      call sfftw_destroy_plan_(plan2)
+       call sfftw_destroy_plan_(plan3)
+-      call sfftw_destroy_plan_(plan4)
+       call sfftw_destroy_plan_(plan5)
+ 
+  999  return
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000751.html">[WSJT-SVN] r1057 - branches/map65iq
+</A></li>
+	<LI>Next message: <A HREF="000753.html">[WSJT-SVN] r1059 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#752">[ date ]</a>
+              <a href="thread.html#752">[ thread ]</a>
+              <a href="subject.html#752">[ subject ]</a>
+              <a href="author.html#752">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

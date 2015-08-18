@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r420 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r420%20-%20branches/map65&In-Reply-To=%3C200706261520.l5QFKWFh015405%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000104.html">
+   <LINK REL="Next"  HREF="000106.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r420 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r420%20-%20branches/map65&In-Reply-To=%3C200706261520.l5QFKWFh015405%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r420 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 26 17:20:32 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000104.html">[WSJT-SVN] r419 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000106.html">[WSJT-SVN] r421 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#105">[ date ]</a>
+              <a href="thread.html#105">[ thread ]</a>
+              <a href="subject.html#105">[ subject ]</a>
+              <a href="author.html#105">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-26 17:20:28 +0200 (Tue, 26 Jun 2007)
+New Revision: 420
+
+Added:
+   branches/map65/pulsar.f90
+Modified:
+   branches/map65/plrs.f90
+Log:
+Added &quot;pulsar&quot; receiving program.
+
+
+Modified: branches/map65/plrs.f90
+===================================================================
+--- branches/map65/plrs.f90	2007-06-26 14:20:11 UTC (rev 419)
++++ branches/map65/plrs.f90	2007-06-26 15:20:28 UTC (rev 420)
+@@ -15,24 +15,26 @@
+   integer fd
+   integer open,read,close
+   integer nm(11)
+-  character*8 fname,arg
+-  logical fast
++  character*8 fname,arg,cjunk*1
++  logical fast,pause
+   real*8 center_freq,dmsec,dtmspacket,tmsec
+   common/plrscom/center_freq,msec2,fsample,iptr,nblock,userx_no,iusb,buf8(174)
+ !                     8        4      4      4    2       1       1    1392
+   data nm/45,46,48,50,52,54,55,56,57,58,59/
+-  data nblock/0/,fast/.false./
++  data nblock/0/,fast/.false./,pause/.false./
+ 
+   nargs=iargc()
+-  if(nargs.ne.1 .and. nargs.ne.2) then
+-     print*,'Usage: plrs [-f] &lt;iters&gt;'
++  if(nargs.ne.3) then
++     print*,'Usage: plrs &lt;fast|pause|slow&gt; &lt;minutes&gt; &lt;iters&gt;'
+      go to 999
+   endif
++
+   call getarg(1,arg)
+-  if(arg(1:2).eq.'-f') then
+-     fast=.true.
+-     call getarg(2,arg)
+-  endif
++  if(arg(1:1).eq.'f' .or. arg(1:1).eq.'p') fast=.true.
++  if(arg(1:1).eq.'p') pause=.true.
++  call getarg(2,arg)
++  read(arg,*) nfiles
++  call getarg(3,arg)
+   read(arg,*) iters
+ 
+   fname=&quot;all.tf2&quot;//char(0)
+@@ -50,7 +52,7 @@
+      dmsec=-dtmspacket
+      nsec0=time()
+ 
+-     do ifile=1,11
++     do ifile=1,nfiles
+         print*,'Reading file',ifile
+         ns0=0
+         tmsec=1000*(3600*7 + 60*nm(ifile))-dtmspacket
+@@ -85,6 +87,10 @@
+ 1010       format('npkt:',i10,'   ns:',i6,'   t:',f10.3,'   nwait:',i8)
+            ns0=ns
+         enddo
++        if(pause) then
++           print*,'Type anything to continue:'
++           read(*,*) cjunk
++        endif
+      enddo
+      i=close(fd)
+   enddo
+
+Added: branches/map65/pulsar.f90
+===================================================================
+--- branches/map65/pulsar.f90	2007-06-26 14:20:11 UTC (rev 419)
++++ branches/map65/pulsar.f90	2007-06-26 15:20:28 UTC (rev 420)
+@@ -0,0 +1,50 @@
++program pulsar
++
++!  Receives timf2 data from Linrad and saves it for pulsar processing.
++
++  parameter (NSPP=174)
++  logical first
++  integer*1 userx_no,iusb
++  integer*2 id
++  integer*2 nblock,nblock0
++  integer*2 id2(1000)
++  real*8 center_freq
++  common/plrscom/center_freq,msec,fselect,iptr,nblock,userx_no,iusb,id(4,NSPP)
++!                     8        4     4      4    2       1       1    1392
++  data first/.true./,nblock0/0/,sqave/0.0/,u/0.001/
++  save
++
++  call setup_rsocket
++
++  k=0
++
++10 call recv_pkt(center_freq)
++  lost=nblock-nblock0-1
++  if(lost.ne.0 .and. .not.first) print*,'Lost packets:',lost,nblock,nblock0
++  nblock0=nblock
++
++  sq=0.
++  do i=1,NSPP
++     sq=sq + float(id(1,i))**2 + float(id(2,i))**2 +                      &amp;
++          float(id(3,i))**2 + float(id(4,i))**2
++  enddo
++  sqave=sqave + u*(sq-sqave)
++  rxnoise=10.0*log10(sqave) - 48.0
++
++  k=k+1
++  id2(k)=0.001*sq
++  if(k.eq.1000) then
++     write(*,1000) center_freq,0.001*msec,sqave,rxnoise,id2(1)
++     write(13,1000) center_freq,0.001*msec,sqave,rxnoise,id2(1)
++1000 format(f7.3,f11.3,f10.0,f8.2,i8)
++     write(12) center_freq,msec1,id2
++     call flush(12)
++     call flush(13)
++     k=0
++  endif
++
++  go to 10
++
++end program pulsar
++
++! To compile: % gfortran -o pulsar pulsar.f90 plrr_subs.c
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000104.html">[WSJT-SVN] r419 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000106.html">[WSJT-SVN] r421 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#105">[ date ]</a>
+              <a href="thread.html#105">[ thread ]</a>
+              <a href="subject.html#105">[ subject ]</a>
+              <a href="author.html#105">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

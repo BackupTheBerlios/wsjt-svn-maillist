@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3174 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3174%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415234242.E40F255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002865.html">
+   <LINK REL="Next"  HREF="002867.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3174 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3174%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130415234242.E40F255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3174 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Apr 16 01:42:42 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002865.html">[WSJT-SVN] r3173 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002867.html">[WSJT-SVN] r3175 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2866">[ date ]</a>
+              <a href="thread.html#2866">[ thread ]</a>
+              <a href="subject.html#2866">[ subject ]</a>
+              <a href="author.html#2866">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-16 01:42:42 +0200 (Tue, 16 Apr 2013)
+New Revision: 3174
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/soundout.cpp
+Log:
+Fix problem with &quot;Tune&quot; at startup. status 
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-04-15 21:13:31 UTC (rev 3173)
++++ branches/wsjtx/lib/decoder.f90	2013-04-15 23:42:42 UTC (rev 3174)
+@@ -12,6 +12,7 @@
+   character*20 datetime
+   real*4 ccfred(NSMAX)
+   logical ccfok(NSMAX)
++  logical done(NSMAX)
+   integer*1 i1SoftSymbols(207)
+   integer*2 id2
+   integer ii(1)
+@@ -56,8 +57,9 @@
+ 
+   kstep=nsps/2
+   tstep=kstep/12000.0
+-  tstep=0.5*tstep
++!  tstep=0.5*tstep
+   idf=ntol/df3 + 0.999
++  done=.false.
+ 
+   do nqd=1,0,-1
+      limit=5000
+@@ -110,9 +112,9 @@
+ 
+      do i=ia,ib
+         f=(i-1)*df3
+-        if(.not.ccfok(i) .or. ccfred(i).lt.ccflim-1.0 .or.                &amp;
+-             ccfred(i).lt.ccfred(i+1)) cycle
+-        if(nqd.eq.1 .or.                                                  &amp;
++        if(done(i) .or. (.not.ccfok(i)) .or. (ccfred(i).lt.ccflim-1.0) .or. &amp;
++             (ccfred(i).lt.ccfred(i+1))) cycle
++        if(nqd.eq.1 .or.                                                   &amp;
+            (ccfred(i).ge.3.0 .and. abs(f-fgood).gt.10.0*df8)) then
+            call timer('decode9a',0)
+            fpk=1000.0 + df3*(i-1)
+@@ -136,10 +138,13 @@
+               write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+ !              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
+ !1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
++              iaa=max(1,i-3)
++              ibb=min(NSMAX,i+11)
+               fgood=f
+               nsynced=1
+               ndecoded=1
+-              ccfok(max(ia,i-3):min(ib,i+11))=.false.
++              ccfok(iaa:ibb)=.false.
++              done(iaa:ibb)=.true.              
+               call flush(6)
+            endif
+         endif
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-15 21:13:31 UTC (rev 3173)
++++ branches/wsjtx/mainwindow.cpp	2013-04-15 23:42:42 UTC (rev 3174)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -244,6 +244,7 @@
+   soundInThread.start(QThread::HighestPriority);
+   soundOutThread.setOutputDevice(m_paOutDevice);
+   soundOutThread.setTxFreq(m_txFreq);
++  soundOutThread.setTune(false);
+   m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+   soundInThread.setMonitoring(m_monitoring);
+   m_diskData=false;
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-04-15 21:13:31 UTC (rev 3173)
++++ branches/wsjtx/soundout.cpp	2013-04-15 23:42:42 UTC (rev 3174)
+@@ -191,6 +191,7 @@
+     udata.ntrperiod=m_TRperiod;
+     udata.ntxfreq=m_txFreq;
+     udata.txMute=m_txMute;
++    udata.btune=m_tune;
+ 
+     m_SamFacOut=1.0;
+     if(udata.ncall&gt;400) {
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002865.html">[WSJT-SVN] r3173 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002867.html">[WSJT-SVN] r3175 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2866">[ date ]</a>
+              <a href="thread.html#2866">[ thread ]</a>
+              <a href="subject.html#2866">[ subject ]</a>
+              <a href="author.html#2866">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

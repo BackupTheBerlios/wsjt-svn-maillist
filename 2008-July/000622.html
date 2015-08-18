@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r933 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r933%20-%20trunk&In-Reply-To=%3C200807111313.m6BDDerj006343%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000621.html">
+   <LINK REL="Next"  HREF="000623.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r933 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r933%20-%20trunk&In-Reply-To=%3C200807111313.m6BDDerj006343%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r933 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 11 15:13:40 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000621.html">[WSJT-SVN] r932 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000623.html">[WSJT-SVN] r934 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#622">[ date ]</a>
+              <a href="thread.html#622">[ thread ]</a>
+              <a href="subject.html#622">[ subject ]</a>
+              <a href="author.html#622">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-11 15:13:36 +0200 (Fri, 11 Jul 2008)
+New Revision: 933
+
+Modified:
+   trunk/decode2.f90
+   trunk/gcom2.f90
+   trunk/get_fname.F90
+   trunk/pix2d65.f90
+   trunk/savedata.F90
+   trunk/wsjt.py
+Log:
+Pass UTC yr, mo, day from Python to Fortran.
+Adjust baseline level of green line.
+
+
+Modified: trunk/decode2.f90
+===================================================================
+--- trunk/decode2.f90	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/decode2.f90	2008-07-11 13:13:36 UTC (rev 933)
+@@ -42,7 +42,7 @@
+      nt=ntime/86400
+      nt=86400*nt + tbuf(ibuf0)
+      if(receiving.eq.0) nt=nt-trperiod
+-     call get_fname(hiscall,nt,trperiod,lauto,fnamex)
++     call get_fname(hiscall,iyr,imo,ida,nt,trperiod,lauto,fnamex)
+      do i=1,lenpick
+         k=k+1
+         if(k.gt.NrxMax) k=k-NRxMax
+@@ -60,7 +60,7 @@
+      if(k.gt.NrxMax) k=k-NRxMax
+      nt=ntime/86400
+      nt=86400*nt + tbuf(ib0)
+-     call get_fname(hiscall,nt,trperiod,lauto,fnamex)
++     call get_fname(hiscall,iyr,imo,ida,nt,trperiod,lauto,fnamex)
+      do i=1,lenpick
+         k=k+1
+         if(k.gt.NrxMax) k=k-NRxMax
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/gcom2.f90	2008-07-11 13:13:36 UTC (rev 933)
+@@ -8,6 +8,9 @@
+ integer ngreen         !Length of green                         GUI
+ real dgain             !Digital audio gain setting              GUI
+ integer iter           !(why is this here??)
++integer iyr            !UTC from python                         GUI
++integer imo            !UTC from python                         GUI
++integer ida            !UTC from python                         GUI
+ integer ndecoding      !Decoder status (see decode2.f90)     GUI,Decoder
+ integer ndecoding0     !Status on previous decode            GUI,Decoder
+ integer mousebutton    !Which button was clicked?               GUI
+@@ -95,7 +98,8 @@
+ 
+ parameter (ND2MAX=120*12000)
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+-     green(500),ngreen,dgain,iter,ndecoding,ndecoding0,mousebutton,   &amp;
++     green(500),ngreen,dgain,iter,iyr,imo,ida,                        &amp;
++     ndecoding,ndecoding0,mousebutton,                                &amp;
+      ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,nmsg,nsave,nadd5, &amp;
+      dftolerance,LDecoded,rxdone,monitoring,nzap,nsavecum,minsigdb,   &amp;
+      nclearave,nfreeze,nafc,nmode,mode65,mode4,nclip,ndebug,nblank,nport,   &amp;
+
+Modified: trunk/get_fname.F90
+===================================================================
+--- trunk/get_fname.F90	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/get_fname.F90	2008-07-11 13:13:36 UTC (rev 933)
+@@ -1,38 +1,18 @@
+-subroutine get_fname(hiscall,ntime,trperiod,lauto,fname)
++subroutine get_fname(hiscall,iyr,imo,ida,ntime,trperiod,lauto,fname)
+ 
+-#ifdef CVF
+-  use dfport
+-#endif
+-
+   character cdate*8,ctime2*10,czone*5
+   character hiscall*12,fname*24,tag*7
+   integer ntime
+   integer trperiod
+   integer it(9),itt(8)
+ 
+-#ifdef CVF
+-  n1=ntime
+-  n2=(n1+2)/trperiod
+-  n3=n2*trperiod
+-  call gmtime(n3,it)
+-  it(5)=it(5)+1
+-#else
+-  call date_and_time(cdate,ctime2,czone,itt)
+-  it(6)=itt(1)
+-  it(5)=itt(2)
+-  it(4)=itt(3)
+-  it(3)=itt(5)-itt(4)/60
+-  if(it(3).lt.0) it(3)=it(3)+24
+-  if(it(3).ge.24) it(3)=it(3)-24
+-  it(2)=itt(6)
+-!  it(1)=itt(7)
+-  it(1)=0
+-#endif
+-  it(6)=mod(it(6),100)
+-  if(trperiod.eq.120) it(2)=it(2)-1
+-  write(fname,1000) (it(j),j=6,1,-1)
++  nsec=mod(ntime,86400)
++  ihr=nsec/3600
++  imin=mod(nsec/60,60)
++  isec=mod(nsec,60)
++  write(fname,1000) iyr-2000,imo,ida,ihr,imin,isec
+ 1000 format('_',3i2.2,'_',3i2.2,'.WAV')
+-  tag=hiscall(1:7) !XXX explicitly truncate this -db
++  tag=hiscall(1:7)
+   i=index(hiscall,'/')
+   if(i.ge.5) tag=hiscall(1:i-1)
+   if(i.ge.2.and.i.le.4) tag=hiscall(i+1:)
+
+Modified: trunk/pix2d65.f90
+===================================================================
+--- trunk/pix2d65.f90	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/pix2d65.f90	2008-07-11 13:13:36 UTC (rev 933)
+@@ -22,7 +22,7 @@
+         x=d2(k)
+         sq=sq + x*x
+      enddo
+-     green(i)=db(sq/nadd)-70.0
++     green(i)=db(sq/nadd)-64.0
+   enddo
+ 
+   return
+
+Modified: trunk/savedata.F90
+===================================================================
+--- trunk/savedata.F90	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/savedata.F90	2008-07-11 13:13:36 UTC (rev 933)
+@@ -14,12 +14,12 @@
+   if(mode(1:4).eq.'JT65' .or. mode(1:3).eq.'JT2' .or. mode(1:3).eq.'JT4'   &amp;
+        .or. mode(1:2).eq.'CW' .or. mode(1:4).eq.'WSPR' .or.                &amp;
+        mode(1:4).eq.'JT64') then
+-     call get_fname(hiscall,ntime,trperiod,lauto,fname0)
++     call get_fname(hiscall,iyr,imo,ida,ntime,trperiod,lauto,fname0)
+      ibuf1=ibuf0
+      ibuf2=ibuf
+      go to 1
+   else
+-     call get_fname(hiscall,ntime-trperiod,trperiod,lauto,fname0)
++     call get_fname(hiscall,iyr,imo,ida,ntime-trperiod,trperiod,lauto,fname0)
+   endif
+ 
+   if(ibuf0.eq.ibuf0z) go to 999         !Startup condition, do not save
+@@ -133,7 +133,7 @@
+          .and. mode(1:3).ne.'JT4' .and. mode(1:2).ne.'CW' .and.              &amp;
+          mode(1:4).ne.'JT64') then
+      ibuf0z=ibuf0
+-     call get_fname(hiscall,ntime,trperiod,lauto,fname0)
++     call get_fname(hiscall,iyr,imo,ida,ntime,trperiod,lauto,fname0)
+   endif
+ 
+   return
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-11 00:58:45 UTC (rev 932)
++++ trunk/wsjt.py	2008-07-11 13:13:36 UTC (rev 933)
+@@ -1630,6 +1630,12 @@
+         isec0=isec
+         t=time.strftime('%Y %b %d\n%H:%M:%S',utc)
+         Audio.gcom2.utcdate=t[:12]
++        Audio.gcom2.iyr=utc[0]
++        Audio.gcom2.imo=utc[1]
++        Audio.gcom2.ida=utc[2]
++        Audio.gcom2.ihr=utc[3]
++        Audio.gcom2.imi=utc[4]
++        Audio.gcom2.isc=utc[5]
+         ldate.configure(text=t)
+         root_geom=root.geometry()
+         utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000621.html">[WSJT-SVN] r932 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000623.html">[WSJT-SVN] r934 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#622">[ date ]</a>
+              <a href="thread.html#622">[ thread ]</a>
+              <a href="subject.html#622">[ subject ]</a>
+              <a href="author.html#622">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

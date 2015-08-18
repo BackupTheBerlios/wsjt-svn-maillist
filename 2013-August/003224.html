@@ -1,0 +1,2118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3532 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3532%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130807230914.1492955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003223.html">
+   <LINK REL="Next"  HREF="003225.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3532 - in branches/wsjtx: . lib</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3532%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130807230914.1492955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3532 - in branches/wsjtx: . lib">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Thu Aug  8 01:09:13 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003223.html">[WSJT-SVN] r3531 - branches/wsjtx/logbook
+</A></li>
+        <LI>Next message: <A HREF="003225.html">[WSJT-SVN] r3533 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3224">[ date ]</a>
+              <a href="thread.html#3224">[ thread ]</a>
+              <a href="subject.html#3224">[ subject ]</a>
+              <a href="author.html#3224">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-08-08 01:09:13 +0200 (Thu, 08 Aug 2013)
+New Revision: 3532
+
+Modified:
+   branches/wsjtx/Detector.cpp
+   branches/wsjtx/Detector.hpp
+   branches/wsjtx/Modulator.cpp
+   branches/wsjtx/Modulator.hpp
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.h
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/lib/Makefile.linux
+   branches/wsjtx/main.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+   branches/wsjtx/wsjtx.pro
+Log:
+Qt 5 Audio replaces PortAudio.
+
+Currently only Qt5 or above is known to work with this code. It may be
+possible to backport it to Qt4 if required.
+
+Audio output goes back to a separate thread to try and minimize
+stutters in streaming on Windows particularly.
+
+A crash on Linux due to mishandling of stereo audio output has been
+fixed and both left and right channels are now correctly synthesised
+with identical contents.
+
+Rigs are enumerated directly from hamlib API rather than running a sub
+process reading output of rigctl -l. This was initially done to get
+rid of some GUI thread blocking in the configuration dialog, but is
+generally a better way of doing it anyway.
+
+Some refactoring in MainWindow to accomodate the audio streaming,
+modulation and detecting classes.
+
+Exit handling for application refactored to use signals rather than
+brute force event loop exit. This was required to get correct thread
+shutdown semantics.
+
+The GUI update timer is now stopped during application shutdown which
+is necessary to stop crashes when shutting down gracefully with
+signals and window close() calls.
+
+There is an outstanding issue with Linux audio streams; the QAudio
+Input/Output classes create a new stream name each time a stream is
+started. This doesn't play well with PulseAudio utilities such as
+pavucontrol to set stream volume as settings are lost every tx
+period. I have tried to keep a single stream for all output but there
+are problems restarting it that haven't been resolved yet.
+
+The QtCreator project file has been rearranged a little because it
+passes all the object files to the linker rather than using an archive
+library. Since the GNU linker is single pass; the object files need to
+be in a logical order with definitions appearing afer references to
+them. This was required to avoid a linking error.
+
+The lib/Makefile.linux has been enhanced to use the fortran compiler
+to locate the correct version of the Fortran library to use. This is
+necessary on the latest Linux distros because the unversioned symlink
+to compiler support libraries is no longer provided. This only an
+issue with mixed programming language links where the linker driver
+for one language has to link support libraraies for another language.
+
+
+Modified: branches/wsjtx/Detector.cpp
+===================================================================
+--- branches/wsjtx/Detector.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/Detector.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,93 +1,95 @@
+-#include &quot;Detector.hpp&quot;
+-
+-#include &lt;algorithm&gt;
+-
+-#include &lt;QDateTime&gt;
+-#include &lt;QDebug&gt;
+-
+-#include &quot;commons.h&quot;
+-
+-Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent)
+-  : QIODevice (parent)
+-  , m_frameRate (frameRate)
+-  , m_period (periodLengthInSeconds)
+-  , m_bytesPerSignal (bytesPerSignal)
+-  , m_monitoring (false)
+-  , m_starting (false)
+-{
+-  clear ();
+-}
+-
+-bool Detector::reset ()
+-{
+-  clear ();
+-  return QIODevice::reset ();
+-}
+-
+-void Detector::clear ()
+-{
+-  // set index to roughly where we are in time (1s resolution)
+-  jt9com_.kin = secondInPeriod () * m_frameRate;
+-
+-  // fill buffer with zeros
+-  std::fill (jt9com_.d2, jt9com_.d2 + sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]), 0);
+-}
+-
+-qint64 Detector::writeData (char const * data, qint64 maxSize)
+-{
+-  Q_ASSERT (!(maxSize % sizeof (jt9com_.d2[0]))); // no torn frames
+-  Q_ASSERT (!(reinterpret_cast&lt;size_t&gt; (data) % __alignof__ (frame_t)));	  // data is aligned as frame_t would be
+-
+-  frame_t const * frames (reinterpret_cast&lt;frame_t const *&gt; (data));
+-
+-  qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
+-  qint64 framesAccepted (std::min (maxSize / sizeof (jt9com_.d2[0]), framesAcceptable));
+-  
+-  if (framesAccepted &lt; maxSize / sizeof (jt9com_.d2[0]))
+-    {
+-      qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!\n&quot;;
+-    }
+-
+-  std::copy (frames, frames + framesAccepted, &amp;jt9com_.d2[jt9com_.kin]);
+-
+-  unsigned lastSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
+-  jt9com_.kin += framesAccepted;
+-  unsigned currentSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
+-
+-  if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
+-    {
+-      Q_EMIT bytesWritten (currentSignalIndex * m_bytesPerSignal);
+-    }
+-
+-  if (!secondInPeriod ())
+-    {
+-      if (!m_starting)
+-	{
+-	  // next samples will be in new period so wrap around to
+-	  // start of buffer
+-	  //
+-	  // we don't bother calling reset () since we expect to fill
+-	  // the whole buffer and don't need to waste cycles zeroing
+-	  jt9com_.kin = 0;
+-	  m_starting = true;
+-	}
+-    }
+-  else if (m_starting)
+-    {
+-      m_starting = false;
+-    }
+-
+-  return maxSize;		// we drop any data past the end of
+-				// the buffer on the floor until the
+-				// next period starts
+-}
+-
+-unsigned Detector::secondInPeriod () const
+-{
+-  // we take the time of the data as the following assuming no latency
+-  // delivering it to us (not true but close enough for us)
+-  qint64 now (QDateTime::currentMSecsSinceEpoch ());
+-
+-  unsigned secondInToday ((now % 86400000LL) / 1000);
+-  return secondInToday % m_period;
+-}
++#include &quot;Detector.hpp&quot;
++
++#include &lt;QDateTime&gt;
++#include &lt;QtAlgorithms&gt;
++#include &lt;QDebug&gt;
++
++#include &quot;commons.h&quot;
++
++Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent)
++  : QIODevice (parent)
++  , m_frameRate (frameRate)
++  , m_period (periodLengthInSeconds)
++  , m_bytesPerSignal (bytesPerSignal)
++  , m_monitoring (false)
++  , m_starting (false)
++{
++  clear ();
++}
++
++bool Detector::reset ()
++{
++  clear ();
++  return QIODevice::reset ();
++}
++
++void Detector::clear ()
++{
++  // set index to roughly where we are in time (1ms resolution)
++  // qint64 now (QDateTime::currentMSecsSinceEpoch ());
++  // unsigned msInPeriod ((now % 86400000LL) % (m_period * 1000));
++  // jt9com_.kin = qMin ((msInPeriod * m_frameRate) / 1000, static_cast&lt;unsigned&gt; (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0])));
++  jt9com_.kin = 0;
++
++  // fill buffer with zeros
++  qFill (jt9com_.d2, jt9com_.d2 + sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]), 0);
++}
++
++qint64 Detector::writeData (char const * data, qint64 maxSize)
++{
++  Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (sizeof (frame_t)))); // no torn frames
++  Q_ASSERT (!(reinterpret_cast&lt;size_t&gt; (data) % __alignof__ (frame_t))); // data is aligned as frame_t would be
++
++  frame_t const * frames (reinterpret_cast&lt;frame_t const *&gt; (data));
++
++  qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
++  qint64 framesAccepted (qMin (static_cast&lt;qint64&gt; (maxSize / sizeof (jt9com_.d2[0])), framesAcceptable));
++  
++  if (framesAccepted &lt; static_cast&lt;qint64&gt; (maxSize / sizeof (jt9com_.d2[0])))
++    {
++      qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!&quot;;
++    }
++
++  qCopy (frames, frames + framesAccepted, &amp;jt9com_.d2[jt9com_.kin]);
++
++  unsigned lastSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
++  jt9com_.kin += framesAccepted;
++  unsigned currentSignalIndex (jt9com_.kin * sizeof (jt9com_.d2[0]) / m_bytesPerSignal);
++
++  if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
++    {
++      Q_EMIT bytesWritten (currentSignalIndex * m_bytesPerSignal);
++    }
++
++  if (!secondInPeriod ())
++    {
++      if (!m_starting)
++	{
++	  // next samples will be in new period so wrap around to
++	  // start of buffer
++	  //
++	  // we don't bother calling reset () since we expect to fill
++	  // the whole buffer and don't need to waste cycles zeroing
++	  jt9com_.kin = 0;
++	  m_starting = true;
++	}
++    }
++  else if (m_starting)
++    {
++      m_starting = false;
++    }
++
++  return maxSize;		// we drop any data past the end of
++				// the buffer on the floor until the
++				// next period starts
++}
++
++unsigned Detector::secondInPeriod () const
++{
++  // we take the time of the data as the following assuming no latency
++  // delivering it to us (not true but close enough for us)
++  qint64 now (QDateTime::currentMSecsSinceEpoch ());
++
++  unsigned secondInToday ((now % 86400000LL) / 1000);
++  return secondInToday % m_period;
++}
+
+Modified: branches/wsjtx/Detector.hpp
+===================================================================
+--- branches/wsjtx/Detector.hpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/Detector.hpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,67 +1,67 @@
+-#ifndef DETECTOR_HPP__
+-#define DETECTOR_HPP__
+-
+-#include &lt;inttypes.h&gt;
+-
+-#include &lt;QIODevice&gt;
+-
+-//
+-// output device that distributes data in predefined chunks via a signal
+-//
+-// the underlying device for this abstraction is just the buffer that
+-// stores samples throughout a receiving period
+-//
+-class Detector : public QIODevice
+-{
+-  Q_OBJECT;
+-
+-  Q_PROPERTY (bool monitoring READ isMonitoring WRITE setMonitoring);
+-
+-private:
+-  Q_DISABLE_COPY (Detector);
+-
+-public:
+-  //
+-  // if the data buffer were not global storage and fixed size then we
+-  // might want maximum size passed as constructor arguments
+-  //
+-  Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent = 0);
+-
+-  bool open ()
+-  {
+-    // we only support data consumption and want it as fast as possible
+-    return QIODevice::open (QIODevice::WriteOnly | QIODevice::Unbuffered);
+-  }
+-
+-  bool isSequential () const
+-  {
+-    return true;
+-  }
+-
+-  bool isMonitoring () const {return m_monitoring;}
+-  void setMonitoring (bool newState) {m_monitoring = newState;}
+-
+-  bool reset ();
+-
+-protected:
+-  qint64 readData (char * /* data */, qint64 /* maxSize */)
+-  {
+-    return -1;			// we don't produce data
+-  }
+-
+-  qint64 writeData (char const * data, qint64 maxSize);
+-
+-private:
+-  typedef int16_t frame_t;
+-
+-  void clear ();		// discard buffer contents
+-  unsigned secondInPeriod () const;
+-
+-  unsigned m_frameRate;
+-  unsigned m_period;
+-  unsigned m_bytesPerSignal;
+-  bool m_monitoring;
+-  bool m_starting;
+-};
+-
+-#endif
++#ifndef DETECTOR_HPP__
++#define DETECTOR_HPP__
++
++#include &lt;stdint.h&gt;
++
++#include &lt;QIODevice&gt;
++
++//
++// output device that distributes data in predefined chunks via a signal
++//
++// the underlying device for this abstraction is just the buffer that
++// stores samples throughout a receiving period
++//
++class Detector : public QIODevice
++{
++  Q_OBJECT;
++
++  Q_PROPERTY (bool monitoring READ isMonitoring WRITE setMonitoring);
++
++private:
++  Q_DISABLE_COPY (Detector);
++
++public:
++  //
++  // if the data buffer were not global storage and fixed size then we
++  // might want maximum size passed as constructor arguments
++  //
++  Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned bytesPerSignal, QObject * parent = 0);
++
++  bool open ()
++  {
++    // we only support data consumption and want it as fast as possible
++    return QIODevice::open (QIODevice::WriteOnly | QIODevice::Unbuffered);
++  }
++
++  bool isSequential () const
++  {
++    return true;
++  }
++
++  bool isMonitoring () const {return m_monitoring;}
++  void setMonitoring (bool newState) {m_monitoring = newState;}
++
++  bool reset ();
++
++protected:
++  qint64 readData (char * /* data */, qint64 /* maxSize */)
++  {
++    return -1;			// we don't produce data
++  }
++
++  qint64 writeData (char const * data, qint64 maxSize);
++
++private:
++  typedef qint16 frame_t;
++
++  void clear ();		// discard buffer contents
++  unsigned secondInPeriod () const;
++
++  unsigned m_frameRate;
++  unsigned m_period;
++  unsigned m_bytesPerSignal;
++  bool m_monitoring;
++  bool m_starting;
++};
++
++#endif
+
+Modified: branches/wsjtx/Modulator.cpp
+===================================================================
+--- branches/wsjtx/Modulator.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/Modulator.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,195 +1,262 @@
+-#include &quot;Modulator.hpp&quot;
+-
+-#include &lt;cstdlib&gt;
+-#include &lt;cmath&gt;
+-#include &lt;algorithm&gt;
+-#include &lt;limits&gt;
+-
+-#include &lt;QDateTime&gt;
+-
+-extern float gran();		// Noise generator (for tests only)
+-
+-double const Modulator::m_twoPi = 2.0 * 3.141592653589793238462;
+-
+-//    float wpm=20.0;
+-//    unsigned m_nspd=1.2*48000.0/wpm;
+-//    m_nspd=3072;                           //18.75 WPM
+-unsigned const Modulator::m_nspd = 2048 + 512; // 22.5 WPM
+-
+-Modulator::Modulator (unsigned frameRate, unsigned periodLengthInSeconds, QObject * parent)
+-  : QIODevice (parent)
+-  , m_frameRate (frameRate)
+-  , m_period (periodLengthInSeconds)
+-  , m_state (Idle)
+-  , m_phi (0.)
+-  , m_ic (0)
+-  , m_isym0 (std::numeric_limits&lt;unsigned&gt;::max ()) // ensure we set up first symbol tone
+-{
+-}
+-
+-bool Modulator::open (std::vector&lt;int&gt; const * symbols, std::vector&lt;int&gt; const * cw, double framesPerSymbol, unsigned frequency, double dBSNR)
+-{
+-  m_symbols.reset (symbols);	// take over ownership (cannot throw)
+-  m_cw.reset (cw);		// take over ownership (cannot throw)
+-  m_addNoise = dBSNR &lt; 0.;
+-  m_nsps = framesPerSymbol;
+-  m_frequency = frequency;
+-  m_amp = std::numeric_limits&lt;frame_t&gt;::max ();
+-  m_state = Idle;
+-
+-  // noise generator parameters
+-  if (m_addNoise)
+-    {
+-      m_snr = std::pow (10.0, 0.05 * (dBSNR - 6.0));
+-      m_fac = 3000.0;
+-      if (m_snr &gt; 1.0)
+-	{
+-	  m_fac = 3000.0 / m_snr;
+-	}
+-    }
+-  
+-  return QIODevice::open (QIODevice::ReadOnly);
+-}
+-
+-qint64 Modulator::readData (char * data, qint64 maxSize)
+-{
+-  frame_t * frames (reinterpret_cast&lt;frame_t *&gt; (data));
+-  unsigned numFrames (maxSize / sizeof (frame_t));
+-
+-  switch (m_state)
+-    {
+-    case Idle:
+-      {
+-	// Time according to this computer
+-	qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+-	unsigned mstr = ms % (1000 * m_period);
+-	if (mstr &lt; 1000)	// send silence up to first second
+-	  {
+-	    std::fill (frames, frames + numFrames, 0);		 // silence
+-	    return numFrames * sizeof (frame_t);
+-	  }
+-	m_ic = (mstr - 1000) * 48;
+-
+-	std::srand (mstr);		// Initialize random seed
+-
+-	m_state = Active;
+-      }
+-      // fall through
+-
+-    case Active:
+-      {
+-	unsigned isym (m_tuning ? 0 : m_ic / (4.0 * m_nsps)); // Actual fsample=48000
+-
+-	if (isym &gt;= m_symbols-&gt;size () &amp;&amp; (*m_cw)[0] &gt; 0)
+-	  {
+-	    // Output the CW ID
+-	    m_dphi = m_twoPi * m_frequency / m_frameRate;
+-
+-	    unsigned const ic0 = m_symbols-&gt;size () * 4 * m_nsps;
+-	    unsigned j (0);
+-	    for (unsigned i = 0; i &lt; numFrames; ++i)
+-	      {
+-		m_phi += m_dphi;
+-		if (m_phi &gt; m_twoPi)
+-		  {
+-		    m_phi -= m_twoPi;
+-		  }
+-		frame_t frame = std::numeric_limits&lt;frame_t&gt;::max () * std::sin (m_phi);
+-		j = (m_ic - ic0) / m_nspd + 1;
+-		if (!(*m_cw)[j])
+-		  {
+-		    frame = 0;
+-		  }
+-
+-		frame = postProcessFrame (frame);
+-
+-		*frames++ = frame; //left
+-		++m_ic;
+-	      }
+-	    if (j &gt; static_cast&lt;unsigned&gt; ((*m_cw)[0]))
+-	      {
+-		m_state = Done;
+-	      }
+-	    return numFrames * sizeof (frame_t);
+-	  }
+-
+-	double const baud (12000.0 / m_nsps);
+-
+-	// fade out parameters (no fade out for tuning)
+-	unsigned const i0 = m_tuning ? 999 * m_nsps : (m_symbols-&gt;size () - 0.017) * 4.0 * m_nsps;
+-	unsigned const i1 = m_tuning ? 999 * m_nsps : m_symbols-&gt;size () * 4.0 * m_nsps;
+-
+-	for (unsigned i = 0; i &lt; numFrames; ++i)
+-	  {
+-	    isym = m_tuning ? 0 : m_ic / (4.0 * m_nsps); //Actual fsample=48000
+-	    if (isym != m_isym0)
+-	      {
+-		double toneFrequency = m_frequency + (*m_symbols)[isym] * baud;
+-		m_dphi = m_twoPi * toneFrequency / m_frameRate;
+-		m_isym0 = isym;
+-	      }
+-	    m_phi += m_dphi;
+-	    if (m_phi &gt; m_twoPi)
+-	      {
+-		m_phi -= m_twoPi;
+-	      }
+-	    if (m_ic &gt; i0)
+-	      {
+-		m_amp = 0.98 * m_amp;
+-	      }
+-	    if (m_ic &gt; i1)
+-	      {
+-		m_amp = 0.0;
+-	      }
+-	    frame_t frame (m_amp * std::sin (m_phi));
+-	    frame = postProcessFrame (frame);
+-	    *frames++ = frame;	//left
+-	    ++m_ic;
+-	  }
+-
+-	if (m_amp == 0.0) // TODO G4WJS: compare double with zero might not be wise
+-	  {
+-	    if ((*m_cw)[0] == 0)
+-	      {
+-		// no CW ID to send
+-		m_state = Done;
+-		return numFrames * sizeof (frame_t);
+-	      }
+-
+-	    m_phi = 0.0;
+-	  }
+-
+-	// done for this chunk - continue on next call
+-	return numFrames * sizeof (frame_t);
+-      }
+-
+-    case Done:
+-      break;
+-    }
+-
+-  Q_ASSERT (m_state == Done);
+-  return 0;
+-}
+-
+-Modulator::frame_t Modulator::postProcessFrame (frame_t frame) const
+-{
+-  if (m_muted)			// silent frame
+-    {
+-      return 0;
+-    }
+-
+-  if (m_addNoise)
+-    {
+-      int i4 = m_fac * (gran () + frame * m_snr / 32768.0);
+-      if (i4 &gt; std::numeric_limits&lt;frame_t&gt;::max ())
+-	{
+-	  i4 = std::numeric_limits&lt;frame_t&gt;::max ();
+-	}
+-      if (i4 &lt; std::numeric_limits&lt;frame_t&gt;::min ())
+-	{
+-	  i4 = std::numeric_limits&lt;frame_t&gt;::min ();
+-	}
+-      frame = i4;
+-    }
+-  return frame;
+-}
++#include &quot;Modulator.hpp&quot;
++
++#include &lt;limits&gt;
++
++#include &lt;qmath.h&gt;
++#include &lt;QDateTime&gt;
++#include &lt;QDebug&gt;
++
++#include &quot;mainwindow.h&quot;
++
++extern float gran();		// Noise generator (for tests only)
++
++double const Modulator::m_twoPi = 2.0 * 3.141592653589793238462;
++
++//    float wpm=20.0;
++//    unsigned m_nspd=1.2*48000.0/wpm;
++//    m_nspd=3072;                           //18.75 WPM
++unsigned const Modulator::m_nspd = 2048 + 512; // 22.5 WPM
++
++Modulator::Modulator (unsigned frameRate, unsigned periodLengthInSeconds, QObject * parent)
++  : QIODevice (parent)
++  , m_frameRate (frameRate)
++  , m_period (periodLengthInSeconds)
++  , m_framesSent (0)
++  , m_state (Idle)
++  , m_tuning (false)
++  , m_muted (false)
++  , m_phi (0.)
++{
++  qsrand (QDateTime::currentMSecsSinceEpoch()); // Initialize random seed
++}
++
++void Modulator::send (unsigned symbolsLength, double framesPerSymbol, unsigned frequency, bool synchronize, double dBSNR)
++{
++  // Time according to this computer which becomes our base time
++  qint64 ms0 = QDateTime::currentMSecsSinceEpoch() % 86400000;
++
++  m_symbolsLength = symbolsLength;
++
++  m_framesSent = 0;
++  m_isym0 = std::numeric_limits&lt;unsigned&gt;::max (); // ensure we set up first symbol tone
++  m_addNoise = dBSNR &lt; 0.;
++  m_nsps = framesPerSymbol;
++  m_frequency = frequency;
++  m_amp = std::numeric_limits&lt;qint16&gt;::max ();
++
++  // noise generator parameters
++  if (m_addNoise)
++    {
++      m_snr = qPow (10.0, 0.05 * (dBSNR - 6.0));
++      m_fac = 3000.0;
++      if (m_snr &gt; 1.0)
++	{
++	  m_fac = 3000.0 / m_snr;
++	}
++    }
++
++  unsigned mstr = ms0 % (1000 * m_period); // ms in period
++  m_ic = (mstr / 1000) * m_frameRate; // we start exactly N seconds
++				      // into period where N is the
++				      // next whole second
++
++  m_silentFrames = 0;
++  if (synchronize &amp;&amp; !m_tuning)	// calculate number of silent frames to send
++    {
++      m_silentFrames = m_ic + m_frameRate - (mstr * m_frameRate / 1000);
++    }
++
++  qDebug () &lt;&lt; &quot;Modulator: starting at &quot; &lt;&lt; m_ic / m_frameRate &lt;&lt; &quot; sec, sending &quot; &lt;&lt; m_silentFrames &lt;&lt; &quot; silent frames&quot;;
++
++  Q_EMIT stateChanged ((m_state = (synchronize &amp;&amp; m_silentFrames) ? Synchronizing : Active));
++}
++
++qint64 Modulator::readData (char * data, qint64 maxSize)
++{
++  Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (sizeof (frame_t)))); // no torn frames
++  Q_ASSERT (!(reinterpret_cast&lt;size_t&gt; (data) % __alignof__ (frame_t))); // data is aligned as frame_t would be
++
++  frame_t * frames (reinterpret_cast&lt;frame_t *&gt; (data));
++  qint64 numFrames (maxSize / sizeof (frame_t));
++
++  qDebug () &lt;&lt; &quot;Modulator: &quot; &lt;&lt; numFrames &lt;&lt; &quot; requested, m_ic = &quot; &lt;&lt; m_ic &lt;&lt; &quot;, tune mode is &quot; &lt;&lt; m_tuning;
++
++  switch (m_state)
++    {
++    case Synchronizing:
++      {
++	if (m_silentFrames)	// send silence up to first second
++	  {
++	    frame_t frame;
++	    for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++	      {
++		frame.channel[c] = 0; // silence
++	      }
++
++	    numFrames = qMin (m_silentFrames, numFrames);
++	    qFill (frames, frames + numFrames, frame);
++	    m_silentFrames -= numFrames;
++	    return numFrames * sizeof (frame_t);
++	  }
++
++	Q_EMIT stateChanged ((m_state = Active));
++      }
++      // fall through
++
++    case Active:
++      {
++	unsigned isym (m_tuning ? 0 : m_ic / (4.0 * m_nsps)); // Actual fsample=48000
++
++	if (isym &gt;= m_symbolsLength &amp;&amp; icw[0] &gt; 0) // start CW condition
++	  {
++	    // Output the CW ID
++	    m_dphi = m_twoPi * m_frequency / m_frameRate;
++
++	    unsigned const ic0 = m_symbolsLength * 4 * m_nsps;
++	    unsigned j (0);
++	    qint64 framesGenerated (0);
++	    for (unsigned i = 0; i &lt; numFrames; ++i)
++	      {
++		m_phi += m_dphi;
++		if (m_phi &gt; m_twoPi)
++		  {
++		    m_phi -= m_twoPi;
++		  }
++
++		frame_t frame;
++		for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++		  {
++		    frame.channel[c] = std::numeric_limits&lt;qint16&gt;::max () * qSin (m_phi);
++		  }
++
++		j = (m_ic - ic0) / m_nspd + 1;
++		if (j &lt; NUM_CW_SYMBOLS) // stop condition
++		  {
++		    if (!icw[j])
++		      {
++			for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++			  {
++			    frame.channel[c] = 0;
++			  }
++		      }
++
++		    frame = postProcessFrame (frame);
++
++		    *frames++ = frame;
++		    ++framesGenerated;
++
++		    ++m_ic;
++		  }
++	      }
++
++	    if (j &gt; static_cast&lt;unsigned&gt; (icw[0]))
++	      {
++		Q_EMIT stateChanged ((m_state = Idle));
++	      }
++
++	    m_framesSent += framesGenerated;
++	    return framesGenerated * sizeof (frame_t);
++	  }
++
++	double const baud (12000.0 / m_nsps);
++
++	// fade out parameters (no fade out for tuning)
++	unsigned const i0 = m_tuning ? 999 * m_nsps : (m_symbolsLength - 0.017) * 4.0 * m_nsps;
++	unsigned const i1 = m_tuning ? 999 * m_nsps : m_symbolsLength * 4.0 * m_nsps;
++
++	for (unsigned i = 0; i &lt; numFrames; ++i)
++	  {
++	    isym = m_tuning ? 0 : m_ic / (4.0 * m_nsps); //Actual fsample=48000
++	    if (isym != m_isym0)
++	      {
++		double toneFrequency = m_frequency + itone[isym] * baud;
++		m_dphi = m_twoPi * toneFrequency / m_frameRate;
++		m_isym0 = isym;
++	      }
++	    m_phi += m_dphi;
++	    if (m_phi &gt; m_twoPi)
++	      {
++		m_phi -= m_twoPi;
++	      }
++	    if (m_ic &gt; i0)
++	      {
++		m_amp = 0.98 * m_amp;
++	      }
++	    if (m_ic &gt; i1)
++	      {
++		m_amp = 0.0;
++	      }
++
++	    frame_t frame;
++	    for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++	      {
++		frame.channel[c] = m_amp * qSin (m_phi);
++	      }
++
++	    frame = postProcessFrame (frame);
++
++	    *frames++ = frame;
++
++	    ++m_ic;
++	  }
++
++	if (m_amp == 0.0) // TODO G4WJS: compare double with zero might not be wise
++	  {
++	    if (icw[0] == 0)
++	      {
++		// no CW ID to send
++		Q_EMIT stateChanged ((m_state = Idle));
++		m_framesSent += numFrames;
++		return numFrames * sizeof (frame_t);
++	      }
++
++	    m_phi = 0.0;
++	  }
++
++	// done for this chunk - continue on next call
++	m_framesSent += numFrames;
++	return numFrames * sizeof (frame_t);
++      }
++      Q_EMIT stateChanged ((m_state = Idle));
++      // fall through
++
++    case Idle:
++      break;
++    }
++
++  Q_ASSERT (Idle == m_state);
++  return 0;
++}
++
++Modulator::frame_t Modulator::postProcessFrame (frame_t frame) const
++{
++  if (m_muted)			// silent frame
++    {
++      for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++	{
++	  frame.channel[c] = 0;
++	}
++    }
++  else if (m_addNoise)
++    {
++      qint32 f[NUM_CHANNELS];
++      for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++	{
++	  f[c] = m_fac * (gran () + frame.channel[c] * m_snr / 32768.0);
++	  if (f[c] &gt; std::numeric_limits&lt;qint16&gt;::max ())
++	    {
++	      f[c] = std::numeric_limits&lt;qint16&gt;::max ();
++	    }
++	  if (f[c] &lt; std::numeric_limits&lt;qint16&gt;::min ())
++	    {
++	      f[c] = std::numeric_limits&lt;qint16&gt;::min ();
++	    }
++	}
++      
++      for (unsigned c = 0; c &lt; NUM_CHANNELS; ++c)
++	{
++	  frame.channel[c] = f[c];
++	}
++    }
++  return frame;
++}
+
+Modified: branches/wsjtx/Modulator.hpp
+===================================================================
+--- branches/wsjtx/Modulator.hpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/Modulator.hpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,11 +1,14 @@
+ #ifndef MODULATOR_HPP__
+ #define MODULATOR_HPP__
+ 
+-#include &lt;vector&gt;
+-
+ #include &lt;QIODevice&gt;
+-#include &lt;QScopedPointer&gt;
+ 
++#ifdef UNIX
++# define NUM_CHANNELS 2
++#else
++# define NUM_CHANNELS 1
++#endif
++
+ //
+ // Input device that generates PCM audio frames that encode a message
+ // and an optional CW ID.
+@@ -27,6 +30,12 @@
+ public:
+   Modulator (unsigned frameRate, unsigned periodLengthInSeconds, QObject * parent = 0);
+ 
++  bool open () {return QIODevice::open (QIODevice::ReadOnly | QIODevice::Unbuffered);}
++
++  Q_SLOT void send (unsigned symbolsLength, double framesPerSymbol, unsigned frequency, bool synchronize = true, double dBSNR = 99.);
++
++  Q_SLOT void stop () {Q_EMIT stateChanged ((m_state = Idle));}
++
+   bool isTuning () const {return m_tuning;}
+   Q_SLOT void tune (bool newState = true) {m_tuning = newState;}
+ 
+@@ -36,12 +45,11 @@
+   unsigned frequency () const {return m_frequency;}
+   Q_SLOT void setFrequency (unsigned newFrequency) {m_frequency = newFrequency;}
+ 
+-  bool open (std::vector&lt;int&gt; const * symbols, std::vector&lt;int&gt; const * cw, double framesPerSymbol, unsigned frequency, double dBSNR = 99.);
++  enum ModulatorState {Synchronizing, Active, Idle};
++  Q_SIGNAL void stateChanged (ModulatorState);
++  bool isActive () const {return m_state != Idle;}
+ 
+-  bool isSequential () const
+-  {
+-    return true;
+-  }
++  bool isSequential () const {return true;}
+ 
+ protected:
+   qint64 readData (char * data, qint64 maxSize);
+@@ -51,12 +59,14 @@
+   }
+ 
+ private:
+-  typedef short frame_t;
++  typedef struct
++  {
++    qint16 channel[NUM_CHANNELS];
++  } frame_t;
+ 
+   frame_t postProcessFrame (frame_t frame) const;
+ 
+-  QScopedPointer&lt;std::vector&lt;int&gt; const&gt; m_symbols;
+-  QScopedPointer&lt;std::vector&lt;int&gt; const&gt; m_cw;
++  unsigned m_symbolsLength;
+ 
+   static double const m_twoPi;
+   static unsigned const m_nspd;	// CW ID WPM factor
+@@ -64,11 +74,13 @@
+   int m_frameRate;
+   int m_period;
+   double m_nsps;
+-  double m_frequency;
++  double volatile m_frequency;
+   double m_snr;
+-  enum {Idle, Active, Done} m_state;
+-  bool m_tuning;
+-  bool m_muted;
++  qint64 m_silentFrames;
++  qint64 m_framesSent;
++  ModulatorState volatile m_state;
++  bool volatile m_tuning;
++  bool volatile m_muted;
+   bool m_addNoise;
+   double m_phi;
+   double m_dphi;
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/devsetup.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,8 +1,10 @@
+ #include &quot;devsetup.h&quot;
++
+ #include &lt;QDebug&gt;
+ #include &lt;QSettings&gt;
+ #include &lt;QAudioDeviceInfo&gt;
+ #include &lt;QAudioInput&gt;
++#include &lt;QMap&gt;
+ 
+ #define MAXDEVICES 100
+ 
+@@ -40,7 +42,7 @@
+   settings.endGroup();
+ 
+   //
+-  // loaad combo boxes with setup choices
++  // load combo boxes with setup choices
+   //
+   {
+     int currentIndex = -1;
+@@ -78,16 +80,7 @@
+     ui.comboBoxSndOut-&gt;setCurrentIndex (currentIndex != -1 ? currentIndex : defaultIndex);
+   }
+ 
+-  connect(&amp;p4, SIGNAL(readyReadStandardOutput()),
+-                    this, SLOT(p4ReadFromStdout()));
+-  connect(&amp;p4, SIGNAL(readyReadStandardError()),
+-          this, SLOT(p4ReadFromStderr()));
+-  connect(&amp;p4, SIGNAL(error(QProcess::ProcessError)),
+-          this, SLOT(p4Error()));
+-  p4.start(&quot;rigctl -l&quot;);
+-  p4.waitForFinished(1000);
+-  ui.rigComboBox-&gt;addItem(&quot;  9998 Commander&quot;);
+-  ui.rigComboBox-&gt;addItem(&quot;  9999 Ham Radio Deluxe&quot;);
++  enumerateRigs ();
+ 
+   QPalette pal(ui.myCallEntry-&gt;palette());
+   if(m_myCall==&quot;&quot;) {
+@@ -111,7 +104,6 @@
+ 
+   enableWidgets();
+ 
+-  ui.rigComboBox-&gt;setCurrentIndex(m_rigIndex);
+   ui.catPortComboBox-&gt;setCurrentIndex(m_catPortIndex);
+   ui.serialRateComboBox-&gt;setCurrentIndex(m_serialRateIndex);
+   ui.dataBitsComboBox-&gt;setCurrentIndex(m_dataBitsIndex);
+@@ -338,34 +330,6 @@
+   QDialog::reject();
+ }
+ 
+-void DevSetup::p4ReadFromStdout()                        //p4readFromStdout
+-{
+-  while(p4.canReadLine()) {
+-    QString t(p4.readLine());
+-    QString t1,t2,t3;
+-    if(t.mid(0,6)!=&quot; Rig #&quot;) {
+-      t1=t.mid(0,6);
+-      t2=t.mid(8,22).trimmed();
+-      t3=t.mid(31,23).trimmed();
+-      t=t1 + &quot;  &quot; + t2 + &quot;  &quot; + t3;
+-      ui.rigComboBox-&gt;addItem(t);
+-    }
+-  }
+-}
+-
+-void DevSetup::p4ReadFromStderr()                        //p4readFromStderr
+-{
+-  QByteArray t=p4.readAllStandardError();
+-  if(t.length()&gt;0) {
+-    msgBox(t);
+-  }
+-}
+-
+-void DevSetup::p4Error()                                     //p4rror
+-{
+-  msgBox(&quot;Error running 'rigctl -l'.&quot;);
+-}
+-
+ void DevSetup::msgBox(QString t)                             //msgBox
+ {
+   msgBox0.setText(t);
+@@ -465,9 +429,7 @@
+ 
+ void DevSetup::on_rigComboBox_activated(int index)
+ {
+-  m_rigIndex=index;
+-  QString t=ui.rigComboBox-&gt;itemText(index);
+-  m_rig=t.mid(0,7).toInt();
++  m_rig = ui.rigComboBox-&gt;itemData (index).toInt ();
+   enableWidgets();
+ }
+ 
+@@ -653,3 +615,36 @@
+   m_bXIT=checked;
+   if(m_bSplit and m_bXIT) ui.cbSplit-&gt;setChecked(false);
+ }
++
++typedef QMap&lt;QString, int&gt; RigList;
++
++int rigCallback (rig_caps const * caps, void * cbData)
++{
++  RigList * rigs = reinterpret_cast&lt;RigList *&gt; (cbData);
++
++  QString key (QString::fromLatin1 (caps-&gt;mfg_name).trimmed ()
++	       + ' '+ QString::fromLatin1 (caps-&gt;model_name).trimmed ()
++	       // + ' '+ QString::fromLatin1 (caps-&gt;version).trimmed ()
++	       // + &quot; (&quot; + QString::fromLatin1 (rig_strstatus (caps-&gt;status)).trimmed () + ')'
++	       );
++
++  (*rigs)[key] = caps-&gt;rig_model;
++
++  return 1;			// keep them coming
++}
++
++void DevSetup::enumerateRigs ()
++{
++  RigList rigs;
++  rig_load_all_backends ();
++  rig_list_foreach (rigCallback, &amp;rigs);
++
++  for (RigList::const_iterator r = rigs.cbegin (); r != rigs.cend (); ++r)
++    {
++      ui.rigComboBox-&gt;addItem (r.key (), r.value ());
++    }
++
++  ui.rigComboBox-&gt;addItem (&quot;DX Lab Suite Commander&quot;, 9998);
++  ui.rigComboBox-&gt;addItem (&quot;Ham Radio Deluxe&quot;, 9999);
++  ui.rigComboBox-&gt;setCurrentIndex (ui.rigComboBox-&gt;findData (m_rig));
++}
+
+Modified: branches/wsjtx/devsetup.h
+===================================================================
+--- branches/wsjtx/devsetup.h	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/devsetup.h	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -8,8 +8,12 @@
+ #include &lt;QMessageBox&gt;
+ #include &lt;QAudioDeviceInfo&gt;
+ 
++#include &lt;hamlib/rig.h&gt;
++
+ #include &quot;rigclass.h&quot;
+ 
++int rigCallback (rig_caps const *, void *);
++
+ class DevSetup : public QDialog
+ {
+   Q_OBJECT
+@@ -67,15 +71,11 @@
+   QStringList m_antDescription;  // per band antenna description
+   QStringList m_bandDescription; // per band description
+ 
+-  QProcess p4;
+   QMessageBox msgBox0;
+ 
+ public slots:
+   void accept();
+   void reject();
+-  void p4ReadFromStdout();
+-  void p4ReadFromStderr();
+-  void p4Error();
+ 
+ private slots:
+   void on_myCallEntry_editingFinished();
+@@ -105,12 +105,15 @@
+   void on_cbXIT_toggled(bool checked);
+ 
+ private:
++  void enumerateRigs ();
+   Rig* rig;
+   void msgBox(QString t);
+   void setEnableAntennaDescriptions(bool enable);
+   void enableWidgets();
+   void openRig();
+   Ui::DialogSndCard ui;
++
++  friend int rigCallback (rig_caps const *, void *);
+ };
+ 
+ extern int ptt(int nport, int ntx, int* iptt, int* nopen);
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/devsetup.ui	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -6,14 +6,14 @@
+    &lt;rect&gt;
+     &lt;x&gt;0&lt;/x&gt;
+     &lt;y&gt;0&lt;/y&gt;
+-    &lt;width&gt;570&lt;/width&gt;
+-    &lt;height&gt;465&lt;/height&gt;
++    &lt;width&gt;571&lt;/width&gt;
++    &lt;height&gt;440&lt;/height&gt;
+    &lt;/rect&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;maximumSize&quot;&gt;
+    &lt;size&gt;
+     &lt;width&gt;588&lt;/width&gt;
+-    &lt;height&gt;557&lt;/height&gt;
++    &lt;height&gt;522&lt;/height&gt;
+    &lt;/size&gt;
+   &lt;/property&gt;
+   &lt;property name=&quot;sizeIncrement&quot;&gt;
+@@ -1137,51 +1137,6 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_13&quot;&gt;
+-         &lt;item&gt;
+-          &lt;spacer name=&quot;horizontalSpacer_15&quot;&gt;
+-           &lt;property name=&quot;orientation&quot;&gt;
+-            &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;sizeType&quot;&gt;
+-            &lt;enum&gt;QSizePolicy::Fixed&lt;/enum&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-            &lt;size&gt;
+-             &lt;width&gt;96&lt;/width&gt;
+-             &lt;height&gt;20&lt;/height&gt;
+-            &lt;/size&gt;
+-           &lt;/property&gt;
+-          &lt;/spacer&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;widget class=&quot;QLabel&quot; name=&quot;label_26&quot;&gt;
+-           &lt;property name=&quot;sizePolicy&quot;&gt;
+-            &lt;sizepolicy hsizetype=&quot;Expanding&quot; vsizetype=&quot;Preferred&quot;&gt;
+-             &lt;horstretch&gt;0&lt;/horstretch&gt;
+-             &lt;verstretch&gt;0&lt;/verstretch&gt;
+-            &lt;/sizepolicy&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;minimumSize&quot;&gt;
+-            &lt;size&gt;
+-             &lt;width&gt;90&lt;/width&gt;
+-             &lt;height&gt;0&lt;/height&gt;
+-            &lt;/size&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;maximumSize&quot;&gt;
+-            &lt;size&gt;
+-             &lt;width&gt;16777215&lt;/width&gt;
+-             &lt;height&gt;16777215&lt;/height&gt;
+-            &lt;/size&gt;
+-           &lt;/property&gt;
+-           &lt;property name=&quot;text&quot;&gt;
+-            &lt;string&gt;Dev Ch  API       Name&lt;/string&gt;
+-           &lt;/property&gt;
+-          &lt;/widget&gt;
+-         &lt;/item&gt;
+-        &lt;/layout&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_6&quot;&gt;
+          &lt;item&gt;
+           &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
+@@ -1852,8 +1807,8 @@
+            &lt;rect&gt;
+             &lt;x&gt;0&lt;/x&gt;
+             &lt;y&gt;0&lt;/y&gt;
+-            &lt;width&gt;308&lt;/width&gt;
+-            &lt;height&gt;505&lt;/height&gt;
++            &lt;width&gt;510&lt;/width&gt;
++            &lt;height&gt;449&lt;/height&gt;
+            &lt;/rect&gt;
+           &lt;/property&gt;
+           &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_14&quot;&gt;
+
+Modified: branches/wsjtx/lib/Makefile.linux
+===================================================================
+--- branches/wsjtx/lib/Makefile.linux	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/lib/Makefile.linux	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -1,13 +1,13 @@
+ # Set paths
+ EXE_DIR = ../../wsjtx_install
+-INCPATH =  -I'/usr/include/qt4' -I'/usr/include/qt4/QtCore' 
++INCPATH = -I/usr/include/qt5 -I/usr/include/qt5/QtCore
+ 
+ CC = gcc
+ CXX = g++
+ FC = gfortran
+ 
+-FFLAGS = -O2 -fbounds-check -Wall -Wno-conversion -fno-second-underscore
+-CFLAGS = -I. -fbounds-check -mno-stack-arg-probe
++FFLAGS = -O2 -fbounds-check -Wall -Wno-conversion -fno-second-underscore -fPIE
++CFLAGS = -I. -fbounds-check -mno-stack-arg-probe -fPIE
+ 
+ # Default rules
+ %.o: %.c
+@@ -49,17 +49,17 @@
+ OBJS2 = jt9.o jt9a.o jt9b.o jt9c.o
+ 
+ jt9: 	$(OBJS2) libjt9.a 
+-	$(CXX) -o jt9 $(OBJS2) libjt9.a -lfftw3f -lgfortran -lQtCore
++	$(CXX) -o jt9 $(OBJS2) -L. -ljt9 -lQt5Core -lfftw3f `$(FC) -print-file-name=libgfortran.so`
+ 	mkdir -p $(EXE_DIR)
+ 	cp jt9 $(EXE_DIR)
+ 
+ OBJS3 = jt9sim.o 
+ jt9sim: $(OBJS3) libjt9.a
+-	$(FC) -o jt9sim $(OBJS3) libjt9.a
++	$(FC) -o jt9sim $(OBJS3) -L. -ljt9
+ 
+ OBJS4 = jt9code.o 
+ jt9code: $(OBJS4) libjt9.a
+-	$(FC) -o jt9code $(OBJS4) libjt9.a
++	$(FC) -o jt9code $(OBJS4) -L. -ljt9
+ 
+ sync9.o: sync9.f90 jt9sync.f90
+ 	$(FC) $(FFLAGS) -c sync9.f90
+@@ -80,7 +80,7 @@
+ 	$(FC) $(FFLAGS) -c redsync.f90
+ 
+ ipcomm.o: ipcomm.cpp
+-	$(CXX) -c $(INCPATH) ipcomm.cpp
++	$(CXX) -c $(INCPATH) -fPIE ipcomm.cpp
+ 
+ sec_midn.o: sec_midn.f90
+ 	$(FC) -c -fno-second-underscore sec_midn.f90
+
+Modified: branches/wsjtx/main.cpp
+===================================================================
+--- branches/wsjtx/main.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/main.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -4,6 +4,7 @@
+ #include &lt;QtGui&gt;
+ #endif
+ #include &lt;QApplication&gt;
++#include &lt;QObject&gt;
+ 
+ #include &quot;mainwindow.h&quot;
+ 
+@@ -52,5 +53,7 @@
+ // Multiple instances:  Call MainWindow() with the UUID key
+   MainWindow w(&amp;mem_jt9, &amp;my_key, fontSize2, fontWeight2);
+   w.show();
++
++  QObject::connect (&amp;a, SIGNAL (lastWindowClosed()), &amp;a, SLOT (quit()));
+   return a.exec();
+ }
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/mainwindow.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -2,9 +2,10 @@
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ 
+-#include &lt;vector&gt;
+-#include &lt;QScopedPointer&gt;
++#include &lt;QThread&gt;
+ #include &lt;QColorDialog&gt;
++
++#include &quot;soundout.h&quot;
+ #include &quot;devsetup.h&quot;
+ #include &quot;plotter.h&quot;
+ #include &quot;about.h&quot;
+@@ -18,11 +19,6 @@
+ #include &lt;QtConcurrent/QtConcurrentRun&gt;
+ #endif
+ 
+-#define NUM_JT65_SYMBOLS 126
+-#define NUM_JT9_SYMBOLS 85
+-#define NUM_CW_SYMBOLS 250
+-#define TX_SAMPLE_RATE 48000
+-
+ int itone[NUM_JT65_SYMBOLS];	//Audio tones for all Tx symbols
+ int icw[NUM_CW_SYMBOLS];	//Dits for CW ID
+ 
+@@ -51,13 +47,44 @@
+                        QWidget *parent) :
+   QMainWindow(parent),
+   ui(new Ui::MainWindow),
++  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2 * sizeof (jt9com_.d2[0]), this),
+   m_audioInputDevice (QAudioDeviceInfo::defaultInputDevice ()), // start with default
+-  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2 * sizeof (jt9com_.d2[0]), this),
++  m_modulator (TX_SAMPLE_RATE, NTMAX / 2),
+   m_audioOutputDevice (QAudioDeviceInfo::defaultOutputDevice ()), // start with default
+-  m_modulator (TX_SAMPLE_RATE, NTMAX / 2, this)
++  m_soundOutput (&amp;m_modulator)
+ {
+   ui-&gt;setupUi(this);
+   m_detector.open ();
++  m_modulator.open ();
++
++  connect (this, &amp;MainWindow::finished, this, &amp;MainWindow::close);
++
++  // start sound out thread and hook up slots &amp; signals for shutdown management
++  m_soundOutput.moveToThread (&amp;m_soundOutputThread);
++  connect (this, &amp;MainWindow::finished, &amp;m_soundOutputThread, &amp;QThread::quit); // quit thread event loop
++  connect (&amp;m_soundOutputThread, &amp;QThread::finished, &amp;m_soundOutputThread, &amp;QThread::deleteLater); // disposal
++
++  // hook up sound output stream slots &amp; signals
++  connect (this, &amp;MainWindow::startAudioOutputStream, &amp;m_soundOutput, &amp;SoundOutput::startStream);
++  connect (this, &amp;MainWindow::stopAudioOutputStream, &amp;m_soundOutput, &amp;SoundOutput::stopStream);
++  connect (&amp;m_soundOutput, &amp;SoundOutput::error, this, &amp;MainWindow::showSoundOutError);
++  // connect (&amp;m_soundOutput, &amp;SoundOutput::status, this, &amp;MainWindow::showStatusMessage);
++
++  // hook up Modulator slots
++  connect (this, &amp;MainWindow::muteAudioOutput, &amp;m_modulator, &amp;Modulator::mute);
++  connect (this, &amp;MainWindow::transmitFrequency, &amp;m_modulator, &amp;Modulator::setFrequency);
++  connect (this, &amp;MainWindow::endTransmitMessage, &amp;m_modulator, &amp;Modulator::stop);
++  connect (this, &amp;MainWindow::tune, &amp;m_modulator, &amp;Modulator::tune);
++  connect (
++	   this
++	   , SIGNAL (sendMessage (unsigned, double, unsigned, bool, double))
++	   , &amp;m_modulator
++	   , SLOT (send (unsigned, double, unsigned, bool, double))
++	   );
++
++  // start the sound output thread
++  m_soundOutputThread.start (QThread::HighPriority);
++
+   on_EraseButton_clicked();
+ 
+   QActionGroup* modeGroup = new QActionGroup(this);
+@@ -93,11 +120,7 @@
+   connect(&amp;m_detector, &amp;Detector::bytesWritten, this, &amp;MainWindow::dataSink);
+   connect(&amp;m_soundInput, SIGNAL(error(QString)), this,
+           SLOT(showSoundInError(QString)));
+-  connect(&amp;m_soundOutput, SIGNAL(error(QString)), this,
+-          SLOT(showSoundOutError(QString)));
+-  connect(&amp;m_soundInput, SIGNAL(status(QString)), this,
+-          SLOT(showStatusMessage(QString)));
+-  // connect(&amp;m_soundOutput, SIGNAL(status(QString)), this,
++  // connect(&amp;m_soundInput, SIGNAL(status(QString)), this,
+   //         SLOT(showStatusMessage(QString)));
+   createStatusBar();
+ 
+@@ -135,9 +158,9 @@
+   font.setWeight(75);
+   ui-&gt;readFreq-&gt;setFont(font);
+ 
+-  QTimer *guiTimer = new QTimer(this);
+-  connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+-  guiTimer-&gt;start(100);                            //Don't change the 100 ms!
++  connect(&amp;m_guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
++  m_guiTimer.start(100);                            //Don't change the 100 ms!
++
+   ptt0Timer = new QTimer(this);
+   ptt0Timer-&gt;setSingleShot(true);
+   connect(ptt0Timer, SIGNAL(timeout()), this, SLOT(stopTx2()));
+@@ -161,7 +184,7 @@
+   m_auto=false;
+   m_waterfallAvg = 1;
+   m_txFirst=false;
+-  m_modulator.mute(false);
++  Q_EMIT muteAudioOutput (false);
+   m_btxMute=false;
+   m_btxok=false;
+   m_restart=false;
+@@ -317,8 +340,8 @@
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
+   m_soundInput.start(m_audioInputDevice, RX_SAMPLE_RATE / 10, &amp;m_detector);
+-  m_modulator.setFrequency(m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+-  m_modulator.tune(false);
++  Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
++  Q_EMIT muteAudioOutput (false);
+   m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+   m_detector.setMonitoring(m_monitoring);
+   m_diskData=false;
+@@ -366,13 +389,10 @@
+ MainWindow::~MainWindow()
+ {
+   writeSettings();
+-  m_soundOutput.stop();
+-  m_modulator.close();
+   if(!m_decoderBusy) {
+     QFile lockFile(m_appDir + &quot;/.lock&quot;);
+     lockFile.remove();
+   }
+-  m_detector.close ();
+   delete ui;
+ }
+ 
+@@ -497,7 +517,7 @@
+     //
+     // retrieve audio input device
+     //
+-    QString savedName = settings.value( &quot;SoundInName&quot;, &quot;default&quot;).toString();
++    QString savedName = settings.value( &quot;SoundInName&quot;).toString();
+     QList&lt;QAudioDeviceInfo&gt; audioInputDevices (QAudioDeviceInfo::availableDevices (QAudio::AudioInput)); // available audio input devices
+     for (QList&lt;QAudioDeviceInfo&gt;::const_iterator p = audioInputDevices.begin (); p != audioInputDevices.end (); ++p)
+       {
+@@ -512,7 +532,7 @@
+     //
+     // retrieve audio output device
+     //
+-    QString savedName = settings.value(&quot;SoundOutName&quot;, &quot;default&quot;).toString();
++    QString savedName = settings.value(&quot;SoundOutName&quot;).toString();
+     QList&lt;QAudioDeviceInfo&gt; audioOutputDevices (QAudioDeviceInfo::availableDevices (QAudio::AudioOutput)); // available audio output devices
+     for (QList&lt;QAudioDeviceInfo&gt;::const_iterator p = audioOutputDevices.begin (); p != audioOutputDevices.end (); ++p)
+     {
+@@ -535,7 +555,7 @@
+   ui-&gt;RxFreqSpinBox-&gt;setValue(m_rxFreq);
+   m_txFreq=settings.value(&quot;TxFreq&quot;,1500).toInt();
+   ui-&gt;TxFreqSpinBox-&gt;setValue(m_txFreq);
+-  m_modulator.setFrequency(m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
++  Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+   m_saveDecoded=ui-&gt;actionSave_decoded-&gt;isChecked();
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,3).toInt();
+@@ -811,6 +831,7 @@
+ {
+   m_monitoring=true;
+   m_detector.setMonitoring(true);
++  m_soundInput.start(m_audioInputDevice, RX_SAMPLE_RATE / 10, &amp;m_detector);
+   m_diskData=false;
+ }
+ 
+@@ -827,7 +848,7 @@
+     ui-&gt;autoButton-&gt;setStyleSheet(m_pbAutoOn_style);
+   } else {
+     m_btxok=false;
+-    m_modulator.mute();
++    Q_EMIT muteAudioOutput ();
+     ui-&gt;autoButton-&gt;setStyleSheet(&quot;&quot;);
+     on_monitorButton_clicked();
+     m_repeatMsg=0;
+@@ -1031,6 +1052,7 @@
+ 
+ void MainWindow::OnExit()
+ {
++  m_guiTimer.stop ();
+   g_pWideGraph-&gt;saveSettings();
+   if(m_fname != &quot;&quot;) killFile();
+   m_killAll=true;
+@@ -1042,13 +1064,16 @@
+   bool b=proc_jt9.waitForFinished(1000);
+   if(!b) proc_jt9.kill();
+   quitFile.remove();
+-  qApp-&gt;exit(0);                                      // Exit the event loop
++
++  Q_EMIT finished ();
++  m_soundOutputThread.wait ();
+ }
+ 
+ void MainWindow::on_stopButton_clicked()                       //stopButton
+ {
+   m_monitoring=false;
+   m_detector.setMonitoring(m_monitoring);
++  m_soundInput.stop ();
+   m_loopall=false;  
+ }
+ 
+@@ -1082,6 +1107,7 @@
+             SLOT(setXIT(int)));
+ //    connect(g_pWideGraph, SIGNAL(dialFreqChanged(double)),this,
+ //            SLOT(dialFreqChanged2(double)));
++    connect (this, &amp;MainWindow::finished, g_pWideGraph, &amp;WideGraph::close);
+   }
+   g_pWideGraph-&gt;show();
+ }
+@@ -1621,7 +1647,7 @@
+     }
+     if(!bTxTime || m_btxMute) {
+       m_btxok=false;
+-      m_modulator.mute();
++      Q_EMIT muteAudioOutput ();
+     }
+   }
+ 
+@@ -1719,8 +1745,9 @@
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+     m_detector.setMonitoring(false);
++    m_soundInput.stop ();
+     m_btxok=true;
+-    m_modulator.mute(false);
++    Q_EMIT muteAudioOutput (false);
+     m_transmitting=true;
+     ui-&gt;pbTxMode-&gt;setEnabled(false);
+     if(!m_tune) {
+@@ -1839,7 +1866,7 @@
+ 
+ void MainWindow::startTx2()
+ {
+-  if(!m_soundOutput.isRunning()) {
++  if (!m_modulator.isActive ()) {
+     QString t=ui-&gt;tx6-&gt;text();
+     double snr=t.mid(1,5).toDouble();
+     if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
+@@ -1847,8 +1874,9 @@
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+     m_detector.setMonitoring(false);
++    m_soundInput.stop ();
+     m_btxok=true;
+-    m_modulator.mute(false);
++    Q_EMIT muteAudioOutput (false);
+     m_transmitting=true;
+     ui-&gt;pbTxMode-&gt;setEnabled(false);
+   }
+@@ -1856,8 +1884,8 @@
+ 
+ void MainWindow::stopTx()
+ {
+-  m_soundOutput.stop();
+-  m_modulator.close ();
++  Q_EMIT endTransmitMessage ();
++  Q_EMIT stopAudioOutputStream ();
+   m_transmitting=false;
+   ui-&gt;pbTxMode-&gt;setEnabled(true);
+   g_iptt=0;
+@@ -1865,6 +1893,7 @@
+   lab1-&gt;setText(&quot;&quot;);
+   ptt0Timer-&gt;start(200);                       //Sequencer delay
+   m_monitoring=true;
++  m_soundInput.start(m_audioInputDevice, RX_SAMPLE_RATE / 10, &amp;m_detector);
+   m_detector.setMonitoring(true);
+ }
+ 
+@@ -2381,7 +2410,7 @@
+ 
+   // double snr=t.mid(1,5).toDouble();
+   // if(snr&gt;0.0 or snr &lt; -50.0) snr=99.0;
+-  // m_soundOutput.setTxSNR(snr);
++  // m_modulator.setTxSNR(snr);
+ }
+ 
+ void MainWindow::on_dxCallEntry_textChanged(const QString &amp;t) //dxCall changed
+@@ -2525,7 +2554,7 @@
+   m_txFreq=n;
+   if(g_pWideGraph!=NULL) g_pWideGraph-&gt;setTxFreq(n);
+   if(m_lockTxFreq) ui-&gt;RxFreqSpinBox-&gt;setValue(n);
+-  m_modulator.setFrequency(m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
++  Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+ }
+ 
+ void MainWindow::on_RxFreqSpinBox_valueChanged(int n)
+@@ -2848,7 +2877,7 @@
+   } else {
+     m_tune=true;
+     m_sent73=false;
+-    m_modulator.tune();
++    Q_EMIT tune ();
+     m_repeatMsg=0;
+     ui-&gt;tuneButton-&gt;setStyleSheet(m_pbTune_style);
+   }
+@@ -2858,11 +2887,11 @@
+ {
+   if(m_tune) {
+     m_tune=false;
+-    m_modulator.tune(m_tune);
++    Q_EMIT tune (m_tune);
+   }
+   if(m_auto) on_autoButton_clicked();
+   m_btxok=false;
+-  m_modulator.mute();
++  Q_EMIT muteAudioOutput ();
+   m_repeatMsg=0;
+   ui-&gt;tuneButton-&gt;setStyleSheet(&quot;&quot;);
+ }
+@@ -2999,7 +3028,7 @@
+       ret=rig-&gt;setSplitFreq(MHz(m_dialFreq)+m_XIT,RIG_VFO_B);
+     }
+   }
+-  m_modulator.setFrequency(m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
++  Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+ }
+ 
+ void MainWindow::setFreq4(int rxFreq, int txFreq)
+@@ -3055,19 +3084,13 @@
+ 
+ void MainWindow::transmit (double snr)
+ {
+-  QScopedPointer&lt;std::vector&lt;int&gt; &gt; cw (new std::vector&lt;int&gt; (NUM_CW_SYMBOLS));
+-  cw-&gt;assign (icw, icw + NUM_CW_SYMBOLS); // load data
+   if (m_modeTx == &quot;JT65&quot;)
+     {
+-      QScopedPointer&lt;std::vector&lt;int&gt; &gt; symbols (new std::vector&lt;int&gt; (NUM_JT65_SYMBOLS));
+-      symbols-&gt;assign (itone, itone + NUM_JT65_SYMBOLS); // load data
+-      m_modulator.open (symbols.take (), cw.take (), 4096.0 * 12000.0 / 11025.0, m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0), snr);
++      Q_EMIT sendMessage (NUM_JT65_SYMBOLS, 4096.0 * 12000.0 / 11025.0, m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0), true, snr);
+     }
+   else
+     {
+-      QScopedPointer&lt;std::vector&lt;int&gt; &gt; symbols (new std::vector&lt;int&gt; (NUM_JT65_SYMBOLS));
+-      symbols-&gt;assign (itone, itone + NUM_JT9_SYMBOLS); // load data
+-      m_modulator.open (symbols.take (), cw.take (), m_nsps, m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0), snr);
++      Q_EMIT sendMessage (NUM_JT9_SYMBOLS, m_nsps, m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0), true, snr);
+     }
+-  m_soundOutput.start(m_audioOutputDevice, &amp;m_modulator);
++  Q_EMIT startAudioOutputStream (m_audioOutputDevice);
+ }
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/mainwindow.h	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -5,6 +5,7 @@
+ #else
+ #include &lt;QtGui&gt;
+ #endif
++#include &lt;QThread&gt;
+ #include &lt;QTimer&gt;
+ #include &lt;QDateTime&gt;
+ #include &lt;QList&gt;
+@@ -24,6 +25,15 @@
+ #include &quot;PSKReporter.h&quot;
+ #endif
+ 
++#define NUM_JT65_SYMBOLS 126
++#define NUM_JT9_SYMBOLS 85
++#define NUM_CW_SYMBOLS 250
++#define TX_SAMPLE_RATE 48000
++
++extern int itone[NUM_JT65_SYMBOLS]; //Audio tones for all Tx symbols
++extern int icw[NUM_CW_SYMBOLS];	    //Dits for CW ID
++
++
+ //--------------------------------------------------------------- MainWindow
+ namespace Ui {
+     class MainWindow;
+@@ -166,6 +176,16 @@
+   void on_actionTx2QSO_triggered(bool checked);  
+   void on_cbPlus2kHz_toggled(bool checked);
+ 
++ private:
++  Q_SIGNAL void startAudioOutputStream (QAudioDeviceInfo);
++  Q_SIGNAL void stopAudioOutputStream ();
++  Q_SIGNAL void finished ();
++  Q_SIGNAL void muteAudioOutput (bool = true);
++  Q_SIGNAL void transmitFrequency (unsigned);
++  Q_SIGNAL void endTransmitMessage ();
++  Q_SIGNAL void tune (bool = true);
++  Q_SIGNAL void sendMessage (unsigned symbolsLength, double framesPerSymbol, unsigned frequency, bool synchronize = true, double dBSNR = 99.);
++
+ private:
+     Ui::MainWindow *ui;
+ 
+@@ -190,10 +210,16 @@
+     qint32  m_nutc0;
+     qint32  m_nrx;
+     qint32  m_hsym;
++
++    Detector m_detector;
+     QAudioDeviceInfo m_audioInputDevice;
+-    Detector m_detector;
++    SoundInput m_soundInput;
++
++    Modulator m_modulator;
+     QAudioDeviceInfo m_audioOutputDevice;
+-    Modulator m_modulator;
++    SoundOutput m_soundOutput;
++    QThread m_soundOutputThread;
++
+     qint32  m_TRperiod;
+     qint32  m_nsps;
+     qint32  m_hsymStop;
+@@ -299,6 +325,7 @@
+ 
+     QProcess proc_jt9;
+ 
++    QTimer m_guiTimer;
+     QTimer* ptt1Timer;                 //StartTx delay
+     QTimer* ptt0Timer;                 //StopTx delay
+     QTimer* logQSOTimer;
+@@ -344,8 +371,6 @@
+ 
+     QDateTime m_dateTimeQSO;
+ 
+-    SoundInput m_soundInput;             //Instantiate the audio objects
+-    SoundOutput m_soundOutput;
+     QSharedMemory *mem_jt9;
+  // Multiple instances:
+     QString       *mykey_jt9;
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/soundin.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -74,7 +74,7 @@
+ 
+   m_stream-&gt;start (sink);
+ 
+-  qDebug () &lt;&lt; &quot;audio input buffer size = &quot; &lt;&lt; m_stream-&gt;bufferSize () &lt;&lt; &quot; bytes\n&quot;;
++  qDebug () &lt;&lt; &quot;audio input buffer size = &quot; &lt;&lt; m_stream-&gt;bufferSize () &lt;&lt; &quot; bytes&quot;;
+ 
+   return audioError () ? false : true;
+ }
+@@ -84,29 +84,29 @@
+   switch (newState)
+     {
+     case QAudio::IdleState:
+-      qDebug () &lt;&lt; &quot;SoundInput idle\n&quot;;
++      qDebug () &lt;&lt; &quot;SoundInput idle&quot;;
+       Q_EMIT status (tr (&quot;Idle&quot;));
+       break;
+ 
+     case QAudio::ActiveState:
+-      qDebug () &lt;&lt; &quot;SoundInput active\n&quot;;
++      qDebug () &lt;&lt; &quot;SoundInput active&quot;;
+       Q_EMIT status (tr (&quot;Receiving&quot;));
+       break;
+ 
+     case QAudio::SuspendedState:
+-      qDebug () &lt;&lt; &quot;SoundInput suspended\n&quot;;
++      qDebug () &lt;&lt; &quot;SoundInput suspended&quot;;
+       Q_EMIT status (tr (&quot;Suspended&quot;));
+       break;
+ 
+     case QAudio::StoppedState:
+       if (audioError ())
+ 	{
+-	  qDebug () &lt;&lt; &quot;SoundInput error\n&quot;;
++	  qDebug () &lt;&lt; &quot;SoundInput error&quot;;
+ 	  Q_EMIT status (tr (&quot;Error&quot;));
+ 	}
+       else
+ 	{
+-	  qDebug () &lt;&lt; &quot;SoundInput stopped\n&quot;;
++	  qDebug () &lt;&lt; &quot;SoundInput stopped&quot;;
+ 	  Q_EMIT status (tr (&quot;Stopped&quot;));
+ 	}
+       break;
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/soundout.cpp	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -5,6 +5,12 @@
+ #include &lt;QAudioOutput&gt;
+ #include &lt;QDebug&gt;
+ 
++#if defined (WIN32)
++# define MS_BUFFERED 1000
++#else
++# define MS_BUFFERED 2000
++#endif
++
+ bool SoundOutput::audioError () const
+ {
+   bool result (true);
+@@ -38,56 +44,119 @@
+   return result;
+ }
+ 
+-bool SoundOutput::start(QAudioDeviceInfo const&amp; device, QIODevice * source)
++SoundOutput::SoundOutput (QIODevice * source)
++  : m_source (source)
++  , m_active (false)
++  , m_currentDevice (QAudioDeviceInfo::defaultOutputDevice ())
+ {
+   Q_ASSERT (source);
++}
+ 
+-  stop();
++void SoundOutput::startStream (QAudioDeviceInfo const&amp; device)
++{
++  if (!m_stream || device != m_currentDevice)
++    {
++      QAudioFormat format (device.preferredFormat ());
+ 
+-  QAudioFormat format (device.preferredFormat());
+-  format.setChannelCount (1);
+-  format.setCodec (&quot;audio/pcm&quot;);
+-  format.setSampleRate (48000);
+-  format.setSampleType (QAudioFormat::SignedInt);
+-  format.setSampleSize (16);
+-  if (!format.isValid ())
+-    {
+-      Q_EMIT error (tr (&quot;Requested output audio format is not valid.&quot;));
+-      return false;
++#ifdef UNIX
++      format.setChannelCount (2);
++#else
++      format.setChannelCount (1);
++#endif
++
++      format.setCodec (&quot;audio/pcm&quot;);
++      format.setSampleRate (48000);
++      format.setSampleType (QAudioFormat::SignedInt);
++      format.setSampleSize (16);
++      if (!format.isValid ())
++	{
++	  Q_EMIT error (tr (&quot;Requested output audio format is not valid.&quot;));
++	}
++      if (!device.isFormatSupported (format))
++	{
++	  Q_EMIT error (tr (&quot;Requested output audio format is not supported on device.&quot;));
++	}
++
++      m_stream.reset (new QAudioOutput (device, format, this));
++      audioError ();
++
++      connect (m_stream.data(), &amp;QAudioOutput::stateChanged, this, &amp;SoundOutput::handleStateChanged);
++
++      m_currentDevice = device;
+     }
+-  if (!device.isFormatSupported (format))
++
++  //
++  // This buffer size is critical since we are running in the GUI
++  // thread. If it is too short; high activity levels on the GUI can
++  // starve the audio buffer. On the other hand the Windows
++  // implementation seems to take the length of the buffer in time to
++  // stop the audio stream even if reset() is used.
++  //
++  // 1 seconds seems a reasonable compromise except for Windows
++  // where things are probably broken.
++  //
++  // we have to set this before every start on the stream because the
++  // Windows implementation seems to forget the buffer size after a
++  // stop.
++  m_stream-&gt;setBufferSize (m_stream-&gt;format ().bytesForDuration (MS_BUFFERED * 1000));
++  m_stream-&gt;start (m_source);
++  audioError ();
++
++  qDebug () &lt;&lt; &quot;audio output buffer size = &quot; &lt;&lt; m_stream-&gt;bufferSize () &lt;&lt; &quot; bytes&quot;;
++}
++
++void SoundOutput::suspend ()
++{
++  if (m_stream &amp;&amp; QAudio::ActiveState == m_stream-&gt;state ())
+     {
+-      Q_EMIT error (tr (&quot;Requested output audio format is not supported on device.&quot;));
+-      return false;
++      m_stream-&gt;suspend ();
++      audioError ();
+     }
++}
+ 
+-  m_stream.reset (new QAudioOutput (device, format, this));
+-  if (audioError ())
++void SoundOutput::resume ()
++{
++  if (m_stream &amp;&amp; QAudio::SuspendedState == m_stream-&gt;state ())
+     {
+-      return false;
++      m_stream-&gt;resume ();
++      audioError ();
+     }
+-  connect (m_stream.data(), &amp;QAudioOutput::stateChanged, this, &amp;SoundOutput::handleStateChanged);
++}
+ 
+-  m_stream-&gt;setBufferSize(48000);
+-  m_stream-&gt;start (source);
+-  if (audioError ())		// start the input stream
++void SoundOutput::stopStream ()
++{
++  if (m_stream)
+     {
+-      return false;
++      m_stream-&gt;stop ();
++      audioError ();
+     }
+-
+-  m_active = true;
+-  return true;
+ }
+ 
+-void SoundOutput::handleStateChanged (QAudio::State newState) const
++void SoundOutput::handleStateChanged (QAudio::State newState)
+ {
+   switch (newState)
+     {
+-    case QAudio::IdleState: Q_EMIT status (tr (&quot;Idle&quot;)); break;
+-    case QAudio::ActiveState: Q_EMIT status (tr (&quot;Sending&quot;)); break;
+-    case QAudio::SuspendedState: Q_EMIT status (tr (&quot;Suspended&quot;)); break;
++    case QAudio::IdleState:
++      qDebug () &lt;&lt; &quot;SoundOutput: entered Idle state&quot;;
++      Q_EMIT status (tr (&quot;Idle&quot;));
++      m_active = false;
++      break;
+ 
++    case QAudio::ActiveState:
++      qDebug () &lt;&lt; &quot;SoundOutput: entered Active state&quot;;
++      m_active = true;
++      Q_EMIT status (tr (&quot;Sending&quot;));
++      break;
++
++    case QAudio::SuspendedState:
++      qDebug () &lt;&lt; &quot;SoundOutput: entered Suspended state&quot;;
++      m_active = true;
++      Q_EMIT status (tr (&quot;Suspended&quot;));
++      break;
++
+     case QAudio::StoppedState:
++      qDebug () &lt;&lt; &quot;SoundOutput: entered Stopped state&quot;;
++      m_active = false;
+       if (audioError ())
+ 	{
+ 	  Q_EMIT status (tr (&quot;Error&quot;));
+@@ -100,13 +169,10 @@
+     }
+ }
+ 
+-void SoundOutput::stop()
++SoundOutput::~SoundOutput ()
+ {
+-  m_stream.reset ();
+-  m_active = false;
++  if (m_stream)
++    {
++      m_stream-&gt;stop ();
++    }
+ }
+-
+-SoundOutput::~SoundOutput()
+-{
+-  stop ();
+-}
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/soundout.h	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -4,8 +4,9 @@
+ #include &lt;QObject&gt;
+ #include &lt;QString&gt;
+ #include &lt;QAudioOutput&gt;
++#include &lt;QAudioDeviceInfo&gt;
+ 
+-#include &quot;Modulator.hpp&quot;
++class QAudioDeviceInfo;
+ 
+ class QAudioDeviceInfo;
+ 
+@@ -21,32 +22,33 @@
+   Q_DISABLE_COPY (SoundOutput);
+ 
+  public:
+-  SoundOutput ()
+-    : m_active(false)
+-    {
+-    }
++  SoundOutput (QIODevice * source);
+   ~SoundOutput ();
+ 
+   bool isRunning() const {return m_active;}
+ 
+-public Q_SLOTS:
+-  bool start(QAudioDeviceInfo const&amp; device, QIODevice * source);
+-  void stop();
++ public Q_SLOTS:
++  void startStream (QAudioDeviceInfo const&amp; device);
++  void suspend ();
++  void resume ();
++  void stopStream ();
+ 
+-Q_SIGNALS:
++ Q_SIGNALS:
+   void error (QString message) const;
+   void status (QString message) const;
+ 
+ private:
+   bool audioError () const;
+ 
+-private Q_SLOTS:
+-  void handleStateChanged (QAudio::State) const;
++ private Q_SLOTS:
++  void handleStateChanged (QAudio::State);
+ 
+  private:
+   QScopedPointer&lt;QAudioOutput&gt; m_stream;
+ 
+-  bool m_active;
++  QIODevice * m_source;
++  bool volatile m_active;
++  QAudioDeviceInfo m_currentDevice;
+ };
+ 
+ #endif
+
+Modified: branches/wsjtx/wsjtx.pro
+===================================================================
+--- branches/wsjtx/wsjtx.pro	2013-08-07 23:03:18 UTC (rev 3531)
++++ branches/wsjtx/wsjtx.pro	2013-08-07 23:09:13 UTC (rev 3532)
+@@ -14,7 +14,6 @@
+ DESTDIR = ../wsjtx_install
+ VERSION = 1.2
+ TEMPLATE = app
+-#DEFINES = QT4
+ DEFINES = QT5
+ 
+ win32 {
+@@ -82,9 +81,9 @@
+ RC_FILE = wsjtx.rc
+ 
+ unix {
+-LIBS += ../wsjtx/lib/libjt9.a
++LIBS += -L lib -ljt9
+ LIBS += -lhamlib
+-LIBS += -lgfortran -lfftw3f
++LIBS += -lfftw3f `$$F90 -print-file-name=libgfortran.so`
+ }
+ 
+ win32 {
+@@ -99,3 +98,6 @@
+ LIBS += C:/MinGW/lib/libf95.a
+ 
+ }
++
++RESOURCES += \
++    wsjtx.qrc
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003223.html">[WSJT-SVN] r3531 - branches/wsjtx/logbook
+</A></li>
+	<LI>Next message: <A HREF="003225.html">[WSJT-SVN] r3533 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3224">[ date ]</a>
+              <a href="thread.html#3224">[ thread ]</a>
+              <a href="subject.html#3224">[ subject ]</a>
+              <a href="author.html#3224">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

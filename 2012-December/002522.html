@@ -1,0 +1,319 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2830 - in branches/wsprx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2830%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20121217140044.9668155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002521.html">
+   <LINK REL="Next"  HREF="002523.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2830 - in branches/wsprx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2830%20-%20in%20branches/wsprx%3A%20.%20lib&In-Reply-To=%3C20121217140044.9668155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2830 - in branches/wsprx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Dec 17 15:00:44 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002521.html">[WSJT-SVN] r2829 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002523.html">[WSJT-SVN] r2831 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2522">[ date ]</a>
+              <a href="thread.html#2522">[ thread ]</a>
+              <a href="subject.html#2522">[ subject ]</a>
+              <a href="author.html#2522">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-17 15:00:44 +0100 (Mon, 17 Dec 2012)
+New Revision: 2830
+
+Added:
+   branches/wsprx/lib/genmept.f90
+Removed:
+   branches/wsprx/lib/genmept.f
+Modified:
+   branches/wsprx/mainwindow.cpp
+Log:
+Change genmept to f90.
+
+
+Deleted: branches/wsprx/lib/genmept.f
+===================================================================
+--- branches/wsprx/lib/genmept.f	2012-12-16 15:52:37 UTC (rev 2829)
++++ branches/wsprx/lib/genmept.f	2012-12-17 14:00:44 UTC (rev 2830)
+@@ -1,101 +0,0 @@
+-      subroutine genmept(message,ntxdf,snrdb,iwave)
+-
+-C  Encode a WSPR message and generate the corresponding wavefile.
+-
+-      character*22 message
+-      parameter (NMAX=120*12000)     !Max length of wave file
+-      integer*2 iwave(NMAX)          !Generated wave file
+-      parameter (MAXSYM=176)
+-      integer*1 symbol(MAXSYM)
+-      integer*1 data0(11),i1
+-      integer npr3(162)
+-      logical first
+-      real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+-      equivalence(i1,i4)
+-      data npr3/
+-     + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+-     + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
+-     + 0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
+-     + 1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
+-     + 0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,
+-     + 0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
+-     + 0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
+-     + 0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
+-     + 0,0/
+-
+-      data first/.true./,idum/0/
+-      save
+-
+-      if(first) then
+-         pi=4.d0*atan(1.d0)
+-         twopi=2.d0*pi
+-         first=.false.
+-      endif
+-
+-      call wqencode(message,ntype,data0)
+-      nbytes=(50+31+7)/8
+-      call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+-      call inter_mept(symbol,1)                   !Apply interleaving
+-      do i=1,162
+-         i4=0
+-         i1=symbol(i)
+-      enddo
+-
+-C  Set up necessary constants
+-      tsymbol=8192.d0/12000.d0
+-      dt=1.d0/12000.d0
+-      f0=1500 + ntxdf
+-      dfgen=12000.d0/8192.d0                     !1.4649 Hz
+-      nsigs=1
+-      if(snrdb.eq.10.0) nsigs=10
+-      do isig=1,nsigs
+-         if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
+-         fac=3000.0
+-         if(snr.gt.1.0) fac=3000.0/snr
+-         if(nsigs.eq.10) then
+-            snr=10.0**(0.05*(-20-isig))
+-            f0=1390 + 20*isig
+-         endif
+-         t=-2.d0 - 0.1*(isig-1)
+-         phi=0.d0
+-         j0=0
+-
+-         do i=1,NMAX
+-            t=t+dt
+-            j=int(t/tsymbol) + 1                          !Symbol number
+-            sig=0.
+-            if(j.ge.1 .and. j.le.162) then
+-               if(j.ne.j0) then
+-                  f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
+-                  j0=j
+-                  if(snrdb.eq.11.0) then
+-                     k=npr3(j) + 2*symbol(j)
+-                     write(*,1000) j,k,f
+- 1000                format(i3,i3,f10.3)
+-                     go to 10
+-                  else
+-                     dphi=twopi*dt*f
+-                  endif
+-               endif
+-               sig=0.9999
+-            endif
+-            phi=phi+dphi
+-            if(snrdb.gt.50.0) then
+-               n=32767.0*sin(phi)           !Normal transmission, signal only
+-            else
+-               if(isig.eq.1) then
+-                  n=fac*(gran(idum) + sig*snr*sin(phi))
+-               else
+-                  n=iwave(i) + fac*sig*snr*sin(phi)
+-               endif
+-               if(n.gt.32767) n=32767
+-               if(n.lt.-32767) n=-32767
+-            endif
+-            iwave(i)=n
+- 10         continue
+-         enddo
+-      enddo
+-
+-      return
+-      end
+-
+
+Copied: branches/wsprx/lib/genmept.f90 (from rev 2813, branches/wsprx/lib/genmept.f)
+===================================================================
+--- branches/wsprx/lib/genmept.f90	                        (rev 0)
++++ branches/wsprx/lib/genmept.f90	2012-12-17 14:00:44 UTC (rev 2830)
+@@ -0,0 +1,101 @@
++subroutine genmept(message,ntxdf,snrdb,iwave)
++
++! Encode a WSPR message and generate the corresponding wavefile.
++
++  character*22 message
++  parameter (NMAX=120*12000)     !Max length of wave file
++  integer*2 iwave(NMAX)          !Generated wave file
++  parameter (MAXSYM=176)
++  integer*1 symbol(MAXSYM)
++  integer*1 data0(11),i1
++  integer npr3(162)
++  logical first
++  real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
++  equivalence(i1,i4)
++  data npr3/                                      &amp;
++      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,    &amp;
++      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,    &amp;
++      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,    &amp;
++      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,    &amp;
++      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,    &amp;
++      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,    &amp;
++      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,    &amp;
++      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,    &amp;
++      0,0/
++
++  data first/.true./,idum/0/
++  save
++
++  if(first) then
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     first=.false.
++  endif
++
++  call wqencode(message,ntype,data0)
++  nbytes=(50+31+7)/8
++  call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
++  call inter_mept(symbol,1)                   !Apply interleaving
++  do i=1,162
++     i4=0
++     i1=symbol(i)
++  enddo
++
++! Set up necessary constants
++  tsymbol=8192.d0/12000.d0
++  dt=1.d0/12000.d0
++  f0=1500 + ntxdf
++  dfgen=12000.d0/8192.d0                     !1.4649 Hz
++  nsigs=1
++  if(snrdb.eq.10.0) nsigs=10
++  do isig=1,nsigs
++     if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
++     fac=3000.0
++     if(snr.gt.1.0) fac=3000.0/snr
++     if(nsigs.eq.10) then
++        snr=10.0**(0.05*(-20-isig))
++        f0=1390 + 20*isig
++     endif
++     t=-2.d0 - 0.1*(isig-1)
++     phi=0.d0
++     j0=0
++
++     do i=1,NMAX
++        t=t+dt
++        j=int(t/tsymbol) + 1                          !Symbol number
++        sig=0.
++        if(j.ge.1 .and. j.le.162) then
++           if(j.ne.j0) then
++              f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
++              j0=j
++              if(snrdb.eq.11.0) then
++                 k=npr3(j) + 2*symbol(j)
++                 write(*,1000) j,k,f
++1000             format(i3,i3,f10.3)
++                 go to 10
++              else
++                 dphi=twopi*dt*f
++              endif
++           endif
++           sig=0.9999
++        endif
++        phi=phi+dphi
++        if(snrdb.gt.50.0) then
++           n=32767.0*sin(phi)           !Normal transmission, signal only
++        else
++           if(isig.eq.1) then
++              n=fac*(gran(idum) + sig*snr*sin(phi))
++           else
++              n=iwave(i) + fac*sig*snr*sin(phi)
++           endif
++           if(n.gt.32767) n=32767
++           if(n.lt.-32767) n=-32767
++        endif
++        iwave(i)=n
++10      continue
++     enddo
++  enddo
++
++  return
++end subroutine genmept
++
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-16 15:52:37 UTC (rev 2829)
++++ branches/wsprx/mainwindow.cpp	2012-12-17 14:00:44 UTC (rev 2830)
+@@ -286,6 +286,7 @@
+   if(ihsym &lt;=0) return;
+   QString t;
+   t.sprintf(&quot; Receiving: %5.1f dB &quot;,px);
++  qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; t;
+   lab1-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);                    //Update thermometer
+   if(m_monitoring || m_diskData) {
+@@ -772,6 +773,7 @@
+   }
+ 
+   if(nsec != m_sec0) {                                     //Once per second
++    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; m_transmitting &lt;&lt; m_monitoring &lt;&lt; nsec;
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     if(m_transmitting) {
+       if(nsendingsh==1) {
+@@ -806,8 +808,6 @@
+   btxok0=btxok;
+ }
+ 
+-
+-                                                       //doubleClickOnCall
+ void MainWindow::on_actionWSPR_2_triggered()
+ {
+   m_mode=&quot;WSPR-2&quot;;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002521.html">[WSJT-SVN] r2829 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002523.html">[WSJT-SVN] r2831 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2522">[ date ]</a>
+              <a href="thread.html#2522">[ thread ]</a>
+              <a href="subject.html#2522">[ subject ]</a>
+              <a href="author.html#2522">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

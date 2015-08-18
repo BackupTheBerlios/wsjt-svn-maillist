@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r483 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r483%20-%20branches/map65&In-Reply-To=%3C200707101503.l6AF32iX017211%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000167.html">
+   <LINK REL="Next"  HREF="000169.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r483 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r483%20-%20branches/map65&In-Reply-To=%3C200707101503.l6AF32iX017211%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r483 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 10 17:03:02 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000167.html">[WSJT-SVN] r482 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000169.html">[WSJT-SVN] r484 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#168">[ date ]</a>
+              <a href="thread.html#168">[ thread ]</a>
+              <a href="subject.html#168">[ subject ]</a>
+              <a href="author.html#168">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-10 17:02:56 +0200 (Tue, 10 Jul 2007)
+New Revision: 483
+
+Modified:
+   branches/map65/display.F90
+   branches/map65/getfile2.F90
+   branches/map65/map65.py
+   branches/map65/options.py
+Log:
+Fixed calc of rxnoise for recorded data.
+Don't display &quot;No Rx data&quot; when transmitting.
+Add dB to Messages window.
+Make option labels more informative.
+
+
+Modified: branches/map65/display.F90
+===================================================================
+--- branches/map65/display.F90	2007-07-10 00:15:11 UTC (rev 482)
++++ branches/map65/display.F90	2007-07-10 15:02:56 UTC (rev 483)
+@@ -7,7 +7,7 @@
+   parameter (MAXLINES=500,MX=500)
+   integer indx(MAXLINES),indx2(MX)
+   character*81 line(MAXLINES),line2(MX),line3(MAXLINES)
+-  character out*46,cfreq0*3
++  character out*50,cfreq0*3
+   character*6 callsign,callsign0
+   character*12 freqcall(100)
+   character*40 bm2
+@@ -118,7 +118,7 @@
+   nc=0
+   callsign0='          '
+   do k=1,k3
+-     out=line3(k)(5:12)//line3(k)(28:31)//line3(k)(39:67)//line3(k)(77:81)
++     out=line3(k)(5:12)//line3(k)(28:31)//line3(k)(35:67)//line3(k)(77:81)
+      if(out(1:3).ne.'   ') then
+         if(out(1:3).eq.cfreq0) then
+            out(1:3)='   '
+@@ -126,9 +126,9 @@
+            cfreq0=out(1:3)
+         endif
+         write(19,1030) out
+-1030    format(a46)
+-        i1=index(out(20:),' ')
+-        callsign=out(i1+20:)
++1030    format(a50)
++        i1=index(out(24:),' ')
++        callsign=out(i1+24:)
+         i2=index(callsign,' ')
+         if(i2.gt.1) callsign(i2:)='      '
+         if(callsign.ne.'      ' .and. callsign.ne.callsign0) then
+
+Modified: branches/map65/getfile2.F90
+===================================================================
+--- branches/map65/getfile2.F90	2007-07-10 00:15:11 UTC (rev 482)
++++ branches/map65/getfile2.F90	2007-07-10 15:02:56 UTC (rev 483)
+@@ -6,6 +6,7 @@
+ 
+   character*(*) fname
+   character infile*15
++  real*8 sq
+ 
+   include 'datcom.f90'
+   include 'gcom1.f90'
+@@ -49,10 +50,18 @@
+ 
+ #endif
+ 
++  sq=0.
++  ka=0.1*NSMAX
++  kb=0.8*NSMAX
++  do k=ka,kb
++     sq=sq + float(int(id(1,k,1)))**2 + float(int(id(1,k,1)))**2 +    &amp;
++          float(int(id(1,k,1)))**2 + float(int(id(1,k,1)))**2
++  enddo
++  sqave=174*sq/(kb-ka+1)
++  rxnoise=10.0*log10(sqave) - 48.0
+   read(filename(8:11),*) nutc
+   ndiskdat=1
+   mousebutton=0
+-  rxnoise=8.0
+   go to 999
+ 
+ 998 ierr=1001
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-10 00:15:11 UTC (rev 482)
++++ branches/map65/map65.py	2007-07-10 15:02:56 UTC (rev 483)
+@@ -1,4 +1,4 @@
+-#-------------------------------------------------------------------- MAP65
++#--------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -188,9 +188,9 @@
+     bm.geometry(bm_geom)
+     if g.Win32: bm.iconbitmap(&quot;wsjt.ico&quot;)
+     iframe_bm1 = Frame(bm, bd=1, relief=SUNKEN)
+-    Label(iframe_bm1,text='Freq      DF     Pol     UTC').pack(anchor=W, \
++    Label(iframe_bm1,text='Freq      DF     Pol     dB    UTC').pack(anchor=W, \
+         pady=0,side='top')
+-    msgtext=Text(iframe_bm1, height=35, width=41, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
++    msgtext=Text(iframe_bm1, height=35, width=45, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+     msgtext.bind('&lt;Double-Button-1&gt;',dbl_click_msgtext)
+     msgtext.pack(side=LEFT, fill=X, padx=1, pady=3)
+     bmsb = Scrollbar(iframe_bm1, orient=VERTICAL, command=msgtext.yview)
+@@ -931,6 +931,8 @@
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
++    txminute=0
++    if Audio.gcom2.lauto and utc[4]%2 == Audio.gcom1.txfirst: txminute=1
+ 
+     if isec != isec0:                           #Do once per second
+         isec0=isec
+@@ -953,8 +955,9 @@
+         azdist()
+         g.nfreq=nfreq.get()
+         kxp=int(Audio.datcom.kxp)
+-        if kxp-kxp0 &lt; 50000:
+-            msg5.configure(text='No data',bg='red')
++        if kxp-kxp0 &lt; 50000 and \
++           ((not Audio.gcom2.lauto) or (not Audio.gcom1.transmitting)):
++            msg5.configure(text='No Rx data',bg='red')
+         else:
+             msg5.configure(bg='gray85')            
+         kxp0=kxp
+@@ -1018,8 +1021,6 @@
+     t=&quot;QSO DF:%4d&quot; % (int(Audio.gcom2.mousedf),)
+     msg3.configure(text=t)
+ 
+-    txminute=0
+-    if Audio.gcom2.lauto and utc[4]%2 == Audio.gcom1.txfirst: txminute=1
+     if mode.get()[:4]=='JT65' and (Audio.gcom2.ndecoding&gt;0 or \
+          (isec&gt;45 and  txminute==0 and Audio.gcom2.monitoring==1 and \
+           Audio.datcom.kkdone!=-99 and Audio.gcom2.ndiskdat!=1)):
+@@ -1116,10 +1117,10 @@
+             msgtext.delete('1.0',END)
+             for i in range(len(lines)):
+                 try:
+-                    nage=int(lines[i][41:])
++                    nage=int(lines[i][45:])
+                 except:
+                     nage=0
+-                lines[i]=lines[i][:41]+'\n'
++                lines[i]=lines[i][:45]+'\n'
+                 if nage==0: attr='age0'
+                 if nage==1: attr='age1'
+                 if nage==2: attr='age2'
+
+Modified: branches/map65/options.py
+===================================================================
+--- branches/map65/options.py	2007-07-10 00:15:11 UTC (rev 482)
++++ branches/map65/options.py	2007-07-10 15:02:56 UTC (rev 483)
+@@ -91,22 +91,22 @@
+     entry_width=9,entry_textvariable=auxra)
+ aux_dec=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Source DEC:',
+     entry_width=9,entry_textvariable=auxdec)
+-nkeep_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='nkeep (min):',
++nkeep_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Timeout (min):',
+     entry_width=9,value=20,entry_textvariable=nkeep)
+ dphi_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Dphi (deg):',
+     entry_width=9,entry_textvariable=dphi)
+-fa_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fa (kHz):',
++fa_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Fmin (kHz):',
+     entry_width=9,value=100,entry_textvariable=fa)
+-fb_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fb (kHz):',
++fb_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Fmax (kHz):',
+     entry_width=9,value=160,entry_textvariable=fb)
+-fcal_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='fcal (Hz):',
++fcal_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='Fcal (Hz):',
+     entry_width=9,entry_textvariable=fcal)
+ savedir_entry=Pmw.EntryField(g3.interior(),labelpos=W,label_text='SaveDir:',
+-    entry_width=20,value=g.appdir+'/save',entry_textvariable=savedir)
++    entry_width=23,value=g.appdir+'\save',entry_textvariable=savedir)
+ widgets = (temp_prefix,aux_ra,aux_dec,nkeep_entry,dphi_entry, \
+            fa_entry,fb_entry,fcal_entry,savedir_entry,)
+ for widget in widgets:
+-    widget.pack(padx=10,pady=2)
++    widget.pack(padx=2,pady=2)
+ Pmw.alignlabels(widgets)
+ 
+ g1.pack(side=LEFT,fill=BOTH,expand=1,padx=6,pady=6)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000167.html">[WSJT-SVN] r482 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000169.html">[WSJT-SVN] r484 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#168">[ date ]</a>
+              <a href="thread.html#168">[ thread ]</a>
+              <a href="subject.html#168">[ subject ]</a>
+              <a href="author.html#168">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2321 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2321%20-%20branches/wspr&In-Reply-To=%3C20101222203523.E5BF54801D6%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002012.html">
+   <LINK REL="Next"  HREF="002014.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2321 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2321%20-%20branches/wspr&In-Reply-To=%3C20101222203523.E5BF54801D6%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2321 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Dec 22 21:35:23 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002012.html">[WSJT-SVN] r2320 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002014.html">[WSJT-SVN] r2322 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2013">[ date ]</a>
+              <a href="thread.html#2013">[ thread ]</a>
+              <a href="subject.html#2013">[ subject ]</a>
+              <a href="author.html#2013">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-22 21:35:23 +0100 (Wed, 22 Dec 2010)
+New Revision: 2321
+
+Modified:
+   branches/wspr/genwspr.f90
+   branches/wspr/tx.f90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Perhaps I have the logging of transmissions right, at last??
+Also thinking about setting the band on program startup, if band hopping
+with coordinated bands is enabled.  (Not yet implemented, though.)
+
+
+Modified: branches/wspr/genwspr.f90
+===================================================================
+--- branches/wspr/genwspr.f90	2010-12-22 17:26:18 UTC (rev 2320)
++++ branches/wspr/genwspr.f90	2010-12-22 20:35:23 UTC (rev 2321)
+@@ -48,17 +48,6 @@
+   enddo
+   call wqdecode(data0,msg2,ntype2)
+ 
+-!  if(ntune.eq.0) then
+-!     call cs_lock('genwspr')
+-!     alltxt=appdir(:nappdir)//'/ALL_WSPR.TXT'
+-!     open(13,file=alltxt,status='unknown',position='append')
+-!     line=linetx//msg2
+-!     write(13,1010) line
+-!1010 format(a75)
+-!     close(13)
+-!     call cs_unlock
+-!  endif
+-
+ ! Set up necessary constants
+   tsymbol=4.d0*8192.d0/48000.d0
+   dt=1.d0/48000.d0
+@@ -126,6 +115,8 @@
+         endif
+      endif
+   enddo
++  if(ntune2.lt.0) msg2='Tune'
++  if(ntune2.eq.-4) msg2='ATU tuneup'
+   ntune2=0
+ 
+   return
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2010-12-22 17:26:18 UTC (rev 2320)
++++ branches/wspr/tx.f90	2010-12-22 20:35:23 UTC (rev 2321)
+@@ -103,7 +103,7 @@
+   read(18,*,err=10,end=10) snr
+ 10 close(18)
+   call gmtime2(nt,tsec1)
+-  if(ntune.eq.0 .and. ntune2.ne.0) ntune2=0
++  if(ntune.eq.0 .and. ntune2.ne.0) ntune2=0      !### ??? ###
+   call cs_unlock
+ 
+   newgen=0
+@@ -119,7 +119,8 @@
+      call genwspr(message,ntxdf,ntune,snr,iqmode,iqtx,   &amp;
+        appdir,nappdir,sending,jwave)
+      newgen=1
+-  else
++  endif
++  if(ntune.eq.0) then
+      call cs_lock('tx')
+      alltxt=appdir(:nappdir)//'/ALL_WSPR.TXT'
+      open(13,file=alltxt,status='unknown',position='append')
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-22 17:26:18 UTC (rev 2320)
++++ branches/wspr/wspr.py	2010-12-22 20:35:23 UTC (rev 2321)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- WSPR
++#-------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+@@ -904,6 +904,7 @@
+ 
+     freq0[iband.get()]=f0.get()
+     freqtx[iband.get()]=ftx.get()
++    w.acom1.iband=iband.get()
+     try:
+         w.acom1.f0=f0.get()
+         w.acom1.ftx=ftx.get()
+@@ -1716,6 +1717,16 @@
+ except:
+     pass
+ 
++##if hopping.hopping.get() and hopping.coord_bands.get() and not idle.get():
++##    tsec=time.time()
++##    utc=time.gmtime(tsec)
++##    ns1=int(tsec) % 1200
++##    b=ns1/120 + 3
++##    if b==12: b=2
++##    if hopping.hoppingflag[b].get():
++##        iband.set(b)
++## Issue rigctl command here
++
+ iband0=iband.get()
+ graph1.focus_set()
+ w.acom1.ndevsok=0
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-12-22 17:26:18 UTC (rev 2320)
++++ branches/wspr/wspr2.f90	2010-12-22 20:35:23 UTC (rev 2321)
+@@ -145,9 +145,12 @@
+      if(pctx.eq.0.0) nrx=1
+   endif
+ 
++  if(transmitting .or. receiving) go to 10
++
+   if(pctx.gt.0.0 .and. (ntxnext.eq.1 .or. (nrx.eq.0 .and. ntr.ne.-1))) then
+ 
+      call cs_lock('wspr2')
++     ntune2=ntune
+      transmitting=.true.
+      call random_number(x)
+      if(pctx.lt.50.0) then
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002012.html">[WSJT-SVN] r2320 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002014.html">[WSJT-SVN] r2322 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2013">[ date ]</a>
+              <a href="thread.html#2013">[ thread ]</a>
+              <a href="subject.html#2013">[ subject ]</a>
+              <a href="author.html#2013">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

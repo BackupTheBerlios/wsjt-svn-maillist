@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2146 - in wsjt7a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2146%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20100914193301.72674480E45%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001837.html">
+   <LINK REL="Next"  HREF="001839.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2146 - in wsjt7a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2146%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20100914193301.72674480E45%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2146 - in wsjt7a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 14 21:33:01 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001837.html">[WSJT-SVN] r2145 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001839.html">[WSJT-SVN] r2147 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1838">[ date ]</a>
+              <a href="thread.html#1838">[ thread ]</a>
+              <a href="subject.html#1838">[ subject ]</a>
+              <a href="author.html#1838">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-14 21:33:00 +0200 (Tue, 14 Sep 2010)
+New Revision: 2146
+
+Modified:
+   wsjt7a/WsjtMod/specjt.py
+   wsjt7a/decode2.f90
+   wsjt7a/decode3.f90
+   wsjt7a/iscat.f90
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt1.f90
+Log:
+Implement decoding on-the-fly for ISCAT mode.
+Left click:  +/- 1 s from clicked location.
+Right click: from start of sequence to clicked location.
+
+
+Modified: wsjt7a/WsjtMod/specjt.py
+===================================================================
+--- wsjt7a/WsjtMod/specjt.py	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/WsjtMod/specjt.py	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -254,19 +254,9 @@
+ def set_frange():
+     nfr.set(3-nfr.get())
+ 
+-#---------------------------------------------------- freq_center
+-##def freq_center(event):
+-### Move clicked location to center of frequency scale
+-##    global fmid,frange
+-##    n=100*int(0.01*df*(event.x-375))
+-##    fmid = fmid + n
+-##    if fmid&lt;1000: fmid=1000
+-##    if fmid&gt;1700: fmid=1700
+-
+ #---------------------------------------------------- decode_request
+ def decode_request(event):
+-    if (g.mode=='FSK441' or g.mode=='JTMS' or \
+-        g.mode=='ISCAT') and nspeed0.get()&gt;5:
++    if (g.mode=='FSK441' or g.mode=='JTMS') and nspeed0.get()&gt;5:
+ # If decoder is busy or we are not monitoring, ignore request
+         if Audio.gcom2.ndecoding==0 and Audio.gcom2.monitoring:
+             Audio.gcom2.mousebutton=event.num       #Left=1, Right=3
+@@ -276,6 +266,15 @@
+             else:
+                 Audio.gcom2.ndecoding=3             #Mouse pick, bottom half
+ 
++    elif g.mode=='ISCAT' and nspeed0.get()&gt;5 and \
++          Audio.gcom2.ndecoding==0 and Audio.gcom2.monitoring:
++        Audio.gcom2.mousebutton=event.num       #Left=1, Right=3
++        Audio.gcom2.npingtime=int(40*event.x)   #Time (ms) of selected ping
++        if event.y &lt;= 150:
++            Audio.gcom2.ndecoding=2             #Mouse pick, top half
++        else:
++            Audio.gcom2.ndecoding=3             #Mouse pick, bottom half
++
+ #---------------------------------------------------- freeze_decode
+ def freeze_decode(event):
+     if (g.mode[:4]=='JT65' or g.mode[:3]=='JT4' or g.mode=='Diana') \
+@@ -572,14 +571,11 @@
+ Widget.bind(c,&quot;&lt;Shift-Button-1&gt;&quot;,freq_range)
+ Widget.bind(c,&quot;&lt;Shift-Button-2&gt;&quot;,freq_range)
+ Widget.bind(c,&quot;&lt;Shift-Button-3&gt;&quot;,freq_range)
+-#Widget.bind(c,&quot;&lt;Control-Button-1&gt;&quot;,freq_center)
+-
+ graph1=Canvas(iframe1, bg='black', width=750, height=300,bd=0,cursor='crosshair')
+ graph1.pack(side=TOP)
+ Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,fdf_change)
+-#Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,decode_request)
+-Widget.bind(graph1,&quot;&lt;Button-3&gt;&quot;,decode_request)
+ Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,set_freezedf)
++Widget.bind(graph1,&quot;&lt;Button-3&gt;&quot;,decode_request)
+ Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,freeze_decode)
+ iframe1.pack(expand=1, fill=X)
+ 
+
+Modified: wsjt7a/decode2.f90
+===================================================================
+--- wsjt7a/decode2.f90	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/decode2.f90	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -28,6 +28,10 @@
+   else if(ndecoding.eq.2) then
+ 
+ ! Mouse pick, top half of waterfall
++     if(mode(1:5).eq.'ISCAT' .and. MouseButton.eq.3) then
++        lenpick=istart
++        istart=1
++     endif
+ ! The following is empirical:
+      k=2048*ibuf0 + istart - 11025*mod(tbuf(ibuf0),dble(trperiod)) -3850
+      if(k.le.0)      k=k+NRxMax
+@@ -45,6 +49,10 @@
+   else if(ndecoding.eq.3) then
+ 
+ !Mouse pick, bottom half of waterfall
++     if(mode(1:5).eq.'ISCAT' .and. MouseButton.eq.3) then
++        lenpick=istart
++        istart=1
++     endif
+      ib0=ibuf0-161
+      if(lauto.eq.1 .and. mute.eq.0 .and. transmitting.eq.1) ib0=ibuf0-323
+      if(ib0.lt.1) ib0=ib0+1024
+@@ -74,14 +82,26 @@
+         if(istart.lt.2) istart=2
+         if(istart+jzz.gt.jzc) istart=jzc-jzz
+      endif
+-     call decode3(d2c(istart),jzz,istart,filename)
++     if(mode(1:5).eq.'ISCAT' .and. MouseButton.eq.3) then
++        lenpick=istart
++        istart=1
++        call decode3(d2c,lenpick,istart,filename)
++     else
++        call decode3(d2c(istart),jzz,istart,filename)
++     endif
+ 
+   else if(ndecoding.eq.5) then
+ ! Mouse pick, main window (but not from recorded file)
+      istart=istart - 1512
+      if(istart.lt.2) istart=2
+      if(istart+lenpick.gt.jza) istart=jza-lenpick
+-     call decode3(d2a(istart),lenpick,istart,fnamea)
++     if(mode(1:5).eq.'ISCAT' .and. MouseButton.eq.3) then
++        lenpick=istart
++        istart=2
++        call decode3(d2a,lenpick,istart,fnamea)
++     else
++        call decode3(d2a(istart),lenpick,istart,fnamea)
++     endif
+   endif
+   fnameb=fnamea
+ 
+
+Modified: wsjt7a/decode3.f90
+===================================================================
+--- wsjt7a/decode3.f90	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/decode3.f90	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -5,7 +5,7 @@
+   character FileID*40
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+-  
++
+   if(ichar(filename(1:1)).eq.0) go to 999
+     
+   FileID=filename
+
+Modified: wsjt7a/iscat.f90
+===================================================================
+--- wsjt7a/iscat.f90	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/iscat.f90	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -78,8 +78,8 @@
+ 
+   i0=2*13
+   smax=0.
+-  ipk=9999
+-  jpk=9999
++  ipk=1
++  jpk=1
+   ia=-400/df
+   ib=400/df
+   if(nfreeze.eq.1) then
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/wsjt.py	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------ WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: wsjt7a/wsjt1.f90
+===================================================================
+--- wsjt7a/wsjt1.f90	2010-09-14 15:07:44 UTC (rev 2145)
++++ wsjt7a/wsjt1.f90	2010-09-14 19:33:00 UTC (rev 2146)
+@@ -234,7 +234,8 @@
+   if(mode.eq.9) then                             !ISCAT mode
+ !     write(74) jz,cfile6,(dat(j),j=1,jz)
+      call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+-     call iscat(dat,jz,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,ccf,psavg)
++     if(jz.ge.11025) call iscat(dat,jz,cfile6,MinSigdB,DFTolerance,     &amp;
++          NFreeze,MouseDF,ccf,psavg)
+      psavg(65:)=0.
+      go to 800
+   endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001837.html">[WSJT-SVN] r2145 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001839.html">[WSJT-SVN] r2147 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1838">[ date ]</a>
+              <a href="thread.html#1838">[ thread ]</a>
+              <a href="subject.html#1838">[ subject ]</a>
+              <a href="author.html#1838">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

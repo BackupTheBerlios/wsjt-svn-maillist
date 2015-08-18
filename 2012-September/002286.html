@@ -1,0 +1,699 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2594 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2594%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120924191131.D929555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002285.html">
+   <LINK REL="Next"  HREF="002287.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2594 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2594%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120924191131.D929555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2594 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Sep 24 21:11:31 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002285.html">[WSJT-SVN] r2593 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002287.html">[WSJT-SVN] r2595 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2286">[ date ]</a>
+              <a href="thread.html#2286">[ thread ]</a>
+              <a href="subject.html#2286">[ subject ]</a>
+              <a href="author.html#2286">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-24 21:11:31 +0200 (Mon, 24 Sep 2012)
+New Revision: 2594
+
+Added:
+   branches/wsjtx/jt8.txt
+   branches/wsjtx/libm65/genjt8.f90
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundin.h
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+Morphing toward a usable WSJT-X with JT8 modes.
+
+
+Added: branches/wsjtx/jt8.txt
+===================================================================
+--- branches/wsjtx/jt8.txt	                        (rev 0)
++++ branches/wsjtx/jt8.txt	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -0,0 +1,31 @@
++JT8 is a mode designed for amateur QSOs and beacon-like transmissions
++at MF and LF.  The mode uses the same 72-bit user messages as JT65,
++augmented by a 12-bit cyclic redundancy check (CRC).  Error-control
++coding uses a convolutional code with constraint length K=16, rate
++r=1/2, and a zero tail, leading to an encoded message length of
++(72+12+15)*2 = 198 bits.  Modulation is 8-FSK, so a transmission
++requires 198/3 = 66 information-carrying channel symbols.  Two 8x8
++Costas arrays are added to each transmission for purposes of time and
++frequency synchronization.  A full transmission thus contains 66 + 16
++= 82 symbols.  Tone spacing df of the 8-FSK modulation is equal to the
++keying rate; symbol duration tsym = 1/df, and the total occupied
++bandwidth is 8*df.  The actual transmission length TxT is slightly
++less than the T/R sequence time, to allow for possible message
++decoding before the next transmission starts.
++
++Parameters of the five JT8 sub-modes are summarized in the following
++table, along with S/N thresholds measured by simulation on an AWGN
++(additive white Gaussian noise) channel.  Parameter nsps is the number
++of samples per symbol at sample rate 1500 Hz.
++
++-----------------------------------------------------
++Mode   T/R    TxT    nsps    df    tsym   BW    S/N*
++       (m)    (s)           (Hz)    (s)  (Hz)   (dB)
++-----------------------------------------------------
++JT8-1    1    52.5    960  1.562   0.64  12.6  -26.9
++JT8-2    2   112.0   2048  0.732   1.37   5.9  -30.2
++JT8-5    5   293.9   5376  0.279   3.58   2.2  -34.4
++JT8-10  10   587.8  10752  0.140   7.17   1.1  -37.5
++JT8-30  30  1791.3  32768  0.046  21.85   0.4  -42.3
++-----------------------------------------------------
++* Noise power measured in a 2500 Hz bandwidth.
+
+Added: branches/wsjtx/libm65/genjt8.f90
+===================================================================
+--- branches/wsjtx/libm65/genjt8.f90	                        (rev 0)
++++ branches/wsjtx/libm65/genjt8.f90	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -0,0 +1,96 @@
++subroutine genjt8(message,iwave,nwave,nbit,msgsent)
++
++! Generate a JT8 wavefile.
++
++  parameter (NMAX=60*12000)     !Max length of wave file
++  character*24 message          !Message to be generated
++  character*24 msgsent          !Message as it will be received
++  character cmode*5
++  real*8 t,dt,phi,f,f0,dfgen,dphi,twopi,tsymbol
++  integer*2 iwave(NMAX)         !Generated wave file
++  integer iu(3)
++  integer gsym(372)             !372 is needed for JT8 mode
++  integer sent(144)
++  integer ic8(8)
++  data ic8/3,6,2,4,5,0,7,1/
++  data nsps/4096/
++  data twopi/6.283185307d0/
++  save
++
++  cmode='JT8'                                   !### temp ? ###
++  call srcenc(cmode,message,nbit,iu)
++! In JT8 mode, message length is always nbit=78
++  if(nbit.ne.78) then
++     print*,'genjt8, nbit=',nbit
++     stop
++  endif
++
++! Apply FEC and do the channel encoding
++  call chenc(cmode,nbit,iu,gsym)
++
++! Remove source encoding, recover the human-readable message.
++  call srcdec(cmode,nbit,iu,msgsent)
++
++! Insert 8x8 Costas array at beginning and end of array sent().
++  sent(1:8)=ic8
++  sent(135:142)=ic8
++! Insert two symbols after each Costas array to specify message length.
++  if(nbit.eq.30) then
++     sent(9)=2
++     sent(10)=2
++     sent(143)=2
++     sent(144)=2
++  else if(nbit.eq.48) then
++     sent(9)=3
++     sent(10)=3
++     sent(143)=3
++     sent(144)=3
++  else
++     sent(9)=6
++     sent(10)=6
++     sent(143)=6
++     sent(144)=6
++  endif
++
++! Insert the 3-bit data symbols
++  sent(11:134)=gsym(1:124)
++
++! Use the four free symbols in 30-bit mode
++  if(nbit.eq.30) then
++     sent(121)=sent(20)
++     sent(122)=sent(45)
++     sent(123)=sent(70)
++     sent(124)=sent(95)
++  endif
++
++! Set up necessary constants
++  nsym=144
++  tsymbol=nsps/12000.d0
++  dt=1.d0/12000.d0
++  f0=1270.46d0
++  dfgen=12000.d0/nsps
++  t=0.d0
++  phi=0.d0
++  k=0
++  j0=0
++  ndata=(nsym*12000.d0*tsymbol)/2
++  ndata=2*ndata
++  do i=1,ndata
++     t=t+dt
++     j=int(t/tsymbol) + 1                    !Symbol number, 1-nsym
++     if(j.ne.j0) then
++        f=f0
++        k=k+1
++        if(k.le.144) f=f0+(sent(k))*dfgen         !### Fix need for this ###
++        dphi=twopi*dt*f
++        j0=j
++     endif
++     phi=phi+dphi
++     iwave(i)=32767.0*sin(phi)
++  enddo
++
++  iwave(ndata+1:)=0
++  nwave=ndata+6000                          !0.5 s buffer before CW ID
++
++  return
++end subroutine genjt8
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/mainwindow.cpp	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -42,9 +42,11 @@
+   ui-&gt;actionBlue-&gt;setActionGroup(paletteGroup);
+ 
+   QActionGroup* modeGroup = new QActionGroup(this);
+-  ui-&gt;actionJT65A-&gt;setActionGroup(modeGroup);
+-  ui-&gt;actionJT65B-&gt;setActionGroup(modeGroup);
+-  ui-&gt;actionJT65C-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT8_1-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT8_2-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT8_5-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT8_10-&gt;setActionGroup(modeGroup);
++  ui-&gt;actionJT8_30-&gt;setActionGroup(modeGroup);
+ 
+   QActionGroup* saveGroup = new QActionGroup(this);
+   ui-&gt;actionSave_all-&gt;setActionGroup(saveGroup);
+@@ -94,7 +96,7 @@
+   m_myCall=&quot;K1JT&quot;;
+   m_myGrid=&quot;FN20qi&quot;;
+   m_appDir = QApplication::applicationDirPath();
+-  m_saveDir=&quot;/users/joe/wsjt-x/install/save&quot;;
++  m_saveDir=&quot;/users/joe/wsjtx/install/save&quot;;
+   m_txFreq=125;
+   m_setftx=0;
+   m_loopall=false;
+@@ -106,7 +108,8 @@
+   m_RxLog=1;                     //Write Date and Time to RxLog
+   m_nutc0=9999;
+   m_NB=false;
+-  m_mode=&quot;JTMSK&quot;;
++  m_mode=&quot;JT8-1&quot;;
++  m_TRperiod=60;
+   m_colors=&quot;000066ff0000ffff00969696646464&quot;;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -126,8 +129,13 @@
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+ 
+-  genStdMsgs(&quot;26&quot;);
++  genStdMsgs(&quot;-30&quot;);
+   on_actionWide_Waterfall_triggered();                   //###
++  if(m_mode==&quot;JT8-1&quot;) on_actionJT8_1_triggered();
++  if(m_mode==&quot;JT8-2&quot;) on_actionJT8_2_triggered();
++  if(m_mode==&quot;JT8-5&quot;) on_actionJT8_5_triggered();
++  if(m_mode==&quot;JT8-10&quot;) on_actionJT8_10_triggered();
++  if(m_mode==&quot;JT8-30&quot;) on_actionJT8_30_triggered();
+ 
+   future1 = new QFuture&lt;void&gt;;
+   watcher1 = new QFutureWatcher&lt;void&gt;;
+@@ -194,7 +202,7 @@
+ //-------------------------------------------------------- writeSettings()
+ void MainWindow::writeSettings()
+ {
+-  QString inifile = m_appDir + &quot;/wsjt-x.ini&quot;;
++  QString inifile = m_appDir + &quot;/wsjtx.ini&quot;;
+   QSettings settings(inifile, QSettings::IniFormat);
+ 
+   settings.beginGroup(&quot;MainWindow&quot;);
+@@ -261,7 +269,7 @@
+ //---------------------------------------------------------- readSettings()
+ void MainWindow::readSettings()
+ {
+-  QString inifile = m_appDir + &quot;/wsjt-x.ini&quot;;
++  QString inifile = m_appDir + &quot;/wsjtx.ini&quot;;
+   QSettings settings(inifile, QSettings::IniFormat);
+   settings.beginGroup(&quot;MainWindow&quot;);
+   restoreGeometry(settings.value(&quot;geometry&quot;).toByteArray());
+@@ -307,7 +315,7 @@
+                                  &quot;PaletteAFMHot&quot;,false).toBool());
+   ui-&gt;actionBlue-&gt;setChecked(settings.value(
+                                  &quot;PaletteBlue&quot;,false).toBool());
+-  m_mode=settings.value(&quot;Mode&quot;,&quot;JTMSK&quot;).toString();
++  m_mode=settings.value(&quot;Mode&quot;,&quot;JT8-1&quot;).toString();
+   ui-&gt;actionNone-&gt;setChecked(settings.value(&quot;SaveNone&quot;,true).toBool());
+   ui-&gt;actionSave_all-&gt;setChecked(settings.value(&quot;SaveAll&quot;,false).toBool());
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+@@ -556,13 +564,13 @@
+     break;
+   case Qt::Key_G:
+     if(e-&gt;modifiers() &amp; Qt::AltModifier) {
+-      genStdMsgs(&quot;26&quot;);
++      genStdMsgs(&quot;-30&quot;);
+       break;
+     }
+   case Qt::Key_L:
+     if(e-&gt;modifiers() &amp; Qt::ControlModifier) {
+       lookup();
+-      genStdMsgs(&quot;26&quot;);
++      genStdMsgs(&quot;-30&quot;);
+       break;
+     }
+   }
+@@ -616,13 +624,13 @@
+   lab3-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab3);
+ 
+-  /*
+   lab4 = new QLabel(&quot;&quot;);
+   lab4-&gt;setAlignment(Qt::AlignHCenter);
+   lab4-&gt;setMinimumSize(QSize(80,10));
+   lab4-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab4);
+ 
++/*
+   lab5 = new QLabel(&quot;&quot;);
+   lab5-&gt;setAlignment(Qt::AlignHCenter);
+   lab5-&gt;setMinimumSize(QSize(50,10));
+@@ -898,19 +906,18 @@
+   static char msgsent[29];
+   static int nsendingsh=0;
+   int khsym=0;
+-  double trperiod=30.0;
+ 
+   double tx1=0.0;
+-  double tx2=trperiod;
++  double tx2=m_TRperiod;
+ 
+   if(!m_txFirst) {
+-    tx1 += trperiod;
+-    tx2 += trperiod;
++    tx1 += m_TRperiod;
++    tx2 += m_TRperiod;
+   }
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+-  double t2p=fmod(tsec,2*trperiod);
++  double t2p=fmod(tsec,2*m_TRperiod);
+   bool bTxTime = t2p &gt;= tx1 &amp;&amp; t2p &lt; tx2;
+ 
+   if(m_auto) {
+@@ -948,7 +955,7 @@
+     int len1=28;
+     genmsk_(message,iwave,&amp;nwave,len1);
+     if(m_restart) {
+-      QFile f(&quot;wsjt-x_tx.log&quot;);
++      QFile f(&quot;wsjtx_tx.log&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+       QTextStream out(&amp;f);
+       out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+@@ -969,7 +976,7 @@
+     btxok=true;
+     m_transmitting=true;
+ 
+-    QFile f(&quot;wsjt-x_tx.log&quot;);
++    QFile f(&quot;wsjtx_tx.log&quot;);
+     f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+     QTextStream out(&amp;f);
+     out &lt;&lt; QDateTime::currentDateTimeUtc().toString(&quot;yyyy-MMM-dd hh:mm&quot;)
+@@ -1010,7 +1017,6 @@
+   }
+ 
+   if(nsec != m_sec0) {                                     //Once per second
+-
+     if(m_transmitting) {
+       if(nsendingsh==1) {
+         lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #66ffff}&quot;);
+@@ -1158,7 +1164,7 @@
+   QString rpt=&quot;&quot;;
+   if(ctrl) rpt=t2.mid(23,3);
+   lookup();
+-  rpt=&quot;26&quot;;
++  rpt=&quot;-30&quot;;
+   genStdMsgs(rpt);
+   if(t2.indexOf(m_myCall)&gt;0) {
+     m_ntx=2;
+@@ -1408,7 +1414,7 @@
+ 
+ void MainWindow::on_genStdMsgsPushButton_clicked()         //genStdMsgs button
+ {
+-  genStdMsgs(&quot;26&quot;);
++  genStdMsgs(&quot;-30&quot;);
+ }
+ 
+ void MainWindow::on_logQSOButton_clicked()                 //Log QSO button
+@@ -1433,10 +1439,10 @@
+ void MainWindow::on_actionErase_wsjtx_rx_log_triggered()     //Erase Rx log
+ {
+   int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
+-      &quot;Are you sure you want to erase file wsjt-x_rx.log ?&quot;,
++      &quot;Are you sure you want to erase file wsjtx_rx.log ?&quot;,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+   if(ret==QMessageBox::Yes) {
+-    m_RxLog |= 2;                      // Rewind wsjt-x_rx.log
++    m_RxLog |= 2;                      // Rewind wsjtx_rx.log
+   }
+ }
+ */
+@@ -1444,10 +1450,70 @@
+ void MainWindow::on_actionErase_wsjtx_tx_log_triggered()     //Erase Tx log
+ {
+   int ret = QMessageBox::warning(this, &quot;Confirm Erase&quot;,
+-      &quot;Are you sure you want to erase file wsjt-x_tx.log ?&quot;,
++      &quot;Are you sure you want to erase file wsjtx_tx.log ?&quot;,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+   if(ret==QMessageBox::Yes) {
+-    QFile f(&quot;wsjt-x_tx.log&quot;);
++    QFile f(&quot;wsjtx_tx.log&quot;);
+     f.remove();
+   }
+ }
++
++void MainWindow::on_actionJT8_1_triggered()
++{
++  m_mode=&quot;JT8-1&quot;;
++  m_TRperiod=60;
++  soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
++  lab4-&gt;setText(m_mode);
++  ui-&gt;actionJT8_1-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionJT8_2_triggered()
++{
++  m_mode=&quot;JT8-2&quot;;
++  m_TRperiod=120;
++  soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
++  lab4-&gt;setText(m_mode);
++  ui-&gt;actionJT8_2-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionJT8_5_triggered()
++{
++  m_mode=&quot;JT8-5&quot;;
++  m_TRperiod=300;
++  soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
++  lab4-&gt;setText(m_mode);
++  ui-&gt;actionJT8_5-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionJT8_10_triggered()
++{
++  m_mode=&quot;JT8-10&quot;;
++  m_TRperiod=600;
++  soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
++  lab4-&gt;setText(m_mode);
++  ui-&gt;actionJT8_10-&gt;setChecked(true);
++}
++
++void MainWindow::on_actionJT8_30_triggered()
++{
++  m_mode=&quot;JT8-30&quot;;
++  m_TRperiod=1800;
++  soundInThread.setPeriod(m_TRperiod);
++  soundOutThread.setPeriod(m_TRperiod);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
++  lab4-&gt;setText(m_mode);
++  ui-&gt;actionJT8_30-&gt;setChecked(true);
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/mainwindow.h	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -98,11 +98,21 @@
+   void on_genStdMsgsPushButton_clicked();
+   void bumpDF(int n);
+   void on_logQSOButton_clicked();
+-//  void on_actionErase_wsjt-x_rx_log_triggered();
++//  void on_actionErase_wsjtx_rx_log_triggered();
+   void on_actionErase_wsjtx_tx_log_triggered();
+   void on_actionAFMHot_triggered();
+   void on_actionBlue_triggered();
+ 
++  void on_actionJT8_2_triggered();
++
++  void on_actionJT8_1_triggered();
++
++  void on_actionJT8_5_triggered();
++
++  void on_actionJT8_30_triggered();
++
++  void on_actionJT8_10_triggered();
++
+ private:
+     Ui::MainWindow *ui;
+     qint32  m_nDevIn;
+@@ -133,6 +143,7 @@
+     qint32  m_adjustIQ;
+     qint32  m_applyIQcal;
+     qint32  m_mult570;
++    qint32  m_TRperiod;
+ 
+     double  m_fAdd;
+     double  m_IQamp;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/mainwindow.ui	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -1126,6 +1126,11 @@
+     &lt;property name=&quot;title&quot;&gt;
+      &lt;string&gt;Mode&lt;/string&gt;
+     &lt;/property&gt;
++    &lt;addaction name=&quot;actionJT8_1&quot;/&gt;
++    &lt;addaction name=&quot;actionJT8_2&quot;/&gt;
++    &lt;addaction name=&quot;actionJT8_5&quot;/&gt;
++    &lt;addaction name=&quot;actionJT8_10&quot;/&gt;
++    &lt;addaction name=&quot;actionJT8_30&quot;/&gt;
+    &lt;/widget&gt;
+    &lt;addaction name=&quot;menuFile&quot;/&gt;
+    &lt;addaction name=&quot;menuSetup&quot;/&gt;
+@@ -1469,6 +1474,46 @@
+     &lt;string&gt;FUNcube Dongle Settings&lt;/string&gt;
+    &lt;/property&gt;
+   &lt;/action&gt;
++  &lt;action name=&quot;actionJT8_1&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT8-1&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionJT8_2&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT8-2&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionJT8_5&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT8-5&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionJT8_10&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT8-10&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
++  &lt;action name=&quot;actionJT8_30&quot;&gt;
++   &lt;property name=&quot;checkable&quot;&gt;
++    &lt;bool&gt;true&lt;/bool&gt;
++   &lt;/property&gt;
++   &lt;property name=&quot;text&quot;&gt;
++    &lt;string&gt;JT8-30&lt;/string&gt;
++   &lt;/property&gt;
++  &lt;/action&gt;
+  &lt;/widget&gt;
+  &lt;layoutdefault spacing=&quot;6&quot; margin=&quot;11&quot;/&gt;
+  &lt;customwidgets&gt;
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/soundin.cpp	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -156,6 +156,10 @@
+   m_monitoring = b;
+ }
+ 
++void SoundInThread::setPeriod(int n)
++{
++  m_TRperiod=n;
++}
+ 
+ int SoundInThread::mstep()
+ {
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/soundin.h	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -26,6 +26,7 @@
+ 
+   void setInputDevice(qint32 n);
+   void setMonitoring(bool b);
++  void setPeriod(int n);
+   int  mstep();
+ 
+ signals:
+@@ -41,6 +42,8 @@
+   bool   m_monitoring;
+   qint32 m_step;
+   qint32 m_nDevIn;
++  qint32 m_TRperiod;
++  qint32 m_TRperiod0;
+ 
+ };
+ 
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/soundout.cpp	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -103,3 +103,8 @@
+   if (isRunning()) return;
+   this-&gt;m_nDevOut=n;
+ }
++
++void SoundOutThread::setPeriod(int n)
++{
++  m_TRperiod=n;
++}
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/soundout.h	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -25,6 +25,7 @@
+ 
+ public:
+   void setOutputDevice(qint32 n);
++  void setPeriod(int n);
+   bool quitExecution;           //If true, thread exits gracefully
+ 
+ 
+@@ -33,6 +34,8 @@
+   qint32  m_nDevOut;            //Output device number
+   bool    m_txOK;               //Enable Tx audio
+   bool    m_txMute;             //Mute temporarily
++  qint32  m_TRperiod;           //T/R period (30 or 60 s)
++
+ };
+ 
+ #endif
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/widegraph.cpp	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -208,6 +208,11 @@
+   ui-&gt;widePlot-&gt;setPalette(palette);
+ }
+ 
++void WideGraph::setPeriod(int n)
++{
++  m_TRperiod=n;
++}
++
+ void WideGraph::on_cbSpec2d_toggled(bool b)
+ {
+   ui-&gt;widePlot-&gt;set2Dspec(b);
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-09-24 15:20:48 UTC (rev 2593)
++++ branches/wsjtx/widegraph.h	2012-09-24 19:11:31 UTC (rev 2594)
+@@ -32,6 +32,7 @@
+   void   setFcal(int n);
+   void   setPalette(QString palette);
+   void   setMode65(int n);
++  void   setPeriod(int n);
+ 
+   qint32 m_qsoFreq;
+ 
+@@ -58,6 +59,7 @@
+   qint32 m_fCal;
+   qint32 m_fSample;
+   qint32 m_mode65;
++  qint32 m_TRperiod;
+ 
+   Ui::WideGraph *ui;
+ };
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002285.html">[WSJT-SVN] r2593 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002287.html">[WSJT-SVN] r2595 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2286">[ date ]</a>
+              <a href="thread.html#2286">[ thread ]</a>
+              <a href="subject.html#2286">[ subject ]</a>
+              <a href="author.html#2286">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

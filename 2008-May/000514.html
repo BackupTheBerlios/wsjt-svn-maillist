@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r826 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r826%20-%20trunk&In-Reply-To=%3C200805300124.m4U1OHsn003179%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000513.html">
+   <LINK REL="Next"  HREF="000515.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r826 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r826%20-%20trunk&In-Reply-To=%3C200805300124.m4U1OHsn003179%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r826 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri May 30 03:24:17 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000513.html">[WSJT-SVN] r825 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000515.html">[WSJT-SVN] r827 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#514">[ date ]</a>
+              <a href="thread.html#514">[ thread ]</a>
+              <a href="subject.html#514">[ subject ]</a>
+              <a href="author.html#514">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-30 03:24:13 +0200 (Fri, 30 May 2008)
+New Revision: 826
+
+Modified:
+   trunk/ccf2.f
+   trunk/filbig2.f
+   trunk/mept162a.f
+   trunk/sync162.f
+   trunk/wsjt.py
+Log:
+WSPR is running now, in Monitor mode ...  Many rough edges, but
+basically functional.
+
+
+Modified: trunk/ccf2.f
+===================================================================
+--- trunk/ccf2.f	2008-05-30 00:59:30 UTC (rev 825)
++++ trunk/ccf2.f	2008-05-30 01:24:13 UTC (rev 826)
+@@ -36,8 +36,6 @@
+             j=16*i + lag
+             if(j.ge.1 .and. j.le.nz) x=x+ss(j)*pr(i)
+          enddo
+-         write(66,3006) lag,x
+- 3006    format(i5,e12.3)
+ !         ccf(lag)=x
+          if(x.gt.ccfbest) then
+             ccfbest=x
+
+Modified: trunk/filbig2.f
+===================================================================
+--- trunk/filbig2.f	2008-05-30 00:59:30 UTC (rev 825)
++++ trunk/filbig2.f	2008-05-30 01:24:13 UTC (rev 826)
+@@ -90,18 +90,15 @@
+          c4a(i)=rfilt(i)*ca(j)
+       enddo
+       n4=min(int(nmax*375.0/11025.0),NFFT2)
+-!      c4a(
+ 
+ C  Do the short reverse transform, to go back to time domain.
+-      print*,'B',NFFT1,NFFT2,plan3
+       call sfftw_execute_(plan3)
+-      print*,'C',n4,plan3
+ !      go to 999
+ 
+  900  call sfftw_destroy_plan_(plan1)
+       call sfftw_destroy_plan_(plan3)
+       call sfftw_destroy_plan_(plan5)
+-      print*,'Destroying FFTW plans'
++!      print*,'Destroying FFTW plans'
+ 
+  999  return
+       end
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2008-05-30 00:59:30 UTC (rev 825)
++++ trunk/mept162a.f	2008-05-30 01:24:13 UTC (rev 826)
+@@ -1,5 +1,4 @@
+       subroutine mept162a(c2,jz)
+-!      subroutine mept162a(outfile,f0,minsync,id,npts,rms,nsec,ltest,ndec)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+@@ -41,8 +40,6 @@
+          enddo
+          ps(k)=1.e-8*sq
+          freq=df2*k
+-         write(62,3001) freq,ps(k)
+- 3001    format(f10.3,e12.3)
+       enddo
+ 
+ C  Compute pixmap.dat
+@@ -70,7 +67,6 @@
+          freq=f0 + 1.d-6*(dfx+1500.0)
+          message='                      '
+          if(nsync.ge.minsync .and. nsnrx.ge.-33) then      !### -31 dB limit?
+-            print*,'A ',nsync,nsnrx,dtx,dfx,drift
+             dt=1.0/375
+             do idt=0,128
+                ii=(idt+1)/2
+@@ -95,7 +91,6 @@
+             go to 24
+  23         width=0.
+ !            call rect(c3,dtx,0.0,message,dfx2,width,pmax)
+-            print*,'D: ',message,ncycles/81,metric
+             i2=index(outfile,'.')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+
+Modified: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2008-05-30 00:59:30 UTC (rev 825)
++++ trunk/sync162.f	2008-05-30 01:24:13 UTC (rev 826)
+@@ -166,9 +166,7 @@
+       k=0
+       do i=-NF0,NF0
+          if(keep(i).ne.0) then
+-            x=10.0*log10(p1(i)) - 22 + 2.7       !### ??? ###
+-            write(63,3003) i,x
+- 3003       format(i5,f10.3)
++            x=10.0*log10(p1(i)) - 22       !### ??? ###
+             if(x.ge.0.5) then
+                k=k+1
+                p1(k)=x
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-05-30 00:59:30 UTC (rev 825)
++++ trunk/wsjt.py	2008-05-30 01:24:13 UTC (rev 826)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000513.html">[WSJT-SVN] r825 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000515.html">[WSJT-SVN] r827 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#514">[ date ]</a>
+              <a href="thread.html#514">[ thread ]</a>
+              <a href="subject.html#514">[ subject ]</a>
+              <a href="author.html#514">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

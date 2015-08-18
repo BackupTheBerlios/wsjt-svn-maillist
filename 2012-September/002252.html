@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2560 - branches/map65/libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2560%20-%20branches/map65/libm65&In-Reply-To=%3C20120905203431.86E5A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002251.html">
+   <LINK REL="Next"  HREF="002253.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2560 - branches/map65/libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2560%20-%20branches/map65/libm65&In-Reply-To=%3C20120905203431.86E5A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2560 - branches/map65/libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Sep  5 22:34:31 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002251.html">[WSJT-SVN] r2559 - branches/map65/libm65
+</A></li>
+        <LI>Next message: <A HREF="002253.html">[WSJT-SVN] r2561 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2252">[ date ]</a>
+              <a href="thread.html#2252">[ thread ]</a>
+              <a href="subject.html#2252">[ subject ]</a>
+              <a href="author.html#2252">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-05 22:34:31 +0200 (Wed, 05 Sep 2012)
+New Revision: 2560
+
+Modified:
+   branches/map65/libm65/ccf2.f
+   branches/map65/libm65/ccf65.f90
+   branches/map65/libm65/decode1a.f
+   branches/map65/libm65/map65a.f90
+Log:
+B2 mode decodes now.  (Still needs work, though.)
+
+
+Modified: branches/map65/libm65/ccf2.f
+===================================================================
+--- branches/map65/libm65/ccf2.f	2012-09-05 18:02:50 UTC (rev 2559)
++++ branches/map65/libm65/ccf2.f	2012-09-05 20:34:31 UTC (rev 2560)
+@@ -1,7 +1,7 @@
+       subroutine ccf2(ss,nz,nflip,ccfbest,lagpk)
+ 
+-      parameter (LAGMAX=60)
+-!      parameter (LAGMAX=200)
++!      parameter (LAGMAX=60)
++      parameter (LAGMAX=200)
+       real ss(nz)
+       real ccf(-LAGMAX:LAGMAX)
+       integer npr(126)
+
+Modified: branches/map65/libm65/ccf65.f90
+===================================================================
+--- branches/map65/libm65/ccf65.f90	2012-09-05 18:02:50 UTC (rev 2559)
++++ branches/map65/libm65/ccf65.f90	2012-09-05 20:34:31 UTC (rev 2560)
+@@ -13,7 +13,7 @@
+   complex cpr2(0:NH)               !Complex FT of pr2
+   real tmp1(322)
+   real tmp2(322)
+-  real ccf(-27:27,4)
++  real ccf(-11:54,4)
+   logical first
+   integer npr(126)
+   data first/.true./
+@@ -71,8 +71,10 @@
+      call four2a(cs,NFFT,1,1,-1)               !Complex-to-real inv-FFT
+      call four2a(cs2,NFFT,1,1,-1)              !Complex-to-real inv-FFT
+ 
+-     do lag=-27,27                             !Check for best JT65 sync
+-        ccf(lag,ip)=s(lag+28)                  
++     do lag=-11,54                             !Check for best JT65 sync
++        j=lag
++        if(j.lt.1) j=j+NFFT
++        ccf(lag,ip)=s(j)
+         if(abs(ccf(lag,ip)).gt.ccfbest) then
+            ccfbest=abs(ccf(lag,ip))
+            lagpk=lag
+@@ -95,17 +97,18 @@
+ 
+ ! Find rms level on baseline of &quot;ccfblue&quot;, for normalization.
+   sum=0.
+-  do lag=-26,26
++  do lag=-11,54
+      if(abs(lag-lagpk).gt.1) sum=sum + ccf(lag,ipol1)
+   enddo
+   base=sum/50.0
+   sq=0.
+-  do lag=-26,26
++  do lag=-11,54
+      if(abs(lag-lagpk).gt.1) sq=sq + (ccf(lag,ipol1)-base)**2
+   enddo
+   rms=sqrt(sq/49.0)
+   sync1=ccfbest/rms - 4.0
+-  dt1=(2.5 + lagpk*(2048.0/11025.0))/nfast
++!  dt1=(2.5 + lagpk*(2048.0/11025.0))/nfast
++  dt1=lagpk*(2048.0/11025.0)/nfast - 2.5
+ 
+ ! Find base level for normalizing snr2.
+   do i=1,nhsym
+
+Modified: branches/map65/libm65/decode1a.f
+===================================================================
+--- branches/map65/libm65/decode1a.f	2012-09-05 18:02:50 UTC (rev 2559)
++++ branches/map65/libm65/decode1a.f	2012-09-05 20:34:31 UTC (rev 2560)
+@@ -101,8 +101,10 @@
+ !  submodes B and C).
+ 
+       nsym=126
+-      nfft=512/(nfast*mode65)
++!      nfft=512/(nfast*mode65)
++      nfft=512/nfast
+       j=(dt00+dtbest+2.685)*1378.125 + joff
++      if(nfast.eq.2) j=j-1506
+       if(j.lt.0) j=0
+ 
+       call timer('sh_ffts ',0)
+@@ -111,7 +113,8 @@
+ ! (Tried this, found no significant difference in decodes.)
+ 
+       do k=1,nsym
+-         do n=1,mode65
++!         do n=1,mode65
++         do n=1,1
+             do i=1,nfft
+                j=j+1
+                c5a(i)=aa*cx(j) + bb*cy(j)
+@@ -119,7 +122,10 @@
+             call four2a(c5a,nfft,1,1,1)
+             if(n.eq.1) then
+                do i=1,66
+-                  s2(i,k)=real(c5a(i))**2 + aimag(c5a(i))**2
++!                  s2(i,k)=real(c5a(i))**2 + aimag(c5a(i))**2
++                  jj=i
++                  if(nfast.eq.1) jj=2*i-1
++                  s2(i,k)=real(c5a(jj))**2 + aimag(c5a(jj))**2
+                enddo
+             else
+                do i=1,66
+
+Modified: branches/map65/libm65/map65a.f90
+===================================================================
+--- branches/map65/libm65/map65a.f90	2012-09-05 18:02:50 UTC (rev 2559)
++++ branches/map65/libm65/map65a.f90	2012-09-05 20:34:31 UTC (rev 2560)
+@@ -56,7 +56,6 @@
+ 2  if(ndphi.eq.1) dphi=30*iloop/57.2957795
+ 
+   do nqd=1,0,-1
+-!  do nqd=1,1,-1
+      if(nqd.eq.1) then                     !Quick decode, at fQSO
+         fa=1000.0*(fqso+0.001*mousedf) - ntol
+         fb=1000.0*(fqso+0.001*mousedf) + ntol + 4*53.8330078
+@@ -114,7 +113,8 @@
+ !  Look for JT65 sync patterns and shorthand square-wave patterns.
+            call timer('ccf65   ',0)
+ !           ssmax=4.0*(rmsdd/22.5)**2
+-           ssmax=savg(jpmax,i)
++!           ssmax=savg(jpmax,i)
++           ssmax=smax
+            call ccf65(ss(1,1,i),nhsym,nfast,ssmax,sync1,ipol,jpz,dt,     &amp;
+                 flipk,syncshort,snr2,ipol2,dt2)
+            call timer('ccf65   ',1)
+@@ -205,7 +205,6 @@
+                  ifreq=i
+                  ikHz=nint(freq+0.5*(nfa+nfb)-foffset)-nfshift
+                  idf=nint(1000.0*(freq+0.5*(nfa+nfb)-foffset-(ikHz+nfshift)))
+-!                 print*,ikhz,idf,dt,sync1,dt
+                  call decode1a(dd,newdat,f00,nflip,mode65,nfast,nfsample, &amp;
+                       xpol,mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,   &amp;
+                       ndphi,iloop,nutc,ikHz,idf,ipol,ntol,sync2,a,dt,     &amp;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002251.html">[WSJT-SVN] r2559 - branches/map65/libm65
+</A></li>
+	<LI>Next message: <A HREF="002253.html">[WSJT-SVN] r2561 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2252">[ date ]</a>
+              <a href="thread.html#2252">[ thread ]</a>
+              <a href="subject.html#2252">[ subject ]</a>
+              <a href="author.html#2252">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

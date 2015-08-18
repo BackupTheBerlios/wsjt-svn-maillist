@@ -1,0 +1,313 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3392 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3392%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130625202138.EB967BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003083.html">
+   <LINK REL="Next"  HREF="003085.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3392 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3392%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130625202138.EB967BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3392 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jun 25 22:21:38 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003083.html">[WSJT-SVN] r3391 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003085.html">[WSJT-SVN] r3393 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3084">[ date ]</a>
+              <a href="thread.html#3084">[ thread ]</a>
+              <a href="subject.html#3084">[ subject ]</a>
+              <a href="author.html#3084">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-25 22:21:38 +0200 (Tue, 25 Jun 2013)
+New Revision: 3392
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decode1a.f90
+   branches/wsjtx_k1jt_p1/lib/filbig.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/plotter.cpp
+   branches/wsjtx_k1jt_p1/plotter.h
+   branches/wsjtx_k1jt_p1/widegraph.cpp
+   branches/wsjtx_k1jt_p1/widegraph.h
+Log:
+1. Simplify the m_pskReporter logic.
+2. Make &quot;Tx freq locked to Rx freq&quot; hold true in all cases.
+3. Provide a better estimate of JT65 S/N values with big signals present.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/decode1a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decode1a.f90	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/lib/decode1a.f90	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -19,15 +19,10 @@
+ ! Mix sync tone to baseband, low-pass filter, downsample to 1378.125 Hz
+   dt00=dt
+   call timer('filbig  ',0)
+-  call filbig(dd,npts,f0,newdat,cx,n5)
++  call filbig(dd,npts,f0,newdat,cx,n5,sq0)
+ 
+ ! NB: cx has sample rate 12000*77125/672000 = 1378.125 Hz
+   call timer('filbig  ',1)
+-  sq0=0.
+-  do i=1,n5
+-     sq0=sq0 + real(cx(i))**2 + aimag(cx(i))**2
+-  enddo
+-  sq0=sq0/n5
+ 
+ ! Find best DF, f1, f2, and DT.  Start by downsampling to 344.53125 Hz
+   call timer('fil6521 ',0)
+@@ -55,7 +50,7 @@
+   call afc65b(c5x(i0),nz,fsample,nflip,a,ccfbest,dtbest)
+   call timer('afc65b  ',1)
+ 
+-  sync2=3.7*ccfbest/sq0
++  sync2=3.7e-4*ccfbest/sq0                    !Constant is empirical 
+ 
+ ! Apply AFC corrections to the time-domain signal
+ ! Now we are back to using the 1378.125 Hz sample rate, enough to 
+
+Modified: branches/wsjtx_k1jt_p1/lib/filbig.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/lib/filbig.f90	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -1,13 +1,15 @@
+-subroutine filbig(dd,npts,f0,newdat,c4a,n4)
++subroutine filbig(dd,npts,f0,newdat,c4a,n4,sq0)
+ 
+ ! Filter and real data in array dd(npts), sampled at 12000 Hz.
+ ! Output is complex, sampled at 1375.125 Hz.
+ 
+   parameter (NSZ=3413)
+   parameter (NFFT1=672000,NFFT2=77175)
++  parameter (NZ2=1000)
+   real*4  dd(npts)                           !Input data
+   complex ca(NFFT1)                          !FFT of input
+   complex c4a(NFFT2)                         !Output data
++  real*4 s(NZ2)
+   real*8 df
+   real halfpulse(8)                 !Impulse response of filter (one sided)
+   complex cfilt(NFFT2)                       !Filter (complex; imag = 0)
+@@ -85,8 +87,8 @@
+ 
+   i0=nint(f0/df) + 1
+   nh=nfft2/2
+-  do i=1,nh                                !Copy data into c4a and c4b,
+-     j=i0+i-1                              !and apply the filter function
++  do i=1,nh                                !Copy data into c4a and apply
++     j=i0+i-1                              !the filter function
+      if(j.ge.1 .and. j.le.nfft1) then
+         c4a(i)=rfilt(i)*ca(j)
+      else
+@@ -99,6 +101,17 @@
+      c4a(i)=rfilt(i)*ca(j)
+   enddo
+ 
++  nadd=nfft2/NZ2
++  i=0
++  do j=1,NZ2
++     s(j)=0.
++     do n=1,nadd
++        i=i+1
++        s(j)=s(j) + real(c4a(i))**2 + aimag(c4a(i))**2
++     enddo
++  enddo
++  call pctile(s,NZ2,30,sq0)
++
+ ! Do the short reverse transform, to go back to time domain.
+   call timer('FFTsmall',0)
+   call sfftw_execute(plan2)
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -237,7 +237,7 @@
+   genStdMsgs(m_rpt);
+   on_actionWide_Waterfall_triggered();                   //###
+   g_pWideGraph-&gt;setTxFreq(m_txFreq);
+-  g_pWideGraph-&gt;m_lockTxFreq=m_lockTxFreq;
++  g_pWideGraph-&gt;setLockTxFreq(m_lockTxFreq);
+   g_pWideGraph-&gt;setFmin(m_fMin);
+   g_pWideGraph-&gt;setModeTx(m_modeTx);
+ 
+@@ -732,17 +732,14 @@
+       }
+     }
+ #endif
++    m_pskReporter=dlg.m_pskReporter;
+ 
+ #ifdef UNIX
+-    if(dlg.m_pskReporter != m_pskReporter) {
+-      if(m_pskReporter) {
+-        psk_Reporter-&gt;setLocalStation(m_myCall,m_myGrid, &quot;WSJT-X r&quot; + rev.mid(6,4) );
+-      }
++    if(m_pskReporter) {
++      psk_Reporter-&gt;setLocalStation(m_myCall,m_myGrid, &quot;WSJT-X r&quot; + rev.mid(6,4) );
+     }
+-
+ #endif
+ 
+-    m_pskReporter=dlg.m_pskReporter;
+     m_After73=dlg.m_After73;
+ 
+     if(dlg.m_restartSoundIn) {
+@@ -2912,7 +2909,7 @@
+ void MainWindow::on_actionLockTxFreq_triggered(bool checked)
+ {
+   m_lockTxFreq=checked;
+-  g_pWideGraph-&gt;m_lockTxFreq=checked;
++  g_pWideGraph-&gt;setLockTxFreq(m_lockTxFreq);
+ }
+ 
+ void MainWindow::on_pbTxMode_clicked()
+
+Modified: branches/wsjtx_k1jt_p1/plotter.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -405,7 +405,7 @@
+   int n=1;
+   if(ctrl) n+=100;
+   emit freezeDecode1(n);
+-  if(ctrl) setTxFreq(m_fQSO);
++  if(ctrl or m_lockTxFreq) setTxFreq(m_fQSO);
+ }
+ 
+ void CPlotter::mouseDoubleClickEvent(QMouseEvent *event)  //mouse2click
+
+Modified: branches/wsjtx_k1jt_p1/plotter.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/plotter.h	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/plotter.h	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -30,11 +30,16 @@
+   QSize minimumSizeHint() const;
+   QSize sizeHint() const;
+   QColor  m_ColorTbl[256];
++
+   bool    m_bCurrent;
+   bool    m_bCumulative;
++  bool    m_lockTxFreq;
++
+   int     m_plotZero;
+   int     m_plotGain;
++
+   float   m_fSpan;
++
+   qint32  m_nSpan;
+   qint32  m_binsPerPixel;
+   qint32  m_fQSO;
+@@ -97,14 +102,16 @@
+ 
+   bool    m_Running;
+   bool    m_paintEventBusy;
++  bool    m_dataFromDisk;
++
+   double  m_fGreen;
+   double  m_fftBinWidth;
++
+   qint64  m_StartFreq;
++
+   qint32  m_dBStepSize;
+   qint32  m_FreqUnits;
+   qint32  m_hdivs;
+-  bool    m_dataFromDisk;
+-  char    m_sutc[6];
+   qint32  m_line;
+   qint32  m_fSample;
+   qint32  m_i0;
+@@ -120,6 +127,8 @@
+   qint32  m_fMin;
+   qint32  m_fMax;
+ 
++  char    m_sutc[6];
++
+ private slots:
+   void mousePressEvent(QMouseEvent *event);
+   void mouseDoubleClickEvent(QMouseEvent *event);
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -288,6 +288,11 @@
+   ui-&gt;slopeSpinBox-&gt;setValue(d);
+ }
+ 
++void WideGraph::setLockTxFreq(bool b)
++{
++  m_lockTxFreq=b;
++  ui-&gt;widePlot-&gt;m_lockTxFreq=b;
++}
+ double WideGraph::getSlope()
+ {
+   return m_slope;
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.h	2013-06-24 23:18:07 UTC (rev 3391)
++++ branches/wsjtx_k1jt_p1/widegraph.h	2013-06-25 20:21:38 UTC (rev 3392)
+@@ -32,11 +32,11 @@
+   void   setTxFreq(int n);
+   void   setModeTx(QString modeTx);
+   void   setSlope(double d);
++  void   setLockTxFreq(bool b);
+   double getSlope();
+   double fGreen();
+ 
+   qint32 m_qsoFreq;
+-  bool   m_lockTxFreq;
+ 
+ signals:
+   void freezeDecode2(int n);
+@@ -70,6 +70,8 @@
+   qint32 m_fMin;
+   qint32 m_fMax;
+ 
++  bool   m_lockTxFreq;
++
+   QString m_modeTx;
+ 
+   Ui::WideGraph *ui;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003083.html">[WSJT-SVN] r3391 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003085.html">[WSJT-SVN] r3393 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3084">[ date ]</a>
+              <a href="thread.html#3084">[ thread ]</a>
+              <a href="subject.html#3084">[ subject ]</a>
+              <a href="author.html#3084">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

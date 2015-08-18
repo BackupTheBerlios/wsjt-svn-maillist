@@ -1,0 +1,996 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1274 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1274%20-%20trunk&In-Reply-To=%3C200907221834.n6MIYBJB003449%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000967.html">
+   <LINK REL="Next"  HREF="000969.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1274 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1274%20-%20trunk&In-Reply-To=%3C200907221834.n6MIYBJB003449%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1274 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 22 20:34:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000967.html">[WSJT-SVN] r1273 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000969.html">[WSJT-SVN] r1275 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-07-22 20:33:54 +0200 (Wed, 22 Jul 2009)
+New Revision: 1274
+
+Removed:
+   trunk/w21.c
+Modified:
+   trunk/Makefile.CVF
+   trunk/astro0.F90
+   trunk/avemsg6m.f
+   trunk/azdist0.f90
+   trunk/chkt0.f90
+   trunk/decode1.F90
+   trunk/decode24.f
+   trunk/decode6m.f
+   trunk/deep65.F
+   trunk/entail.f
+   trunk/extract.f
+   trunk/ftn_init.F90
+   trunk/ftn_quit.f90
+   trunk/gen24.f
+   trunk/genmet.f
+   trunk/get_fname.F90
+   trunk/getfile.F90
+   trunk/inter_mept.f
+   trunk/interleave24.f
+   trunk/mept162a.f
+   trunk/mtdecode.f
+   trunk/pfxdump.f
+   trunk/rfile.f90
+   trunk/rfile2.f
+   trunk/savedata.F90
+   trunk/spec.f90
+   trunk/stdecode.f
+   trunk/thcvf.f90
+   trunk/wqdecode.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjt24.f
+   trunk/wsjt65.f
+   trunk/wsjtgen.F90
+Log:
+Added mutexes around all Fortran I/O.
+
+
+Modified: trunk/Makefile.CVF
+===================================================================
+--- trunk/Makefile.CVF	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/Makefile.CVF	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -3,7 +3,7 @@
+ gcc = cl
+ FC = df
+ #To do bounds checking (with useless reports) put &quot;/check:all&quot; in the
+-# --opt= line below (line 56, more or less ...)
++# --opt= line below (line 64, more or less ...)
+ #FFLAGS = /traceback /check:all
+ FFLAGS = /traceback /fast /nologo /warn
+ 
+@@ -27,7 +27,7 @@
+ 	wsjtgen.f90 runqqq.f90 fivehz.f90 msgparms.f90 chkt0.f90 \
+ 	genwspr.f90 wqencode.f90 wqdecode.f90 packpfx.f90 unpackpfx.f90 \
+ 	hash.f90 packprop.f90 unpackprop.f90 packname.f90 unpackname.f90 \
+-	packtext2.f90 unpacktext2.f90 wsjtwspr.f90 gen64.f90
++	packtext2.f90 unpacktext2.f90 wsjtwspr.f90 gen64.f90 thcvf.f90
+ 
+ SRCS2F77 = wsjt1.f avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+ 	stdecode.f indexx.f s2shape.f flat2.f gen65.f gen24.f entail.f \
+@@ -50,7 +50,7 @@
+ 	filbig2.F mept162a.f twkfreq.f sync162.f decode162.f \
+ 	ps162.f fchisq.f fano232.f ccf2.f wsjt64.f sync64.f
+ 
+-SRCS2C   = resample.c ptt.c igray.c wrapkarn.c w21.c azelout.c
++SRCS2C   = resample.c ptt.c igray.c wrapkarn.c
+ 
+ WSJT7.EXE: Audio.pyd wsjt.spec
+ 	python c:\python23\installer\Build.py wsjt.spec
+
+Modified: trunk/astro0.F90
+===================================================================
+--- trunk/astro0.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/astro0.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -15,7 +15,7 @@
+   data uth8z/0.d0/,imin0/-99/
+   save
+ 
+-! These Fortran internal reads are dangerous: see note below.
++  call cs_lock('astro0')
+   auxra=0.
+   i=index(cauxra,':')
+   if(i.eq.0) then
+@@ -104,14 +104,19 @@
+      ih=uth8
+      im=mod(imin,60)
+      is=mod(isec,60)
+-
+-! Don't write to azel.dat from Fortran, because Fortran I/O is not 
+-! thread-safe in gfortran.
+-
+-!     call azelout(ih,im,is,AzMoon,ElMoon,AzSun,ElSun,AzAux,ElAux,    &amp;
+-!          nfreq,doppler,dfdt,dopler00,dfdt0)
+-     isec0=isec
++     rewind 14
++     write(14,1010,err=800) ih,im,is,AzMoon,ElMoon,                          &amp;
++        ih,im,is,AzSun,ElSun,                                        &amp;
++        ih,im,is,AzAux,ElAux,                                        &amp;
++        nfreq,doppler,dfdt,doppler00,dfdt0
++1010 format(i2.2,':',i2.2,':',i2.2,',',f5.1,',',f5.1,',Moon'/        &amp;
++            i2.2,':',i2.2,':',i2.2,',',f5.1,',',f5.1,',Sun'/         &amp;
++            i2.2,':',i2.2,':',i2.2,',',f5.1,',',f5.1,',Source'/      &amp;
++            i4,',',f8.1,',',f8.2,',',f8.1,',',f8.2,',Doppler')
++     rewind 14
++800  isec0=isec
+   endif
+ 
++  call cs_unlock
+   return
+ end subroutine astro0
+
+Modified: trunk/avemsg6m.f
+===================================================================
+--- trunk/avemsg6m.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/avemsg6m.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -104,9 +104,11 @@
+  20   if(nsig.gt.nslim2) then
+          npkept=npkept+1
+          avemsg=avemsg(1:msglen)//blanks
++         call cs_lock('avemsg6m')
+          write(lumsg,1020) cfile6,nsig,ndf0,avemsg,msglen
+          if(lcum) write(21,1020) cfile6,nsig,ndf0,avemsg,msglen
+  1020    format(a6,8x,i6,i5,7x,a22,19x,'*',i4)
++         call cs_unlock
+       endif
+ 
+       return
+
+Modified: trunk/azdist0.f90
+===================================================================
+--- trunk/azdist0.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/azdist0.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,14 +1,14 @@
+-
+-!---------------------------------------------------- azdist0
+-
+ subroutine azdist0(MyGrid,HisGrid,utch,nAz,nEl,nDmiles,nDkm,nHotAz,nHotABetter)
+   character*6 MyGrid,HisGrid
+   real*8 utch
+ !f2py intent(in) MyGrid,HisGrid,utch
+ !f2py intent(out) nAz,nEl,nDmiles,nDkm,nHotAz,nHotABetter
+ 
++  call cs_lock('azdist0')
+   if(hisgrid(5:5).eq.' ' .or. ichar(hisgrid(5:5)).eq.0) hisgrid(5:5)='m'
+   if(hisgrid(6:6).eq.' ' .or. ichar(hisgrid(6:6)).eq.0) hisgrid(6:6)='m'
+   call azdist(MyGrid,HisGrid,utch,nAz,nEl,nDmiles,nDkm,nHotAz,nHotABetter)
++  call cs_unlock
++
+   return
+ end subroutine azdist0
+
+Modified: trunk/chkt0.f90
+===================================================================
+--- trunk/chkt0.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/chkt0.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -5,6 +5,7 @@
+   character*22 t0msg2
+   include 'gcom2.f90'
+ 
++  call cs_lock('chkt0')
+   call packmsg(t0msg,dgen)
+   call unpackmsg(dgen,t0msg2)
+   if(index(t0msg,'/').gt.0) then
+@@ -23,6 +24,7 @@
+   else
+      ndiff=0
+   endif
++  call cs_unlock
+ 
+   return
+ end subroutine chkt0
+
+Modified: trunk/decode1.F90
+===================================================================
+--- trunk/decode1.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/decode1.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -52,7 +52,11 @@
+   endif
+   n=Tsec
+   if(n.lt.ns0 .and. utcdate(1:1).eq.'2') then
+-     call w21(utcdate(:11)//char(0))
++     call cs_lock('decode1')
++     write(21,1001) utcdate(:11)
++1001 format(/'UTC Date: ',a11/'---------------------')
++     call flushqqq(21)
++     call cs_unlock
+      ns0=n
+   endif
+ 
+@@ -63,10 +67,11 @@
+      is=mod(n,60)
+      cshort='           '
+      if(sendingsh.eq.1) cshort='(Shorthand)'
+-     call w21a(ih,im,is,mode//char(0),sending//char(0),cshort//char(0))
+-!     write(21,1010) ih,im,is,mode,sending,cshort
+-!1010 format(3i2.2,'  Transmitting: ',a6,2x,a28,2x,a11)
+-!     call flushqqq(21)
++     call cs_lock('decode1')
++     write(21,1010) ih,im,is,mode,sending,cshort
++1010 format(3i2.2,'  Transmitting: ',a6,2x,a28,2x,a11)
++     call flushqqq(21)
++     call cs_unlock
+      sending0=sending
+      sendingsh0=sendingsh
+      mode0=mode
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/decode24.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -213,10 +213,12 @@
+          if(i4.lt.0) i4=i4+256
+          data4a(i)=i4
+       enddo
++      call cs_lock('decode24')
+       write(c72,1100) (data4a(i),i=1,9)
+  1100 format(9b8.8)
+       read(c72,1102) data4
+  1102 format(12b6)
++      call cs_unlock
+ 
+       decoded='                      '
+       if(ncount.ge.0) call unpackmsg(data4,decoded)
+
+Modified: trunk/decode6m.f
+===================================================================
+--- trunk/decode6m.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/decode6m.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -110,11 +110,13 @@
+                width=(512./11025.)*(1.5*n+1.0)
+                if(nsig.ge.nslim) then
+                   npkept=npkept+1
++                  call cs_lock('decode6m')
+                   write(lumsg,1010) cfile6,tping,width,
+      +            nsig,ndf0,(msg(k:k),k=1,n)
+                   if(lcum) write(21,1010) cfile6,tping,width,
+      +              nsig,ndf0,(msg(k:k),k=1,n)
+  1010             format(a6,2f5.1,i4,i5,6x,48a1)       !### 6x was 7x ###
++                  call cs_unlock
+                endif
+                n=0
+                sbest=-1.e9
+
+Modified: trunk/deep65.F
+===================================================================
+--- trunk/deep65.F	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/deep65.F	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -38,6 +38,7 @@
+       data iseed/1000000001/,dgen(1)/999/
+       save
+ 
++      call cs_lock('deep65')
+       rewind 23
+       k=0
+       icall=0
+@@ -104,6 +105,7 @@
+  10      continue
+       enddo
+  20   ntot=k
++      call cs_unlock
+       neme0=neme
+ 
+       ref0=0.
+
+Modified: trunk/entail.f
+===================================================================
+--- trunk/entail.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/entail.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,7 +1,7 @@
+       subroutine entail(dgen,data0)
+ 
+ C  Move 72-bit packed data from 6-bit to 8-bit symbols and add a zero tail.
+-      integer dgen(12)
++      integer dgen(13)
+       integer*1 data0(13)
+ 
+       i4=0
+@@ -12,6 +12,7 @@
+          do j=1,6
+             k=k+1
+             i4=i4+i4+iand(1,ishft(n,j-6))
++            i4=iand(i4,255)
+             if(k.eq.8) then
+                m=m+1
+                if(i4.gt.127) i4=i4-256
+
+Modified: trunk/extract.f
+===================================================================
+--- trunk/extract.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/extract.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -48,10 +48,16 @@
+          call interleave63(mr2prob,-1)
+ 
+          nsec1=nsec1+1
++
++         call cs_lock('extract')
+          write(22,rec=1) nsec1,xlambda,maxe,naddsynd,
+      +        mrsym,mrprob,mr2sym,mr2prob
+          call flushqqq(22)
++         call cs_unlock
++
+          call runqqq('kvasd.exe','-q',iret)
++
++         call cs_lock('extract')
+          if(iret.ne.0) then
+             if(first) write(*,1000) iret
+  1000       format('Error in KV decoder, or no KV decoder present.'/
+@@ -61,6 +67,8 @@
+             go to 20
+          endif
+          read(22,rec=2) nsec2,ncount,dat4
++         call cs_unlock
++
+          decoded='                      '
+          if(ncount.ge.0) then
+             call unpackmsg(dat4,decoded) !Unpack the user message
+
+Modified: trunk/ftn_init.F90
+===================================================================
+--- trunk/ftn_init.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/ftn_init.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -8,8 +8,8 @@
+ !   16  c:/wsjt.reg 
+ !   17  wave files written to disk
+ !   18  test file to be transmitted (wsjtgen.f90)
+-!   19
+-!   20
++!   19  dmet_* files
++!   20  prefixes.txt
+ !   21  ALL.TXT
+ !   22  kvasd.dat
+ !   23  CALL3.TXT
+@@ -22,8 +22,11 @@
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+   include 'gcom4.f90'
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
+ 
+-!  print*,'ftn_init.F90 nport=', nport, 'pttport=', pttport
++  call cs_init
++  call cs_lock('ftn_init')
+   i=ptt(nport,pttport,0,iptt)                       !Clear the PTT line
+   addpfx='    '
+ 
+@@ -84,6 +87,7 @@
+        status='unknown')
+ #endif
+ 
++  call cs_unlock
+   return
+ 
+ 910 print*,'Error opening DECODED.TXT'
+
+Modified: trunk/ftn_quit.f90
+===================================================================
+--- trunk/ftn_quit.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/ftn_quit.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,5 +1,6 @@
+ subroutine ftn_quit
+   call four2a(a,-1,1,1,1)
+   call filbig2(dat,-1,f0,newdat2,c4a,n4)
++  call cs_destroy
+   return
+ end subroutine ftn_quit
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/gen24.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -32,9 +32,7 @@
+       call packmsg(message,dgen)  !Pack 72-bit message into 12 six-bit symbols
+       call entail(dgen,data0)
+       call unpackmsg(dgen,msgsent)
+-!      write(*,3001) (data0(i),i=1,9),(dgen(i),i=1,12)
+-! 3001 format('Gen24:   ',9(1x,z2),2x,12(1x,z2))
+-!      print*,msgsent
++
+       nbytes=(72+31+7)/8
+       call encode(data0,nbytes,symbol(2))    !Convolutional encoding
+       symbol(1)=0                            !Reference phase
+
+Modified: trunk/genmet.f
+===================================================================
+--- trunk/genmet.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/genmet.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -7,6 +7,7 @@
+ C Metric table (RxSymbol,TxSymbol)
+       integer mettab(0:255,0:1)
+ 
++      call cs_lock('genmet')
+       bias=0.5
+       if(mode.eq.6) then       !JT2, DBPSK
+          open(19,file='dmet_20_-2_2.dat',status='old')
+@@ -18,6 +19,7 @@
+          print*,'Unsupported mode:',mode,' in genmet.'
+          stop 'genmet'
+       endif
++      call cs_unlock
+ 
+       do i=0,255
+          read(19,*) junk,d0,d1
+
+Modified: trunk/get_fname.F90
+===================================================================
+--- trunk/get_fname.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/get_fname.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -7,8 +7,10 @@
+   ihr=nsec/3600
+   imin=mod(nsec/60,60)
+   isec=mod(nsec,60)
++  call cs_lock('')
+   write(fname,1000) iyr-2000,imo,ida,ihr,imin,isec
+ 1000 format('_',3i2.2,'_',3i2.2,'.WAV')
++  call cs_unlock
+   tag=hiscall(1:7)
+   i=index(hiscall,'/')
+   if(i.ge.5) tag=hiscall(1:i-1)
+
+Modified: trunk/getfile.F90
+===================================================================
+--- trunk/getfile.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/getfile.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -36,6 +36,7 @@
+ 10 filename=fname(i+1:)
+   ierr=0
+ 
++  call cs_lock('getfile')
+ #ifdef CVF
+   open(10,file=fname,form='binary',status='old',err=998)
+   read(10,end=998) hdr
+@@ -76,12 +77,14 @@
+   ndiskdat=1
+   mousebutton=0
+   close(10)
++  call cs_unlock
+   return
+ 
+ #ifdef CVF
+ 998 ierr=1001
+ 999 close(10)
+-    return
++  call cs_unlock
++  return
+ #endif
+ 
+ end subroutine getfile
+
+Modified: trunk/inter_mept.f
+===================================================================
+--- trunk/inter_mept.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/inter_mept.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -10,6 +10,7 @@
+       save
+ 
+       if(first) then
++         call cs_lock('inter_mept')
+          k=-1
+          do i=0,255
+             write(c0,1001) i
+@@ -22,6 +23,7 @@
+                j0(k)=n
+             endif
+          enddo
++         call cs_unlock
+          first=.false.
+       endif
+ 
+
+Modified: trunk/interleave24.f
+===================================================================
+--- trunk/interleave24.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/interleave24.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -4,9 +4,10 @@
+       character*8 c0,c1
+       logical first
+       data first/.true./
+-      save
++      save first
+ 
+       if(first) then
++         call cs_lock('interleave24')
+          k=-1
+          do i=0,255
+             write(c0,1001) i
+@@ -20,6 +21,7 @@
+             endif
+          enddo
+          first=.false.
++         call cs_unlock
+       endif
+ 
+       if(ndir.eq.1) then
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/mept162a.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -88,6 +88,7 @@
+ 
+  23         nf1=nint(-a(2))
+             if(ndiag.ne.0) then
++               call cs_lock('mept162a')
+                write(11,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message,
+      +              ii,ncycles/81
+                write(21,1012) cfile6,nsync,nsnrx,dtx,ndf,nf1,message,
+@@ -98,6 +99,7 @@
+             endif
+  1012       format(a6,i4,i4,f5.1,i6,i3,2x,a22,15x,i4,i6)
+             i1=index(message,' ')
++            call cs_unlock
+          endif
+       enddo
+ 
+
+Modified: trunk/mtdecode.f
+===================================================================
+--- trunk/mtdecode.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/mtdecode.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -135,9 +135,11 @@
+          cf=' '
+          if(nline.le.99) nline=nline+1
+          tping(nline)=tstart
++         call cs_lock('mtdecode')
+          write(line(nline),1050) cfile6,tstart,mswidth,int(peak),
+      +        nwidth,nstrength,noffset,msg3,msg,cf
+  1050    format(a6,f5.1,i5,i3,1x,2i1,i5,1x,a3,1x,a40,1x,a1)
++         call cs_unlock
+  100  continue
+       enddo
+ 
+
+Modified: trunk/pfxdump.f
+===================================================================
+--- trunk/pfxdump.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/pfxdump.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -2,15 +2,15 @@
+       character*(*) fname
+       include 'pfx.f'
+ 
+-      open(11,file=fname,status='unknown')
+-      write(11,1001) 
++      open(20,file=fname,status='unknown')
++      write(20,1001) 
+  1001 format(
+      +  'Supported Suffixes:    /0 /1 /2 /3 /4 /5 /6 /7 /8 /9 /A /P')
+-      write(11,1002) 
++      write(20,1002) 
+  1002 format(/'Supported Add-On DXCC Prefixes:')
+-      write(11,1003) pfx
++      write(20,1003) pfx
+  1003 format(15a6)
+-      close(11)
++      close(20)
+ 
+       return
+       end
+
+Modified: trunk/rfile.f90
+===================================================================
+--- trunk/rfile.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/rfile.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,12 +1,13 @@
+-
+-!----------------------------------------------------- rfile
+ subroutine rfile(lu,ibuf,n,ierr)
+ 
+   integer*1 ibuf(n)
+ 
++  call cs_lock('rfile')
+   read(lu,end=998) ibuf
+   ierr=0
+   go to 999
+ 998 ierr=1002
+-999  return
++999  continue
++  call cs_unlock
++  return
+ end subroutine rfile
+
+Modified: trunk/rfile2.f
+===================================================================
+--- trunk/rfile2.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/rfile2.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -18,9 +18,11 @@
+       enddo
+ 
+  10   fname=fname(1:iz)//char(0)
++      call cs_lock('rfile2')
+       fd=open(fname,RMODE)                  !Open file for reading
+       nr=read(fd,buf,n)
+       i=close(fd)
++      call cs_unlock
+ 
+       return
+       end
+
+Modified: trunk/savedata.F90
+===================================================================
+--- trunk/savedata.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/savedata.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -68,8 +68,10 @@
+   enddo
+ 
+   if(ndebug.gt.0 .and. msbig.gt.msmax .and. msbig.gt.330) then
++     call cs_lock('savedata')
+      write(*,1020) msbig
+ 1020 format('Warning: interrupt service interval',i11,' ms.')
++     call cs_unlock
+   endif
+   msmax=max(msbig,msmax)
+ 
+@@ -112,6 +114,8 @@
+      enddo
+ 10   longname=AppDir(1:i)//'/RxWav/'//fname
+ 
++
++     call cs_lock('savedata')
+ #ifdef CVF
+      open(17,file=longname,status='unknown',form='binary',err=20)
+      write(17) ariff,nchunk,awave,afmt,lenfmt,nfmt2,nchan2,nsamrate, &amp;
+@@ -144,6 +148,7 @@
+ 20   print*,'Error opening Fortran unit 17.'
+      print*,longname
+ 30   continue
++     call cs_unlock
+   endif
+ 
+ 999 if(mode(1:4).ne.'JT65' .and. mode(1:3).ne.'JT2' .and. mode(1:3).ne.'JT2' &amp;
+
+Modified: trunk/spec.f90
+===================================================================
+--- trunk/spec.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/spec.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -28,6 +28,7 @@
+   equivalence (x,c)
+   save
+ 
++  call cs_lock('spec')
+   if(first) then
+      istep=2205
+      nfft=4096
+@@ -217,5 +218,7 @@
+ 
+ 900 continue
+   if(ndiskdat.eq.1) ndecoding=4
++  call cs_unlock
++
+   return
+ end subroutine spec
+
+Modified: trunk/stdecode.f
+===================================================================
+--- trunk/stdecode.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/stdecode.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -95,9 +95,12 @@
+             nst=(int(smax/smax2)-4)/2 + 1
+             if(nst.lt.1) nst=1
+             if(nst.gt.3) nst=3
++
++            call cs_lock('stdecode')
+             write(line(nline),1050) cfile6,tstart,mswidth,int(peak),
+      +           nwidth,nstrength,noffset,msg3,nst
+  1050       format(a6,f5.1,i5,i3,1x,2i1,i5,1x,a3,40x,i3)
++            call cs_unlock
+          endif
+ 
+  20      continue
+
+Modified: trunk/thcvf.f90
+===================================================================
+--- trunk/thcvf.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/thcvf.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,14 +1,21 @@
+-subroutine cs_init(mtx)
++subroutine cs_init
+   use dfmt
+   type (RTL_CRITICAL_SECTION) ncrit1
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  ltrace=1
+   mtx=loc(ncrit1)
++  mtxstate=0
++  csub0='**unlocked**'
+   call InitializeCriticalSection(mtx)
+   return
+ end subroutine cs_init
+ 
+-subroutine cs_destroy(mtx)
++subroutine cs_destroy
+   use dfmt
+   type (RTL_CRITICAL_SECTION) ncrit1
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
+   call DeleteCriticalSection(mtx)
+   return
+ end subroutine cs_destroy
+@@ -22,18 +29,36 @@
+ 
+ subroutine th_exit
+   use dfmt
++  ncode=0
+   call ExitThread(ncode)
+   return
+ end subroutine th_exit
+ 
+-subroutine cs_lock(mtx)
++subroutine cs_lock(csub)
+   use dfmt
+-  call EnterCriticalSection(mtx)
++  character*(*) csub
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  n=TryEnterCriticalSection(mtx)
++  if(n.eq.0) then
++! Another thread has already locked the mutex
++     call EnterCriticalSection(mtx)
++     iz=index(csub0,' ')
++     if(ltrace.ge.1) print*,'&quot;',csub,'&quot; requested the mutex when &quot;',  &amp;
++          csub0(:iz-1),'&quot; owned it.'
++  endif
++  mtxstate=1
++  csub0=csub
++  if(ltrace.ge.3) print*,'Mutex locked by ',csub
+   return
+ end subroutine cs_lock
+ 
+-subroutine cs_unlock(mtx)
++subroutine cs_unlock
+   use dfmt
++  character*12 csub0
++  common/mtxcom/ltrace,mtx,mtxstate,csub0
++  mtxstate=0
++  if(ltrace.ge.3) print*,'Mutex unlocked'
+   call LeaveCriticalSection(mtx)
+   return
+ end subroutine cs_unlock
+
+Deleted: trunk/w21.c
+===================================================================
+--- trunk/w21.c	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/w21.c	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -1,21 +0,0 @@
+-#include &lt;stdio.h&gt;
+-
+-void w21_(char *utcdate, int len)
+-{
+-  FILE *fp;
+-
+-  fp=fopen(&quot;ALL.TXT&quot;,&quot;a&quot;);
+-  fprintf(fp,&quot;\nUTC Date: \n-----------\n%s\n&quot;,utcdate);
+-  fclose(fp);
+-}
+-
+-void w21a_(int *ih, int *im, int *is, char *mode, char *sending,
+-	   char *cshort, int len1, int len2, int len3)
+-{
+-  FILE *fp;
+-
+-  fp=fopen(&quot;ALL.TXT&quot;,&quot;a&quot;);
+-  fprintf(fp,&quot;%2.2d%2.2d%2.2d  Transmitting: %6s  %28s  %11s\n&quot;,
+-	  *ih,*im,*is,mode,sending,cshort);
+-  fclose(fp);
+-}
+
+Modified: trunk/wqdecode.f90
+===================================================================
+--- trunk/wqdecode.f90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wqdecode.f90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -19,6 +19,7 @@
+   data cwind/'CALM','BREEZES','WINDY','DRY','HUMID'/
+   save first,dcall
+ 
++  call cs_lock('wqdecode')
+   if(first) then
+      dcall='            '
+      first=.false.
+@@ -306,5 +307,6 @@
+      i2=i2-1
+   enddo
+ 
+-900  return
++900 call cs_unlock
++  return
+ end subroutine wqdecode
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wsjt.py	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -46,9 +46,10 @@
+         pass
+ root_geom=&quot;&quot;
+ 
+-
+ #------------------------------------------------------ Global variables
+ appdir=os.getcwd()
++Audio.gcom2.appdir=(appdir+(' '*80))[:80]
++Audio.ftn_init()
+ addpfx0=&quot;&quot;
+ first=1
+ g.appdir=appdir
+@@ -1774,6 +1775,8 @@
+     else:
+         msg5.configure(text=&quot;TR Period: %d s&quot; % (Audio.gcom1.trperiod,), \
+                        bg='gray85')
++    t=&quot;%d&quot; % (int(Audio.mtxcom.mtxstate),)
++    msg6.configure(text=t)
+ 
+     tx1.configure(bg='white')
+     tx2.configure(bg='white')
+@@ -2488,6 +2491,8 @@
+ msg4.pack(side=LEFT, fill=X, padx=1)
+ msg5=Message(iframe6, text='Message #5', width=300,relief=SUNKEN)
+ msg5.pack(side=LEFT, fill=X, padx=1)
++msg6=Message(iframe6, text='', width=300,relief=SUNKEN)
++msg6.pack(side=LEFT, fill=X, padx=1)
+ Widget.bind(msg5,'&lt;Button-1&gt;',inctrperiod)
+ Widget.bind(msg5,'&lt;Button-3&gt;',dectrperiod)
+ msg7=Message(iframe6, text='                        ', width=300,relief=SUNKEN)
+@@ -2674,12 +2679,10 @@
+ 
+ lsync.configure(text=slabel+str(isync))
+ lclip.configure(text='Clip   '+str(iclip))
+-Audio.gcom2.appdir=(appdir+(' '*80))[:80]
+ Audio.gcom2.azeldir=(options.azeldir.get()+' '*80)[:80]
+ Audio.gcom2.ndepth=ndepth.get()
+ Audio.gcom2.ndwspr=ndwspr.get()
+ Audio.gcom2.nhighpri=options.HighPri.get()
+-Audio.ftn_init()
+ Audio.gcom4.addpfx=(options.addpfx.get().lstrip()+(' '*8))[:8]
+ stopmon()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wsjt1.F	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -376,11 +376,13 @@
+               j=indx(i)
+               if(pick .and. STFound .and.
+      +          line(j)(29:31).eq.'   ') goto 10
++              call cs_lock('wsjt1')
+               write(lumsg,1050) line(j) !Write to decoded.txt
+  1050         format(a79)
+               if(lcum) write(21,1050) line(j) !Write to ALL.TXT
+               read(line(j),1060) sig,msg3
+  1060         format(16x,f3.0,9x,a3)
++              call cs_unlock
+               if(sig.gt.smax) then
+                  smax=sig
+                  tbest=tping(j)
+
+Modified: trunk/wsjt24.f
+===================================================================
+--- trunk/wsjt24.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wsjt24.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -102,6 +102,8 @@
+          if(c1.ge.'a' .and. c1.le.'z') decoded(i:i)=char(ichar(c1)-32)
+       enddo
+       jdf=ndf+idf
++
++      call cs_lock('wsjt24')
+       write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,
+      +    nint(width),csync,special,decoded(1:19),cooo,kvqual,nqual
+  1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4)
+@@ -111,6 +113,7 @@
+ 
+       if(lcum) write(21,1011) line
+  1011 format(a67)
++
+ C  Write decoded msg unless this is an &quot;Exclude&quot; request:
+       if(MinSigdB.lt.99) write(lumsg,1011) line
+ 
+@@ -167,6 +170,7 @@
+       call flushqqq(12)
+  
+       if(lumsg.ne.6) end file 11
++      call cs_unlock
+ 
+  900  continue
+ 
+
+Modified: trunk/wsjt65.f
+===================================================================
+--- trunk/wsjt65.f	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wsjt65.f	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -130,6 +130,8 @@
+       enddo
+       jdf=ndf+idf
+       if(nstest.gt.0) jdf=ndf
++
++      call cs_lock('')
+       write(line,1010) cfile6,nsync,nsnr,dtx-1.0,jdf,
+      +    nint(width),csync,special,decoded(1:19),cooo,kvqual,nqual
+  1010 format(a6,i3,i5,f5.1,i5,i3,1x,a1,1x,a5,a19,1x,a3,i4,i4)
+@@ -184,6 +186,7 @@
+      +      write(21,1011) ave1
+          ns10=ns1
+       endif
++      call cs_unlock
+ 
+ C  If Monitor segment #2 is available, write that line also
+ !      if(ns2.ge.1 .and. ns2.ne.ns20) then     !***Why the 2nd part?? ***
+
+Modified: trunk/wsjtgen.F90
+===================================================================
+--- trunk/wsjtgen.F90	2009-07-10 16:10:11 UTC (rev 1273)
++++ trunk/wsjtgen.F90	2009-07-22 18:33:54 UTC (rev 1274)
+@@ -33,6 +33,7 @@
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+ 
++  call cs_lock('wsjtgen')
+   fsample_out=11025.d0*samfacout
+   lcwid=.false.
+   if(idinterval.gt.0) then
+@@ -256,6 +257,8 @@
+      nwave=trperiod*fsample_out
+   endif
+ 
+-999 return
++999 continue
++  call cs_unlock
++  return
+ end subroutine wsjtgen
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000967.html">[WSJT-SVN] r1273 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000969.html">[WSJT-SVN] r1275 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

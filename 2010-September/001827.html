@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2135 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2135%20-%20wsjt7a&In-Reply-To=%3C20100909133156.0F230480E7F%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001826.html">
+   <LINK REL="Next"  HREF="001828.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2135 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2135%20-%20wsjt7a&In-Reply-To=%3C20100909133156.0F230480E7F%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2135 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep  9 15:31:55 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001826.html">[WSJT-SVN] r2134 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001828.html">[WSJT-SVN] r2136 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1827">[ date ]</a>
+              <a href="thread.html#1827">[ thread ]</a>
+              <a href="subject.html#1827">[ subject ]</a>
+              <a href="author.html#1827">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-09-09 15:31:55 +0200 (Thu, 09 Sep 2010)
+New Revision: 2135
+
+Modified:
+   wsjt7a/decode3.f90
+   wsjt7a/diana.f90
+   wsjt7a/syncdiana.f90
+   wsjt7a/wsjt.py
+Log:
+Cleaning up graphics in Diana mode.  (Not done yet...)
+
+
+Modified: wsjt7a/decode3.f90
+===================================================================
+--- wsjt7a/decode3.f90	2010-09-08 18:48:03 UTC (rev 2134)
++++ wsjt7a/decode3.f90	2010-09-09 13:31:55 UTC (rev 2135)
+@@ -76,7 +76,7 @@
+   
+   nclearave=0
+   nagain=0
+-  if(mode(1:4).eq.'JT65') then
++  if(mode(1:4).eq.'JT65' .or. mode(1:5).eq.'Diana') then
+      call pix2d65(d2d,jz)
+   else if(mode.eq.'FSK441' .or. mode(1:5).eq.'ISCAT' .or.              &amp;
+        mode(1:4).eq.'JTMS') then
+
+Modified: wsjt7a/diana.f90
+===================================================================
+--- wsjt7a/diana.f90	2010-09-08 18:48:03 UTC (rev 2134)
++++ wsjt7a/diana.f90	2010-09-09 13:31:55 UTC (rev 2135)
+@@ -12,6 +12,7 @@
+   real s0(1024,NSZ)
+   real fs0(1024,96)                       !Folded-for-sync symbol spectra
+   real ccfblue(-5:540)
++  real ccfred(-224:224)
+   integer dftolerance
+   data nsps/2048/,nsync/4/,nlen/2/,ndat/18/
+ 
+@@ -25,7 +26,7 @@
+   call specdiana(dat,npts,s0,jsym,fs0)   !Get symbol spectra, fold for sync
+ 
+   call syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
+-     ipk,jpk,dfx,dtx,msglen,ccfblue)     !Establish sync; get DF, DT, msglen
++     ipk,jpk,dfx,dtx,msglen,ccfblue,ccfred)     !Get sync: DF, DT, msglen
+   
+   msg=' '
+   nsnr=-27
+
+Modified: wsjt7a/syncdiana.f90
+===================================================================
+--- wsjt7a/syncdiana.f90	2010-09-08 18:48:03 UTC (rev 2134)
++++ wsjt7a/syncdiana.f90	2010-09-09 13:31:55 UTC (rev 2135)
+@@ -1,8 +1,9 @@
+ subroutine syncdiana(fs0,kstep,nfreeze,mousedf,dftolerance,syncx,     &amp;
+-     ipk,jpk,dfx,dtx,msglen,ccfblue)
++     ipk,jpk,dfx,dtx,msglen,ccfblue,ccfred)
+ 
+   real fs0(1024,96)                       !Folded-for-sync spectra
+   real ccfblue(-5:540)
++  real ccfred(-224:224)
+   integer dftolerance
+   integer isync(4)
+   data isync/8,16,32,24/
+@@ -14,31 +15,37 @@
+   ipk=9999
+   jpk=9999
+ 
+-  ia=-10
+-  ib=10
++  ia=-600.0/df
++  ib=600.0/df
+   if(nfreeze.eq.1) then
+      ia=(mousedf-dftolerance)/df
+      ib=(mousedf+dftolerance)/df
+   endif
+ 
+-  do j=0,4*nblk-1                     !Find sync pattern, lags 0-95
+-     do i=ia,ib                       !Search over DF range
++  do i=ia,ib                          !Search over DF range
++     sm1=0.
++     do j=0,4*nblk-1                  !Find sync pattern, lags 0-95
+         ss=0.
+         do n=1,4                      !Sum the four sync tones
+            k=j+4*n-3
+            if(k.gt.4*nblk) k=k-4*nblk
+            ss=ss + fs0(i0+i+2*isync(n),k)
+         enddo
+-        if(ss.gt.smax) then
+-           smax=ss
+-           ipk=i0+i                   !Frequency offset, DF
+-           jpk=j+1                    !Time offset, DT
++        if(ss.gt.sm1) then
++           sm1=ss
++           jpk1=j+1
+         endif
++        if(abs(i).le.224) ccfred(i)=sm1
+      enddo
++     if(sm1.gt.smax) then
++        smax=sm1
++        ipk=i0+i                   !Frequency offset, DF
++        jpk=jpk1
++     endif
+   enddo
+ 
+   dfx=(ipk-i0)*df
+-  dtx=jpk*kstep/11025.0
++  dtx=jpk*kstep/11025.0 - 1.4
+ 
+   ref=fs0(ipk+2,jpk) + fs0(ipk+4,jpk) + fs0(ipk+6,jpk)
+   j=jpk+4
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-09-08 18:48:03 UTC (rev 2134)
++++ wsjt7a/wsjt.py	2010-09-09 13:31:55 UTC (rev 2135)
+@@ -1459,7 +1459,10 @@
+         for i in range(ngreen):             #Make xy list for green curve
+             green=Audio.gcom2.green[i]
+             n=int(105.0-yfac*green)
+-            xy.append(i)
++            if mode.get()=='Diana':
++                xy.append(2*i)
++            else:
++                xy.append(i)
+             xy.append(n)
+         graph1.create_line(xy,fill=&quot;green&quot;)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001826.html">[WSJT-SVN] r2134 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001828.html">[WSJT-SVN] r2136 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1827">[ date ]</a>
+              <a href="thread.html#1827">[ thread ]</a>
+              <a href="subject.html#1827">[ subject ]</a>
+              <a href="author.html#1827">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

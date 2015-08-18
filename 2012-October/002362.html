@@ -1,0 +1,423 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2670 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2670%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121017195836.7876355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002361.html">
+   <LINK REL="Next"  HREF="002363.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2670 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2670%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121017195836.7876355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2670 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Oct 17 21:58:36 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002361.html">[WSJT-SVN] r2669 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002363.html">[WSJT-SVN] r2671 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2362">[ date ]</a>
+              <a href="thread.html#2362">[ thread ]</a>
+              <a href="subject.html#2362">[ subject ]</a>
+              <a href="author.html#2362">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-10-17 21:58:35 +0200 (Wed, 17 Oct 2012)
+New Revision: 2670
+
+Removed:
+   branches/wsjtx/lib/set.f
+   branches/wsjtx/lib/trimlist.f
+Modified:
+   branches/wsjtx/lib/Makefile.MinGW
+   branches/wsjtx/lib/genjt9.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/soundout.cpp
+Log:
+Some cleanup of code and repository.
+
+
+Modified: branches/wsjtx/lib/Makefile.MinGW
+===================================================================
+--- branches/wsjtx/lib/Makefile.MinGW	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/lib/Makefile.MinGW	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -20,17 +20,17 @@
+ %.o: %.F90
+ 	${FC} ${FFLAGS} -c $&lt;
+ 
+-all:    libjt9.a jt9sim.exe jt9.exe tt9.exe
++all:    libjt9.a jt9sim.exe jt9.exe
+ 
+-OBJS1 = trimlist.o pctile.o sort.o indexx.o ssort.o graycode.o \
+-	unpackmsg.o igray.o set.o unpackcall.o unpackgrid.o \
++OBJS1 = pctile.o graycode.o \
++	unpackmsg.o igray.o unpackcall.o unpackgrid.o \
+ 	grid2k.o unpacktext.o getpfx2.o packmsg.o deg2grid.o \
+ 	packtext.o getpfx1.o packcall.o k2grid.o packgrid.o \
+ 	nchar.o four2a.o grid2deg.o pfxdump.o f77_wisdom.o \
+ 	symspec.o timf2.o analytic.o db.o genjt9.o ptt.o \
+ 	packbits.o unpackbits.o encode232.o interleave9.o \
+ 	entail.o fano232.o gran.o spec9.o sync9.o decode9.o \
+-	peakdt9.o peakdf9.o fil3.o
++	peakdt9.o peakdf9.o fil3.o redsync.o decoder.o
+ 
+ libjt9.a: $(OBJS1)
+ 	ar cr libjt9.a $(OBJS1) 
+@@ -52,10 +52,6 @@
+ t2.exe: $(OBJS5) libjt9.a
+ 	$(FC) -o t2.exe $(OBJS5) libjt9.a ../libfftw3f_win.a 
+ 
+-OBJS6 = tt9.o 
+-tt9.exe: $(OBJS6) libjt9.a
+-	$(FC) -o tt9.exe $(OBJS6) libjt9.a ../libfftw3f_win.a 
+-
+ INCPATH = -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include/QtCore' \
+ 	 -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include' \
+ 	 -I'c:/QtSDK/Desktop/Qt/4.7.4/mingw/include/ActiveQt' \
+
+Modified: branches/wsjtx/lib/genjt9.f90
+===================================================================
+--- branches/wsjtx/lib/genjt9.f90	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/lib/genjt9.f90	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -1,21 +1,19 @@
+-subroutine genjt9(message,msgsent,d6)
++subroutine genjt9(message,msgsent,i4tone)
+ 
+ ! Encodes a JT9 message and returns msgsent, the message as it will
+-! be decoded, and an integer array d6(85) of 9-FSK tone values 
++! be decoded, and an integer array i4tone(85) of 9-FSK tone values 
+ ! in the range 0-8.  
+ 
+-  character*22 message          !Message to be generated
+-  character*22 msgsent          !Message as it will be received
+-
+-  integer*4 d0(13)              !72-bit message as 6-bit words
+-  integer*1 d1(13)              !72 bits and zero tail as 8-bit bytes
+-  integer*1 d2(207)             !Encoded information-carrying bits
+-  integer*1 d3(207)             !Bits from d2, after interleaving
+-  integer*4 d4(69)              !Symbols from d3, values 0-7
+-  integer*4 d5(69)              !Gray-coded symbols, values 0-7
+-  integer*4 d6(85)              !Channel symbols including sync, values 0-8
+-
+-  integer isync(85)             !Sync vector
++  character*22 message                    !Message to be generated
++  character*22 msgsent                    !Message as it will be received
++  integer*4 i4Msg6BitWords(13)            !72-bit message as 6-bit words
++  integer*1 i1Msg8BitBytes(13)            !72 bits and zero tail as 8-bit bytes
++  integer*1 i1EncodedBits(207)            !Encoded information-carrying bits
++  integer*1 i1ScrambledBits(207)          !Encoded bits after interleaving
++  integer*4 i4DataSymbols(69)             !Data symbols (values 0-7)
++  integer*4 i4GrayCodedSymbols(69)        !Gray-coded symbols (values 0-7)
++  integer*4 i4tone(85)                    !Tone #s, data and sync (values 0-8)
++  integer isync(85)                       !Sync vector
+   data isync/                                    &amp;
+        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,  &amp;
+        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,  &amp;
+@@ -24,26 +22,23 @@
+        1,0,0,0,1/
+   save
+ 
+-  call packmsg(message,d0)           !Pack message into 12 6-bit bytes
+-  call unpackmsg(d0,msgsent)         !Unpack d0 to get msgsent
+-  call entail(d0,d1)                 !Add tail, convert to 8-bit bytes
++  call packmsg(message,i4Msg6BitWords)    !Pack message into 12 6-bit bytes
++  call unpackmsg(i4Msg6BitWords,msgsent)  !Unpack to get msgsent
++  call entail(i4Msg6BitWords,i1Msg8BitBytes)  !Add tail, convert to 8-bit bytes
+   nsym2=206
+-  call encode232(d1,nsym2,d2)        !Convolutional code, K=32, r=1/2
+-  call interleave9(d2,1,d3)          !Interleave the single bits
+-  call packbits(d3,nsym2,3,d4)       !Pack 3-bit groups into words
++  call encode232(i1Msg8BitBytes,nsym2,i1EncodedBits)   !Encode K=32, r=1/2
++  call interleave9(i1EncodedBits,1,i1ScrambledBits)    !Interleave the bits
++  call packbits(i1ScrambledBits,nsym2,3,i4DataSymbols) !Pack 3-bits into words
++  call graycode(i4DataSymbols,69,1,i4GrayCodedSymbols) !Apply Gray code
+ 
+-!  d5=d4
+-!  print*,d5
+-  call graycode(d4,69,1,d5)          !Apply Gray code
+-
+-! Insert sync symbols (ntone=0) and add 1 to the data-tone numbers.
++! Insert sync symbols at ntone=0 and add 1 to the data-tone numbers.
+   j=0
+   do i=1,85
+      if(isync(i).eq.1) then
+-        d6(i)=0
++        i4tone(i)=0
+      else
+         j=j+1
+-        d6(i)=d5(j)+1
++        i4tone(i)=i4GrayCodedSymbols(j)+1
+      endif
+   enddo
+ 
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/lib/jt9sim.f90	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -8,10 +8,10 @@
+   real*8 f0,f,dt,twopi,phi,dphi,baud,fspan
+   character msg*22,msg0*22,message*22,msgsent*22,arg*8,fname*11
+ 
+-  integer*4 itone(85)              !Channel symbols (values 0-8)
++  integer*4 i4tone(85)             !Channel symbols (values 0-8)
+   integer*4 i4DataSymNoGray(69)    !Data Symbols, values 0-7
+-  integer*1 i1ScrambledBits(207)   !Hard-decision demodulated bits, interleaved
+-  integer*1 i1Bits(207)          !Encoded information-carrying bits
++  integer*1 i1ScrambledBits(207)   !Unpacked bits, scrambled order
++  integer*1 i1Bits(207)            !Encoded information-carrying bits
+   integer*1 i1SoftSymbols(207)
+   integer*1 i1
+   equivalence (i1,i4)
+@@ -76,11 +76,11 @@
+ 1000 format('File  N    freq      S/N  Message'/    &amp;
+             '---------------------------------------------------')
+ 
+-  do ifile=1,nfiles
++  do ifile=1,nfiles                            !Loop over all files
+      nmin=(ifile-1)*2*minutes
+      ihr=nmin/60
+      imin=mod(nmin,60)
+-     write(fname,1002) ihr,imin                !Create the output filenames
++     write(fname,1002) ihr,imin                !Create output filename
+ 1002 format('000000_',2i2.2)
+      open(10,file=fname//'.wav',access='stream',status='unknown')
+ 
+@@ -93,31 +93,30 @@
+      endif
+ 
+      if(msg0.ne.'                      ') then
+-        call genjt9(message,minutes,msgsent,itone)
++        call genjt9(message,minutes,msgsent,i4tone) !Encode message into tone #s
+      endif
+ 
+      rewind 12
+-     do isig=1,nsigs
++     do isig=1,nsigs                            !Loop over multiple signals
+ 
+         if(msg0.eq.'                      ') then
+-           read(12,1004) message
++           read(12,1004) message                !Use pre-generated message texts
+ 1004       format(a22)
+-           call genjt9(message,minutes,msgsent,itone)
++           call genjt9(message,minutes,msgsent,i4tone)
+         endif
+ 
+         f=f0
+         if(nsigs.gt.1) f=f0 - 0.5d0*fspan + fspan*(isig-1.d0)/(nsigs-1.d0)
+         snrdbx=snrdb
+-!        sig=sqrt(2500.0/6000.0) * 10.0**(0.05*snrdbx)
+         sig=10.0**(0.05*snrdbx)
+         write(*,1020) ifile,isig,f,snrdbx,msgsent
+ 1020    format(i3,i4,f10.3,f7.1,2x,a22)
+ 
+         phi=0.
+         baud=12000.0/nsps
+-        k=12000                             !Start at t = 1 s
++        k=12000                             !Start audio at t = 1.0 s
+         do isym=1,85
+-           freq=f + itone(isym)*baud
++           freq=f + i4tone(isym)*baud
+            if(msg0(1:3).eq.'sin') freq=sinfreq
+            dphi=twopi*freq*dt
+            do i=1,nsps
+@@ -138,27 +137,27 @@
+      write(10) ihdr,iwave(1:npts)
+      close(10)
+ 
+-! We're done!  Now decode the data symbols from itone, as a test.
+-     j=0
+-     do i=1,85
+-        if(isync(i).eq.1) cycle
+-        j=j+1
+-        i4DataSymNoGray(j)=igray(itone(i)-1,-1)
+-     enddo
+-     call unpackbits(i4DataSymNoGray,69,3,i1ScrambledBits)
+-     call interleave9(i1ScrambledBits,-1,i1Bits)
++! We're done!  Now decode the data symbols from i4tone, as a test.
++     if(msg0.ne.'                      ') then
++        j=0
++        do i=1,85
++           if(isync(i).eq.1) cycle
++           j=j+1
++           i4DataSymNoGray(j)=igray(i4tone(i)-1,-1)
++        enddo
++        call unpackbits(i4DataSymNoGray,69,3,i1ScrambledBits)
++        call interleave9(i1ScrambledBits,-1,i1Bits)
+ 
+-     do i=1,206
+-        i4=-10
+-        if(i1Bits(i).eq.1) i4=10
+-        i4=i4+128
+-        i1SoftSymbols(i)=i1
+-     enddo
++        do i=1,206
++           i4=-10
++           if(i1Bits(i).eq.1) i4=10
++           i4=i4+128
++           i1SoftSymbols(i)=i1
++        enddo
+ 
+-     call decode9(i1SoftSymbols,msg)
+-
+-     if(msg.ne.msg0) print*,'Decode error: ',msg0,' ',msg
+-
++        call decode9(i1SoftSymbols,msg)
++        if(msg.ne.msg0) print*,'Decode error: ',msg0,' ',msg
++     endif
+   enddo
+ 
+ 999 end program jt9sim
+
+Deleted: branches/wsjtx/lib/set.f
+===================================================================
+--- branches/wsjtx/lib/set.f	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/lib/set.f	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -1,31 +0,0 @@
+-      subroutine set(a,y,n)
+-      real y(n)
+-      do i=1,n
+-         y(i)=a
+-      enddo
+-      return
+-      end
+-
+-      subroutine move(x,y,n)
+-      real x(n),y(n)
+-      do i=1,n
+-         y(i)=x(i)
+-      enddo
+-      return
+-      end
+-
+-      subroutine zero(x,n)
+-      real x(n)
+-      do i=1,n
+-         x(i)=0.0
+-      enddo
+-      return
+-      end
+-
+-      subroutine add(a,b,c,n)
+-      real a(n),b(n),c(n)
+-      do i=1,n
+-         c(i)=a(i)+b(i)
+-      enddo
+-      return
+-      end
+
+Deleted: branches/wsjtx/lib/trimlist.f
+===================================================================
+--- branches/wsjtx/lib/trimlist.f	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/lib/trimlist.f	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -1,28 +0,0 @@
+-      subroutine trimlist(sig,km,ftol,indx,nsiz,nz)
+-
+-      parameter (MAXMSG=1000)             !Size of decoded message list
+-      real sig(MAXMSG,30)
+-      integer indx(MAXMSG),nsiz(MAXMSG)
+-
+-C     1      2     3    4    5    6     7     8
+-C   nfile  nutc  freq  snr  dt  ipol  flip  sync
+-
+-      call indexx(km,sig(1,3),indx)            !Sort list by frequency
+-
+-      n=1
+-      i0=1
+-      do i=2,km         
+-         j0=indx(i-1)
+-         j=indx(i)
+-         if(sig(j,3)-sig(j0,3).gt.ftol) then
+-            nsiz(n)=i-i0
+-            i0=i
+-            n=n+1
+-         endif
+-      enddo
+-      nz=n
+-      nsiz(nz)=km+1-i0
+-      nsiz(nz+1)=-1
+-
+-      return
+-      end
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/mainwindow.cpp	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -1,4 +1,4 @@
+-//---------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+@@ -154,7 +154,7 @@
+   soundInThread.start(QThread::HighestPriority);
+   // Assign output device and start output thread
+   soundOutThread.setOutputDevice(m_paOutDevice);
+-//  soundOutThread.start(QThread::HighPriority);
++  soundOutThread.setTxFreq(m_txFreq);
+ 
+   m_monitoring=true;                           // Start with Monitoring ON
+   soundInThread.setMonitoring(m_monitoring);
+@@ -289,6 +289,7 @@
+   ui-&gt;NBslider-&gt;setValue(m_NBslider);
+   m_txFreq=settings.value(&quot;TxFreq&quot;,1500).toInt();
+   ui-&gt;TxFreqSpinBox-&gt;setValue(m_txFreq);
++  soundOutThread.setTxFreq(m_txFreq);
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+   m_ndepth=settings.value(&quot;NDepth&quot;,0).toInt();
+   ui-&gt;actionF4_sets_Tx6-&gt;setChecked(m_kb8rq);
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-10-16 23:32:15 UTC (rev 2669)
++++ branches/wsjtx/soundout.cpp	2012-10-17 19:58:35 UTC (rev 2670)
+@@ -58,7 +58,7 @@
+                         &lt;&lt; itone[9] &lt;&lt; itone[10] &lt;&lt; itone[11] &lt;&lt; itone[12]
+                         &lt;&lt; itone[13] &lt;&lt; itone[14] &lt;&lt; itone[15] &lt;&lt; itone[16];
+                         */
+-//  qDebug() &lt;&lt; ic &lt;&lt; isym &lt;&lt; freq &lt;&lt; dphi &lt;&lt; phi &lt;&lt; i2;
++  //if(ic&lt;10000) qDebug() &lt;&lt; ic &lt;&lt; isym &lt;&lt; freq &lt;&lt; dphi &lt;&lt; phi &lt;&lt; i2;
+ 
+   for(int i=0 ; i&lt;framesToProcess; i++ )  {
+     phi += dphi;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002361.html">[WSJT-SVN] r2669 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002363.html">[WSJT-SVN] r2671 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2362">[ date ]</a>
+              <a href="thread.html#2362">[ thread ]</a>
+              <a href="subject.html#2362">[ subject ]</a>
+              <a href="author.html#2362">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

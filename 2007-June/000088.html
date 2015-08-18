@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r403 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r403%20-%20branches/map65&In-Reply-To=%3C200706221212.l5MCC4LN029600%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000087.html">
+   <LINK REL="Next"  HREF="000089.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r403 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r403%20-%20branches/map65&In-Reply-To=%3C200706221212.l5MCC4LN029600%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r403 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 22 14:12:04 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000087.html">[WSJT-SVN] r402 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000089.html">[WSJT-SVN] r404 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#88">[ date ]</a>
+              <a href="thread.html#88">[ thread ]</a>
+              <a href="subject.html#88">[ subject ]</a>
+              <a href="author.html#88">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-22 14:11:59 +0200 (Fri, 22 Jun 2007)
+New Revision: 403
+
+Added:
+   branches/map65/plrr_subs_win.c
+Log:
+
+
+Added: branches/map65/plrr_subs_win.c
+===================================================================
+--- branches/map65/plrr_subs_win.c	2007-06-22 12:10:01 UTC (rev 402)
++++ branches/map65/plrr_subs_win.c	2007-06-22 12:11:59 UTC (rev 403)
+@@ -0,0 +1,90 @@
++#include &lt;winsock2.h&gt;
++#include &lt;ws2tcpip.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;stdio.h&gt;
++
++#define HELLO_PORT 50004
++#define HELLO_GROUP &quot;239.255.0.0&quot;
++#define MSGBUFSIZE 1416
++
++struct sockaddr_in addr;
++int fd;
++
++//void __stdcall SETUP_RSOCKET(void)
++void setup_rsocket_(void)
++{
++  struct ip_mreq mreq;
++  u_int yes=1;
++
++  // Make sure that we have compatible Winsock support
++  WORD wVersionRequested;
++  WSADATA wsaData;
++  int err;
++ 
++  wVersionRequested = MAKEWORD( 2, 2 );
++  err = WSAStartup( wVersionRequested, &amp;wsaData );
++  if ( err != 0 ) {
++    /* Tell the user that we could not find a usable */
++    /* WinSock DLL.                                  */
++    exit(1);
++  }
++ 
++  /* Confirm that the WinSock DLL supports 2.2.*/
++  /* Note that if the DLL supports versions greater    */
++  /* than 2.2 in addition to 2.2, it will still return */
++  /* 2.2 in wVersion since that is the version we      */
++  /* requested.                                        */
++ 
++  if ( LOBYTE( wsaData.wVersion ) != 2 ||
++       HIBYTE( wsaData.wVersion ) != 2 ) {
++    /* Tell the user that we could not find a usable */
++    /* WinSock DLL.                                  */
++    WSACleanup( );
++    exit(1); 
++  }
++  /* The WinSock DLL is acceptable. Proceed. */
++
++  /* create what looks like an ordinary UDP socket */
++  if ((fd=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)) &lt; 0) {
++    perror(&quot;socket&quot;);
++    exit(1);
++  }
++
++  /* allow multiple sockets to use the same PORT number */
++  if (setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&amp;yes,sizeof(yes)) &lt; 0) {
++    perror(&quot;Reusing ADDR failed&quot;);
++    exit(1);
++  }
++
++  /* set up destination address */
++  memset(&amp;addr,0,sizeof(addr));
++  addr.sin_family=AF_INET;
++  addr.sin_addr.s_addr=htonl(INADDR_ANY); /* N.B.: differs from sender */
++  addr.sin_port=htons(HELLO_PORT);
++     
++  /* bind to receive address */
++  if (bind(fd,(struct sockaddr *) &amp;addr,sizeof(addr)) &lt; 0) {
++    perror(&quot;bind&quot;);
++    exit(1);
++  }
++     
++  /* use setsockopt() to request that the kernel join a multicast group */
++  mreq.imr_multiaddr.s_addr=inet_addr(HELLO_GROUP);
++  mreq.imr_interface.s_addr=htonl(INADDR_ANY);
++  if (setsockopt(fd,IPPROTO_IP,IP_ADD_MEMBERSHIP,&amp;mreq,sizeof(mreq)) &lt; 0) {
++    perror(&quot;setsockopt&quot;);
++    exit(1);
++  }
++}
++
++//void __stdcall RECV_PKT(char buf[])
++void recv_pkt_(char buf[])
++{
++  int addrlen,nbytes;
++  addrlen=sizeof(addr);
++  if ((nbytes=recvfrom(fd,buf,1416,0, 
++		       (struct sockaddr *) &amp;addr,&amp;addrlen)) &lt; 0) {
++    perror(&quot;recvfrom&quot;);
++    exit(1);
++  }
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000087.html">[WSJT-SVN] r402 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000089.html">[WSJT-SVN] r404 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#88">[ date ]</a>
+              <a href="thread.html#88">[ thread ]</a>
+              <a href="subject.html#88">[ subject ]</a>
+              <a href="author.html#88">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

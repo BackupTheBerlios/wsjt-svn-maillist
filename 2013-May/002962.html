@@ -1,0 +1,312 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3270 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3270%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130515151737.1816855B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002961.html">
+   <LINK REL="Next"  HREF="002963.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3270 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3270%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130515151737.1816855B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3270 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed May 15 17:17:36 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002961.html">[WSJT-SVN] r3269 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002963.html">[WSJT-SVN] r3271 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2962">[ date ]</a>
+              <a href="thread.html#2962">[ thread ]</a>
+              <a href="subject.html#2962">[ subject ]</a>
+              <a href="author.html#2962">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-05-15 17:17:36 +0200 (Wed, 15 May 2013)
+New Revision: 3270
+
+Added:
+   branches/wsjtx/lib/chkss2.f90
+   branches/wsjtx/lib/zplot9.f90
+Modified:
+   branches/wsjtx/lib/Makefile.MinGW
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/softsym.f90
+   branches/wsjtx/lib/symspec2.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Added routine &quot;chkss2&quot; to test sync vector for sanity before attenpting
+Fano decode.
+
+
+Modified: branches/wsjtx/lib/Makefile.MinGW
+===================================================================
+--- branches/wsjtx/lib/Makefile.MinGW	2013-05-15 11:37:25 UTC (rev 3269)
++++ branches/wsjtx/lib/Makefile.MinGW	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -33,7 +33,7 @@
+ 	fil3.o redsync.o decoder.o grid2n.o n2grid.o timer.o \
+ 	softsym.o getlags.o afc9.o fchisq.o twkfreq.o downsam9.o \
+ 	peakdt9.o symspec2.o stdmsg.o morse.o azdist.o geodist.o \
+-	rig_control.o fillcom.o
++	rig_control.o fillcom.o chkss2.o zplot9.o
+ 
+ libjt9.a: $(OBJS1)
+ 	ar cr libjt9.a $(OBJS1) 
+
+Added: branches/wsjtx/lib/chkss2.f90
+===================================================================
+--- branches/wsjtx/lib/chkss2.f90	                        (rev 0)
++++ branches/wsjtx/lib/chkss2.f90	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -0,0 +1,23 @@
++subroutine chkss2(ss2,schk)
++
++  real ss2(0:8,85)
++  real s(0:8,85)
++  real s1(0:5)
++  include 'jt9sync.f90'
++
++  ave=sum(ss2)/(9*85)
++  s=ss2/ave-1.0
++
++!  call zplot9(s)
++  s1=0.
++  do lag=0,5
++     do i=1,16
++        j=ii(i)+lag
++        if(j.le.85) s1(lag)=s1(lag) + s(0,j)
++     enddo
++  enddo
++  schk=s1(0)/16.0
++
++  return
++end subroutine chkss2
++
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-05-15 11:37:25 UTC (rev 3269)
++++ branches/wsjtx/lib/decoder.f90	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -126,41 +126,45 @@
+            call timer('softsym ',0)
+            fpk=1000.0 + df3*(i-1)
+            call softsym(c0,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,freq,   &amp;
+-                drift,i1SoftSymbols)
+-
++                drift,schk,i1SoftSymbols)
+            call timer('softsym ',1)
+ 
+-           call timer('decode9 ',0)
+-           call decode9(i1SoftSymbols,limit,nlim,msg)
+-           call timer('decode9 ',1)
++           if(schk.ge.3.0) then
+ 
+-           sync=(syncpk+1)/4.0
+-           if(sync.lt.0.0 .or. snrdb.lt.dblim-2.0) sync=0.0
+-           nsync=sync
+-           if(nsync.gt.10) nsync=10
+-           nsnr=nint(snrdb)
+-           ndrift=nint(drift/df3)
++              call timer('decode9 ',0)
++              call decode9(i1SoftSymbols,limit,nlim,msg)
++              call timer('decode9 ',1)
+ 
+-           write(38,3002) nutc,nsnr,i,freq,ccfred(i),nlim,msg
+-3002       format(i4.4,i5,i6,2f8.1,i9,2x,a22)
++              sync=(syncpk+1)/4.0
++              if(sync.lt.0.0 .or. snrdb.lt.dblim-2.0) sync=0.0
++              nsync=sync
++              if(nsync.gt.10) nsync=10
++              nsnr=nint(snrdb)
++              ndrift=nint(drift/df3)
++              
++              write(38,3002) nutc,nsnr,i,freq,ccfred(i),schk,nlim,msg
++3002          format(i4.4,i5,i6,f8.1,2f6.1,i9,2x,a22)
+ 
+-           if(msg.ne.'                      ') then
+-              if(nqd.eq.0) ndecodes0=ndecodes0+1
+-              if(nqd.eq.1) ndecodes1=ndecodes1+1
+-
+-              write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+-              write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
++              if(msg.ne.'                      ') then
++                 if(nqd.eq.0) ndecodes0=ndecodes0+1
++                 if(nqd.eq.1) ndecodes1=ndecodes1+1
++                 
++                 write(*,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
++                 write(13,fmt) nutc,nsync,nsnr,xdt,freq,ndrift,msg
+ !              write(14,1014) nutc,nsync,nsnr,xdt,freq,ndrift,ccfred(i),nlim,msg
+ !1014          format(i4.4,i4,i5,f6.1,f8.0,i4,f9.1,i9,3x,a22)
+ 
+-              iaa=max(1,i-3)
+-              ibb=min(NSMAX,i+11)
+-              fgood=f
+-              nsynced=1
+-              ndecoded=1
+-              ccfok(iaa:ibb)=.false.
+-              done(iaa:ibb)=.true.              
+-              call flush(6)
++                 iaa=max(1,i-1)
++                 ibb=min(NSMAX,i+22)
++                 fgood=f
++                 nsynced=1
++                 ndecoded=1
++                 ccfok(iaa:ibb)=.false.
++                 done(iaa:ibb)=.true.              
++                 call flush(6)
++              endif
++           else
++              write(38,3002) nutc,-99,i,freq,ccfred(i),schk,0
+            endif
+         endif
+      enddo
+
+Modified: branches/wsjtx/lib/softsym.f90
+===================================================================
+--- branches/wsjtx/lib/softsym.f90	2013-05-15 11:37:25 UTC (rev 3269)
++++ branches/wsjtx/lib/softsym.f90	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -1,5 +1,5 @@
+ subroutine softsym(c0,npts8,nsps8,newdat,fpk,syncpk,snrdb,xdt,freq,drift,   &amp;
+-     i1SoftSymbols)
++     schk,i1SoftSymbols)
+ 
+ ! Compute the soft symbols
+ 
+@@ -23,17 +23,18 @@
+   fsample=1500.0/ndown
+   a=0.
+   call afc9(c3,nz3,fsample,a,syncpk)  !Find deltaF, fDot, fDDot
++  freq=fpk - a(1)
++  drift=-2.0*a(2)
+ 
+   call twkfreq(c3,c5,nz3,fsample,a)   !Correct for deltaF, fDot, fDDot
+ 
+ ! Compute soft symbols (in scrambled order)
+-  call symspec2(c5,nz3,nsps8,nspsd,fsample,snrdb,i1SoftSymbolsScrambled)
++  call symspec2(c5,nz3,nsps8,nspsd,fsample,freq,drift,snrdb,schk,      &amp;
++       i1SoftSymbolsScrambled)
++  if(snrdb.lt.-99.0) return
+ 
+ ! Remove interleaving
+   call interleave9(i1SoftSymbolsScrambled,-1,i1SoftSymbols)
+-  
+-  freq=fpk - a(1)
+-  drift=-2.0*a(2)
+ 
+   return
+ end subroutine softsym
+
+Modified: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	2013-05-15 11:37:25 UTC (rev 3269)
++++ branches/wsjtx/lib/symspec2.f90	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -1,4 +1,5 @@
+-subroutine symspec2(c5,nz3,nsps8,nspsd,fsample,snrdb,i1SoftSymbolsScrambled)
++subroutine symspec2(c5,nz3,nsps8,nspsd,fsample,freq,drift,snrdb,schk,    &amp;
++     i1SoftSymbolsScrambled)
+ 
+ ! Compute soft symbols from the final downsampled data
+ 
+@@ -34,6 +35,11 @@
+   enddo
+ 
+ !###
++!  write(30) freq,drift,ss2
++!  call flush(30)
++  call chkss2(ss2,schk)
++  if(schk.lt.3.0) go to 900
++!###
+   ss=0.
+   sig=0.
+   do j=1,69
+@@ -81,5 +87,5 @@
+      enddo
+   enddo
+ 
+-  return
++900 return
+ end subroutine symspec2
+
+Added: branches/wsjtx/lib/zplot9.f90
+===================================================================
+--- branches/wsjtx/lib/zplot9.f90	                        (rev 0)
++++ branches/wsjtx/lib/zplot9.f90	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -0,0 +1,29 @@
++subroutine zplot9(s)
++
++  real s(0:8,85)
++  character*1 line(85),mark(0:6)
++  data mark/' ',' ','.','-','+','X','$'/
++  include 'jt9sync.f90'
++
++  do j=8,0,-1
++     do i=1,85
++        n=(s(j,i))
++        if(n.lt.0) n=0
++        if(n.gt.6) n=6
++        line(i)=mark(n)
++     enddo
++     write(32,1010) j,line
++1010 format(i1,1x,85a1)
++  enddo
++  do i=1,85
++     line(i)=' '
++     if(isync(i).eq.1) line(i)='@'
++  enddo
++  write(32,1015)
++1015 format(87('-'))
++  write(32,1020) line
++1020 format(2x,85a1)
++  write(32,1015)
++
++  return
++end subroutine zplot9
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-05-15 11:37:25 UTC (rev 3269)
++++ branches/wsjtx/mainwindow.cpp	2013-05-15 15:17:36 UTC (rev 3270)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002961.html">[WSJT-SVN] r3269 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002963.html">[WSJT-SVN] r3271 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2962">[ date ]</a>
+              <a href="thread.html#2962">[ thread ]</a>
+              <a href="subject.html#2962">[ subject ]</a>
+              <a href="author.html#2962">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,510 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1949 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1949%20-%20wsjt7a&In-Reply-To=%3C20100702201658.91421480C24%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001640.html">
+   <LINK REL="Next"  HREF="001642.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1949 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1949%20-%20wsjt7a&In-Reply-To=%3C20100702201658.91421480C24%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1949 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul  2 22:16:58 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001640.html">[WSJT-SVN] r1948 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001642.html">[WSJT-SVN] r1950 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1641">[ date ]</a>
+              <a href="thread.html#1641">[ thread ]</a>
+              <a href="subject.html#1641">[ subject ]</a>
+              <a href="author.html#1641">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-02 22:16:58 +0200 (Fri, 02 Jul 2010)
+New Revision: 1949
+
+Added:
+   wsjt7a/t73.f90
+Modified:
+   wsjt7a/smo.f90
+   wsjt7a/t72.f90
+   wsjt7a/wsjt.py
+   wsjt7a/wsjt1.F
+Log:
+New JT6M decoder begun, as program t73.f90.
+
+
+Modified: wsjt7a/smo.f90
+===================================================================
+--- wsjt7a/smo.f90	2010-07-01 19:32:18 UTC (rev 1948)
++++ wsjt7a/smo.f90	2010-07-02 20:16:58 UTC (rev 1949)
+@@ -1,7 +1,7 @@
+-subroutine smo(x,npts,nadd)
++subroutine smo(x,npts,y,nadd)
+ 
+   real x(npts)
+-  common/scratch/y(10000)
++  real y(npts)
+ 
+   nh=nadd/2
+   do i=1+nh,npts-nh
+
+Modified: wsjt7a/t72.f90
+===================================================================
+--- wsjt7a/t72.f90	2010-07-01 19:32:18 UTC (rev 1948)
++++ wsjt7a/t72.f90	2010-07-02 20:16:58 UTC (rev 1949)
+@@ -20,20 +20,22 @@
+   complex zz(0:3)
+   real r(0:3)
+   real rf(0:3)
+-  real th(0:3)
++  real spec(0:3)
++  integer nspec(0:3)
+   real s(NMAX)
+-  real ccf(-2400:2400)
++  real ccf(-6000:6000)
+   integer itone(84)                       !Generated tones for msg fragment
+   integer dftolerance
+   integer dit(-3000:3000)
+   real y(0:3,-3000:3000)
++  complex za(0:3,-3000:3000)
+   real yf(0:3,0:86)
+   integer nf(0:86)
+   integer ditf(0:86)
+   logical pick
+   real pingdat(3,100)                     !Detected pings
+   character c*48
+-  common/scratch/work(10000)
++  common/scratch/work(NMAX)
+   data c/' 123456789.,?/# $ABCD FGHIJKLMNOPQRSTUVWXY 0EZ  '/
+ 
+   nargs=iargc()
+@@ -44,7 +46,7 @@
+   call getarg(1,arg)
+   read(arg,*) nfile
+   call getarg(2,frag)
+-  open(72,file='dat.72',form='unformatted',status='old')
++  open(72,file='dat.72a',form='unformatted',status='old')
+ 
+   do i=28,1,-1                          !Get length of fragment
+      if(frag(i:i).ne.' ') go to 10
+@@ -62,7 +64,8 @@
+   call gen441(4,1,ct3)
+ 
+ ! Initialize variables
+-  jpk=0
++  ipk=0
++  twopi=8.0*atan(1.0)
+   dt=1.0/11025.0
+   minsigdb=2
+   minwidth=40
+@@ -127,11 +130,9 @@
+         ccf(:-ia-1)=0.
+         ccf(ia+1:)=0.
+         nadd=2*nint(5.0/df1)+1
+-        call smo(ccf(-ia),2*ia+1,nadd)
++        call smo(ccf(-ia),2*ia+1,work,nadd)
+ 
+         do i=-ia,ia
+-!           write(14,3001) i*df1,ccf(i)
+-!3001       format(2f10.3)
+            if(ccf(i).gt.ccfmax) then
+               ccfmax=ccf(i)
+               ipk=i
+@@ -154,8 +155,6 @@
+               sq=sq + real(cdat(j+i-1))**2 + aimag(cdat(j+i-1))**2
+            enddo
+            ss=(real(z)**2 + aimag(z)**2)/sq
+-!           write(15,3002) i,(i+i0-1)*dt,ss
+-!3002       format(i8,f12.6,f12.3)
+            if(ss.gt.sbest) then
+               sbest=ss
+               ibest=i
+@@ -163,9 +162,19 @@
+            endif
+         enddo
+ 
++        if(sbest.lt.ccfmax) go to 800         !Skip if not FSK441 data
++
+ ! We know DF and DT; now decode the message.
+-        k1=0
+-        do i1=ibest,npts-nsps+1,nsps                  !Positive is
++        spec=0.
++        nspec=0
++        n=ibest/nsps - 1
++        i1a=ibest-n*nsps
++        n=(npts-nsps+1)/nsps - 1
++        i1b=i1a+n*nsps
++        is1=(1-ibest)/nsps
++        is2=(npts-nsps+1-ibest)/nsps
++
++        do i1=i1a,i1b,nsps
+            is=(i1-ibest)/nsps
+            sq=dot_product(cdat(i1:i1+nsps-1),cdat(i1:i1+nsps-1))
+            rms=sqrt(sq)
+@@ -177,61 +186,51 @@
+            rmax=0.
+            do i=0,3
+               r(i)=abs(zz(i))
+-              y(i,is)=r(i)
+-              th(i)=atan2(aimag(zz(i)),real(zz(i)))
++              za(i,is)=zz(i)
+               if(r(i).gt.rmax) then
+                  rmax=r(i)
+                  ipk=i
+               endif
+            enddo
+-           k1=k1+1
+-           dit(is)=ipk
+-           write(17,3004) is,zz
+-3004       format(i3,4(f8.2,f6.2))
+-           write(18,3005) is,ipk,rmax,th(ipk),is/3
+-3005       format(2i3,2f8.2,i6)
+-           if(ipk.eq.0) write(20,3005) is,ipk,rmax,th(ipk),is/3
+-           if(ipk.eq.1) write(21,3005) is,ipk,rmax,th(ipk),is/3
+-           if(ipk.eq.2) write(22,3005) is,ipk,rmax,th(ipk),is/3
+-           if(ipk.eq.3) write(23,3005) is,ipk,rmax,th(ipk),is/3
++           do i=0,3
++              if(i.ne.ipk) then
++                 spec(i)=spec(i)+r(i)
++                 nspec(i)=nspec(i)+1
++              endif
++           enddo
+         enddo
+ 
+-        k2=0
+-        do i1=ibest-nsps,1,-nsps                             !Negative is
+-           is=(i1-ibest)/nsps
+-           sq=dot_product(cdat(i1:i1+nsps-1),cdat(i1:i1+nsps-1))
+-           rms=sqrt(sq)
+-           zz(0)=dot_product(cdat(i1:i1+nsps-1),conjg(ct0))/rms
+-           zz(1)=dot_product(cdat(i1:i1+nsps-1),conjg(ct1))/rms
+-           zz(2)=dot_product(cdat(i1:i1+nsps-1),conjg(ct2))/rms
+-           zz(3)=dot_product(cdat(i1:i1+nsps-1),conjg(ct3))/rms
++        do i=0,3
++           if(nspec(i).gt.0) then
++              spec(i)=spec(i)/nspec(i)
++           else
++              spec(i)=1.0
++           endif
++        enddo
+ 
++        do i1=i1a,i1b,nsps
++           is=(i1-ibest)/nsps
+            rmax=0.
+            do i=0,3
++              za(i,is)=za(i,is)/spec(i)
++              zz(i)=za(i,is)
+               r(i)=abs(zz(i))
+               y(i,is)=r(i)
+-              th(i)=atan2(aimag(zz(i)),real(zz(i)))
+               if(r(i).gt.rmax) then
+                  rmax=r(i)
+                  ipk=i
+               endif
+            enddo
+-           k2=k2+1
+            dit(is)=ipk
+-           write(17,3004) is,zz
+-           write(18,3005) is,ipk,rmax,th(ipk),(is-2)/3
+-           if(ipk.eq.0) write(20,3005) is,ipk,rmax,th(ipk),(is-2)/3
+-           if(ipk.eq.1) write(21,3005) is,ipk,rmax,th(ipk),(is-2)/3
+-           if(ipk.eq.2) write(22,3005) is,ipk,rmax,th(ipk),(is-2)/3
+-           if(ipk.eq.3) write(23,3005) is,ipk,rmax,th(ipk),(is-2)/3
+         enddo
+ 
+ ! Get message length
+         smax=0.
+         sum0=1.
++        lenavg=1
+         do lag=0,28
+            sum=0.
+-           do j=is,k1-3*28
++           do j=is1,is2-3*28
+               sum=sum + y(0,j)*y(0,j+3*lag) + y(1,j)*y(1,j+3*lag) +      &amp;
+                         y(2,j)*y(2,j+3*lag) + y(3,j)*y(3,j+3*lag) 
+            enddo
+@@ -242,18 +241,15 @@
+               sum=sum/sum0
+               if(sum.gt.smax) then
+                  smax=sum
+-                 len=lag
++                 lenavg=lag
+               endif
+-!              if(smax.gt.0.85) go to 20
+            endif
+-           write(19,3006) lag,sum
+-3006       format(i3,f12.3)
+         enddo
+-!20      continue
++        if(lenavg.eq.1) go to 800
+ 
+         msg='                                        '
+-        msglen=min((k1+k2)/3,40)
+-        j=is/3
++        msglen=min((is2-is1+1)/3,40)
++        j=is1/3
+         j=3*j
+ 
+         do i=1,msglen
+@@ -264,14 +260,14 @@
+         enddo
+ 
+         write(*,1110) cfile6,tbest,mswidth,nint(dfx),     &amp;
+-             ccfmax,sbest,len,msg(:msglen)
++             ccfmax,sbest,lenavg,msg(:msglen)
+ 1110    format(a6,f5.1,i5,i5,2f6.1,i3,2x,a)
+ 
+ ! Fold the y() array
+         yf=0.
+         nf=0
+-        do j=is,k1
+-           k=mod(j+300*len,3*len)
++        do j=is1,is2
++           k=mod(j+300*lenavg,3*lenavg)
+            yf(0,k)=yf(0,k) + y(0,j)
+            yf(1,k)=yf(1,k) + y(1,j)
+            yf(2,k)=yf(2,k) + y(2,j)
+@@ -279,7 +275,7 @@
+            nf(k)=nf(k)+1
+         enddo
+ 
+-        do k=0,3*len-1
++        do k=0,3*lenavg-1
+            if(nf(k).gt.0) then
+               rmax=0.
+               do i=0,3
+@@ -292,20 +288,19 @@
+            endif
+            ditf(k)=ipk
+         enddo
+-!        write(*,4001) (ditf(k),k=0,3*len-1)
++!        write(*,4001) (ditf(k),k=0,3*lenavg-1)
+ !4001    format(10(i2,2i1))
+ 
+-        msglen=len
+         j=-3
+         msg='                                        '
+-        do i=1,msglen
++        do i=1,lenavg
+            j=j+3
+            nc=16*ditf(j) + 4*ditf(j+1) +ditf(j+2)
+            msg(i:i)=' '
+            if(nc.le.47 .and. nc.ge.0) msg(i:i)=c(nc+1:nc+1)
+         enddo
+ 
+-        write(*,1120) msg(:msglen)
++        write(*,1120) msg(:lenavg)
+ 1120    format(37x,a)
+ 
+ 
+
+Added: wsjt7a/t73.f90
+===================================================================
+--- wsjt7a/t73.f90	                        (rev 0)
++++ wsjt7a/t73.f90	2010-07-02 20:16:58 UTC (rev 1949)
+@@ -0,0 +1,138 @@
++program t73
++
++! Tests experimental JT6M decoder
++
++  parameter (NMAX=512*1024)
++  real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
++  complex cdat(NMAX)                      !Analytic form of signal
++  complex z
++  character arg*12                        !Command-line argument
++  character cfile6*6                      !File time
++  character frag*28                       !Message fragment to be matched
++!  character msg*40
++!  complex cfrag(2100)                     !Complex waveform of message fragment
++  real s(NMAX)
++  real sym(646)
++  real fsym(0:2)
++  real ccf(-20000:20000)
++  integer dftolerance
++  real*8 twopi8,dt8,f08
++  common/scratch/work(NMAX)
++
++  nargs=iargc()
++  if(nargs.ne.2) then
++     print*,'Usage: t73 nfile frag'
++     go to 999
++  endif
++  call getarg(1,arg)
++  read(arg,*) nfile
++  call getarg(2,frag)
++  open(73,file='dat.73',form='unformatted',status='old')
++
++  do i=28,1,-1                          !Get length of fragment
++     if(frag(i:i).ne.' ') go to 10
++  enddo
++10 nfrag=i
++
++  nsps=512
++  twopi8=8.d0*atan(1.d0)
++  dt8=1.d0/11025.d0
++  f08=50*11025.d0/nsps
++  f0=f08
++  dftolerance=40
++  ipk=0
++  
++  do ifile=1,nfile
++     read(73,end=999) jz,nz,cfile6,(dat(j),j=1,jz)
++     if(ifile.ne.nfile .and. nfile.ne.999) go to 900
++
++!     do i=1,jz
++!        j=(i-1)/512
++!        dat(i)=0.
++!        if(mod(j,3).eq.1) dat(i)=sin(twopi8*i*dt8*f08)
++!     enddo
++
++     npts=jz
++     xn=log(float(npts))/log(2.0)
++     n=xn
++     if(xn-n .gt.0.001) n=n+1
++     nfft1=2**n
++     nh1=nfft1/2
++     nq1=nfft1/4
++     df1=11025.0/nfft1
++     ia=nint(11025.0/(3.0*nsps*df1))
++     ib=nint(dftolerance/df1)
++     i0=nint(f0/df1)
++
++     call analytic(dat,npts,nfft1,s,cdat)        !Convert to analytic signal
++
++     do i=-ib,ib
++        ccf(i)=0.46*s(i0+i) + 0.27*(s(i0+i-ia)+s(i0+i+ia))
++     enddo
++
++     nadd=nint(1.0/df1)
++     call smo(ccf(-ib),2*ib+1,work,nadd)
++
++     ccfmax=0.
++     do i=-ib,ib
++        if(ccf(i).gt.ccfmax) then
++           ccfmax=ccf(i)
++           ipk=i
++        endif
++        freq=i*df1
++        write(13,3001) i,freq,1000.0*ccf(i)
++3001    format(i8,2f12.3)
++     enddo
++
++     dfx=ipk*df1
++
++! DF is known, now find symbol sync.
++     call tweak1(cdat,npts,-f0-dfx,cdat)
++
++     nrpt=npts/1536-1
++     ymax=0.
++     jpk=0
++     do j=0,1535
++        y=0.
++        do n=0,nrpt-1
++           k=n*1536 + j
++           z=0.
++           do i=1,512
++              k=k+1
++              z=z+cdat(k)
++           enddo
++           y=y + abs(z)
++        enddo
++        write(14,3002) j,y
++3002    format(i8,f12.3)
++        if(y.gt.ymax) then
++           ymax=y
++           i1=j
++        endif
++     enddo
++
++! OK, we have DF and starting sample, i1.  Compute symbol amplitudes.
++        nsym=(npts-i1+1)/(3*512)
++        nsym=3*nsym
++        fsym=0.
++        k=i1-1
++        do j=1,nsym
++           z=0.
++           do i=1,512
++              k=k+1
++              z=z+cdat(k)
++           enddo
++           sym(j)=abs(z)
++           i=mod(j-1,3)
++           fsym(i)=fsym(i)+sym(j)
++           write(16,3005) j,sym(j)
++3005       format(i4,f12.3)
++        enddo
++        print*,fsym
++
++     print*,ifile,f0,dfx,jpk
++
++900  continue
++  enddo
++
++999 end program t73
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-01 19:32:18 UTC (rev 1948)
++++ wsjt7a/wsjt.py	2010-07-02 20:16:58 UTC (rev 1949)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: wsjt7a/wsjt1.F
+===================================================================
+--- wsjt7a/wsjt1.F	2010-07-01 19:32:18 UTC (rev 1948)
++++ wsjt7a/wsjt1.F	2010-07-02 20:16:58 UTC (rev 1949)
+@@ -208,6 +208,7 @@
+            do i=1,jz                    !### Why is it level-sensitive?
+               dat(i)=dat(i)/25.0
+            enddo
++!           write(73) jz,nz,cfile6,(dat(j),j=1,jz)
+ ! For waterfall plot
+            call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+            if(sigma.lt.0.0) basevb=-99.0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001640.html">[WSJT-SVN] r1948 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001642.html">[WSJT-SVN] r1950 - in wsjt7a: . WsjtMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1641">[ date ]</a>
+              <a href="thread.html#1641">[ thread ]</a>
+              <a href="subject.html#1641">[ subject ]</a>
+              <a href="author.html#1641">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

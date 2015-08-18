@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2776 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2776%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121127164851.060F255B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002467.html">
+   <LINK REL="Next"  HREF="002469.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2776 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2776%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121127164851.060F255B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2776 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Nov 27 17:48:50 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002467.html">[WSJT-SVN] r2775 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002469.html">[WSJT-SVN] r2777 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2468">[ date ]</a>
+              <a href="thread.html#2468">[ thread ]</a>
+              <a href="subject.html#2468">[ subject ]</a>
+              <a href="author.html#2468">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-27 17:48:50 +0100 (Tue, 27 Nov 2012)
+New Revision: 2776
+
+Modified:
+   branches/wsjtx/lib/decode9a.f90
+   branches/wsjtx/lib/downsam9.f90
+   branches/wsjtx/lib/jt9sim.f90
+   branches/wsjtx/lib/symspec2.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Better way of estimating noise level for S/N measurements.
+
+
+Modified: branches/wsjtx/lib/decode9a.f90
+===================================================================
+--- branches/wsjtx/lib/decode9a.f90	2012-11-27 15:38:03 UTC (rev 2775)
++++ branches/wsjtx/lib/decode9a.f90	2012-11-27 16:48:50 UTC (rev 2776)
+@@ -16,7 +16,7 @@
+   ndown=nsps8/nspsd
+ 
+ ! Downsample to 16 samples/symbol
+-  call downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2) 
++  call downsam9(c0,npts8,nsps8,nspsd,fpk,c2,nz2)
+ 
+   call peakdt9(c2,nz2,nsps8,nspsd,c3,nz3,xdt)
+ 
+
+Modified: branches/wsjtx/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx/lib/downsam9.f90	2012-11-27 15:38:03 UTC (rev 2775)
++++ branches/wsjtx/lib/downsam9.f90	2012-11-27 16:48:50 UTC (rev 2776)
+@@ -6,6 +6,7 @@
+   complex c0(0:npts8-1)
+   complex c1(0:NMAX-1)
+   complex c2(0:4096-1)
++  real s(1000)
+ 
+   fac=1.e-4
+   c1(0:npts8-1)=fac*c0                     !Copy c0 into c1
+@@ -18,12 +19,22 @@
+   df1=1500.0/nfft1
+   call four2a(c1,nfft1,1,-1,1)             !Forward FFT
+ 
+-!  do i=0,nfft1-1
+-!     f=i*df1
+-!     pp=real(c1(i))**2 + aimag(c1(i))**2
+-!     write(50,3009) i,f,1.e-6*pp
+-!3009 format(i8,f12.3,f12.3)
+-!  enddo   
++  ia=nint(250.0/df1)
++  nadd=1.0/df1
++  j=250/df1
++  s=0.
++  do i=1,1000
++     do n=1,nadd
++        j=j+1
++        s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
++     enddo
++!     write(50,3000) i,(j-nadd/2)*df1,s(i)
++!3000 format(i5,2f12.3)
++  enddo
++  call pctile(s,1000,40,avenoise)
++!  write(71,*) avenoise,nadd
++!  call flush(50)
++!  call flush(71)
+   
+   ndown=nsps8/16                           !Downsample factor
+   nfft2=nfft1/ndown                        !Backward FFT length
+@@ -31,10 +42,11 @@
+    
+   fshift=fpk-1500.0
+   i0=nh1 + fshift/df1
++  fac=1.0/avenoise
+   do i=0,nfft2-1
+      j=i0+i
+      if(i.gt.nh2) j=j-nfft2
+-     c2(i)=c1(j)
++     c2(i)=fac*c1(j)
+   enddo
+ 
+   call four2a(c2,nfft2,1,1,1)              !Backward FFT
+
+Modified: branches/wsjtx/lib/jt9sim.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sim.f90	2012-11-27 15:38:03 UTC (rev 2775)
++++ branches/wsjtx/lib/jt9sim.f90	2012-11-27 16:48:50 UTC (rev 2776)
+@@ -102,7 +102,8 @@
+ 
+         f=f0
+         if(nsigs.gt.1) f=f0 - 0.5d0*fspan + fspan*(isig-1.d0)/(nsigs-1.d0)
+-        snrdbx=snrdb
++        snrdbx=snrdb 
++!        snrdbx=snrdb + (ifile-1)*4.0
+         sig=10.0**(0.05*snrdbx)
+         write(*,1020) ifile,isig,f,snrdbx,msgsent
+ 1020    format(i3,i4,f10.3,f7.1,2x,a22)
+@@ -110,8 +111,9 @@
+         phi=0.
+         baud=12000.d0/nsps
+         k=12000                             !Start audio at t = 1.0 s
+-        f1=0.0001 * (ifile-1)
+-        print*,ifile-2,f1
++!        f1=0.0001 * (ifile-1)
++        f1=0.
++!        print*,ifile-1,f1
+         dphi2=0.
+         ddphi2=twopi*f1*dt/60.0
+         do isym=1,85
+
+Modified: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	2012-11-27 15:38:03 UTC (rev 2775)
++++ branches/wsjtx/lib/symspec2.f90	2012-11-27 16:48:50 UTC (rev 2776)
+@@ -49,9 +49,13 @@
+ 
+   sig=sig/69.
+   df8=1500.0/nsps8
+-  t=max(1.0,sig/xmed - 1.0)
+-  snrdb=db(t) - db(2500.0/df8) - 4.5
+-!  print*,'A',ave,xmed,sig,t,df8,snrdb
++!  t=max(1.0,sig/xmed - 1.0)
++!  snrdb=db(t) - db(2500.0/df8) - 4.5
++  t=max(1.0,sig - 1.0)
++  snrdb=db(t) - 60.3
++!  write(71,3001) ave,xmed,sig,db(sig),t,snrdb
++!3001 format(6f12.2)
++!  call flush(71)
+      
+   m0=3
+   k=0
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-27 15:38:03 UTC (rev 2775)
++++ branches/wsjtx/mainwindow.cpp	2012-11-27 16:48:50 UTC (rev 2776)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002467.html">[WSJT-SVN] r2775 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002469.html">[WSJT-SVN] r2777 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2468">[ date ]</a>
+              <a href="thread.html#2468">[ thread ]</a>
+              <a href="subject.html#2468">[ subject ]</a>
+              <a href="author.html#2468">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

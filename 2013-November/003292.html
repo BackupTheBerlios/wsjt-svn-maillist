@@ -1,0 +1,271 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3599 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3599%20-%20branches/map65&In-Reply-To=%3C20131110161104.BE0E355B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003291.html">
+   <LINK REL="Next"  HREF="003293.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3599 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3599%20-%20branches/map65&In-Reply-To=%3C20131110161104.BE0E355B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3599 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Nov 10 17:11:04 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003291.html">[WSJT-SVN] r3598 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="003293.html">[WSJT-SVN] r3600 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3292">[ date ]</a>
+              <a href="thread.html#3292">[ thread ]</a>
+              <a href="subject.html#3292">[ subject ]</a>
+              <a href="author.html#3292">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-11-10 17:11:04 +0100 (Sun, 10 Nov 2013)
+New Revision: 3599
+
+Modified:
+   branches/map65/mainwindow.cpp
+   branches/map65/plotter.cpp
+   branches/map65/plotter.h
+   branches/map65/widegraph.cpp
+   branches/map65/widegraph.h
+   branches/map65/widegraph.ui
+Log:
+Updates for IQ+ XT.
+
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/mainwindow.cpp	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -1493,6 +1493,8 @@
+   lab2-&gt;setText(&quot;QSO Freq:  &quot; + QString::number(g_pWideGraph-&gt;QSOfreq()));
+   lab3-&gt;setText(&quot;QSO DF:  &quot; + QString::number(g_pWideGraph-&gt;DF()));
+ 
++  g_pWideGraph-&gt;updateFreqLabel();
++
+   if(m_startAnother) {
+     m_startAnother=false;
+     on_actionOpen_next_in_directory_triggered();
+
+Modified: branches/map65/plotter.cpp
+===================================================================
+--- branches/map65/plotter.cpp	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/plotter.cpp	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -753,8 +753,12 @@
+   }
+ }
+ 
++double CPlotter::rxFreq()
++{
++  return floor(datcom_.fcenter) + 0.001*m_fQSO + 0.000001*m_DF;
++}
++
+ double CPlotter::txFreq()
+ {
+-  qDebug() &lt;&lt; &quot;Q&quot; &lt;&lt; m_TXfreq &lt;&lt; m_TxDF;
+   return m_TXfreq + 0.000001*m_TxDF;
+ }
+
+Modified: branches/map65/plotter.h
+===================================================================
+--- branches/map65/plotter.h	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/plotter.h	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -68,7 +68,9 @@
+   void set2Dspec(bool b);
+   double fGreen();
+   void setLockTxRx(bool b);
++  double rxFreq();
+   double txFreq();
++//  void updateFreqLabel();
+ 
+ signals:
+   void freezeDecode0(int n);
+
+Modified: branches/map65/widegraph.cpp
+===================================================================
+--- branches/map65/widegraph.cpp	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/widegraph.cpp	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -14,7 +14,9 @@
+   this-&gt;setMaximumWidth(2048);
+   this-&gt;setMaximumHeight(880);
+   ui-&gt;widePlot-&gt;setMaximumHeight(800);
+-
++  m_bIQxt=false;
++  ui-&gt;labFreq-&gt;setStyleSheet( \
++        &quot;QLabel { background-color : black; color : yellow; }&quot;);
+   connect(ui-&gt;widePlot, SIGNAL(freezeDecode1(int)),this,
+           SLOT(wideFreezeDecode(int)));
+ 
+@@ -47,13 +49,23 @@
+   settings.endGroup();
+ }
+ 
+-
+ WideGraph::~WideGraph()
+ {
+   saveSettings();
+   delete ui;
+ }
+ 
++void WideGraph::resizeEvent(QResizeEvent* )                    //resizeEvent()
++{
++  if(!size().isValid()) return;
++//  m_Size = size();
++  int w = size().width();
++  int h = size().height();
++//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; w &lt;&lt; h &lt;&lt; ui-&gt;labFreq-&gt;geometry();
++  ui-&gt;labFreq-&gt;setGeometry(QRect(w-160,h-100,131,41));
++//  qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; w &lt;&lt; h &lt;&lt; ui-&gt;labFreq-&gt;geometry();
++}
++
+ void WideGraph::saveSettings()
+ {
+   //Save user's settings
+@@ -335,11 +347,8 @@
+ void WideGraph::rx570()
+ {
+   double f=m_mult570*(1.0+0.000001*m_cal570)*m_dForceCenterFreq;
+-//  qDebug() &lt;&lt; &quot;Set Rx Freq&quot; &lt;&lt; f;
+ #ifdef WIN32
+   int iret=set570(f);
+-//  int iret=0;
+-
+   if(iret != 0) {
+     QMessageBox mb;
+     if(iret==-1) mb.setText(&quot;Failed to open Si570.&quot;);
+@@ -352,15 +361,12 @@
+ void WideGraph::tx570()
+ {
+   if(m_bForceCenterFreq) datcom_.fcenter=m_dForceCenterFreq;
+-
++  m_bIQxt=true;
+   double f=ui-&gt;widePlot-&gt;txFreq();
+   double f1=m_mult570Tx*(1.0+0.000001*m_cal570) * f;
+   int nHz = 1000000.0*f1 + 0.5;
+-//  qDebug() &lt;&lt; &quot;Set Tx Freq&quot; &lt;&lt; f1 &lt;&lt; nHz;
+ #ifdef WIN32
+   int iret=set570(f1);
+-//  int iret=0;
+-
+   if(iret != 0) {
+     QMessageBox mb;
+     if(iret==-1) mb.setText(&quot;Failed to open Si570.&quot;);
+@@ -369,3 +375,12 @@
+   }
+ #endif
+ }
++
++void WideGraph::updateFreqLabel()
++{
++  double rxFreq=ui-&gt;widePlot-&gt;rxFreq();
++  double txFreq=ui-&gt;widePlot-&gt;txFreq();
++  QString t;
++  t.sprintf(&quot;Rx:  %10.6f\nTx:  %10.6f&quot;,rxFreq,txFreq);
++  ui-&gt;labFreq-&gt;setText(t);
++}
+
+Modified: branches/map65/widegraph.h
+===================================================================
+--- branches/map65/widegraph.h	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/widegraph.h	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -40,6 +40,7 @@
+   double fGreen();
+   void   rx570();
+   void   tx570();
++  void   updateFreqLabel();
+ 
+   qint32 m_qsoFreq;
+ 
+@@ -53,6 +54,7 @@
+ 
+ protected:
+   virtual void keyPressEvent( QKeyEvent *e );
++  void resizeEvent(QResizeEvent* event);
+ 
+ private slots:
+   void on_waterfallAvgSpinBox_valueChanged(int arg1);
+@@ -65,10 +67,10 @@
+   void on_fCenterLineEdit_editingFinished();
+   void on_pbSetRxHardware_clicked();
+   void on_cbSpec2d_toggled(bool checked);
+-
+   void on_cbLockTxRx_stateChanged(int arg1);
+ 
+ private:
++  bool   m_bIQxt;
+   qint32 m_waterfallAvg;
+   qint32 m_fCal;
+   qint32 m_fSample;
+
+Modified: branches/map65/widegraph.ui
+===================================================================
+--- branches/map65/widegraph.ui	2013-11-05 20:10:34 UTC (rev 3598)
++++ branches/map65/widegraph.ui	2013-11-10 16:11:04 UTC (rev 3599)
+@@ -42,6 +42,25 @@
+        &lt;property name=&quot;lineWidth&quot;&gt;
+         &lt;number&gt;1&lt;/number&gt;
+        &lt;/property&gt;
++       &lt;widget class=&quot;QLabel&quot; name=&quot;labFreq&quot;&gt;
++        &lt;property name=&quot;geometry&quot;&gt;
++         &lt;rect&gt;
++          &lt;x&gt;1015&lt;/x&gt;
++          &lt;y&gt;230&lt;/y&gt;
++          &lt;width&gt;131&lt;/width&gt;
++          &lt;height&gt;41&lt;/height&gt;
++         &lt;/rect&gt;
++        &lt;/property&gt;
++        &lt;property name=&quot;font&quot;&gt;
++         &lt;font&gt;
++          &lt;pointsize&gt;12&lt;/pointsize&gt;
++         &lt;/font&gt;
++        &lt;/property&gt;
++        &lt;property name=&quot;text&quot;&gt;
++         &lt;string&gt;Rx:  144.118.200
++Tx:  144.127.317&lt;/string&gt;
++        &lt;/property&gt;
++       &lt;/widget&gt;
+       &lt;/widget&gt;
+      &lt;/item&gt;
+      &lt;item&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003291.html">[WSJT-SVN] r3598 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="003293.html">[WSJT-SVN] r3600 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3292">[ date ]</a>
+              <a href="thread.html#3292">[ thread ]</a>
+              <a href="subject.html#3292">[ subject ]</a>
+              <a href="author.html#3292">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

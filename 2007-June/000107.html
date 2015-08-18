@@ -1,0 +1,252 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r422 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r422%20-%20branches/map65&In-Reply-To=%3C200706262004.l5QK4uQc024340%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000106.html">
+   <LINK REL="Next"  HREF="000108.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r422 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r422%20-%20branches/map65&In-Reply-To=%3C200706262004.l5QK4uQc024340%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r422 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 26 22:04:56 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000106.html">[WSJT-SVN] r421 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000108.html">[WSJT-SVN] r423 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#107">[ date ]</a>
+              <a href="thread.html#107">[ thread ]</a>
+              <a href="subject.html#107">[ subject ]</a>
+              <a href="author.html#107">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-26 22:04:39 +0200 (Tue, 26 Jun 2007)
+New Revision: 422
+
+Modified:
+   branches/map65/decode1.F90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+Log:
+Clean up newdat and ndecoding stuff.
+
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-06-26 18:42:34 UTC (rev 421)
++++ branches/map65/decode1.F90	2007-06-26 20:04:39 UTC (rev 422)
+@@ -25,12 +25,14 @@
+ 10 continue
+   if(newdat2.gt.0) then
+      call getfile2(fname80,nlen)
++     newdat=1
+   endif
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
+-     call map65a
++     call map65a(newdat)
+      if(mousebutton.eq.0) ndecoding0=ndecoding
+      ndecoding=0
++     newdat2=0
+   endif
+ 
+   if(ns0.lt.0) then
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-26 18:42:34 UTC (rev 421)
++++ branches/map65/map65.py	2007-06-26 20:04:39 UTC (rev 422)
+@@ -1086,7 +1086,6 @@
+ #            avetext.configure(state=DISABLED)
+             Audio.gcom2.ndecdone=0
+ 
+-
+         if Audio.gcom2.ndecdone==2:
+             try:
+                 f=open(appdir+'/bandmap.txt',mode='r')
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-26 18:42:34 UTC (rev 421)
++++ branches/map65/map65a.f90	2007-06-26 20:04:39 UTC (rev 422)
+@@ -1,4 +1,4 @@
+-subroutine map65a
++subroutine map65a(newdat)
+ 
+ !  Processes timf2 data from Linrad to find and decode JT65 signals.
+ 
+@@ -30,9 +30,6 @@
+ 1001 format('UTC:',i5.4,'   Lost packets:',i6,', or',f6.1,' %')
+   even=mod(nutc,2).eq.0
+ 
+-  if(newdat2.eq.0) newdat2=1                      !###
+-  if(newdat2.gt.0) nid=1
+-  if(nid.eq.0) go to 999
+   rewind 11
+   rewind 12
+   if(nutc.ne.nutc0) nfile=nfile+1
+@@ -54,50 +51,47 @@
+   nkk=1
+ 
+   nz=n/8
+-  if(fselect.gt.0.0) then
+ 
+-!  nfilt=2 should be faster (but doesn't work right?)
+-     nfilt=2                      !nfilt=2 is faster for selected freq
+-     do kpol=0,3
+-        freq=fselect + 0.001*mousedf
+-        if(even) ip0=ip000+kpol
+-        if(.not.even) ip0=ip001+kpol
+-        if(ip0.gt.4) ip0=ip0-4
+-        dt00=2.314240
+-        dt=dt00
+-        call decode1a(id(1,1,kbuf),newdat2,nfilt,freq,nflip,ip0,sync2,   &amp;
+-             a,dt,pol,nkv,nhist,qual,decoded)
+-        nsync1=0
+-        nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+-        ndf=nint(a(1)) + mousedf
+-        nw=0
+-!        write(*,3000) freq,nflip,ip00,ndf,nsync2,nint(pol*57.2957795),   &amp;
+-!             dt00,dt,decoded
+-!3000    format(f8.3,5i5,2f7.2,2x,a22)
+-        if(nkv.gt.0) go to 5
+-     enddo
++!  nfilt=2 should be faster (but doesn't work quite right?)
++  nfilt=1                      !nfilt=2 is faster for selected freq
++  do kpol=0,3
++     freq=fselect + 0.001*mousedf
++     if(even) ip0=ip000+kpol
++     if(.not.even) ip0=ip001+kpol
++     if(ip0.gt.4) ip0=ip0-4
++     dt00=2.314240
++     dt=dt00
++     call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,ip0,sync2,   &amp;
++          a,dt,pol,nkv,nhist,qual,decoded)
++     nsync1=0
++     nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
++     ndf=nint(a(1)) + mousedf
++     nw=0
++     if(nkv.gt.0) go to 5
++  enddo
+ 
+-5    if(even) ip000=ip0
+-     if(.not.even) ip001=ip0
++5 if(even) ip000=ip0
++  if(.not.even) ip001=ip0
+ 
+-     nkHz=nint(freq-1.600)
+-     npol=nint(57.2957795*pol)
+-     nqual=qual
+-     if(nflip.eq.-1) then                      !Should this be in decode1a ?
+-        do i=22,9,-1
+-           if(decoded(i:i).ne.' ') then
+-              decoded(i+2:i+4)='OOO'
+-              go to 6
+-           endif
+-        enddo
+-     endif
+-6     write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
+-1010 format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
+-     call flushqqq(11)
+-     ndecdone=1
++  nkHz=nint(freq-1.600)
++  npol=nint(57.2957795*pol)
++  nqual=qual
++  if(nflip.eq.-1) then                      !Should this be in decode1a ?
++     do i=22,9,-1
++        if(decoded(i:i).ne.' ') then
++           decoded(i+2:i+4)='OOO'
++           go to 6
++        endif
++     enddo
+   endif
++6 write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
++1010 format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
++  call flushqqq(11)
++  ndecdone=1
++
+   if(nagain.eq.1) go to 999
+-  if(newdat2.eq.0) go to 999
++!  if(newdat.eq.0) go to 999
++!  newdat=0
+ 
+   nfilt=1
+   do i=1,NFFT
+@@ -200,7 +194,7 @@
+ 
+            if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+               nflip=nint(flipk)
+-              call decode1a(id(1,1,kbuf),newdat2,nfilt,freq,nflip,ipol,         &amp;
++              call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,ipol,         &amp;
+                    sync2,a,dt,pol,nkv,nhist,qual,decoded)
+ !              i9=index(decoded,'AA1YN')
+ !              if(i9.gt.0) print*,i,i9,fselect,freq,decoded
+@@ -305,8 +299,7 @@
+ 
+   if(nsave.gt.0) call savetf2(id(1,1,kbuf),nsave,nutc)
+     
+-999 newdat2=0
+-  nagain=0
++999 nagain=0
+   close(23)
+   return
+ end subroutine map65a
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-26 18:42:34 UTC (rev 421)
++++ branches/map65/recvpkt.F90	2007-06-26 20:04:39 UTC (rev 422)
+@@ -111,7 +111,10 @@
+            kbuf=kb
+            nutc=mutc
+            klost=nlost
+-           if(ntx.lt.20) ndecoding=1
++           if(ntx.lt.20) then
++              newdat=1
++              ndecoding=1
++           endif
+            ntx=0
+         endif
+      endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000106.html">[WSJT-SVN] r421 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000108.html">[WSJT-SVN] r423 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#107">[ date ]</a>
+              <a href="thread.html#107">[ thread ]</a>
+              <a href="subject.html#107">[ subject ]</a>
+              <a href="author.html#107">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

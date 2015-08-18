@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3367 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3367%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130610134232.74B42BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003058.html">
+   <LINK REL="Next"  HREF="003060.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3367 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3367%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130610134232.74B42BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3367 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Jun 10 15:42:32 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003058.html">[WSJT-SVN] r3366 - branches/wsjtx_k1jt_p1
+</A></li>
+        <LI>Next message: <A HREF="003060.html">[WSJT-SVN] r3368 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3059">[ date ]</a>
+              <a href="thread.html#3059">[ thread ]</a>
+              <a href="subject.html#3059">[ subject ]</a>
+              <a href="author.html#3059">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-10 15:42:31 +0200 (Mon, 10 Jun 2013)
+New Revision: 3367
+
+Added:
+   branches/wsjtx_k1jt_p1/lib/pctile2.f90
+Modified:
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/plotter.cpp
+   branches/wsjtx_k1jt_p1/plotter.h
+   branches/wsjtx_k1jt_p1/widegraph.cpp
+   branches/wsjtx_k1jt_p1/widegraph.h
+Log:
+Adjust size of Rx/Tx freq markers according to JT9/JT65 mode.
+
+
+Added: branches/wsjtx_k1jt_p1/lib/pctile2.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/pctile2.f90	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/pctile2.f90	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -0,0 +1,34 @@
++subroutine pctile2(x,npts,npct,xpct)
++
++  parameter (NH=1000)
++  real x(npts)
++  integer hist(0:NH)
++
++  xmax=maxval(x)
++  xmin=minval(x)
++!  xave=sum(x)/npts
++
++  xmax=sqrt(xmax)
++  xmin=sqrt(xmin)
++
++  hist=0
++  s=NH/(xmax-xmin)
++  do i=1,npts
++     n=nint(s*(sqrt(x(i))-xmin))
++     hist(n)=hist(n)+1
++  enddo
++     
++  nsum=0
++  nchk=nint(npct*0.01*npts)
++  do i=1,NH
++     nsum=nsum+hist(i)
++     if(nsum.ge.nchk) exit
++  enddo
++  xpct=xmin + (i-0.5)*(xmax-xmin)/NH
++  xpct=xpct**2
++
++!  write(71,*) npts,npct,nsum,nchk,i,xmin,xmax,xpct
++!  call flush(71)
++
++  return
++end subroutine pctile2
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-10 11:44:22 UTC (rev 3366)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -239,6 +239,7 @@
+   g_pWideGraph-&gt;m_lockTxFreq=m_lockTxFreq;
+   g_pWideGraph-&gt;setFmin(m_fMin);
+   g_pWideGraph-&gt;setFmax(m_fMax);
++  g_pWideGraph-&gt;setModeTx(m_modeTx);
+ 
+   if(m_mode==&quot;JT9&quot;) on_actionJT9_1_triggered();
+   if(m_mode==&quot;JT65&quot;) on_actionJT65_triggered();
+@@ -479,6 +480,8 @@
+   ui-&gt;actionBlue-&gt;setChecked(settings.value(
+                                  &quot;PaletteBlue&quot;,false).toBool());
+   m_mode=settings.value(&quot;Mode&quot;,&quot;JT9&quot;).toString();
++  m_modeTx=&quot;JT9&quot;;
++  if(m_mode==&quot;JT65&quot;) m_modeTx=&quot;JT65&quot;;
+   ui-&gt;actionNone-&gt;setChecked(settings.value(&quot;SaveNone&quot;,true).toBool());
+   ui-&gt;actionSave_synced-&gt;setChecked(settings.value(
+                                         &quot;SaveSynced&quot;,false).toBool());
+@@ -982,7 +985,7 @@
+ 
+   lab4 = new QLabel(&quot;&quot;);
+   lab4-&gt;setAlignment(Qt::AlignHCenter);
+-  lab4-&gt;setMinimumSize(QSize(50,18));
++  lab4-&gt;setMinimumSize(QSize(60,18));
+   lab4-&gt;setFrameStyle(QFrame::Panel | QFrame::Sunken);
+   statusBar()-&gt;addWidget(lab4);
+ 
+@@ -1390,6 +1393,9 @@
+         cursor.insertHtml(s);
+         ui-&gt;decodedTextBrowser2-&gt;setTextCursor(cursor);
+         m_QSOmsg=t1;
++        bool b65=t1.indexOf(&quot;#&quot;)==19;
++        if(b65 and m_modeTx!=&quot;JT65&quot;) on_pbTxMode_clicked();
++        if(!b65 and m_modeTx==&quot;JT65&quot;) on_pbTxMode_clicked();
+       }
+ 
+       if(jt9com_.nagain==0) {
+@@ -1976,7 +1982,6 @@
+   }
+ 
+   int nfreq=int(t4.at(3).toFloat());
+-  g_pWideGraph-&gt;setQSOfreq(nfreq);       //Set Rx freq
+   if(t4.at(4)==&quot;-&quot;) {
+     m_modeTx=&quot;JT9&quot;;
+     ui-&gt;pbTxMode-&gt;setText(&quot;TX &quot; + m_modeTx);
+@@ -1985,6 +1990,7 @@
+     m_modeTx=&quot;JT65&quot;;
+     ui-&gt;pbTxMode-&gt;setText(&quot;TX &quot; + m_modeTx);
+   }
++  g_pWideGraph-&gt;setQSOfreq(nfreq);       //Set Rx freq
+   QString firstcall=t4.at(5);
+   // Don't change Tx freq if a station is calling me, unless m_lockTxFreq
+   // is true or CTRL is held down or
+@@ -2413,11 +2419,12 @@
+   m_hsymStop=173;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_1-&gt;setChecked(true);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setFmax(m_fMax);
++  g_pWideGraph-&gt;setModeTx(m_modeTx);
+   ui-&gt;pbTxMode-&gt;setEnabled(false);
+ }
+ 
+@@ -2431,11 +2438,12 @@
+   m_hsymStop=173;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT65-&gt;setChecked(true);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setFmax(m_fMax);
++  g_pWideGraph-&gt;setModeTx(m_modeTx);
+   ui-&gt;pbTxMode-&gt;setEnabled(false);
+ }
+ 
+@@ -2449,11 +2457,12 @@
+   m_hsymStop=173;
+   soundInThread.setPeriod(m_TRperiod,m_nsps);
+   soundOutThread.setPeriod(m_TRperiod,m_nsps);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab4-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
+   lab4-&gt;setText(m_mode);
+   ui-&gt;actionJT9_JT65-&gt;setChecked(true);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   g_pWideGraph-&gt;setFmax(m_fMax);
++  g_pWideGraph-&gt;setModeTx(m_modeTx);
+   ui-&gt;pbTxMode-&gt;setEnabled(true);
+ }
+ 
+@@ -2889,4 +2898,5 @@
+   }
+   QString t=&quot;Tx &quot; + m_modeTx;
+   ui-&gt;pbTxMode-&gt;setText(t);
++  g_pWideGraph-&gt;setModeTx(m_modeTx);
+ }
+
+Modified: branches/wsjtx_k1jt_p1/plotter.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-10 11:44:22 UTC (rev 3366)
++++ branches/wsjtx_k1jt_p1/plotter.cpp	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -258,7 +258,9 @@
+ 
+   x1=XfromFreq(m_fMin);
+   int bw=9.0*12000.0/m_nsps;
++  if(m_modeTx==&quot;JT65&quot;) bw=66.0*11025.0/4096.0;
+   dx=XfromFreq(m_fMin+bw) - x1;
++//  qDebug() &lt;&lt; &quot;Plotter:&quot; &lt;&lt; bw &lt;&lt; dx &lt;&lt; m_modeTx;
+ 
+   QPen pen0(Qt::green, 3);                 //Mark Rx Freq with green
+   painter0.setPen(pen0);
+@@ -538,3 +540,8 @@
+   DrawOverlay();
+   update();
+ }
++
++void CPlotter::setModeTx(QString modeTx)
++{
++  m_modeTx=modeTx;
++}
+
+Modified: branches/wsjtx_k1jt_p1/plotter.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/plotter.h	2013-06-10 11:44:22 UTC (rev 3366)
++++ branches/wsjtx_k1jt_p1/plotter.h	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -64,6 +64,7 @@
+   void setFsample(int n);
+   void setNsps(int ntrperiod, int nsps);
+   void setTxFreq(int n);
++  void setModeTx(QString modeTx);
+   double fGreen();
+   void SetPercent2DScreen(int percent){m_Percent2DScreen=percent;}
+ 
+@@ -91,6 +92,8 @@
+   QSize   m_Size;
+   QString m_Str;
+   QString m_HDivText[483];
++  QString m_modeTx;
++
+   bool    m_Running;
+   bool    m_paintEventBusy;
+   double  m_fGreen;
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-10 11:44:22 UTC (rev 3366)
++++ branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -255,6 +255,15 @@
+   ui-&gt;widePlot-&gt;setTxFreq(n);
+ }
+ 
++void WideGraph::setModeTx(QString modeTx)
++{
++  m_modeTx=modeTx;
++//  qDebug() &lt;&lt; &quot;WideGraph:&quot; &lt;&lt; m_modeTx;
++  ui-&gt;widePlot-&gt;setModeTx(modeTx);
++  ui-&gt;widePlot-&gt;DrawOverlay();
++  ui-&gt;widePlot-&gt;update();
++}
++
+ void WideGraph::on_spec2dComboBox_currentIndexChanged(const QString &amp;arg1)
+ {
+   ui-&gt;widePlot-&gt;m_bCurrent=false;
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.h	2013-06-10 11:44:22 UTC (rev 3366)
++++ branches/wsjtx_k1jt_p1/widegraph.h	2013-06-10 13:42:31 UTC (rev 3367)
+@@ -31,6 +31,7 @@
+   void   setFsample(int n);
+   void   setPeriod(int ntrperiod, int nsps);
+   void   setTxFreq(int n);
++  void   setModeTx(QString modeTx);
+   double fGreen();
+ 
+   qint32 m_qsoFreq;
+@@ -65,6 +66,8 @@
+   qint32 m_fMin;
+   qint32 m_fMax;
+ 
++  QString m_modeTx;
++
+   Ui::WideGraph *ui;
+ };
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003058.html">[WSJT-SVN] r3366 - branches/wsjtx_k1jt_p1
+</A></li>
+	<LI>Next message: <A HREF="003060.html">[WSJT-SVN] r3368 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3059">[ date ]</a>
+              <a href="thread.html#3059">[ thread ]</a>
+              <a href="subject.html#3059">[ subject ]</a>
+              <a href="author.html#3059">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

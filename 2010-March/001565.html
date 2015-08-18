@@ -1,0 +1,281 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1873 - branches/wsjt8a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1873%20-%20branches/wsjt8a&In-Reply-To=%3C201003312024.o2VKONWR028710%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001564.html">
+   <LINK REL="Next"  HREF="001566.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1873 - branches/wsjt8a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1873%20-%20branches/wsjt8a&In-Reply-To=%3C201003312024.o2VKONWR028710%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1873 - branches/wsjt8a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar 31 22:24:23 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001564.html">[WSJT-SVN] r1872 - branches/wsjt8a
+</A></li>
+        <LI>Next message: <A HREF="001566.html">[WSJT-SVN] r1874 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1565">[ date ]</a>
+              <a href="thread.html#1565">[ thread ]</a>
+              <a href="subject.html#1565">[ subject ]</a>
+              <a href="author.html#1565">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-03-31 22:24:17 +0200 (Wed, 31 Mar 2010)
+New Revision: 1873
+
+Modified:
+   branches/wsjt8a/jt8.f90
+   branches/wsjt8a/spec_iscat.f90
+   branches/wsjt8a/sync64.f90
+   branches/wsjt8a/synciscat.f90
+   branches/wsjt8a/syncjt8.f90
+   branches/wsjt8a/wsjt.py
+Log:
+SNR levels in dB are nor linear in JT64, JT8, and ISCAT modes.
+
+
+Modified: branches/wsjt8a/jt8.f90
+===================================================================
+--- branches/wsjt8a/jt8.f90	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/jt8.f90	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -42,7 +42,7 @@
+   call syncjt8(dat,jz,DFTolerance,NFreeze,MouseDF,dtx,dfx,snrx,      &amp;
+        snrsync,ccfblue,ccfred,s3)
+   isbest=3
+-  nsync=snrsync-1.5
++  nsync=min(99,nint(snrsync-2.0))
+ 
+   if(nsync.ge.minsigdb) then
+ ! We have achieved sync.  Remove gray code and compute single-bit soft symbols.
+
+Modified: branches/wsjt8a/spec_iscat.f90
+===================================================================
+--- branches/wsjt8a/spec_iscat.f90	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/spec_iscat.f90	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -1,4 +1,4 @@
+-subroutine spec_iscat(dat,jz,s0,nsteps)
++subroutine spec_iscat(dat,jz,s0,nsteps,aves2)
+ 
+ ! Compute FFTs of twice the symbol length, stepped by quarter symbols.  
+ ! Save 2d power spectra in s0(256,nsteps).
+@@ -7,6 +7,8 @@
+   real s0(256,2812)                 !2d spectrum, stepped by half-symbols
+   real x(1024)
+   real xs1(512)
++  real ss2(256)
++  real tmp(256)
+ 
+   nsps=512                          !Samples per symbol
+   kstep=nsps/4                      !Quarter-symbol steps
+@@ -21,7 +23,10 @@
+      x(nsps+1:)=0.
+      call ps(x,nfft,xs1)
+      s0(1:nq,j)=xs1(1:nq)
++     ss2=ss2 + xs1(1:nq)
+   enddo
++  ss2=ss2/nsteps
++  call pctile(ss2,tmp,256,40,aves2)
+ 
+   return
+ end subroutine spec_iscat
+
+Modified: branches/wsjt8a/sync64.f90
+===================================================================
+--- branches/wsjt8a/sync64.f90	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/sync64.f90	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -175,7 +175,7 @@
+ 
+   snrsync=syncbest/aves2
+   snrx=-30.
+-  if(syncbest.gt.2.0) snrx=db(snrsync-1.0) - 30.0
++  if(snrsync.gt.2.0) snrx=db(snrsync-1.0) - 30.0
+   dtstep=kstep*2.d0/12000.d0
+   dtx=dtstep*lagpk
+   dfx=(ipk-i0)*df - 1.0
+
+Modified: branches/wsjt8a/synciscat.f90
+===================================================================
+--- branches/wsjt8a/synciscat.f90	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/synciscat.f90	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -20,7 +20,7 @@
+   logical dofft
+   integer ic10(10)
+   data ic10/0,1,3,7,4,9,8,6,2,5/     !10x10 Costas array
+-  save s0
++  save s0,aves2
+ 
+ ! Set up the ISCAT sync patterns
+   nsync=10
+@@ -34,7 +34,7 @@
+   nsteps=4*(jz-NH)/nh
+   if(dofft) then
+ ! Compute and save power spectra for each quarter-symbol step
+-     call spec_iscat(dat,jz,s0,nsteps)
++     call spec_iscat(dat,jz,s0,nsteps,aves2)
+      dofft=.false.
+   endif
+   df=12000.0/nfft
+@@ -183,8 +183,8 @@
+         nsum=nsum + 1
+      endif
+   enddo
+-  ave=sum/nsum
+-  ccfblue(0:299)=ccfblue(0:299)-ave
++  aveblue=sum/nsum
++  ccfblue(0:299)=ccfblue(0:299)-aveblue
+   tmp1=ccfblue(0:299)
+   ccfblue=0
+   do i=0,299
+@@ -194,10 +194,10 @@
+      ccfblue(i+98)=tmp1(j)                      !The 98 is empirical
+   enddo
+ 
+-!### Should compute snrave, snrpeak...
+-  snrsync=syncbest/ave - 1.0
+-  snrx=-30.
+-  if(snrsync.gt.0.0) snrx=db(snrsync) - 19.5
++  snrsync=syncbest/(aves2*sqrt(nsteps/300.0))
++  snrx=-23.5
++  if(snrsync.gt.2.0) snrx=db(snrsync-1.0) - 23.5
++
+   dtstep=kstep/12000.d0
+   dtx=dtstep*lagpk
+   dfx=ipk*df - f0
+@@ -232,7 +232,8 @@
+   if(max(s16,s18,s20).eq.s18) isbest=2
+   if(max(s16,s18,s20).eq.s20) isbest=3
+ 
+-  isync=max(snrsync,0.0)
++  isync=max(snrsync-2.0,0.0)
++  isync=min(isync,99)
+   f=ishort*df
+   if(f.ge.fa .and. f.le.fb .and. isync.eq.0 .and. short.gt.5.0) dfx=ishort*df-f0
+ 
+
+Modified: branches/wsjt8a/syncjt8.f90
+===================================================================
+--- branches/wsjt8a/syncjt8.f90	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/syncjt8.f90	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -11,6 +11,8 @@
+   integer DFTolerance              !Range of DF search
+   real dat(jz)                     !Raw data, downsampled to 6 kHz
+   real s2(NHMAX,NSMAX)             !2d spectrum, stepped by half-symbols
++  real ss2(NHMAX)
++  real tmp(NHMAX)
+   real s3(8,124)                   !2d spectrum, synchronized, data only
+   real x(NFFTMAX)                  !Temp array for computing FFTs
+   real ccfblue(-5:540)             !CCF with pseudorandom sequence
+@@ -33,6 +35,7 @@
+   df=6000.0/nfft
+ 
+ ! Compute power spectrum for each quarter-symbol step
++  ss2=0.
+   do j=1,nsteps
+      k=(j-1)*kstep + 1
+      do i=1,nh
+@@ -40,7 +43,11 @@
+         x(i+nh)=0.
+      enddo
+      call ps(x,nfft,s2(1,j))
++     ss2=ss2 + s2(1:NHMAX,j)
+   enddo
++  ss2=ss2/nsteps
++  call pctile(ss2,tmp,NHMAX,40,aves2)
++  aves2=aves2/0.6
+ 
+ ! Determine the search range in frequency
+   famin=3.
+@@ -93,11 +100,8 @@
+      endif
+   enddo
+ 
+-  ave=ss/nss
+   do j=-224,224
+-     if(ccfred(j).ne.0.0) ccfred(j)=0.5*(ccfred(j)-ave)
+-!     write(61,3001) j*df,ccfred(j)
+-!3001 format(2f12.3)
++     if(ccfred(j).ne.0.0) ccfred(j)=0.5*(ccfred(j)-aves2)
+   enddo
+ 
+ ! Once more, using best frequency and best sync pattern:
+@@ -120,11 +124,9 @@
+         nsum=nsum + 1
+      endif
+   enddo
+-  ave=sum/nsum
++  aveblue=sum/nsum
+   do j=-5,30
+-     ccfblue(j)=4*(ccfblue(j)-ave)
+-!     write(62,3002) j,ccfblue(j)
+-!3002 format(i5,f12.3)
++     ccfblue(j)=4*(ccfblue(j)-aveblue)
+   enddo
+ 
+   do i=1,8
+@@ -135,9 +137,10 @@
+      enddo
+   enddo
+ 
+-  snrsync=syncbest/ave - 1.0
+-  snrx=-27.
+-  if(snrsync.ge.1.0) snrx=db(snrsync) - 27.0
++  snrsync=syncbest/aves2
++  snrx=-26.
++  if(snrsync.gt.2.0) snrx=db(snrsync-1.0) - 26.0
++
+   dtstep=kstep*2.d0/12000.d0
+   dtx=dtstep*lagbest - 1.0
+   dfx=(ipk-i0)*df
+
+Modified: branches/wsjt8a/wsjt.py
+===================================================================
+--- branches/wsjt8a/wsjt.py	2010-03-31 18:54:54 UTC (rev 1872)
++++ branches/wsjt8a/wsjt.py	2010-03-31 20:24:17 UTC (rev 1873)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT8
++#---------------------------------------------------------------------- WSJT8
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001564.html">[WSJT-SVN] r1872 - branches/wsjt8a
+</A></li>
+	<LI>Next message: <A HREF="001566.html">[WSJT-SVN] r1874 - branches/wsjt8a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1565">[ date ]</a>
+              <a href="thread.html#1565">[ thread ]</a>
+              <a href="subject.html#1565">[ subject ]</a>
+              <a href="author.html#1565">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

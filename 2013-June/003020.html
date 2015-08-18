@@ -1,0 +1,395 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3328 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3328%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130604174630.0010C55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003019.html">
+   <LINK REL="Next"  HREF="003021.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3328 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3328%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130604174630.0010C55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3328 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jun  4 19:46:29 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003019.html">[WSJT-SVN] r3327 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003021.html">[WSJT-SVN] r3329 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3020">[ date ]</a>
+              <a href="thread.html#3020">[ thread ]</a>
+              <a href="subject.html#3020">[ subject ]</a>
+              <a href="author.html#3020">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-04 19:46:29 +0200 (Tue, 04 Jun 2013)
+New Revision: 3328
+
+Added:
+   branches/wsjtx_k1jt_p1/lib/constants.f90
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/downsam9.f90
+   branches/wsjtx_k1jt_p1/lib/jt9b.f90
+   branches/wsjtx_k1jt_p1/lib/jt9c.f90
+   branches/wsjtx_k1jt_p1/lib/symspec.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+More progress toward 5 kHz bandwidth.
+
+
+Added: branches/wsjtx_k1jt_p1/lib/constants.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/constants.f90	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/constants.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -0,0 +1,5 @@
++  parameter (NTMAX=120)
++  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
++  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
++  parameter (NSMAX=1365)              !Max length of saved spectra
++  parameter (MAXFFT3=16384)
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -2,10 +2,7 @@
+ 
+ ! Decoder for JT9.
+ 
+-  parameter (NTMAX=120)
+-  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=1365)             !Max length of saved spectra
++  include 'constants.f90'
+   real ss(184,NSMAX)
+   character*22 msg
+   character*80 fmt
+
+Modified: branches/wsjtx_k1jt_p1/lib/downsam9.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/lib/downsam9.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -1,42 +1,31 @@
+ subroutine downsam9(id2,npts8,nsps8,newdat,nspsd,fpk,c2,nz2)
+ 
+-!Downsample to nspsd samples per symbol, info centered at fpk
++!Downsample from id2() into C2() so as to yield nspsd samples per symbol, 
++!mixing from fpk down to zero frequency.
+ 
+-  parameter (NMAX=1024*1920)
+-  parameter (NTMAX=120)
++  include 'constants.f90'
++  parameter (NMAX1=1024*1920)
+   integer*2 id2(0:8*npts8-1)
+-  real*4 x1(0:NMAX-1)
+-  complex c1(0:NMAX/2)
++  real*4 x1(0:NMAX1-1)
++  complex c1(0:NMAX1/2)
+   complex c2(0:4096-1)
+   real s(1000)
+   equivalence (c1,x1)
+   save
+ 
+-!  nfft1=128*nsps8                          !Forward FFT length
+-!  nh1=nfft1/2
+-!  df1=1500.0/nfft1
+-
+   nfft1=1024*nsps8                          !Forward FFT length
+-  nh1=nfft1/2
+   df1=12000.0/nfft1
+   npts=8*npts8
+ 
+   if(newdat.eq.1) then
+-!     write(69,*) npts,nsps8,nfft1,df1
+-
+-     fac=1.e-6 * 6.963
+-     do i=0,npts-1,2
+-!        c1(i)=fac*conjg(c0(i))
+-!        c1(i+1)=-fac*conjg(c0(i+1))
++     fac=6.963e-6                             !Why this weird constant?
++     do i=0,npts-1
+         x1(i)=fac*id2(i)
+-        x1(i+1)=fac*id2(i+1)
+      enddo
+-     c1(npts:)=0.                             !Zero the rest of c1
+-!     call four2a(c1,nfft1,1,-1,1)             !Forward FFT
+-     call four2a(x1,nfft1,1,-1,0)             !Forward FFT
++     x1(npts:nfft1-1)=0.                      !Zero the rest of x1
++     call four2a(c1,nfft1,1,-1,0)             !Forward FFT, r2c
+ 
+      nadd=1.0/df1
+-!     j=250/df1
+      j=1000.0/df1
+      s=0.
+      do i=1,1000
+@@ -44,20 +33,14 @@
+            j=j+1
+            s(i)=s(i)+real(c1(j))**2 + aimag(c1(j))**2
+         enddo
+-!        write(68,3001) i+1000,s(i),db(s(i)),nadd
+-!3001    format(i5,2f12.3,i8)
+      enddo
+      call pctile(s,1000,40,avenoise)
+      newdat=0
+   endif
+ 
+-!  ndown=nsps8/16                           !Downsample factor
+-  ndown=8*nsps8/16                           !Downsample factor
++  ndown=8*nsps8/16                         !Downsample factor
+   nfft2=nfft1/ndown                        !Backward FFT length
+   nh2=nfft2/2
+-   
+-!  fshift=fpk-1500.0
+-!  i0=nh1 + fshift/df1
+   i0=fpk/df1
+ 
+   fac=sqrt(1.0/avenoise)
+@@ -66,14 +49,8 @@
+      if(i.gt.nh2) j=j-nfft2
+      c2(i)=fac*c1(j)
+   enddo
+-
+-  call four2a(c2,nfft2,1,1,1)              !Backward FFT
+-
+-  nspsd=8*nsps8/ndown
++  call four2a(c2,nfft2,1,1,1)              !FFT back to time domain
+   nz2=8*npts8/ndown
+ 
+-!  call flush(68)
+-!  call flush(69)
+-
+   return
+ end subroutine downsam9
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt9b.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt9b.f90	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/lib/jt9b.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -1,7 +1,6 @@
+ subroutine jt9b(jt9com,nbytes)
+ 
+-  parameter (NTMAX=120)
+-  parameter (NSMAX=1365)
++  include 'constants.f90'
+   integer*1 jt9com(0:nbytes-1)
+   kss=0
+   ksavg=kss + 4*184*NSMAX
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt9c.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/lib/jt9c.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -1,7 +1,6 @@
+ subroutine jt9c(ss,savg,c0,id2,nparams0)
+ 
+-  parameter (NTMAX=120)
+-  parameter (NSMAX=1365)
++  include 'constants.f90'
+   real*4 ss(184*NSMAX),savg(NSMAX)
+   complex c0(NTMAX*1500)
+   integer*2 id2(NTMAX*12000)
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -14,15 +14,8 @@
+ !  red()     first cut at JT9 sync amplitude
+ !  ihsym     index number of this half-symbol (1-184)
+ 
+-  parameter (NTMAX=120)
+-  parameter (NMAX=NTMAX*12000)        !Total sample intervals per 30 minutes
+-  parameter (NDMAX=NTMAX*1500)        !Sample intervals at 1500 Hz rate
+-  parameter (NSMAX=1365)              !Max length of saved spectra
+-  parameter (NFFT1=1024)
+-  parameter (MAXFFT3=16384)
++  include 'constants.f90'
+   real*4 s(NSMAX),w3(MAXFFT3)
+-  real*4 x1(NFFT1)
+-  real*4 x2(NFFT1+105)
+   real*4 ssum(NSMAX)
+   real*4 red(NSMAX)
+   real*4 xc(0:MAXFFT3-1)
+@@ -36,29 +29,17 @@
+   save
+ 
+   nfft3=16384                                  !df=12000.0/16384 = 0.732422
+-!  nfft3=2048
+   jstep=nsps/2                                 !Step size = half-symbol in id2()
+-  jstep8=nsps/16                               !Step size = half-symbol in c0()
+-  if(k.gt.NMAX) go to 999
+-!  if(k.lt.nfft3) then
+-  if(k.lt.2048) then
++  if(k.gt.NMAX) go to 900
++  if(k.lt.2048) then                !(2048 was nfft3)  (Any need for this ???)
+      ihsym=0
+-     go to 999                                 !Wait for enough samples to start
++     go to 900                                 !Wait for enough samples to start
+   endif
+   if(nfft3.ne.nfft3z) then                     !New nfft3, compute window
+      pi=4.0*atan(1.0)
+-     if(ntrperiod.eq.1) then                 !Compute window for nfft3 spectrun
+-        do i=1,nfft3
+-           xx=float(i-1)/(nfft3-1)
+-           w3(i)=0.40897 -0.5*cos(2.0*pi*xx) + 0.09103*cos(4.0*pi*xx)
+-!           w3(i)=0.355768 - 0.487306*cos(2.0*pi*xx) + 0.144232*cos(4.0*pi*xx) &amp;
+-!                - 0.012604*cos(6.0*pi*xx)
+-        enddo
+-     else
+-        do i=1,nfft3
+-           w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+-        enddo
+-     endif
++     do i=1,nfft3
++        w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
++     enddo
+      nfft3z=nfft3
+   endif
+ 
+@@ -66,63 +47,38 @@
+      ja=0
+      ssum=0.
+      ihsym=0
+-     k1=0
+-     k8=0
+-     x2=0.
+-     if(ndiskdat.eq.0) then
+-        id2(k+1:)=0
+-        c0=0.          !This is necessary to prevent &quot;ghosts&quot;.  Not sure why.
+-     endif
++     if(ndiskdat.eq.0) id2(k+1:)=0   !Needed to prevent &quot;ghosts&quot;. Not sure why.
+   endif
+-  k0=k
+-  kstep1=NFFT1
+-  fac=2.0/NFFT1
+-  nblks=(k-k1)/kstep1
+   gain=10.0**(0.05*ingain)
+   sq=0.
+-  do nblk=1,nblks
+-     do i=1,NFFT1
+-        x1(i)=gain*id2(k1+i)
+-     enddo
+-     sq=sq + dot_product(x1,x1)
+-! Mix at 1500 Hz, lowpass at +/-750 Hz, and downsample to 1500 Hz complex.
+-!     x2(106:105+kstep1)=x1(1:kstep1)
+-!     call fil3(x2,kstep1+105,c0(k8+1),n2)
+-!     x2(1:105)=x1(kstep1-104:kstep1)   !Save 105 trailing samples
+-     k1=k1+kstep1
+-     k8=k8+kstep1/8
++  do i=k0+1,k
++     x1=id2(i)
++     sq=sq + x1*x1
+   enddo
++  sq=sq * gain**2
++  k0=k
+ 
+-  npts8=k8
+-  ja=ja+jstep8                         !Index of first sample
+-  rms=sqrt(sq/(nblks*NFFT1))
++  ja=ja+jstep                         !Index of first sample
++
++  rms=sqrt(sq/(k-k0))
+   pxdb=0.
+   if(rms.gt.0.0) pxdb=20.0*log10(rms)
+   if(pxdb.gt.60.0) pxdb=60.0
+ 
+   fac0=0.1
+   do i=0,nfft3-1                      !Copy data into cx
+-     j=8*ja+i-(nfft3-1)
++     j=ja+i-(nfft3-1)
+      xc(i)=0.
+-!     if(j.ge.1 .and. j.le.NDMAX) cx(i)=c0(j)
+      if(j.ge.1) xc(i)=fac0*id2(j)
+   enddo
+ 
+   if(ihsym.lt.184) ihsym=ihsym+1
+ 
+-!  write(69,3001) nsps,jstep8,jstep,kstep1,ja,8*ja,ihsym
+-!3001 format(7i9)
+-!  call flush(69)
+-
+-!  cx(0:nfft3-1)=w3(1:nfft3)*cx(0:nfft3-1)  !Apply window w3
+-!  call four2a(cx,nfft3,1,1,1)              !Third FFT (forward)
+-  xc(0:nfft3-1)=w3(1:nfft3)*xc(0:nfft3-1)   !Apply window w3
++  xc(0:nfft3-1)=w3(1:nfft3)*xc(0:nfft3-1)    !Apply window w3
+   call four2a(xc,nfft3,1,-1,0)               !Real-to-complex FFT
+ 
+   n=min(184,ihsym)
+-!   df3=1500.0/nfft3                    !JT9-1: 0.732 Hz = 0.42 * tone spacing
+   df3=12000.0/nfft3                   !JT9-1: 0.732 Hz = 0.42 * tone spacing
+-!  i0=nint(-500.0/df3)
+   i0=nint(1000.0/df3)
+   iz=min(NSMAX,nint(1000.0/df3))
+   fac=(1.0/nfft3)**2
+@@ -135,8 +91,6 @@
+      s(i)=sx
+   enddo
+ 
+-999 continue
+-
+   fac00=0.35
+   npct=20
+   call pctile(s,iz,npct,xmed0)
+@@ -145,8 +99,10 @@
+   call pctile(ssum,iz,npct,xmed1)
+   fac1=fac00/max(xmed1,0.006*ihsym)
+   savg(1:iz)=fac1*ssum(1:iz)
+-!  savg(iz+1:iz+20)=savg(iz)
+   call redsync(ss,ntrperiod,ihsym,iz,red)
+ 
++900 npts=k
++  npts8=k/8
++
+   return
+ end subroutine symspec
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-04 15:58:55 UTC (rev 3327)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-04 17:46:29 UTC (rev 3328)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003019.html">[WSJT-SVN] r3327 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003021.html">[WSJT-SVN] r3329 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3020">[ date ]</a>
+              <a href="thread.html#3020">[ thread ]</a>
+              <a href="subject.html#3020">[ subject ]</a>
+              <a href="author.html#3020">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

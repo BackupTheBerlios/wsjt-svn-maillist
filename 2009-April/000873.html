@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1182 - branches/wsjt8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1182%20-%20branches/wsjt8&In-Reply-To=%3C200904301810.n3UIAhal001159%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000872.html">
+   <LINK REL="Next"  HREF="000874.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1182 - branches/wsjt8</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1182%20-%20branches/wsjt8&In-Reply-To=%3C200904301810.n3UIAhal001159%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1182 - branches/wsjt8">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr 30 20:10:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000872.html">[WSJT-SVN] r1181 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000874.html">[WSJT-SVN] r1183 - branches/wsjt8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#873">[ date ]</a>
+              <a href="thread.html#873">[ thread ]</a>
+              <a href="subject.html#873">[ subject ]</a>
+              <a href="author.html#873">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-04-30 20:10:36 +0200 (Thu, 30 Apr 2009)
+New Revision: 1182
+
+Added:
+   branches/wsjt8/gen441.f90
+   branches/wsjt8/t441.f90
+Modified:
+   branches/wsjt8/Makefile.CVF
+   branches/wsjt8/wsjt.py
+Log:
+Test program t441 looks for specified character(s) in FSK441 data.
+
+
+Modified: branches/wsjt8/Makefile.CVF
+===================================================================
+--- branches/wsjt8/Makefile.CVF	2009-04-29 18:43:19 UTC (rev 1181)
++++ branches/wsjt8/Makefile.CVF	2009-04-30 18:10:36 UTC (rev 1182)
+@@ -7,7 +7,7 @@
+ #FFLAGS = /traceback /check:all
+ FFLAGS = /traceback /fast /nologo /warn
+ 
+-all:    scode8.exe WSJT8.EXE tstecho.exe
++all:    scode8.exe WSJT8.EXE tstecho.exe t441.exe
+ 
+ OBJS1 = igray.obj init_rs.obj encode_rs.obj decode_rs.obj wrapkarn.obj
+ 
+@@ -16,6 +16,11 @@
+ 	$(FC)/traceback /fast /nologo /exe:scode8.exe scode8.f90 \
+ 	scode8_subs.obj
+ 
++OBJS3 = t441.obj gen441.obj four2a.obj
++
++t441.exe: $(OBJS3)
++	$(FC) /traceback /fast /nologo /exe:t441.exe $(OBJS3) fftw3single.lib
++
+ SRC4 = tstecho.f90
+ 
+ tstecho.exe: $(SRC4) four2a.f db.f
+@@ -121,6 +126,9 @@
+ tab.o: tab.c
+ 	$(CC) /nologo /c /Fotab.o tab.c
+ 
++four2a.obj: four2a.f
++	$(FC) /fast /compile_only four2a.f
++
+ .PHONY : clean
+ 
+ clean:
+
+Added: branches/wsjt8/gen441.f90
+===================================================================
+--- branches/wsjt8/gen441.f90	2009-04-29 18:43:19 UTC (rev 1181)
++++ branches/wsjt8/gen441.f90	2009-04-30 18:10:36 UTC (rev 1182)
+@@ -0,0 +1,38 @@
++subroutine gen441(msg,nmsg,itone)
++
++  character msg*28
++  integer itone(84)
++  integer lookup(0:91)
++  character cc*43
++  data cc/' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.,?/#$'/
++  data lookup/13, 15, 17, 46, 47, 45, 44, 12, 11, 14, &amp;
++               1,  2,  3,  4,  5,  6,  7,  8,  9, 10, &amp;
++              16, 48, 18, 19, 20, 21, 22, 23, 24, 25, &amp;
++              26, 27, 15, 29, 30, 14, 16, 42, 46, 35, &amp;
++              36, 37, 21,  0, 11, 41, 10, 13, 43,  1, &amp;
++               2,  3,  4,  5,  6,  7,  8,  9, 49, 56, &amp;
++              52, 55, 54, 12, 63, 17, 18, 19, 20, 44, &amp;
++              22, 23, 24, 25, 26, 27, 28, 29, 30, 31, &amp;
++              32, 33, 34, 35, 36, 37, 38, 39, 40, 41, &amp;
++              45, 63/
++  save
++
++  do i=28,1,-1
++     if(msg(i:i).ne.' ') go to 1
++  enddo
++1 nmsg=i
++  if(nmsg.eq.0) nmsg=1
++     
++  do i=1,nmsg
++     n=ichar(msg(i:i))
++     if(n.eq.95) n=32
++     if(n.ge.97 .and. n.le.122) n=n-32   !Promote lower case to upper
++     if(n.lt.0 .or. n.gt.91) n=32        !Replace illegal char with blank 
++     n=lookup(n)
++     itone(3*i-2)=n/16
++     itone(3*i-1)=mod(n/4,4)
++     itone(3*i)=mod(n,4)
++  enddo
++
++  return
++end subroutine gen441
+
+Added: branches/wsjt8/t441.f90
+===================================================================
+--- branches/wsjt8/t441.f90	2009-04-29 18:43:19 UTC (rev 1181)
++++ branches/wsjt8/t441.f90	2009-04-30 18:10:36 UTC (rev 1182)
+@@ -0,0 +1,86 @@
++program t441
++
++! Run tests on the &quot;TNX QSO TNX QSO ...&quot; ping in W8WN sample file.
++
++  parameter (NSTEP=3)                       !Step size for lag (samples)
++  parameter (NP=1200/NSTEP)                 !Period of full message (lags)
++  parameter (MAXFFT=4096)                   !FFT length
++  character*28 tmsg
++  real ps(128)                              !Spectrum computed in WSJT
++  real dat(9283)                            !Raw data, 11025 S/s
++  integer itone(3*28)                       !Tones of test message
++  complex cz(3*28*25)                       !Complex LO for test message
++  complex c(MAXFFT)                         !Mixed signal
++  data twopi/6.2831853/
++
++  nargs=iargc()
++  if(nargs.ne.1) then
++     print*,'Usage: t441 &quot;Test message&quot;'
++     go to 999
++  endif
++  call getarg(1,tmsg)
++  call gen441(tmsg,nmsg,itone)
++  nsym=3*nmsg
++  nsamp=25*nsym
++
++  write(*,1000) nmsg,nsamp,8,8*75
++1000 format('Test msg:',i3,' ch,'i4,' samples.'/               &amp;
++            'Full msg:',i3,' ch,'i4,' samples.')
++
++  open(88,file='dat.88',form='unformatted',status='old')
++  read(88) jjz,ps,f0,(dat(j),j=1,jjz)       !Read raw data saved by WSJT
++  df1=11025.0/256.0                         !df for the ps() spectrum
++
++  foffset=582.
++  f0=882-foffset
++  df0=441.0                                 !Tone spacing
++  dt=1.0/11025.0                            !Sample interval
++  phi=0.                                    !Initialize phase
++  j0=999
++  do i=1,nsamp                      !Generate conjugate of message waveform
++     j=(i-1)/25 + 1
++     if(j.ne.j0) then
++        freq=f0 + itone(j)*df0
++        dphi=twopi*freq*dt
++        j0=j
++     endif
++     phi=phi+dphi
++     cz(i)=0.001*cmplx(cos(phi),-sin(phi))
++  enddo
++
++! Find best match to test message over all lags and all frequency offsets
++  nfft=256
++  nh=nfft/2
++  df=11025.0/nfft
++  k=0
++  sbest=0.
++  do lag=0,9000,NSTEP
++     k=k+1
++     c=0.
++     do i=1,nsamp
++        c(i)=cz(i) * dat(i+lag)
++     enddo
++     call four2a(c,nfft,1,-1,1)
++     smax=0.
++     do i=1,nh+1
++        s=(real(c(i))**2 + aimag(c(i))**2)
++        if(s.gt.smax) then
++           smax=s
++           ipk=i
++        endif
++     enddo
++     write(13,3002) lag,smax,ipk
++3002 format(i6,f10.0,i8)
++     if(smax.gt.sbest) then
++        sbest=smax
++        npk=ipk
++        kpk=k
++     endif
++  enddo
++  kz=k
++  fpk=(npk-1)*df
++  xdf=fpk-foffset
++  write(*,1030) xdf,kpk,sbest
++1030 format('Fpk:',f7.0,'   Lagpk:',i4,'   Sbest:',f8.0)
++  
++999 end program t441
+
+Modified: branches/wsjt8/wsjt.py
+===================================================================
+--- branches/wsjt8/wsjt.py	2009-04-29 18:43:19 UTC (rev 1181)
++++ branches/wsjt8/wsjt.py	2009-04-30 18:10:36 UTC (rev 1182)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000872.html">[WSJT-SVN] r1181 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000874.html">[WSJT-SVN] r1183 - branches/wsjt8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#873">[ date ]</a>
+              <a href="thread.html#873">[ thread ]</a>
+              <a href="subject.html#873">[ subject ]</a>
+              <a href="author.html#873">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,291 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3249 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3249%20-%20branches/wsjtx&In-Reply-To=%3C20130501122120.78BCF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002942.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3249 - branches/wsjtx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3249%20-%20branches/wsjtx&In-Reply-To=%3C20130501122120.78BCF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3249 - branches/wsjtx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Wed May  1 14:21:20 CEST 2013</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002942.html">[WSJT-SVN] r3250 - branches/wsjtx/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2941">[ date ]</a>
+              <a href="thread.html#2941">[ thread ]</a>
+              <a href="subject.html#2941">[ subject ]</a>
+              <a href="author.html#2941">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-05-01 14:21:19 +0200 (Wed, 01 May 2013)
+New Revision: 3249
+
+Modified:
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/rigclass.cpp
+   branches/wsjtx/rigclass.h
+Log:
+Cleaned up remaining exception related code in rigclass.h and .cpp
+
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2013-04-30 19:56:16 UTC (rev 3248)
++++ branches/wsjtx/devsetup.cpp	2013-05-01 12:21:19 UTC (rev 3249)
+@@ -414,7 +414,12 @@
+     delete rig;
+     m_bRigOpen=false;
+   }
+-  rig = new Rig(m_rig);
++  rig = new Rig();
++  if (!rig-&gt;init(m_rig)) {
++      msgBox(&quot;Rig init failure&quot;);
++      return;
++  }
++
+   rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+   char buf[80];
+   sprintf(buf,&quot;%d&quot;,m_serialRate);
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-30 19:56:16 UTC (rev 3248)
++++ branches/wsjtx/mainwindow.cpp	2013-05-01 12:21:19 UTC (rev 3249)
+@@ -2762,7 +2762,12 @@
+   QString t;
+   int ret;
+ 
+-  rig = new Rig(m_rig);
++  rig = new Rig();
++  if (!rig-&gt;init(m_rig)) {
++      msgBox(&quot;Rig init failure&quot;);
++      return;
++  }
++
+   rig-&gt;setConf(&quot;rig_pathname&quot;, m_catPort.toAscii().data());
+   char buf[80];
+   sprintf(buf,&quot;%d&quot;,m_serialRate);
+
+Modified: branches/wsjtx/rigclass.cpp
+===================================================================
+--- branches/wsjtx/rigclass.cpp	2013-04-30 19:56:16 UTC (rev 3248)
++++ branches/wsjtx/rigclass.cpp	2013-05-01 12:21:19 UTC (rev 3249)
+@@ -48,16 +48,9 @@
+   return ((Rig*)rig-&gt;state.obj)-&gt;FreqEvent(vfo, freq, arg);
+ }
+ 
+-Rig::Rig(rig_model_t rig_model) {
++Rig::Rig()
++{
+   rig_set_debug_level( RIG_DEBUG_WARN);
+-
+-  theRig = rig_init(rig_model);
+-  if (!theRig)
+-    THROW(new RigException (&quot;Rig initialization error&quot;));
+-
+-  caps = theRig-&gt;caps;
+-  theRig-&gt;callbacks.freq_event = &amp;hamlibpp_freq_event;
+-  theRig-&gt;state.obj = (rig_ptr_t)this;
+ }
+ 
+ Rig::~Rig() {
+@@ -66,6 +59,23 @@
+   caps = NULL;
+ }
+ 
++int Rig::init(rig_model_t rig_model)
++{
++    int initOk;
++
++    theRig = rig_init(rig_model);
++    if (!theRig)
++        initOk = false;
++    else
++        initOk = true;
++
++    caps = theRig-&gt;caps;
++    theRig-&gt;callbacks.freq_event = &amp;hamlibpp_freq_event;
++    theRig-&gt;state.obj = (rig_ptr_t)this;
++
++    return initOk;
++}
++
+ int Rig::open(void) {
+   return rig_open(theRig);
+ }
+
+Modified: branches/wsjtx/rigclass.h
+===================================================================
+--- branches/wsjtx/rigclass.h	2013-04-30 19:56:16 UTC (rev 3248)
++++ branches/wsjtx/rigclass.h	2013-05-01 12:21:19 UTC (rev 3249)
+@@ -32,12 +32,14 @@
+ 
+ protected:
+ public:
+-  Rig(rig_model_t rig_model);
+-
++  Rig();
+   virtual ~Rig();
+ 
+   const struct rig_caps *caps;
+ 
++  // Initialize rig
++  int init(rig_model_t rig_model);
++
+   // This method open the communication port to the rig
+   int open(void);
+ 
+@@ -73,110 +75,7 @@
+   virtual int DCDEvent(vfo_t, dcd_t, rig_ptr_t) const {
+ 		  return RIG_OK;
+   }
+-
+-
+ };
+ 
+ 
+-
+-#ifdef __GNUG__
+-#  if ((__GNUG__ &lt;= 2) &amp;&amp; (__GNUC_MINOR__ &lt; 8))
+-#    if HAVE_TYPEINFO
+-#      include &lt;typeinfo&gt;
+-#    endif
+-#  endif
+-#endif
+-
+-#if defined(__GNUG__)
+-#  if HAVE_BUILTIN_H || HAVE_GXX_BUILTIN_H || HAVE_GPP_BUILTIN_H
+-#    if ETIP_NEEDS_MATH_H
+-#      if ETIP_NEEDS_MATH_EXCEPTION
+-#        undef exception
+-#        define exception math_exception
+-#      endif
+-#      include &lt;math.h&gt;
+-#    endif
+-#    undef exception
+-#    define exception builtin_exception
+-#    if HAVE_GPP_BUILTIN_H
+-#     include &lt;gpp/builtin.h&gt;
+-#    elif HAVE_GXX_BUILTIN_H
+-#     include &lt;g++/builtin.h&gt;
+-#    else
+-#     include &lt;builtin.h&gt;
+-#    endif
+-#    undef exception
+-#  endif
+-#elif defined (__SUNPRO_CC)
+-#  include &lt;generic.h&gt;
+-#  include &lt;string.h&gt;
+-#else
+-#  include &lt;string.h&gt;
+-#endif
+-
+-
+-extern &quot;C&quot; {
+-#if HAVE_VALUES_H
+-#  include &lt;values.h&gt;
+-#endif
+-
+-#include &lt;assert.h&gt;
+-#include &lt;errno.h&gt;
+-}
+-
+-#include &lt;iostream&gt;
+-#if !(defined(__GNUG__)||defined(__SUNPRO_CC))
+-   extern &quot;C&quot; void exit(int);
+-#endif
+-
+-// Forward Declarations
+-
+-class BACKEND_IMPEXP RigException
+-{
+-public:
+-  const char *message;
+-  int errorno;
+-
+-  RigException (const char* msg, int err)
+-    : message(msg), errorno (err)
+-    {};
+-
+-  RigException (int err)
+-    : message(rigerror(err)), errorno (err)
+-    {};
+-
+-  RigException (const char* msg)
+-    : message(msg), errorno (-RIG_EINTERNAL)
+-    {};
+-
+-  virtual ~RigException()
+-    {};
+-
+-  void print() const {
+-	  std::cerr &lt;&lt; &quot;Rig exception: &quot; &lt;&lt; message &lt;&lt; std::endl;
+-  }
+-  virtual const char *classname() const {
+-    return &quot;Rig&quot;;
+-  }
+-};
+-
+-inline void THROW(const RigException *e) {
+-#if defined(__GNUG__)
+-#  if ((__GNUG__ &lt;= 2) &amp;&amp; (__GNUC_MINOR__ &lt; 8))
+-      (*lib_error_handler)(e?e-&gt;classname():&quot;&quot;,e?e-&gt;message:&quot;&quot;);
+-#else
+-      throw *e;
+-#endif
+-#elif defined(__SUNPRO_CC)
+-  genericerror(1, ((e != 0) ? (char *)(e-&gt;message) : &quot;&quot;));
+-#else
+-  if (e)
+-    std::cerr &lt;&lt; e-&gt;message &lt;&lt; endl;
+-  exit(0);
+-#endif
+-}
+-
+-#define THROWS(s)
+-
+-
+ #endif	// _RIGCLASS_H
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002942.html">[WSJT-SVN] r3250 - branches/wsjtx/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2941">[ date ]</a>
+              <a href="thread.html#2941">[ thread ]</a>
+              <a href="subject.html#2941">[ subject ]</a>
+              <a href="author.html#2941">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

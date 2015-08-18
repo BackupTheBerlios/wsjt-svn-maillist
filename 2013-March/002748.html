@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3056 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3056%20-%20branches/wsjtx&In-Reply-To=%3C20130319131823.E097D55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002747.html">
+   <LINK REL="Next"  HREF="002749.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3056 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3056%20-%20branches/wsjtx&In-Reply-To=%3C20130319131823.E097D55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3056 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Mar 19 14:18:23 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002747.html">[WSJT-SVN] r3055 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002749.html">[WSJT-SVN] r3057 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2748">[ date ]</a>
+              <a href="thread.html#2748">[ thread ]</a>
+              <a href="subject.html#2748">[ subject ]</a>
+              <a href="author.html#2748">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-19 14:18:23 +0100 (Tue, 19 Mar 2013)
+New Revision: 3056
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Add &quot;gridOK()&quot; functiion, used for PSKreporter and double-clock on call.
+Double-click on decoded line copies valid grid to dxGrid box.
+Add button workd with an empty call3.txt file.
+QSO start/stop times rationalized (somewhat).
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-18 22:47:24 UTC (rev 3055)
++++ branches/wsjtx/mainwindow.cpp	2013-03-19 13:18:23 UTC (rev 3056)
+@@ -1064,16 +1064,7 @@
+         QString g2=c2.mid(i2+1,4);
+         c2=c2.mid(0,i2);
+         QString remote=&quot;call,&quot; + c2 + &quot;,&quot;;
+-        if(g2.mid(0,1).compare(&quot;A&quot;)&gt;=0 and
+-           g2.mid(0,1).compare(&quot;R&quot;)&lt;=0 and
+-           g2.mid(1,1).compare(&quot;A&quot;)&gt;=0 and
+-           g2.mid(1,1).compare(&quot;R&quot;)&lt;=0 and
+-           g2.mid(2,1).compare(&quot;0&quot;)&gt;=0 and
+-           g2.mid(2,1).compare(&quot;9&quot;)&lt;=0 and
+-           g2.mid(3,1).compare(&quot;0&quot;)&gt;=0 and
+-           g2.mid(3,1).compare(&quot;9&quot;)&lt;=0) {
+-          remote += &quot;gridsquare,&quot; + g2 + &quot;,&quot;;
+-        }
++        if(gridOK(g2)) remote += &quot;gridsquare,&quot; + g2 + &quot;,&quot;;
+         int nHz=t.mid(22,4).toInt();
+         uint nfreq=1000000.0*g_pWideGraph-&gt;dialFreq() + nHz + 0.5;
+         remote += &quot;freq,&quot; + QString::number(nfreq);
+@@ -1090,9 +1081,6 @@
+         wchar_t tlocal[256];
+         local.toWCharArray(tlocal);
+ 
+-//        qDebug() &lt;&lt; &quot;A:&quot; &lt;&lt; QString::fromWCharArray(tlocal,local.length());
+-//        qDebug() &lt;&lt; &quot;B:&quot; &lt;&lt; QString::fromWCharArray(tremote,remote.length());
+-
+         int flags=REPORTER_SOURCE_AUTOMATIC;
+         rc=ReporterSeenCallsign(tremote,tlocal,flags);
+         if(rc!=0) {
+@@ -1427,7 +1415,11 @@
+     g_pWideGraph-&gt;setQSOfreq(nfreq);
+   }
+   QString hiscall=t4.at(7);
++  QString hisgrid=&quot;&quot;;
++  if(t4.length()&gt;=9) hisgrid=t4.at(8);
+   ui-&gt;dxCallEntry-&gt;setText(hiscall);
++  lookup();
++  if(ui-&gt;dxGridEntry-&gt;text()==&quot;&quot; and gridOK(hisgrid)) ui-&gt;dxGridEntry-&gt;setText(hisgrid);
+   int n = 60*t2.mid(0,2).toInt() + t2.mid(2,2).toInt();
+   int nmod=n%(m_TRperiod/30);
+   m_txFirst=(nmod!=0);
+@@ -1438,13 +1430,6 @@
+   if(rpt.indexOf(&quot; &quot;)==0) rpt=&quot;+&quot; + rpt.mid(1,2);
+   if(rpt.toInt()&lt;-50) rpt=&quot;-50&quot;;
+   if(rpt.toInt()&gt;49) rpt=&quot;+49&quot;;
+-  if(ctrl) {
+-    int i4=t.mid(i2,20).indexOf(&quot; &quot;);
+-    QString hisgrid=t.mid(i2,20).mid(i4+1,4);
+-    ui-&gt;dxGridEntry-&gt;setText(hisgrid);
+-  } else {
+-    lookup();
+-  }
+   genStdMsgs(rpt);
+   if(t2.indexOf(m_myCall)&gt;0) {
+     m_ntx=2;
+@@ -1551,6 +1536,14 @@
+     msgBox(&quot;Cannot open &quot; + call3File);
+     return;
+   }
++  if(f1.size()==0) {
++    f1.close();
++    f1.open(QIODevice::WriteOnly | QIODevice::Text);
++    QTextStream out(&amp;f1);
++    out &lt;&lt; &quot;ZZZZZZ&quot; &lt;&lt; endl;
++    f1.close();
++    f1.open(QIODevice::ReadOnly | QIODevice::Text);
++  }
+   QString tmpFile = m_appDir + &quot;/CALL3.TMP&quot;;
+   QFile f2(tmpFile);
+   if(!f2.open(QIODevice::WriteOnly | QIODevice::Text)) {
+@@ -1731,17 +1724,20 @@
+     QTextStream out(&amp;f2);
+     if(f2.size()==0) out &lt;&lt; &quot;WSJT-X ADIF Export&lt;eoh&gt;&quot; &lt;&lt; endl;
+ 
++    if(m_qsoStop==&quot;&quot;) m_qsoStop=m_qsoStart;
++    if(m_qsoStart==&quot;&quot;) m_qsoStart=m_qsoStop;
++
+     QString t;
+     t=&quot;&lt;call:&quot; + QString::number(m_hisCall.length()) + &quot;&gt;&quot; + m_hisCall;
+-    t+= &quot;&lt;gridsquare:&quot; + QString::number(m_hisGrid.length()) + &quot;&gt;&quot; + m_hisGrid;
+-    t+= &quot;&lt;mode:&quot; + QString::number(m_mode.length()) + &quot;&gt;&quot; + m_mode;
+-    t+= &quot;&lt;rst_sent:&quot; + QString::number(m_rptSent.length()) + &quot;&gt;&quot; + m_rptSent;
+-    t+= &quot;&lt;rst_rcvd:&quot; + QString::number(m_rptRcvd.length()) + &quot;&gt;&quot; + m_rptRcvd;
+-    t+= &quot;&lt;qso_date:0&gt;&quot;;
+-    t+= &quot;&lt;time_on:4&gt;&quot; + m_qsoStart;
+-    t+= &quot;&lt;time_off:4&gt;&quot; + m_qsoStop;
+-    t+= &quot;&lt;station_callsign:&quot; + QString::number(m_myCall.length()) + &quot;&gt;&quot; + m_myCall;
+-    t+= &quot;&lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; + m_myGrid;
++    t+=&quot; &lt;gridsquare:&quot; + QString::number(m_hisGrid.length()) + &quot;&gt;&quot; + m_hisGrid;
++    t+=&quot; &lt;mode:&quot; + QString::number(m_mode.length()) + &quot;&gt;&quot; + m_mode;
++    t+=&quot; &lt;rst_sent:&quot; + QString::number(m_rptSent.length()) + &quot;&gt;&quot; + m_rptSent;
++    t+=&quot; &lt;rst_rcvd:&quot; + QString::number(m_rptRcvd.length()) + &quot;&gt;&quot; + m_rptRcvd;
++    t+=&quot; &lt;qso_date:8&gt;&quot; + date;
++    t+=&quot; &lt;time_on:4&gt;&quot; + m_qsoStart;
++    t+=&quot; &lt;time_off:4&gt;&quot; + m_qsoStop;
++    t+=&quot; &lt;station_callsign:&quot; + QString::number(m_myCall.length()) + &quot;&gt;&quot; + m_myCall;
++    t+=&quot; &lt;my_gridsquare:&quot; + QString::number(m_myGrid.length()) + &quot;&gt;&quot; + m_myGrid;
+     out &lt;&lt; t &lt;&lt; endl;
+     f2.close();
+   }
+@@ -1911,7 +1907,7 @@
+   popupMenu.addAction(popup2);
+   connect(popup1,SIGNAL(triggered()), this, SLOT(onPopup1()));
+   connect(popup2,SIGNAL(triggered()), this, SLOT(onPopup2()));
+-  QAction* selectedItem = popupMenu.exec(globalPos);
++  popupMenu.exec(globalPos);
+ }
+ 
+ void MainWindow::onPopup1()
+@@ -1923,3 +1919,16 @@
+ {
+   ui-&gt;tx5-&gt;setText(&quot;TNX 73 GL&quot;);
+ }
++
++bool MainWindow::gridOK(QString g)
++{
++  bool b=g.mid(0,1).compare(&quot;A&quot;)&gt;=0 and
++      g.mid(0,1).compare(&quot;R&quot;)&lt;=0 and
++      g.mid(1,1).compare(&quot;A&quot;)&gt;=0 and
++      g.mid(1,1).compare(&quot;R&quot;)&lt;=0 and
++      g.mid(2,1).compare(&quot;0&quot;)&gt;=0 and
++      g.mid(2,1).compare(&quot;9&quot;)&lt;=0 and
++      g.mid(3,1).compare(&quot;0&quot;)&gt;=0 and
++      g.mid(3,1).compare(&quot;9&quot;)&lt;=0;
++  return b;
++}
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-18 22:47:24 UTC (rev 3055)
++++ branches/wsjtx/mainwindow.h	2013-03-19 13:18:23 UTC (rev 3056)
+@@ -230,6 +230,8 @@
+     void msgtype(QString t, QLineEdit* tx);
+     void stub();
+     void statusChanged();
++
++    bool gridOK(QString g);
+ };
+ 
+ extern void getfile(QString fname, int ntrperiod);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002747.html">[WSJT-SVN] r3055 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002749.html">[WSJT-SVN] r3057 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2748">[ date ]</a>
+              <a href="thread.html#2748">[ thread ]</a>
+              <a href="subject.html#2748">[ subject ]</a>
+              <a href="author.html#2748">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

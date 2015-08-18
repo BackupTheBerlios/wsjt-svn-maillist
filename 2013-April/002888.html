@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3196 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3196%20-%20branches/wsjtx&In-Reply-To=%3C20130418103558.875AC55B10%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002887.html">
+   <LINK REL="Next"  HREF="002889.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3196 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3196%20-%20branches/wsjtx&In-Reply-To=%3C20130418103558.875AC55B10%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3196 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Apr 18 12:35:58 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002887.html">[WSJT-SVN] r3195 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002889.html">[WSJT-SVN] r3197 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2888">[ date ]</a>
+              <a href="thread.html#2888">[ thread ]</a>
+              <a href="subject.html#2888">[ subject ]</a>
+              <a href="author.html#2888">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-04-18 12:35:58 +0200 (Thu, 18 Apr 2013)
+New Revision: 3196
+
+Modified:
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/wsjtx.iss
+Log:
+Don't post a spot to PSKreporter if band was changed in the past 50 s.
+
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-17 17:59:28 UTC (rev 3195)
++++ branches/wsjtx/mainwindow.cpp	2013-04-18 10:35:58 UTC (rev 3196)
+@@ -180,6 +180,7 @@
+   m_watchdogLimit=5;
+   m_tune=false;
+   m_repeatMsg=0;
++  m_secBandChanged=0;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -1298,9 +1299,11 @@
+         }
+       }
+ 
++      int nsec=QDateTime::currentMSecsSinceEpoch()/1000-m_secBandChanged;
++      bool okToPost=(nsec&gt;50);
++
+ #ifdef WIN32
+-      if(m_pskReporterInit and b and !m_diskData) {
+-//      if(m_pskReporterInit and b) {
++      if(m_pskReporterInit and b and !m_diskData and okToPost) {
+         int i1=msg.indexOf(&quot; &quot;);
+         QString c2=msg.mid(i1+1);
+         int i2=c2.indexOf(&quot; &quot;);
+@@ -1339,7 +1342,7 @@
+ #endif
+ 
+ #ifdef unix
+-      if(b and !m_diskData) {
++      if(b and !m_diskData and and okToPost) {
+           int i1=msg.indexOf(&quot; &quot;);
+           QString c2=msg.mid(i1+1);
+           int i2=c2.indexOf(&quot; &quot;);
+@@ -1408,7 +1411,6 @@
+   bool bTxTime = ((t2p &gt;= tx1) and (t2p &lt; tx2)) or m_tune;
+ 
+   if(m_auto or m_tune) {
+-
+     QFile f(&quot;txboth&quot;);
+     if(f.exists() and fmod(tsec,m_TRperiod) &lt; (1.0 + 85.0*m_nsps/12000.0)) {
+       bTxTime=true;
+@@ -1642,6 +1644,9 @@
+   QString cmnd1,cmnd2;
+   cmnd1.sprintf(&quot;rigctl -m %d -r &quot;,m_rig);
+   cmnd1+=m_catPort;
++// For K2:
++//  cmnd2.sprintf(&quot; -s %d -C rts_state=OFF -C dtr_state=OFF -C data_bits=%d -C stop_bits=%d -C serial_handshake=&quot;,
++//                m_serialRate,m_dataBits,m_stopBits);
+   cmnd2.sprintf(&quot; -s %d -C data_bits=%d -C stop_bits=%d -C serial_handshake=&quot;,
+                 m_serialRate,m_dataBits,m_stopBits);
+   cmnd2+=m_handshake;
+@@ -2416,6 +2421,7 @@
+   m_dialFreq=t.toDouble();
+   dialFreqChanged2(m_dialFreq);
+   m_repeatMsg=0;
++  m_secBandChanged=QDateTime::currentMSecsSinceEpoch()/1000;
+   if(m_catEnabled) {
+     int nHz=int(1000000.0*m_dialFreq + 0.5);
+     QString cmnd1,cmnd3;
+@@ -2563,6 +2569,7 @@
+     tuneButtonTimer-&gt;start(1000);
+   } else {
+     m_tune=true;
++    m_sent73=false;
+     soundOutThread.setTune(m_tune);
+     m_repeatMsg=0;
+     ui-&gt;tuneButton-&gt;setStyleSheet(m_pbTune_style);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-17 17:59:28 UTC (rev 3195)
++++ branches/wsjtx/mainwindow.h	2013-04-18 10:35:58 UTC (rev 3196)
+@@ -159,13 +159,13 @@
+     double  m_dialFreq;
+ 
+     qint64  m_msErase;
++    qint64  m_secBandChanged;
++
+     qint32  m_nDevIn;
+     qint32  m_nDevOut;
+     qint32  m_idInt;
+     qint32  m_waterfallAvg;
+     qint32  m_pttMethodIndex;
+-    //qint32  m_fMin;
+-    //qint32  m_fMax;
+     qint32  m_QSOfreq0;
+     qint32  m_ntx;
+     qint32  m_pttPort;
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2013-04-17 17:59:28 UTC (rev 3195)
++++ branches/wsjtx/wsjtx.iss	2013-04-18 10:35:58 UTC (rev 3196)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.9 r3188
++AppVerName=wsjtx Version 0.9 r3195
+ AppCopyright=Copyright (C) 2001-2013 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002887.html">[WSJT-SVN] r3195 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002889.html">[WSJT-SVN] r3197 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2888">[ date ]</a>
+              <a href="thread.html#2888">[ thread ]</a>
+              <a href="subject.html#2888">[ subject ]</a>
+              <a href="author.html#2888">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

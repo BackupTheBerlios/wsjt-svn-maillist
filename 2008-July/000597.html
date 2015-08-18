@@ -1,0 +1,422 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r908 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r908%20-%20trunk&In-Reply-To=%3C200807091431.m69EVKfA031080%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000596.html">
+   <LINK REL="Next"  HREF="000598.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r908 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r908%20-%20trunk&In-Reply-To=%3C200807091431.m69EVKfA031080%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r908 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul  9 16:31:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000596.html">[WSJT-SVN] r907 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000598.html">[WSJT-SVN] r909 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#597">[ date ]</a>
+              <a href="thread.html#597">[ thread ]</a>
+              <a href="subject.html#597">[ subject ]</a>
+              <a href="author.html#597">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-09 16:31:15 +0200 (Wed, 09 Jul 2008)
+New Revision: 908
+
+Modified:
+   trunk/decode162.f
+   trunk/decode24.f
+   trunk/encode232.f
+   trunk/entail.f
+   trunk/fano232.f
+   trunk/gen24.f
+   trunk/genwspr.f90
+   trunk/pack50.f
+   trunk/unpack50.f
+   trunk/wsjt.py
+Log:
+John's big-endian fixes are in here now, but with a few changes.  
+Now to test them ...
+
+
+Modified: trunk/decode162.f
+===================================================================
+--- trunk/decode162.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/decode162.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -7,12 +7,11 @@
+       real*8 dt,df,twopi,f0,f1,dphi0,dphi1
+       complex*16 c0,c1
+       complex*16 w0,w1,ws0,ws1
+-      integer*1 i1,symbol(162)
++      integer*1 symbol(162)
+       integer*1 data1(11)
+       integer amp
+       integer mettab(0:255,0:1)
+       logical first
+-      equivalence (i1,i4)
+       data first/.true./
+       integer npr3(162)
+       common/ccom/rr(162)
+@@ -129,7 +128,8 @@
+          if(r.gt.255.0) r=255.0
+          if(r.lt.0.0) r=0.0
+          i4=nint(r)
+-         symbol(j)=i1
++         if(i4.gt.127) i4=i4-256
++         symbol(j)=i4
+       enddo
+ 
+       call inter_mept(symbol,-1)                      !Remove interleaving
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/decode24.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -4,12 +4,11 @@
+ C  Decodes JT65 data, assuming that DT and DF have already been determined.
+ 
+       real dat(npts)                        !Raw data
+-!      real s3(64,63)
+       character decoded*22,deepmsg*22
+       character*72 c72
+       real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+       complex*16 cz,cz1,c0,c1
+-      integer*1 i1,symbol(207)
++      integer*1 symbol(207)
+       integer*1 data1(13)                   !Decoded data (8-bit bytes)
+       integer   data4a(9)                   !Decoded data (8-bit bytes)
+       integer   data4(12)                   !Decoded data (6-bit bytes)
+@@ -19,9 +18,6 @@
+       integer npr2(207)
+       logical first
+       include 'avecom.h'
+-      integer*1 sym0
+-      common/tst99/ sym0(216)
+-      equivalence (i1,i4)
+       data first/.true./
+       data npr2/
+      +  0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,
+@@ -133,11 +129,8 @@
+             if(r.gt.255.0) r=255.0
+             if(r.lt.0.0) r=0.0
+             i4=nint(r)
+-            if(j.ge.1) symbol(j)=i1
+-            i4a=i4
+-            i1=sym0(j)
+-            write(41,3090) j,rsym,i4a,i4,ang,ndang
+- 3090       format(i3,f9.1,2i6,f8.3,i6)
++            if(i4.gt.127) i4=i4-256
++            if(j.ge.1) symbol(j)=i4
+             ang0=ang
+          enddo
+ !###
+@@ -187,10 +180,8 @@
+             if(r.gt.255.0) r=255.0
+             if(r.lt.0.0) r=0.0
+             i4=nint(r)
+-            if(j.ge.1) symbol(j)=i1
+-            i4a=i4
+-            i1=sym0(j)
+-            write(41,3090) j,rsym,i4a,i4
++            if(i4.gt.127) i4=i4-256
++            if(j.ge.1) symbol(j)=i4
+          enddo
+       endif
+ 
+@@ -207,9 +198,11 @@
+       do iter=1,iters
+          if(iter.eq.2) then
+             do i=2,207
+-               i1=symbol(i)
++               i4=symbol(i)
++               if(i4.lt.0) i4=i4+256
+                i4=255-i4
+-               symbol(i)=i1
++               if(i4.gt.127) i4=i4-256
++               symbol(i)=i4
+             enddo
+          endif
+          ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,
+@@ -218,7 +211,8 @@
+       enddo
+ 
+  100     do i=1,9
+-         i1=data1(i)
++         i4=data1(i)
++         if(i4.lt.0) i4=i4+256
+          data4a(i)=i4
+       enddo
+       write(c72,1100) (data4a(i),i=1,9)
+@@ -233,13 +227,9 @@
+          ncount=-1
+       endif
+ 
+-!      call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+       deepmsg='                      '
+-!      if(ndepth.ge.1) call deep65(s3,mode65,neme,nchallenge,
+-!     +    flip,mycall,hiscall,hisgrid,deepmsg,qual)
+ 
+-
+ C  Save symbol spectra for possible decoding of average.
+ 
+       return
+
+Modified: trunk/encode232.f
+===================================================================
+--- trunk/encode232.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/encode232.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -6,13 +6,14 @@
+       integer*1 symbol(maxsym)          !Channel symbols, one bit per byte
+       integer*1 i1
+       include 'conv232.f'
+-      equivalence (i1,i4)
+ 
+       nstate=0
+       k=0
+       do j=1,nbytes
+          do i=7,0,-1
+             i1=dat(j)
++            i4=i1
++            if (i4.lt.0) i4=i4+256
+             nstate=ior(ishft(nstate,1),iand(ishft(i4,-i),1))
+             n=iand(nstate,npoly1)
+             n=ieor(n,ishft(n,-16))
+
+Modified: trunk/entail.f
+===================================================================
+--- trunk/entail.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/entail.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -2,8 +2,7 @@
+ 
+ C  Move 72-bit packed data from 6-bit to 8-bit symbols and add a zero tail.
+       integer dgen(12)
+-      integer*1 data0(13),i1
+-      equivalence (i1,i4)
++      integer*1 data0(13)
+ 
+       i4=0
+       k=0
+@@ -15,7 +14,8 @@
+             i4=i4+i4+iand(1,ishft(n,j-6))
+             if(k.eq.8) then
+                m=m+1
+-               data0(m)=i1
++               if(i4.gt.127) i4=i4-256
++               data0(m)=i4
+                k=0
+             endif
+          enddo
+
+Modified: trunk/fano232.f
+===================================================================
+--- trunk/fano232.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/fano232.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -18,9 +18,7 @@
+       integer tm(0:1,0:MAXBITS-1)      !Sorted metrics for current hypotheses
+       integer ii(0:MAXBITS-1)          !Current branch being tested
+ 
+-      integer*1 i1a,i1b
+       logical noback
+-      equivalence (i1a,i4a),(i1b,i4b)
+       include 'conv232.f'
+ 
+       ntail=nbits-31
+@@ -31,8 +29,10 @@
+       i4b=0
+       do np=0,nbits-1
+          j=2*np
+-         i1a=symbol(j)
+-         i1b=symbol(j+1)
++         i4a=symbol(j)
++         i4b=symbol(j+1)
++         if (i4a.lt.0) i4a=i4a+256
++         if (i4b.lt.0) i4b=i4b+256
+          metrics(0,np) = mettab(i4a,0) + mettab(i4b,0)
+          metrics(1,np) = mettab(i4a,0) + mettab(i4b,1)
+          metrics(2,np) = mettab(i4a,1) + mettab(i4b,0)
+@@ -146,7 +146,7 @@
+       np=7
+       do j=1,nbytes-1
+          i4a=nstate(np)
+-         dat(j)=i1a
++         dat(j)=i4a
+          np=np+8
+       enddo
+       dat(nbytes)=0
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/gen24.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -15,7 +15,6 @@
+       integer*1 data0(13),symbol(216)
+       logical first
+       include 'prcom2.f'
+-      common/tst99/ symbol
+       data first/.true./
+       save
+ 
+
+Modified: trunk/genwspr.f90
+===================================================================
+--- trunk/genwspr.f90	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/genwspr.f90	2008-07-09 14:31:15 UTC (rev 908)
+@@ -8,13 +8,12 @@
+   integer*2 iwave(NMAX)          !Generated wave file
+   real*8 samfacout,fsample
+   integer*1 symbol(MAXSYM)
+-  integer*1 data0(11),i1
++  integer*1 data0(11)
+   integer npr3(162)
+   real pr3(162)
+   logical first
+   real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+   character*22 msgsent           !Message sent
+-  equivalence(i1,i4)
+   data npr3/                                    &amp;
+        1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0, &amp;
+        0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1, &amp;
+
+Modified: trunk/pack50.f
+===================================================================
+--- trunk/pack50.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/pack50.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -1,21 +1,20 @@
+       subroutine pack50(n1,n2,dat)
+ 
+       integer*1 dat(11),i1
+-      equivalence (i1,i4)
+ 
+-      i4=iand(ishft(n1,-20),255)                !8 bits
++      i1=iand(ishft(n1,-20),255)                !8 bits
+       dat(1)=i1
+-      i4=iand(ishft(n1,-12),255)                 !8 bits
++      i1=iand(ishft(n1,-12),255)                 !8 bits
+       dat(2)=i1
+-      i4=iand(ishft(n1, -4),255)                 !8 bits
++      i1=iand(ishft(n1, -4),255)                 !8 bits
+       dat(3)=i1
+-      i4=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
++      i1=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
+       dat(4)=i1
+-      i4=iand(ishft(n2,-10),255)                 !8 bits
++      i1=iand(ishft(n2,-10),255)                 !8 bits
+       dat(5)=i1
+-      i4=iand(ishft(n2, -2),255)                 !8 bits
++      i1=iand(ishft(n2, -2),255)                 !8 bits
+       dat(6)=i1
+-      i4=64*iand(n2,3)                           !2 bits
++      i1=64*iand(n2,3)                           !2 bits
+       dat(7)=i1
+       dat(8)=0
+       dat(9)=0
+
+Modified: trunk/unpack50.f
+===================================================================
+--- trunk/unpack50.f	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/unpack50.f	2008-07-09 14:31:15 UTC (rev 908)
+@@ -1,26 +1,24 @@
+-      subroutine unpack50(dat,n1,n2)
+-
+-      integer*1 dat(11),i1
+-      equivalence (i1,i4)
+-
+-      i4=0
+-      i1=dat(1)
+-      n1=ishft(i4,20)
+-      i1=dat(2)
+-      n1=n1 + ishft(i4,12)
+-      i1=dat(3)
+-      n1=n1 + ishft(i4,4)
+-      i1=dat(4)
+-      n1=n1 + iand(ishft(i4,-4),15)
+-
+-      n2=ishft(iand(i4,15),18)
+-      i1=dat(5)
+-      n2=n2 + ishft(i4,10)
+-      i1=dat(6)
+-      n2=n2 + ishft(i4,2)
+-      i1=dat(7)
+-      n2=n2 + iand(ishft(i4,-6),3)
+-
+-      return
+-      end
+-
++      subroutine unpack50(dat,n1,n2)
++
++      integer*1 dat(11)
++
++      i4=iand(dat(1),255)
++      n1=ishft(i4,20)
++      i4=iand(dat(2),255)
++      n1=n1 + ishft(i4,12)
++      i4=iand(dat(3),255)
++      n1=n1 + ishft(i4,4)
++      i4=iand(dat(4),255)
++      n1=n1 + iand(ishft(i4,-4),15)
++
++      n2=ishft(iand(i4,15),18)
++      i4=iand(dat(5),255)
++      n2=n2 + ishft(i4,10)
++      i4=iand(dat(6),255)
++      n2=n2 + ishft(i4,2)
++      i4=iand(dat(7),255)
++      n2=n2 + iand(ishft(i4,-6),3)
++
++      return
++      end
++
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-09 14:27:28 UTC (rev 907)
++++ trunk/wsjt.py	2008-07-09 14:31:15 UTC (rev 908)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#--------------------------------------------------------------------- WSJT
++#---------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000596.html">[WSJT-SVN] r907 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000598.html">[WSJT-SVN] r909 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#597">[ date ]</a>
+              <a href="thread.html#597">[ thread ]</a>
+              <a href="subject.html#597">[ subject ]</a>
+              <a href="author.html#597">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,357 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3356 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3356%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608113154.607DA55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003047.html">
+   <LINK REL="Next"  HREF="003049.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3356 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3356%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130608113154.607DA55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3356 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Jun  8 13:31:54 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003047.html">[WSJT-SVN] r3355 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003049.html">[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3048">[ date ]</a>
+              <a href="thread.html#3048">[ thread ]</a>
+              <a href="subject.html#3048">[ subject ]</a>
+              <a href="author.html#3048">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-08 13:31:53 +0200 (Sat, 08 Jun 2013)
+New Revision: 3356
+
+Added:
+   branches/wsjtx_k1jt_p1/lib/wrapkarn.c
+Modified:
+   branches/wsjtx_k1jt_p1/lib/Makefile.MinGW
+   branches/wsjtx_k1jt_p1/lib/extract.f90
+   branches/wsjtx_k1jt_p1/lib/jt65.f90
+   branches/wsjtx_k1jt_p1/lib/timer.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+1. Fixed timer(), now uses system_clock().
+2. JT65 decoder now has both BM and KV algorithms.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/Makefile.MinGW
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/Makefile.MinGW	2013-06-08 00:25:57 UTC (rev 3355)
++++ branches/wsjtx_k1jt_p1/lib/Makefile.MinGW	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -57,7 +57,8 @@
+ OBJS5 = jt65.o jt65a.o symspec65.o flat65.o ccf65.o decode1a.o \
+ 	filbig.o fil6521.o afc65b.o decode65b.o s3avg.o setup65.o \
+ 	extract.o fchisq65.o demod64a.o chkhist.o interleave63.o ccf2.o \
+-	move.o indexx.o graycode65.o twkfreq65.o
++	move.o indexx.o graycode65.o twkfreq65.o \
++	wrapkarn.o init_rs.o encode_rs.o decode_rs.o
+ jt65.exe: $(OBJS5) libjt9.a 
+ 	$(FC) -o jt65.exe $(OBJS5) libjt9.a ../libfftw3f_win.a
+ 
+@@ -99,6 +100,16 @@
+ tstrig.o: tstrig.c
+ 	$(CC) -c -Wall -I..\..\..\hamlib-1.2.15.3\include tstrig.c
+ 
++init_rs.o: init_rs.c
++	$(CC) -c -DBIGSYM=1 -o init_rs.o init_rs.c
++
++encode_rs.o: encode_rs.c
++	$(CC) -c -DBIGSYM=1 -o encode_rs.o encode_rs.c
++
++decode_rs.o: decode_rs.c
++	$(CC) -c -DBIGSYM=1 -o decode_rs.o decode_rs.c
++
++
+ .PHONY : clean
+ 
+ clean:
+
+Modified: branches/wsjtx_k1jt_p1/lib/extract.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-08 00:25:57 UTC (rev 3355)
++++ branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -16,7 +16,6 @@
+      go to 900
+   endif
+   call chkhist(mrsym,nhist,ipk)
+-  nhist=0
+ 
+   if(nhist.ge.20) then
+      nfail=nfail+1
+@@ -51,14 +50,14 @@
+      call flush(22)
+ !         call timer('kvasd   ',0)
+ !#ifdef UNIX
+-!     iret=system('./kvasd -q &gt; dev_null')
++!         iret=system('./kvasd -q &gt; dev_null')
+ !#else
+      iret=system('kvasd -q &gt; dev_null')
+ !#endif
+ !         call timer('kvasd   ',1)
+      if(iret.ne.0) then
+         if(first) write(*,1000) iret
+-1000    format('Error in KV decoder, or no KV decoder present.'/        &amp;
++1000    format('Error in KV decoder, or no KV decoder present.'/     &amp;
+              'Return code:',i8,'.  Will use BM algorithm.')
+         ndec=0
+         first=.false.
+@@ -80,7 +79,26 @@
+         decoded='                      '
+      endif
+   endif
+-20 continue
++20 if(ndec.eq.0) then
++     call indexx(63,mrprob,indx)
++     do i=1,nemax
++        j=indx(i)
++        if(mrprob(j).gt.120) then
++           ne2=i-1
++           go to 2
++        endif
++        era(i)=j-1
++     enddo
++     ne2=nemax
++2    decoded='                      '
++     do nerase=0,ne2,2
++        call rs_decode(mrsym,era,nerase,dat4,ncount)
++        if(ncount.ge.0) then
++           call unpackmsg(dat4,decoded)
++           go to 900
++        endif
++     enddo
++  endif
+ 
+ 900 return
+ end subroutine extract
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 00:25:57 UTC (rev 3355)
++++ branches/wsjtx_k1jt_p1/lib/jt65.f90	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -6,7 +6,7 @@
+   integer*4 ihdr(11)
+   integer*2 id2(NZMAX)
+   real*4 dd(NZMAX)
+-  character*80 infile,infile0
++  character*80 infile
+   integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
+   character*4 ariff,awave,afmt,adata
+   common/hdr/ariff,lenfile,awave,afmt,lenfmt,nfmt2,nchan2, &amp;
+@@ -16,10 +16,9 @@
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+-     print*,'Usage: jt65 &lt;infile&gt;'
++     print*,'Usage: jt65 file1 [file2 ...]'
+      go to 999
+   endif
+-  call getarg(1,infile0)
+   limtrace=0
+   lu=12
+ 
+@@ -36,21 +35,28 @@
+ 
+   call timer('jt65    ',0)
+ 
+-  infile='/users/joe/wsjt_k1jt/wsjtx_install/save/'//infile0
+-  open(10,file=infile,access='stream',status='old',err=998)
+-  read(10) ihdr
+-  nutc=ihdr(1)                           !Silence compiler warning
+-  i1=index(infile0,'.wav')
+-  read(infile0(i1-4:i1-1),*,err=1) nutc
+-  go to 2
+-1 nutc=0
+-2 npts=52*12000
+-  read(10) id2(1:npts)
+-  dd(1:npts)=id2(1:npts)
+-  dd(npts+1:)=0.
++  do ifile=1,nargs
++     call getarg(ifile,infile)
++     open(10,file=infile,access='stream',status='old',err=998)
+ 
+-  call jt65a(dd,npts,newdat,nutc,ntol,nfa,nfb,nfqso,nagain,ndiskdat)
++     call timer('read    ',0)
++     read(10) ihdr
++     nutc=ihdr(1)                           !Silence compiler warning
++     i1=index(infile,'.wav')
++     read(infile(i1-4:i1-1),*,err=1) nutc
++     go to 2
++1    nutc=0
++2    npts=52*12000
++     read(10) id2(1:npts)
++     call timer('read    ',1)
++     dd(1:npts)=id2(1:npts)
++     dd(npts+1:)=0.
+ 
++     call timer('jt65a   ',0)
++     call jt65a(dd,npts,newdat,nutc,ntol,nfa,nfb,nfqso,nagain,ndiskdat)
++     call timer('jt65a   ',1)
++  enddo
++
+   call timer('jt65    ',1)
+   call timer('jt65    ',101)
+   call four2a(a,-1,1,1,1)
+
+Modified: branches/wsjtx_k1jt_p1/lib/timer.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/timer.f90	2013-06-08 00:25:57 UTC (rev 3355)
++++ branches/wsjtx_k1jt_p1/lib/timer.f90	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -7,7 +7,7 @@
+   character*8 dname,name(50),space,ename
+   character*16 sname
+   logical on(50)
+-  real ut(50),ut0(50),dut(50),tt(2)
++  real ut(50),ut0(50),dut(50)
+   integer ncall(50),nlevel(50),nparent(50)
+   integer onlevel(0:10)
+   common/tracer/ limtrace,lu
+@@ -36,7 +36,8 @@
+      if(on(n)) print*,'Error in timer: ',dname,' already on.'
+      level=level+1                                !Increment the level
+      on(n)=.true.
+-     ut0(n)=etime(tt)
++     call system_clock(icount,irate)
++     ut0(n)=float(icount)/irate
+      ncall(n)=ncall(n)+1
+      if(ncall(n).gt.1.and.nlevel(n).ne.level) then
+         nlevel(n)=-1
+@@ -49,7 +50,8 @@
+   else if(k.eq.1) then        !Get stop times and accumulate sums. (k=1)
+      if(on(n)) then
+         on(n)=.false.
+-        ut1=etime(tt)
++        call system_clock(icount,irate)
++        ut1=float(icount)/irate
+         ut(n)=ut(n)+ut1-ut0(n)
+      endif
+      level=level-1
+
+Added: branches/wsjtx_k1jt_p1/lib/wrapkarn.c
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/wrapkarn.c	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/wrapkarn.c	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -0,0 +1,70 @@
++#include &lt;math.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;float.h&gt;
++#include &lt;limits.h&gt;
++#include &lt;stdlib.h&gt;
++#include &quot;rs.h&quot;
++
++static void *rs;
++static int first=1;
++
++void rs_encode_(int *dgen, int *sent)
++// Encode JT65 data dgen[12], producing sent[63].
++{
++  int dat1[12];
++  int b[51];
++  int i;
++
++  if(first) {
++    // Initialize the JT65 codec
++    rs=init_rs_int(6,0x43,3,1,51,0);
++    first=0;
++  }
++
++  // Reverse data order for the Karn codec.
++  for(i=0; i&lt;12; i++) {
++    dat1[i]=dgen[11-i];
++  }
++  // Compute the parity symbols
++  encode_rs_int(rs,dat1,b);
++
++  // Move parity symbols and data into sent[] array, in reverse order.
++  for (i = 0; i &lt; 51; i++) sent[50-i] = b[i];
++  for (i = 0; i &lt; 12; i++) sent[i+51] = dat1[11-i];
++}
++
++void rs_decode_(int *recd0, int *era0, int *numera0, int *decoded, int *nerr)
++// Decode JT65 received data recd0[63], producing decoded[12].
++// Erasures are indicated in era0[numera].  The number of corrected
++// errors is *nerr.  If the data are uncorrectable, *nerr=-1 is returned.
++{
++  int numera;
++  int i;
++  int era_pos[50];
++  int recd[63];
++
++  if(first) {
++    rs=init_rs_int(6,0x43,3,1,51,0);
++    first=0;
++  }
++
++  numera=*numera0;
++  for(i=0; i&lt;12; i++) recd[i]=recd0[62-i];
++  for(i=0; i&lt;51; i++) recd[12+i]=recd0[50-i];
++  if(numera) 
++    for(i=0; i&lt;numera; i++) era_pos[i]=era0[i];
++  *nerr=decode_rs_int(rs,recd,era_pos,numera);
++  for(i=0; i&lt;12; i++) decoded[i]=recd[11-i];
++}
++
++
++void rs_encode__(int *dgen, int *sent)
++{
++  rs_encode_(dgen, sent);
++}
++
++void rs_decode__(int *recd0, int *era0, int *numera0, int *decoded, int *nerr)
++{
++  rs_decode_(recd0, era0, numera0, decoded, nerr);
++}
++
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 00:25:57 UTC (rev 3355)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 11:31:53 UTC (rev 3356)
+@@ -1,4 +1,4 @@
+-//------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003047.html">[WSJT-SVN] r3355 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003049.html">[WSJT-SVN] r3357 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3048">[ date ]</a>
+              <a href="thread.html#3048">[ thread ]</a>
+              <a href="subject.html#3048">[ subject ]</a>
+              <a href="author.html#3048">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

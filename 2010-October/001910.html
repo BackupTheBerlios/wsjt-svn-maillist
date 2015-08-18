@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2218 - in wsjt7a: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2218%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20101012202826.B4638481142%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001909.html">
+   <LINK REL="Next"  HREF="001911.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2218 - in wsjt7a: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2218%20-%20in%20wsjt7a%3A%20.%20WsjtMod&In-Reply-To=%3C20101012202826.B4638481142%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2218 - in wsjt7a: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Oct 12 22:28:26 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001909.html">[WSJT-SVN] r2217 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="001911.html">[WSJT-SVN] r2219 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1910">[ date ]</a>
+              <a href="thread.html#1910">[ thread ]</a>
+              <a href="subject.html#1910">[ subject ]</a>
+              <a href="author.html#1910">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-10-12 22:28:26 +0200 (Tue, 12 Oct 2010)
+New Revision: 2218
+
+Modified:
+   wsjt7a/WsjtMod/astro.py
+   wsjt7a/astro.f
+   wsjt7a/astro0.f90
+   wsjt7a/wsjt.py
+Log:
+Add LST to displayed astronomical data.
+
+
+Modified: wsjt7a/WsjtMod/astro.py
+===================================================================
+--- wsjt7a/WsjtMod/astro.py	2010-10-12 20:11:53 UTC (rev 2217)
++++ wsjt7a/WsjtMod/astro.py	2010-10-12 20:28:26 UTC (rev 2218)
+@@ -42,8 +42,10 @@
+     if g.nfreq==2: t8=&quot;Freq:  1.8 Tsky:%6d\n&quot; % (g.ntsky)
+     if g.nfreq==4: t8=&quot;Freq:  3.5 Tsky:%6d\n&quot; % (g.ntsky)
+     t9= &quot;MNR: %5.1f  Dgrd:%6.1f\n&quot; % (g.MaxNR,g.Dgrd)
+-    t10=&quot;DPol: %4d  SD:%8.2f\n&quot; % (g.poloffset,g.sd)
+-    t=t1+t2+t3+t4+t4a+t5+t6+t7+t7aa+t7ab+t7a+t7b+t7c+t8+t9+t10
++    t10=&quot;DPol: %4d  SD:%8.2f\n\n&quot; % (g.poloffset,g.sd)
++    t11=&quot;LST (h):  %6.3f\n&quot; % (g.xlst,)
++
++    t=t1+t2+t3+t4+t4a+t5+t6+t7+t7aa+t7ab+t7a+t7b+t7c+t8+t9+t10+t11
+     lab1.configure(text=t)
+     g.astro_geom=root.geometry()
+     frame.after(1000,update)
+
+Modified: wsjt7a/astro.f
+===================================================================
+--- wsjt7a/astro.f	2010-10-12 20:11:53 UTC (rev 2217)
++++ wsjt7a/astro.f	2010-10-12 20:28:26 UTC (rev 2218)
+@@ -1,7 +1,7 @@
+       subroutine astro(nyear,month,nday,uth,nfreq,Mygrid,
+      +     NStation,mode,MoonDX,AzSun,ElSun,AzMoon,ElMoon0,
+      +     ntsky,doppler00,doppler,dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,
+-     +     poloffset,xnr,auxra,auxdec,azaux,elaux,day,lon,lat)
++     +     poloffset,xnr,auxra,auxdec,azaux,elaux,day,lon,lat,LST)
+ 
+ C  Computes astronomical quantities for display in JT65, CW, and EME Echo mode.
+ C  NB: may want to smooth the Tsky map to 10 degrees or so.
+
+Modified: wsjt7a/astro0.f90
+===================================================================
+--- wsjt7a/astro0.f90	2010-10-12 20:11:53 UTC (rev 2217)
++++ wsjt7a/astro0.f90	2010-10-12 20:28:26 UTC (rev 2218)
+@@ -1,18 +1,18 @@
+ subroutine astro0(nyear,month,nday,uth8,nfreq,grid,cauxra,cauxdec,       &amp;
+      AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,  &amp;
+      dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,sd8,poloffset8,xnr8,dfdt,dfdt0,  &amp;
+-     RaAux8,DecAux8,AzAux8,ElAux8,width1,width2,w501,w502)
++     RaAux8,DecAux8,AzAux8,ElAux8,width1,width2,w501,w502,xlst8)
+ 
+ !f2py threadsafe
+ !f2py intent(in) nyear,month,nday,uth8,nfreq,grid,cauxra,cauxdec
+-!f2py intent(out) AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,sd8,poloffset8,xnr8,dfdt,dfdt0,RaAux8,DecAux8,AzAux8,ElAux8,width1,width2,w501,w502
++!f2py intent(out) AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,ntsky,ndop,ndop00,dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,sd8,poloffset8,xnr8,dfdt,dfdt0,RaAux8,DecAux8,AzAux8,ElAux8,width1,width2,w501,w502,xlst8
+ 
+   parameter (DEGS=57.2957795130823d0)
+   character grid*6
+   character*9 cauxra,cauxdec
+   real*8 AzSun8,ElSun8,AzMoon8,ElMoon8,AzMoonB8,ElMoonB8,AzAux8,ElAux8
+   real*8 dbMoon8,RAMoon8,DecMoon8,HA8,Dgrd8,xnr8,dfdt,dfdt0,dt
+-  real*8 sd8,poloffset8,day8,width1,width2,w501,w502
++  real*8 sd8,poloffset8,day8,width1,width2,w501,w502,xlst8
+   include 'gcom2.f90'
+   data uth8z/0.d0/,imin0/-99/
+   save
+@@ -59,15 +59,16 @@
+   call astro(nyear,month,nday,uth,nfreq,hisgrid,2,nmode,1,    &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,auxra,auxdec,  &amp;
+-       AzAux,ElAux,day,xlon2,xlat2)
++       AzAux,ElAux,day,xlon2,xlat2,xlst)
+   AzMoonB8=AzMoon
+   ElMoonB8=ElMoon
+   call astro(nyear,month,nday,uth,nfreq,grid,1,nmode,1,       &amp;
+        AzSun,ElSun,AzMoon,ElMoon,ntsky,doppler00,doppler,            &amp;
+        dbMoon,RAMoon,DecMoon,HA,Dgrd,sd,poloffset,xnr,auxra,auxdec,  &amp;
+-       AzAux,ElAux,day,xlon1,xlat1)
++       AzAux,ElAux,day,xlon1,xlat1,xlst)
+ 
+   day8=day
++  xlst8=xlst
+   call tm2(day8,xlat1,xlon1,xl1,b1)
+   call tm2(day8,xlat2,xlon2,xl2,b2)
+   call tm2(day8+1.d0/1440.0,xlat1,xlon1,xl1a,b1a)
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-10-12 20:11:53 UTC (rev 2217)
++++ wsjt7a/wsjt.py	2010-10-12 20:28:26 UTC (rev 2218)
+@@ -1675,12 +1675,12 @@
+             g.AzSun,g.ElSun,g.AzMoon,g.ElMoon,g.AzMoonB,g.ElMoonB,g.ntsky, \
+                 g.ndop,g.ndop00,g.dbMoon,g.RAMoon,g.DecMoon,g.HA8,g.Dgrd,  \
+                 g.sd,g.poloffset,g.MaxNR,g.dfdt,g.dfdt0,g.RaAux,g.DecAux, \
+-                g.AzAux,g.ElAux,g.w1,g.w2,g.w501,g.w502 = Audio.astro0(   \
++                g.AzAux,g.ElAux,g.w1,g.w2,g.w501,g.w502,g.xlst = Audio.astro0( \
+                     utc[0],utc[1],utc[2],utchours,nfreq.get(),            \
+                     options.MyGrid.get().upper(),       \
+                     options.auxra.get()+(' '*9)[:9],    \
+                     options.auxdec.get()+(' '*9)[:9])
+-            
++
+             if len(HisGrid.get().strip())&lt;4:
+                 g.ndop=g.ndop00
+                 g.dfdt=g.dfdt0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001909.html">[WSJT-SVN] r2217 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="001911.html">[WSJT-SVN] r2219 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1910">[ date ]</a>
+              <a href="thread.html#1910">[ thread ]</a>
+              <a href="subject.html#1910">[ subject ]</a>
+              <a href="author.html#1910">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

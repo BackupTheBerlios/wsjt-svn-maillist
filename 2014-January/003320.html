@@ -1,0 +1,274 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3627 - in branches/wsjtx_w: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3627%20-%20in%20branches/wsjtx_w%3A%20.%20lib&In-Reply-To=%3C20140109003050.74BE955B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003319.html">
+   <LINK REL="Next"  HREF="003321.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3627 - in branches/wsjtx_w: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3627%20-%20in%20branches/wsjtx_w%3A%20.%20lib&In-Reply-To=%3C20140109003050.74BE955B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3627 - in branches/wsjtx_w: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan  9 01:30:50 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003319.html">[WSJT-SVN] r3626 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003321.html">[WSJT-SVN] r3628 - in branches/wsjtx_w: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3320">[ date ]</a>
+              <a href="thread.html#3320">[ thread ]</a>
+              <a href="subject.html#3320">[ subject ]</a>
+              <a href="author.html#3320">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-09 01:30:49 +0100 (Thu, 09 Jan 2014)
+New Revision: 3627
+
+Modified:
+   branches/wsjtx_w/Modulator.cpp
+   branches/wsjtx_w/lib/Makefile.linux
+   branches/wsjtx_w/lib/symspec.f90
+   branches/wsjtx_w/mainwindow.cpp
+   branches/wsjtx_w/soundout.cpp
+   branches/wsjtx_w/soundout.h
+Log:
+Import changes related to flat3.
+
+
+Modified: branches/wsjtx_w/Modulator.cpp
+===================================================================
+--- branches/wsjtx_w/Modulator.cpp	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/Modulator.cpp	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -81,7 +81,7 @@
+   static double toneFrequency0;
+   double toneFrequency;
+ 
+-  if(maxSize==0) return 0l;
++  if(maxSize==0) return 0;
+   Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (bytesPerFrame ()))); // no torn frames
+   Q_ASSERT (isOpen ());
+ 
+@@ -90,7 +90,7 @@
+   qint16 * end (samples + numFrames * (bytesPerFrame () / sizeof (qint16)));
+ 
+ //  qDebug () &lt;&lt; &quot;Modulator: &quot; &lt;&lt; numFrames &lt;&lt; &quot; requested, m_ic = &quot; &lt;&lt; m_ic &lt;&lt; &quot;, tune mode is &quot; &lt;&lt; m_tuning;
+-
++//  qDebug() &lt;&lt; &quot;C&quot; &lt;&lt; maxSize &lt;&lt; numFrames &lt;&lt; bytesPerFrame();
+   switch (m_state)
+   {
+   case Synchronizing:
+
+Modified: branches/wsjtx_w/lib/Makefile.linux
+===================================================================
+--- branches/wsjtx_w/lib/Makefile.linux	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/lib/Makefile.linux	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -40,7 +40,8 @@
+ 	filbig.o fil6521.o afc65b.o decode65b.o setup65.o \
+ 	extract.o fchisq65.o demod64a.o chkhist.o interleave63.o ccf2.o \
+ 	move.o indexx.o graycode65.o twkfreq65.o smo121.o \
+-	wrapkarn.o init_rs.o encode_rs.o decode_rs.o gen65.o fil4.o
++	wrapkarn.o init_rs.o encode_rs.o decode_rs.o gen65.o fil4.o \
++	flat1.o smo.o flat3.o polfit.o determ.o
+ 
+ libjt9.a: $(OBJS1)
+ 	ar cr libjt9.a $(OBJS1) 
+
+Modified: branches/wsjtx_w/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_w/lib/symspec.f90	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/lib/symspec.f90	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -23,11 +23,11 @@
+   real*4 scale(NSMAX)
+   real*4 ssum(NSMAX)
+   real*4 xc(0:MAXFFT3-1)
+-  real*4 tmp(NSMAX)
+   complex cx(0:MAXFFT3/2)
+   integer*2 id2
+-  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,   &amp;
+-       ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
++  common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,         &amp;
++       ntr,mousefqso,newdat,npts8a,nfa,nfsplit,nfb,ntol,kin,nzhsym,         &amp;
++       nsave,nagain,ndepth,ntxmode,nmode,junk(5)
+   common/jt9w/syellow(NSMAX)
+   data rms/999.0/,k0/99999999/,nfft3z/0/,slope0/0.0/
+   equivalence (xc,cx)
+@@ -42,17 +42,22 @@
+      go to 900                                 !Wait for enough samples to start
+   endif
+ 
+-  if(nfft3.ne.nfft3z .or. slope.ne.slope0) then    !New nfft3, compute window
++  if(nfft3.ne.nfft3z .or. slope.ne.slope0) then
++! Compute new window and adjust scale factor
+      pi=4.0*atan(1.0)
+      do i=1,nfft3
+         w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+      enddo
+      nfft3z=nfft3
+      nh=NSMAX/2
+-     do i=1,NSMAX
+-        x=slope*float(i)/nh - 1.0 + 2.6
+-        scale(i)=10.0**x
+-     enddo
++     if(abs(slope+0.1).gt.0.05) then
++        do i=1,NSMAX
++           x=slope*float(i)/nh - 1.0 + 2.6
++           scale(i)=10.0**x
++        enddo
++     else
++        scale=1.0
++     endif
+      slope0=slope
+   endif
+ 
+@@ -105,10 +110,16 @@
+      s(i)=gain*sx
+   enddo
+ 
+-!  s=0.05*s/ref
+   s=scale*s
+   savg=scale*ssum/ihsym
+ 
++  if(abs(slope+0.1).lt.0.01) then
++     call flat3(s,iz,nfa,nfb,3,1.0,s)
++     call flat3(savg,iz,nfa,nfb,3,1.0,savg)
++     savg=7.0*savg
++  endif
++
++! The following needs updating, since we have already flattened savg.
+   if(mod(n,10).eq.0 .or. n.ge.170) then
+      mode4=36
+      nsmo=min(10*mode4,150)
+@@ -124,10 +135,6 @@
+      where(syellow&lt;0) syellow=0.
+   endif
+ 
+-!  if(n.eq.173) then
+-!     write(81) iz,savg(1:iz)
+-!  endif
+-
+ 900 npts8=k/8
+ 
+   return
+
+Modified: branches/wsjtx_w/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_w/mainwindow.cpp	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/mainwindow.cpp	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -738,6 +738,8 @@
+   slope=0.0;
+   slope=(float)m_wideGraph-&gt;getSlope();
+   int k (frames - 1);
++  jt9com_.nfa=m_wideGraph-&gt;nStartFreq();
++  jt9com_.nfb=m_wideGraph-&gt;getFmax();
+   symspec_(&amp;k,&amp;trmin,&amp;m_nsps,&amp;m_inGain,&amp;slope,&amp;px,s,&amp;df3,&amp;ihsym,&amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+
+Modified: branches/wsjtx_w/soundout.cpp
+===================================================================
+--- branches/wsjtx_w/soundout.cpp	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/soundout.cpp	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -17,31 +17,30 @@
+   bool result (true);
+ 
+   Q_ASSERT_X (m_stream, &quot;SoundOutput&quot;, &quot;programming error&quot;);
+-  if (m_stream)
++  if (m_stream) {
++    switch (m_stream-&gt;error ())
+     {
+-      switch (m_stream-&gt;error ())
+-	{
+-	case QAudio::OpenError:
+-	  Q_EMIT error (tr (&quot;An error opening the audio output device has occurred.&quot;));
+-	  break;
++    case QAudio::OpenError:
++      Q_EMIT error (tr (&quot;An error opening the audio output device has occurred.&quot;));
++      break;
+ 
+-	case QAudio::IOError:
+-	  Q_EMIT error (tr (&quot;An error occurred during write to the audio output device.&quot;));
+-	  break;
++    case QAudio::IOError:
++      Q_EMIT error (tr (&quot;An error occurred during write to the audio output device.&quot;));
++      break;
+ 
+-	case QAudio::UnderrunError:
+-	  Q_EMIT error (tr (&quot;Audio data not being fed to the audio output device fast enough.&quot;));
+-	  break;
++    case QAudio::UnderrunError:
++      Q_EMIT error (tr (&quot;Audio data not being fed to the audio output device fast enough.&quot;));
++      break;
+ 
+-	case QAudio::FatalError:
+-	  Q_EMIT error (tr (&quot;Non-recoverable error, audio output device not usable at this time.&quot;));
+-	  break;
++    case QAudio::FatalError:
++      Q_EMIT error (tr (&quot;Non-recoverable error, audio output device not usable at this time.&quot;));
++      break;
+ 
+-	case QAudio::NoError:
+-	  result = false;
+-	  break;
+-	}
++    case QAudio::NoError:
++      result = false;
++      break;
+     }
++  }
+   return result;
+ }
+ 
+
+Modified: branches/wsjtx_w/soundout.h
+===================================================================
+--- branches/wsjtx_w/soundout.h	2014-01-09 00:03:22 UTC (rev 3626)
++++ branches/wsjtx_w/soundout.h	2014-01-09 00:30:49 UTC (rev 3627)
+@@ -8,8 +8,6 @@
+ 
+ class QAudioDeviceInfo;
+ 
+-class QAudioDeviceInfo;
+-
+ // An instance of this sends audio data to a specified soundcard.
+ 
+ class SoundOutput : public QObject
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003319.html">[WSJT-SVN] r3626 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003321.html">[WSJT-SVN] r3628 - in branches/wsjtx_w: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3320">[ date ]</a>
+              <a href="thread.html#3320">[ thread ]</a>
+              <a href="subject.html#3320">[ subject ]</a>
+              <a href="author.html#3320">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

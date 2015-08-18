@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1635 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1635%20-%20branches/wspr&In-Reply-To=%3C200911052134.nA5LYk7V015162%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001325.html">
+   <LINK REL="Next"  HREF="001327.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1635 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1635%20-%20branches/wspr&In-Reply-To=%3C200911052134.nA5LYk7V015162%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1635 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  5 22:34:47 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001325.html">[WSJT-SVN] r1634 - in branches/wspr: . WsprMod
+</A></li>
+        <LI>Next message: <A HREF="001327.html">[WSJT-SVN] r1636 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1326">[ date ]</a>
+              <a href="thread.html#1326">[ thread ]</a>
+              <a href="subject.html#1326">[ subject ]</a>
+              <a href="author.html#1326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-05 22:34:43 +0100 (Thu, 05 Nov 2009)
+New Revision: 1635
+
+Modified:
+   branches/wspr/audiodev.f90
+   branches/wspr/decode.F90
+   branches/wspr/genwspr.F90
+   branches/wspr/tx.F90
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.F90
+Log:
+Finished (?) putting appdir in front of file names opened in Fortran.
+
+
+Modified: branches/wspr/audiodev.f90
+===================================================================
+--- branches/wspr/audiodev.f90	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/audiodev.f90	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -1,15 +1,18 @@
+-subroutine audiodev(ndevin,ndevout,inbad,outbad)
++subroutine audiodev(jdevin,jdevout,inbad,outbad)
+ 
+ !                        !f2py threadsafe
+-!f2py intent(in)  ndevin,ndevout
++!f2py intent(in)  jdevin,jdevout
+ !f2py intent(out) inbad,outbad
+ 
+-  character cdevice*40
++  character cdevice*40,audiocaps*80
+   integer inbad,outbad
+   integer nchin(0:20),nchout(0:20),inerr(0:20),outerr(0:20)
++  include 'acom1.f90'
+ 
+   call padevsub(numdevs,ndefin,ndefout,nchin,nchout,inerr,outerr)
+-  open(17,file='audio_caps',status='unknown')
++
++  audiocaps=appdir(:nappdir)//'/audio_caps'
++  open(17,file=audiocaps,status='unknown')
+   inbad=1
+   do i=0,numdevs-1
+      read(17,1101,end=10,err=10) cdevice
+@@ -17,7 +20,7 @@
+      i1=index(cdevice,':')
+      if(i1.gt.10) cdevice=cdevice(:i1-1)
+      if(nchin(i).gt.0 .and. inerr(i).eq.0) then
+-        if(i.eq.ndevin) inbad=0
++        if(i.eq.jdevin) inbad=0
+      endif
+   enddo
+ 
+@@ -28,7 +31,7 @@
+      i1=index(cdevice,':')
+      if(i1.gt.10) cdevice=cdevice(:i1-1)
+      if(nchout(i).gt.0 .and. outerr(i).eq.0) then
+-        if(i.eq.ndevout) outbad=0
++        if(i.eq.jdevout) outbad=0
+      endif
+   enddo
+ 20 close(17)
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/decode.F90	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -39,7 +39,7 @@
+      if(nsave.gt.0 .and. ndiskdat.eq.0) jwave=iwave(1:114*12000)
+      call mept162(thisfile,appdir,nappdir,f0,minsync,iwave,NMAX,nbfo,ierr)
+      if(nsave.gt.0 .and. ndiskdat.eq.0 .and. ierr.eq.0) then
+-        savefile='save/'//thisfile
++        savefile=appdir(:nappdir)//'/save/'//thisfile
+         npts=114*12000
+         call wfile5(jwave,npts,12000,savefile)
+      endif
+
+Modified: branches/wspr/genwspr.F90
+===================================================================
+--- branches/wspr/genwspr.F90	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/genwspr.F90	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -1,10 +1,11 @@
+-subroutine genwspr(message,ntxdf,snrdb,msg2,iwave)
++subroutine genwspr(message,ntxdf,snrdb,appdir,nappdir,msg2,iwave)
+ 
+ ! Encode an MEPT_JT message and generate the corresponding wavefile.
+ 
+   parameter (NMAX=120*48000)     !Max length of wave file
+   character*22 message           !Message to be generated
+   character*22 msg2
++  character*80 appdir,alltxt
+   integer*2 iwave(NMAX)          !Generated wave file
+   parameter (MAXSYM=176)
+   integer*1 symbol(MAXSYM)
+@@ -48,11 +49,12 @@
+   call wqdecode(data0,msg2,ntype2)
+ 
+   call cs_lock('genwspr')
++
++  alltxt=appdir(:nappdir)//'/ALL_WSPR.TXT'
+ #ifdef CVF
+-  open(13,file='ALL_WSPR.TXT',status='unknown',                   &amp;
+-       position='append',share='denynone')
++  open(13,file=alltxt,status='unknown',position='append',share='denynone')
+ #else
+-  open(13,file='ALL_WSPR.TXT',status='unknown',position='append')
++  open(13,file=alltxt,status='unknown',position='append')
+ #endif
+   line=linetx//msg2
+   write(13,1010) line
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/tx.F90	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -14,7 +14,7 @@
+   character message*22,call1*12,cdbm*3
+   character*22 msg0,msg1,msg2,cwmsg
+   character crig*6,cbaud*6,cdata*1,cstop*1,chs*8
+-  character cmnd*120
++  character cmnd*120,snrfile*80
+   integer*2 jwave,icwid
+   integer soundout,ptt
+   include 'acom1.f90'
+@@ -79,11 +79,13 @@
+   ntxdf=nint(1.e6*(ftx-f0)) - 1500
+   ctxmsg=message
+   snr=99.0
+-  open(18,file='test.snr',status='old',err=10)
++  
++  snrfile=appdir(:nappdir)//'/test.snr'
++  open(18,file=snrfile,status='old',err=10)
+   read(18,*,err=10,end=10) snr
+   close(18)
+ 
+-10 call genwspr(message,ntxdf,snr,msg2,jwave)
++10 call genwspr(message,ntxdf,snr,appdir,nappdir,msg2,jwave)
+   npts=114*48000
+   if(nsec.lt.ns0) ns0=nsec
+   if(idint.ne.0 .and. (nsec-ns0)/60.ge.idint) then
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/wspr.py	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- WSPR
++#----------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-11-05 21:07:40 UTC (rev 1634)
++++ branches/wspr/wspr2.F90	2009-11-05 21:34:43 UTC (rev 1635)
+@@ -15,18 +15,19 @@
+   character message*24,cdbm*4
+   real*8 tsec
+   include 'acom1.f90'
+-  character linetx*51
++  character linetx*51,dectxt*80
+   common/acom2/ntune2,linetx
+   common/patience/npatience
+   data receiving/.false./,transmitting/.false./
+   data ns1200/-999/
+ 
+   call cs_init
++  dectxt=appdir(:nappdir)//'/decoded.txt'
+   call cs_lock('wspr2')
+ #ifdef CVF
+-  open(14,file='decoded.txt',status='unknown',share='denynone')
++  open(14,file=dectxt,status='unknown',share='denynone')
+ #else
+-  open(14,file='decoded.txt',status='unknown')
++  open(14,file=dectxt,status='unknown')
+ #endif
+   write(14,1002)
+ 1002 format('$EOF')
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001325.html">[WSJT-SVN] r1634 - in branches/wspr: . WsprMod
+</A></li>
+	<LI>Next message: <A HREF="001327.html">[WSJT-SVN] r1636 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1326">[ date ]</a>
+              <a href="thread.html#1326">[ thread ]</a>
+              <a href="subject.html#1326">[ subject ]</a>
+              <a href="author.html#1326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

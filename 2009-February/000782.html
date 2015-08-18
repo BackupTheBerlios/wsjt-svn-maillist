@@ -1,0 +1,278 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1088 - branches/map65iq
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1088%20-%20branches/map65iq&In-Reply-To=%3C200902231637.n1NGb3C3018815%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000781.html">
+   <LINK REL="Next"  HREF="000783.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1088 - branches/map65iq</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1088%20-%20branches/map65iq&In-Reply-To=%3C200902231637.n1NGb3C3018815%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1088 - branches/map65iq">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb 23 17:37:03 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000781.html">[WSJT-SVN] r1087 - branches/map65iq
+</A></li>
+        <LI>Next message: <A HREF="000783.html">[WSJT-SVN] r1089 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#782">[ date ]</a>
+              <a href="thread.html#782">[ thread ]</a>
+              <a href="subject.html#782">[ subject ]</a>
+              <a href="author.html#782">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-02-23 17:37:00 +0100 (Mon, 23 Feb 2009)
+New Revision: 1088
+
+Modified:
+   branches/map65iq/ccf65.f
+   branches/map65iq/decode1a.f
+   branches/map65iq/filbig.f
+   branches/map65iq/map65.py
+   branches/map65iq/map65a.F90
+Log:
+Implementer submodes JT65A and JT65C.  Everything seems to work, but
+no guarantees that decoding in the A and C submodes is optimized.
+
+
+Modified: branches/map65iq/ccf65.f
+===================================================================
+--- branches/map65iq/ccf65.f	2009-02-23 15:36:06 UTC (rev 1087)
++++ branches/map65iq/ccf65.f	2009-02-23 16:37:00 UTC (rev 1088)
+@@ -1,6 +1,8 @@
+-      subroutine ccf65(ss,nhsym,sync1,dt1,flipk,syncshort,
++      subroutine ccf65(ss,nhsym,sync1,dt1,flipk,mode65,syncshort,
+      +     snr2,dt2)
+ 
++C  Check one frequency bin for JT65 sync pattern or shorthand pattern.
++
+       parameter (NFFT=512,NH=NFFT/2)
+       parameter (LAGMAX=37)
+       real ss(322)
+
+Modified: branches/map65iq/decode1a.f
+===================================================================
+--- branches/map65iq/decode1a.f	2009-02-23 15:36:06 UTC (rev 1087)
++++ branches/map65iq/decode1a.f	2009-02-23 16:37:00 UTC (rev 1088)
+@@ -1,4 +1,4 @@
+-      subroutine decode1a(id,newdat,freq,nflip,
++      subroutine decode1a(id,newdat,freq,nflip,mode65,
+      +         mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,
+      +         sync2,a,dt,nkv,nhist,qual,decoded)
+ 
+@@ -8,9 +8,9 @@
+       parameter (NFFT1=77760,NFFT2=2430)
+       parameter (NMAX=60*96000)          !Samples per 60 s
+       integer*2 id(2,NMAX)               !46 MB: raw data from Linrad timf2
+-      complex cx0(NMAX/64)                !Data at 1378.125 samples/s
++      complex cx0(NMAX/64)               !Data at 1378.125 samples/s
+       complex cx(NMAX/64)                !Data at 1378.125 samples/s
+-      complex c5x(NMAX/256)                              
++      complex c5x(NMAX/256)              !Data at 344.53125 samples/s
+       complex c5a(256),c5b(256)
+       complex z
+ 
+@@ -44,8 +44,7 @@
+       sqa=sqa/n5
+       sqb=sqb/n5
+ 
+-C  Find best DF, f1, f2, DT:
+-
++C  Find best DF, f1, f2, DT.  Start by lpf and downsampling to 344.53125 Hz.
+       call fil6521(cx,n5,c5x,n6)
+       fsample=1378.125/4.
+       a(5)=dt00
+@@ -53,37 +52,40 @@
+       if(i0.lt.1) i0=1
+       nz=n6+1-i0
+ 
+-!###
++C Best fit for DF, f1, f2:
+       call afc65b(c5x(i0),nz,fsample,nflip,a,dt,ccfbest,dtbest)
+-
+       sq0=sqa
+       sync2=3.7*ccfbest/sq0
+ 
+-C  Apply AFC corrections to the time-domain signal
++C Apply AFC corrections to the time-domain signal.  (We're back to
++C full bandwidth now, at the 1378.125 Hz sample rate.)
+       call twkfreq(cx,cx,n5,a)                           !###
+ 
+-C  Compute spectrum at best polarization for each half symbol.
+-C  Adding or subtracting a small number (e.g., 5) to j may make it decode.
++C Compute spectrum at best polarization for each symbol.  This is done
++C for whole symbols in JT65A, half-symbols in JT65B, and quarter-symbols
++C in JT65C.
++C NB: Adding or subtracting a small number (e.g., 5) to j may make it decode.
+       nsym=126
+-      nfft=256
++      nfft=512/mode65
+       j=(dt00+dtbest+2.685)*1378.125 + joff
+       if(j.lt.0) j=0
+       do k=1,nsym
+-         do i=1,nfft
+-            j=j+1
+-            c5a(i)=cx(j)
++         do n=1,mode65
++            do i=1,nfft
++               j=j+1
++               c5a(i)=cx(j)
++            enddo
++            call four2a(c5a,nfft,1,1,1)
++            if(n.eq.1) then
++               do i=1,64
++                  s2(i,k)=real(c5a(i))**2 + aimag(c5a(i))**2
++               enddo
++            else
++               do i=1,64
++                  s2(i,k)=s2(i,k) + real(c5a(i))**2 + aimag(c5a(i))**2
++               enddo
++            endif
+          enddo
+-         call four2a(c5a,nfft,1,1,1)
+-         do i=1,nfft
+-            j=j+1
+-            c5b(i)=cx(j)
+-         enddo
+-         call four2a(c5b,nfft,1,1,1)
+-
+-         do i=1,256
+-            s2(i,k)=real(c5a(i))**2 + aimag(c5a(i))**2 +
+-     +           real(c5b(i))**2 + aimag(c5b(i))**2
+-         enddo
+       enddo
+ 
+       flip=nflip
+
+Modified: branches/map65iq/filbig.f
+===================================================================
+--- branches/map65iq/filbig.f	2009-02-23 15:36:06 UTC (rev 1087)
++++ branches/map65iq/filbig.f	2009-02-23 16:37:00 UTC (rev 1088)
+@@ -1,9 +1,8 @@
+       subroutine filbig(id,nmax,f0,newdat,c4a,n4)
+ 
+-C  Filter and downsample complex data for X and Y polarizations,
++C  Filter and downsample the complex data for one polarization,
+ C  stored in array id(2,nmax).  Output is downsampled from 96000 Hz
+-C  to 1500 Hz, and the low-pass filter has f_cutoff = 375 Hz and 
+-C  f_stop = 750 Hz.
++C  to 1378.125 Hz.  
+ 
+ !      parameter (NFFT1=5376000,NFFT2=77175)
+       parameter (NFFT1=5120000,NFFT2=74088)
+
+Modified: branches/map65iq/map65.py
+===================================================================
+--- branches/map65iq/map65.py	2009-02-23 15:36:06 UTC (rev 1087)
++++ branches/map65iq/map65.py	2009-02-23 16:37:00 UTC (rev 1088)
+@@ -1433,14 +1433,14 @@
+ # Can use the following to retrieve the state:
+ # state=modemenu.entrycget(0,&quot;state&quot;)
+ 
+-#modemenu.add_radiobutton(label = 'JT65A', variable=mode, command = ModeJT65A, \
+-#            state=DISABLED, accelerator='F8')
++modemenu.add_radiobutton(label = 'JT65A', variable=mode, command = ModeJT65A, \
++            accelerator='F8')
+ modemenu.add_radiobutton(label = 'JT65B', variable=mode, command = ModeJT65B, \
+-                         accelerator='Shift+F8')
+-#modemenu.add_radiobutton(label = 'JT65C', variable=mode, command = ModeJT65C, \
+-#            state=DISABLED, accelerator='Ctrl+F8')
+-modemenu.add_radiobutton(label = 'Measure', variable=mode)
+-modemenu.add_radiobutton(label = 'Pulsar', variable=mode,state=DISABLED)
++            accelerator='Shift+F8')
++modemenu.add_radiobutton(label = 'JT65C', variable=mode, command = ModeJT65C, \
++            accelerator='Ctrl+F8')
++#modemenu.add_radiobutton(label = 'Measure', variable=mode)
++#modemenu.add_radiobutton(label = 'Pulsar', variable=mode,state=DISABLED)
+ 
+ #------------------------------------------------------ Decode menu
+ decodebutton = Menubutton(mbar, text = 'Decode')
+@@ -1522,9 +1522,9 @@
+ root.bind_all('&lt;F5&gt;', what2send)
+ root.bind_all('&lt;F6&gt;', opennext)
+ root.bind_all('&lt;Shift-F6&gt;', decodeall)
+-#root.bind_all('&lt;F8&gt;', ModeJT65A)
++root.bind_all('&lt;F8&gt;', ModeJT65A)
+ root.bind_all('&lt;Shift-F8&gt;', ModeJT65B)
+-#root.bind_all('&lt;Control-F8&gt;', ModeJT65C)
++root.bind_all('&lt;Control-F8&gt;', ModeJT65C)
+ root.bind_all('&lt;F10&gt;', showspecjt)
+ root.bind_all('&lt;Shift-F10&gt;', astro1)
+ root.bind_all('&lt;F11&gt;',left_arrow)
+
+Modified: branches/map65iq/map65a.F90
+===================================================================
+--- branches/map65iq/map65a.F90	2009-02-23 15:36:06 UTC (rev 1087)
++++ branches/map65iq/map65a.F90	2009-02-23 16:37:00 UTC (rev 1088)
+@@ -117,7 +117,7 @@
+         if(smax.gt.1.1) then
+            ntry=ntry+1
+ !  Look for JT65 sync patterns and shorthand square-wave patterns.
+-           call ccf65(ss(1,i),nhsym,sync1,dt,flipk,              &amp;
++           call ccf65(ss(1,i),nhsym,sync1,dt,flipk,mode65,            &amp;
+                 syncshort,snr2,dt2)
+ !###
+ !           if(sync1.ge.3.0) write(*,4002) freq,sync1,dt,kbuf
+@@ -157,7 +157,7 @@
+ 
+ !  Check to see if lower tone of shorthand pair was found.
+               do j=2,4
+-                 i0=i-nint(j*53.8330078/df)
++                 i0=i-nint(j*mode65*10.0*(11025.0/4096.0)/df)
+ !  Should this be i0 +/- 1, or just i0?
+ !  Should we also insist that difference in DT be either 1.5 or -1.5 s?
+                  if(short(1,i0).gt.1.0) then
+@@ -213,11 +213,11 @@
+            if(sync1.gt.thresh1 .and. abs(noffset).le.dftolerance) then
+ !  Keep only the best candidate within ftol.
+ !  (Am I deleting any good decodes by doing this?)
+-              if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.               &amp;
++              if(freq-freq0.le.ftol .and. sync1.gt.sync10 .and.             &amp;
+                    nkm.eq.1) km=km-1
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10) then
+                  nflip=nint(flipk)
+-                 call decode1a(id(1,1,kbuf),newdat,freq,nflip,        &amp;
++                 call decode1a(id(1,1,kbuf),newdat,freq,nflip,mode65,       &amp;
+                       mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,ndphi,    &amp;
+                       sync2,a,dt,nkv,nhist,qual,decoded)
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000781.html">[WSJT-SVN] r1087 - branches/map65iq
+</A></li>
+	<LI>Next message: <A HREF="000783.html">[WSJT-SVN] r1089 - branches/map65iq
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#782">[ date ]</a>
+              <a href="thread.html#782">[ thread ]</a>
+              <a href="subject.html#782">[ subject ]</a>
+              <a href="author.html#782">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

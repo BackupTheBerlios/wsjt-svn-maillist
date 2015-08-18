@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3585 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3585%20-%20branches/wsjtx&In-Reply-To=%3C20130928183428.4858F55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003277.html">
+   <LINK REL="Next"  HREF="003279.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3585 - branches/wsjtx</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3585%20-%20branches/wsjtx&In-Reply-To=%3C20130928183428.4858F55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3585 - branches/wsjtx">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 28 20:34:28 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003277.html">[WSJT-SVN] r3584 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003279.html">[WSJT-SVN] r3586 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3278">[ date ]</a>
+              <a href="thread.html#3278">[ thread ]</a>
+              <a href="subject.html#3278">[ subject ]</a>
+              <a href="author.html#3278">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-09-28 20:34:27 +0200 (Sat, 28 Sep 2013)
+New Revision: 3585
+
+Modified:
+   branches/wsjtx/AudioDevice.hpp
+   branches/wsjtx/Detector.cpp
+   branches/wsjtx/Detector.hpp
+   branches/wsjtx/mainwindow.cpp
+Log:
+Fix defects in audio down-sampling on some platforms.
+
+The filter used for 4 times down-sampling cannot handle sample streams
+where the hardware or drivers deliver chunks of data that are not
+multiples of 4 frames long. This seems to be prevalent on some Linux
+platforms. Also de-interleaving of single channel audio from stereo
+streams was no longer supported.
+
+I have changed the input strategy to de-interleave the incoming
+sample stream into an intermediate buffer large enough to hold all the
+samples required for a single unit of processing (one basic waterfall
+interval) and apply the down-sampling filter to the whole intermediate
+buffer just prior dispatch to the FFT generator.
+
+This now means that we are now using the ubiquitous 48kHz hardware
+sample rate for both input and output of audio across all platforms
+and decoding a single channel of a stereo stream is again
+supported. The down-sampling to 12kHz is done with a high quality FIR
+49-tap low pass filter specifically designed by Joe (K1JT) for
+operation in a 4kHz bandwidth.
+
+
+
+Modified: branches/wsjtx/AudioDevice.hpp
+===================================================================
+--- branches/wsjtx/AudioDevice.hpp	2013-09-28 03:56:43 UTC (rev 3584)
++++ branches/wsjtx/AudioDevice.hpp	2013-09-28 18:34:27 UTC (rev 3585)
+@@ -37,7 +37,6 @@
+   size_t bytesPerFrame () const {return sizeof (qint16) * (Mono == m_channel ? 1 : 2);}
+ 
+   Channel channel () const {return m_channel;}
+-  void channel (Channel newChannel) {m_channel = newChannel;}
+ 
+ protected:
+   AudioDevice (QObject * parent = 0)
+@@ -45,7 +44,7 @@
+   {
+   }
+ 
+-  void store (char const * source, qint64 numFrames, qint16 * dest)
++  void store (char const * source, size_t numFrames, qint16 * dest)
+   {
+     qint16 const * begin (reinterpret_cast&lt;qint16 const *&gt; (source));
+     for ( qint16 const * i = begin; i != begin + numFrames * (bytesPerFrame () / sizeof (qint16)); i += bytesPerFrame () / sizeof (qint16))
+
+Modified: branches/wsjtx/Detector.cpp
+===================================================================
+--- branches/wsjtx/Detector.cpp	2013-09-28 03:56:43 UTC (rev 3584)
++++ branches/wsjtx/Detector.cpp	2013-09-28 18:34:27 UTC (rev 3585)
+@@ -10,6 +10,11 @@
+ void   fil4_(qint16*, qint32*, qint16*, qint32*);
+ }
+ 
++namespace
++{
++  unsigned const downsampleFactor = 4;
++}
++
+ Detector::Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, QObject * parent)
+   : AudioDevice (parent)
+   , m_frameRate (frameRate)
+@@ -17,6 +22,8 @@
+   , m_framesPerSignal (framesPerSignal)
+   , m_monitoring (false)
+   , m_starting (false)
++  , m_buffer (new short [framesPerSignal * downsampleFactor])
++  , m_bufferPos (0)
+ {
+   clear ();
+ }
+@@ -41,63 +48,64 @@
+ 
+ qint64 Detector::writeData (char const * data, qint64 maxSize)
+ {
+-  bool overrun (false);
+-  int excess (0);
+   if (m_monitoring)
+     {
+       Q_ASSERT (!(maxSize % static_cast&lt;qint64&gt; (bytesPerFrame ()))); // no torn frames
+ 
+-      qint64 framesAcceptable (sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin);
+-      qint64 framesAccepted (qMin (static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ()), framesAcceptable));
++      // these are in terms of input frames (not down sampled)
++      size_t framesAcceptable ((sizeof (jt9com_.d2) / sizeof (jt9com_.d2[0]) - jt9com_.kin) * downsampleFactor);
++      size_t framesAccepted (qMin (static_cast&lt;size_t&gt; (maxSize / bytesPerFrame ()), framesAcceptable));
+ 
+-      overrun = framesAccepted &lt; static_cast&lt;qint64&gt; (maxSize / bytesPerFrame ());
+-      if (overrun)
++      if (framesAccepted &lt; static_cast&lt;size_t&gt; (maxSize / bytesPerFrame ()))
+ 	{
+-	  qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / sizeof (jt9com_.d2[0]) - framesAccepted &lt;&lt; &quot; frames of data on the floor!&quot;;
++	  qDebug () &lt;&lt; &quot;dropped &quot; &lt;&lt; maxSize / bytesPerFrame () - framesAccepted &lt;&lt; &quot; frames of data on the floor!&quot;;
+ 	}
+ 
+-      Q_ASSERT (2 == bytesPerFrame ()); // only mono until fil4 can do stereo
+-      excess = framesAccepted % 4;
+-      qint32 m_n1,m_n2;
+-      m_n1 = framesAccepted - excess;
+-      fil4_((qint16 *)data, &amp;m_n1, m_translate, &amp;m_n2);
+-      store ((char const *) m_translate, m_n2, &amp;jt9com_.d2[jt9com_.kin]);
++      for (unsigned remaining = framesAccepted; remaining; )
++	{
++	  size_t numFramesProcessed (qMin (m_framesPerSignal * downsampleFactor - m_bufferPos, remaining));
++	  store (&amp;data[(framesAccepted - remaining) * bytesPerFrame ()], numFramesProcessed, &amp;m_buffer[m_bufferPos]);
++	  m_bufferPos += numFramesProcessed;
++	  if (m_bufferPos == m_framesPerSignal * downsampleFactor &amp;&amp; m_monitoring)
++	    {
++	      qint32 framesToProcess (m_framesPerSignal * downsampleFactor);
++	      qint32 framesAfterDownSample;
++	      fil4_(&amp;m_buffer[0], &amp;framesToProcess, &amp;jt9com_.d2[jt9com_.kin], &amp;framesAfterDownSample);
++	      m_bufferPos = 0;
+ 
+-      unsigned lastSignalIndex (jt9com_.kin / m_framesPerSignal);
+-      jt9com_.kin += m_n2;
+-      unsigned currentSignalIndex (jt9com_.kin / m_framesPerSignal);
++	      jt9com_.kin += framesAfterDownSample;
++	      Q_EMIT framesWritten (jt9com_.kin);
++	    }
+ 
+-      if (currentSignalIndex != lastSignalIndex &amp;&amp; m_monitoring)
+-	{
+-	  Q_EMIT framesWritten (currentSignalIndex * m_framesPerSignal);
+-	}
+-
+-      if (!secondInPeriod ())
+-	{
+-	  if (!m_starting)
++	  if (!secondInPeriod ())
+ 	    {
+-	      // next samples will be in new period so wrap around to
+-	      // start of buffer
+-	      //
+-	      // we don't bother calling reset () since we expect to fill
+-	      // the whole buffer and don't need to waste cycles zeroing
+-	      jt9com_.kin = 0;
+-	      m_starting = true;
++	      if (!m_starting)
++		{
++		  // next samples will be in new period so wrap around to
++		  // start of buffer
++		  //
++		  // we don't bother calling reset () since we expect to fill
++		  // the whole buffer and don't need to waste cycles zeroing
++		  jt9com_.kin = 0;
++		  m_bufferPos = 0;
++		  m_starting = true;
++		}
+ 	    }
++	  else if (m_starting)
++	    {
++	      m_starting = false;
++	    }
++	  remaining -= numFramesProcessed;
+ 	}
+-      else if (m_starting)
+-	{
+-	  m_starting = false;
+-	}
+     }
+   else
+     {
+       jt9com_.kin = 0;
++      m_bufferPos = 0;
+     }
+ 
+-  return maxSize - (overrun ? 0 : excess * bytesPerFrame ());
+-		    // we drop any data past the end of the buffer on
+-		    // the floor until the next period starts
++  return maxSize;    // we drop any data past the end of the buffer on
++		     // the floor until the next period starts
+ }
+ 
+ unsigned Detector::secondInPeriod () const
+
+Modified: branches/wsjtx/Detector.hpp
+===================================================================
+--- branches/wsjtx/Detector.hpp	2013-09-28 03:56:43 UTC (rev 3584)
++++ branches/wsjtx/Detector.hpp	2013-09-28 18:34:27 UTC (rev 3585)
+@@ -3,6 +3,8 @@
+ 
+ #include &quot;AudioDevice.hpp&quot;
+ 
++#include &lt;QScopedArrayPointer&gt;
++
+ //
+ // output device that distributes data in predefined chunks via a signal
+ //
+@@ -20,6 +22,10 @@
+   // if the data buffer were not global storage and fixed size then we
+   // might want maximum size passed as constructor arguments
+   //
++  // we down sample by a factor of 4
++  //
++  // the framesPerSignal argument is the number after down sampling
++  //
+   Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, QObject * parent = 0);
+ 
+   bool isMonitoring () const {return m_monitoring;}
+@@ -35,7 +41,7 @@
+ private:
+   // these are private because we want thread safety, must be called via Qt queued connections
+   Q_SLOT void open (AudioDevice::Channel channel = Mono) {AudioDevice::open (QIODevice::WriteOnly, channel);}
+-  Q_SLOT void setMonitoring (bool newState) {m_monitoring = newState;}
++  Q_SLOT void setMonitoring (bool newState) {m_monitoring = newState; m_bufferPos = 0;}
+   Q_SLOT bool reset ();
+   Q_SLOT void close () {AudioDevice::close ();}
+ 
+@@ -46,10 +52,15 @@
+ 
+   unsigned m_frameRate;
+   unsigned m_period;
+-  unsigned m_framesPerSignal;
++  qint32 m_framesPerSignal;	// after down sampling
+   bool volatile m_monitoring;
+   bool m_starting;
+-  qint16 m_translate[20000];
++  QScopedArrayPointer&lt;short&gt; m_buffer; // de-interleaved sample buffer
++				       // big enough for all the
++				       // samples for one increment of
++				       // data (a signals worth) at
++				       // the input sample rate
++  unsigned m_bufferPos;
+ };
+ 
+ #endif
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-09-28 03:56:43 UTC (rev 3584)
++++ branches/wsjtx/mainwindow.cpp	2013-09-28 18:34:27 UTC (rev 3585)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003277.html">[WSJT-SVN] r3584 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003279.html">[WSJT-SVN] r3586 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3278">[ date ]</a>
+              <a href="thread.html#3278">[ thread ]</a>
+              <a href="subject.html#3278">[ subject ]</a>
+              <a href="author.html#3278">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

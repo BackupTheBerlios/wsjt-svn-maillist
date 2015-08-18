@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2609 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2609%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120929130219.A5CDF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002300.html">
+   <LINK REL="Next"  HREF="002302.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2609 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2609%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120929130219.A5CDF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2609 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sat Sep 29 15:02:19 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002300.html">[WSJT-SVN] r2608 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002302.html">[WSJT-SVN] r2610 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2301">[ date ]</a>
+              <a href="thread.html#2301">[ thread ]</a>
+              <a href="subject.html#2301">[ subject ]</a>
+              <a href="author.html#2301">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-29 15:02:19 +0200 (Sat, 29 Sep 2012)
+New Revision: 2609
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/libm65/symspecx.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.ui
+Log:
+Working on wide graph displays.
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/commons.h	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -1,7 +1,7 @@
+ #ifndef COMMONS_H
+ #define COMMONS_H
+ 
+-#define NSMAX 15750
++#define NSMAX 10000
+ 
+ extern &quot;C&quot; {
+ 
+
+Modified: branches/wsjtx/libm65/symspecx.f90
+===================================================================
+--- branches/wsjtx/libm65/symspecx.f90	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/libm65/symspecx.f90	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -12,7 +12,7 @@
+ !  nzap     number of samples zero'ed by noise blanker
+ 
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (NSMAX=15750)             !Max length of saved spectra
++  parameter (NSMAX=10000)             !Max length of saved spectra
+   parameter (MAXFFT=262144)          !Max length of FFTs
+   integer*2 id2
+   real*8 ts,hsym
+@@ -66,20 +66,19 @@
+   ihsym=ihsym+1
+   call four2a(x,nfft,1,-1,0)          !Forward FFT of symbol length
+   df=12000.0/nfft
+-  nzh=min(nint(500.0/df),2200)
+-  nz=2*nzh
+-  i0=nint(1500.0/df) - nzh
+-  rewind 71
++  i0=nint(1000.0/df)
++  nz=min(NSMAX,nfft/2)
++!  rewind 71
+   do i=1,nz
+      sx=real(cx(i0+i))**2 + aimag(cx(i0+i))**2
+      sx=1.e-8*sx
+      s(i)=sx
+      savg(i)=savg(i) + sx
+      if(ihsym.le.184) ss(ihsym,i)=sx
+-     write(71,3001) (i0+i-1)*df,savg(i),db(savg(i))
+-3001 format(f12.6,2f12.3)
++!     write(71,3001) (i0+i-1)*df,savg(i),db(savg(i))
++!3001 format(f12.6,2f12.3)
+   enddo
+-  flush(71)
++!  flush(71)
+ 
+   nkhz=100
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/mainwindow.cpp	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -298,7 +298,7 @@
+ //-------------------------------------------------------------- dataSink()
+ void MainWindow::dataSink(int k)
+ {
+-  static float s[NFFT],splot[NFFT];
++  static float s[NSMAX],splot[NSMAX];
+   static int n=0;
+   static int ihsym=0;
+   static int nzap=0;
+@@ -336,16 +336,16 @@
+ 
+   //Average over specified number of spectra
+   if (n==0) {
+-    for (int i=0; i&lt;NFFT; i++)
++    for (int i=0; i&lt;NSMAX; i++)
+       splot[i]=s[i];
+   } else {
+-    for (int i=0; i&lt;NFFT; i++)
++    for (int i=0; i&lt;NSMAX; i++)
+       splot[i] += s[i];
+   }
+   n++;
+ 
+   if (n&gt;=m_waterfallAvg) {
+-    for (int i=0; i&lt;NFFT; i++) {
++    for (int i=0; i&lt;NSMAX; i++) {
+         splot[i] /= n;                           //Normalize the average
+     }
+ 
+@@ -353,7 +353,7 @@
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int ntr = (ms/1000) % m_TRperiod;
+     if((m_diskData &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!m_diskData &amp;&amp; ntr&lt;ntr0)) {
+-      for (int i=0; i&lt;NFFT; i++) {
++      for (int i=0; i&lt;NSMAX; i++) {
+         splot[i] = 1.e30;
+       }
+     }
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/mainwindow.h	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -11,7 +11,6 @@
+ #include &quot;sleep.h&quot;
+ 
+ #define NFFT 32768
+-#define NSMAX 5760000
+ 
+ //--------------------------------------------------------------- MainWindow
+ namespace Ui {
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/plotter.cpp	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -83,62 +83,12 @@
+   int h = (m_Size.height()-60)/2;
+   painter.drawPixmap(0,0,m_ScalePixmap);
+   painter.drawPixmap(0,30,m_WaterfallPixmap);
+-  if(m_2Dspec) {
+-    painter.drawPixmap(0,h+30,m_ScalePixmap);
+-    painter.drawPixmap(0,h+60,m_2DPixmap);
+-    m_paintEventBusy=false;
+-    return;
+-  }
+-
+-  painter.drawPixmap(0,h+30,m_ZoomScalePixmap);
+-  painter.drawPixmap(0,h+60,m_ZoomWaterfallPixmap);
+-
+-  QRect target(0,h+30,w,30);           // (x,y,width,height)
+-  QRect source(0,0,w,30);
+-  painter.drawPixmap(target,m_ZoomScalePixmap,source);
+-
+-//  float df=m_fSample/32768.0;
+-//  int x0=16384 + (0.001*(m_ZoomStartFreq+m_fCal)+m_fQSO-m_nkhz+1.27046) * \
+-//      1000.0/df + 0.5;
+-  float df=12000.0/m_nsps;
+-  int x0=0;                         //### TEMP ###
+-
+-  QPainter painter2(&amp;m_ZoomWaterfallPixmap);
+-  for(int i=0; i&lt;w; i++) {                      //Paint the top row
+-    painter2.setPen(m_ColorTbl[m_zwf[x0+i]]);
+-    painter2.drawPoint(i,0);
+-  }
+-  if(m_paintAllZoom or (x0 != x00 and x00 != -99)) {
+-    // If new fQSO, paint all rows
+-    int k=x0;
+-    for(int j=1; j&lt;h; j++) {
+-      k += 32768;
+-      if(x0 != x00 and x00 != -99) {
+-        for(int i=0; i&lt;w; i++) {
+-          painter2.setPen(m_ColorTbl[m_zwf[i+k]]);
+-          painter2.drawPoint(i,j);
+-        }
+-      }
+-      if(j == 13 and x0 == x00) {
+-        painter2.setPen(m_ColorTbl[255]);
+-        painter2.drawText(5,10,m_sutc);
+-      }
+-    }
+-  } else if(m_line == 13) {
+-    painter2.setPen(m_ColorTbl[255]);
+-    UTCstr();
+-    painter2.drawText(5,10,m_sutc);
+-  }
+-  m_paintAllZoom=false;
+-  x00=x0;
+-
+-  QRect target2(0,h+60,w,h);           // (x,y,width,height)
+-  QRect source2(0,0,w,h);
+-  painter.drawPixmap(target2,m_ZoomWaterfallPixmap,source2);
++  painter.drawPixmap(0,h+30,m_ScalePixmap);
++  painter.drawPixmap(0,h+60,m_2DPixmap);
+   m_paintEventBusy=false;
+ }
+ 
+-void CPlotter::draw(float swide[], int i0, float splot[])                 //draw()
++void CPlotter::draw(float swide[], int i0, float splot[])             //draw()
+ {
+   int i,j,w,h;
+   float y;
+@@ -183,22 +133,20 @@
+     m_hist1[y1]++;
+     painter1.setPen(m_ColorTbl[y1]);
+     painter1.drawPoint(i,0);
+-    if(m_2Dspec) {
+-      int y2 = gain*(y + 34 -m_plotZero);
+-      if (y2&lt;0) y2=0;
+-      if (y2&gt;254) y2=254;
+-      if (swide[i]&gt;1.e29) y2=255;
+-      if(strong != strong0 or i==w-1) {
+-        painter2D.drawPolyline(LineBuf,j);
+-        j=0;
+-        strong0=strong;
+-        if(strong0) painter2D.setPen(Qt::red);
+-        if(!strong0) painter2D.setPen(Qt::green);
+-      }
+-      LineBuf[j].setX(i);
+-      LineBuf[j].setY(h-y2);
+-      j++;
++    int y2 = gain*(y + 34 -m_plotZero);
++    if (y2&lt;0) y2=0;
++    if (y2&gt;254) y2=254;
++    if (swide[i]&gt;1.e29) y2=255;
++    if(strong != strong0 or i==w-1) {
++      painter2D.drawPolyline(LineBuf,j);
++      j=0;
++      strong0=strong;
++      if(strong0) painter2D.setPen(Qt::red);
++      if(!strong0) painter2D.setPen(Qt::green);
+     }
++    LineBuf[j].setX(i);
++    LineBuf[j].setY(h-y2);
++    j++;
+   }
+ 
+   for(i=0; i&lt;NSMAX; i++) {
+@@ -308,23 +256,16 @@
+   }
+ 
+ 
+-  if(m_2Dspec) {
+-    QPen pen0(Qt::green, 3);                 //Mark Cal Freq with green tick
+-    painter0.setPen(pen0);
+-    x = m_xClick;
+-    painter0.drawLine(x,15,x,30);
+-    int x0=(16384-m_i0)/m_binsPerPixel;
+-    m_fGreen=(x-x0)*df;
+-    x0 += (x0-x);
+-    QPen pen3(Qt::red, 3);
+-    painter0.setPen(pen3);
+-    if(x0&gt;0 and x0&lt;w) painter0.drawLine(x0,15,x0,30);
+-  } else {
+-    QPen pen0(Qt::green, 3);                 //Mark fQSO with green tick
+-    painter0.setPen(pen0);
+-    x = XfromFreq(float(fQSO()));
+-    painter0.drawLine(x,15,x,30);
+-  }
++  QPen pen0(Qt::green, 3);                 //Mark Cal Freq with green tick
++  painter0.setPen(pen0);
++  x = m_xClick;
++  painter0.drawLine(x,15,x,30);
++  int x0=(16384-m_i0)/m_binsPerPixel;
++  m_fGreen=(x-x0)*df;
++  x0 += (x0-x);
++  QPen pen3(Qt::red, 3);
++  painter0.setPen(pen3);
++  if(x0&gt;0 and x0&lt;w) painter0.drawLine(x0,15,x0,30);
+ 
+   // Now make the zoomed scale, using m_ZoomScalePixmap and painter3
+   QRect rect1;
+@@ -669,7 +610,7 @@
+ 
+ void CPlotter::set2Dspec(bool b)
+ {
+-  m_2Dspec=b;
++//  m_2Dspec=b;
+   m_paintAllZoom=!b;
+   DrawOverlay();                         //Redraw scales and ticks
+   update();                              //trigger a new paintEvent}
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/soundin.cpp	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -2,7 +2,7 @@
+ #include &lt;stdexcept&gt;
+ 
+ #define FRAMES_PER_BUFFER 1024
+-#define NSMAX 15750
++#define NSMAX 10000
+ 
+ extern &quot;C&quot; {
+ #include &lt;portaudio.h&gt;
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/widegraph.cpp	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -1,7 +1,7 @@
+ #include &quot;widegraph.h&quot;
+ #include &quot;ui_widegraph.h&quot;
+ 
+-#define NSMAX 15750
++#define NSMAX 10000
+ 
+ WideGraph::WideGraph(QWidget *parent) :
+   QDialog(parent),
+@@ -283,11 +283,6 @@
+ {
+ }
+ 
+-void WideGraph::on_cbSpec2d_toggled(bool b)
+-{
+-  ui-&gt;widePlot-&gt;set2Dspec(b);
+-}
+-
+ double WideGraph::fGreen()
+ {
+   return ui-&gt;widePlot-&gt;fGreen();
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2012-09-28 23:59:50 UTC (rev 2608)
++++ branches/wsjtx/widegraph.ui	2012-09-29 13:02:19 UTC (rev 2609)
+@@ -325,29 +325,6 @@
+         &lt;/widget&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;spacer name=&quot;horizontalSpacer_8&quot;&gt;
+-         &lt;property name=&quot;orientation&quot;&gt;
+-          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;sizeType&quot;&gt;
+-          &lt;enum&gt;QSizePolicy::Preferred&lt;/enum&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;20&lt;/width&gt;
+-           &lt;height&gt;20&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-        &lt;/spacer&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+-        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbSpec2d&quot;&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;2D Spectrum&lt;/string&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;spacer name=&quot;horizontalSpacer_5&quot;&gt;
+          &lt;property name=&quot;orientation&quot;&gt;
+           &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002300.html">[WSJT-SVN] r2608 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002302.html">[WSJT-SVN] r2610 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2301">[ date ]</a>
+              <a href="thread.html#2301">[ thread ]</a>
+              <a href="subject.html#2301">[ subject ]</a>
+              <a href="author.html#2301">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

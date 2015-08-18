@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2283 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2283%20-%20branches/wspr&In-Reply-To=%3C20101207194713.477F4480D89%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001974.html">
+   <LINK REL="Next"  HREF="001976.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2283 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2283%20-%20branches/wspr&In-Reply-To=%3C20101207194713.477F4480D89%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2283 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec  7 20:47:13 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001974.html">[WSJT-SVN] r2282 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001976.html">[WSJT-SVN] r2284 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1975">[ date ]</a>
+              <a href="thread.html#1975">[ thread ]</a>
+              <a href="subject.html#1975">[ subject ]</a>
+              <a href="author.html#1975">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-07 20:47:12 +0100 (Tue, 07 Dec 2010)
+New Revision: 2283
+
+Modified:
+   branches/wspr/start_threads.c
+   branches/wspr/wspr.py
+Log:
+Set priority to +1 for rx and tx threads, -1 for decode thread.
+No band labels when reading data from file.
+
+
+Modified: branches/wspr/start_threads.c
+===================================================================
+--- branches/wspr/start_threads.c	2010-12-07 00:55:37 UTC (rev 2282)
++++ branches/wspr/start_threads.c	2010-12-07 19:47:12 UTC (rev 2283)
+@@ -17,37 +17,32 @@
+ pthread_t decode_thread;
+ static int decode_started=0;
+ 
+-int spawn_thread(void (*f)(int *n)) {
+-  pthread_t thread;
+-  int iret;
++int th_wspr2_(void)
++{
++  pthread_t wspr2_thread;
++  int ret1,ret2,ret3;
+   int iarg0 = 0;
++  struct sched_param param;
+ 
+-  iret=pthread_create(&amp;thread,NULL,(void *)f,&amp;iarg0);
+-  if (iret) {
+-    perror(&quot;spawning new thread&quot;);
+-    return iret;
+-  }
++  // Create wspr2 thread.
++  ret1=pthread_create(&amp;wspr2_thread,NULL,wspr2_,&amp;iarg0);
+ 
+-  iret = pthread_detach(thread);
+-  if (iret) {
+-    perror(&quot;detaching thread&quot;);
+-    return iret;
+-  }
++  // Set wspr2_thread priority to normal.
++  param.sched_priority=0;
++  ret2=pthread_setschedparam(wspr2_thread,SCHED_OTHER,&amp;param);
++
++  // Detach the thread
++  ret3=pthread_detach(wspr2_thread);
++
+   return 0;
+-}
+ 
+-
+-int th_wspr2_(void)
+-{
+-  int ierr;
+-  ierr=spawn_thread(wspr2_);
+-  return ierr;
+ }
+ 
+ int th_decode_(void)
+ {
+-  int iret1;
++  int ret1,ret2;
+   int iarg1 = 1;
++  struct sched_param param;
+ 
+   if(decode_started&gt;0)  {
+     // the following was &quot;&lt; 100&quot;:
+@@ -59,17 +54,54 @@
+     pthread_join(decode_thread,NULL);
+     decode_started=0;
+   }
+-  iret1 = pthread_create(&amp;decode_thread,NULL,decode_,&amp;iarg1);
+-  if(iret1==0) decode_started=time(NULL);
+-  return iret1;
++
++  ret1 = pthread_create(&amp;decode_thread,NULL,decode_,&amp;iarg1);
++  if(ret1==0) decode_started=time(NULL);
++
++  // Set thread priority below normal. (Priority must be in range -15 to +15.)
++  param.sched_priority=-1;
++  ret2=pthread_setschedparam(decode_thread,SCHED_OTHER,&amp;param);
++
++  return ret1;
+ }
+ 
+ int th_rx_(void)
+ {
+-  return spawn_thread(rx_);
++  pthread_t rx_thread;
++  int ret1,ret2,ret3;
++  int iarg0 = 0;
++  struct sched_param param;
++
++  // Create rx thread.
++  ret1=pthread_create(&amp;rx_thread,NULL,rx_,&amp;iarg0);
++
++  // Set rx_thread priority above normal.
++  param.sched_priority=1;
++  ret2=pthread_setschedparam(rx_thread,SCHED_OTHER,&amp;param);
++
++  // Detach the thread
++  ret3=pthread_detach(rx_thread);
++
++  return 0;
+ }
+ 
+ int th_tx_(void)
+ {
+-  return spawn_thread(tx_);
++  pthread_t tx_thread;
++  int ret1,ret2,ret3;
++  int iarg0 = 0;
++  struct sched_param param;
++
++  // Create tx thread.
++  ret1=pthread_create(&amp;tx_thread,NULL,tx_,&amp;iarg0);
++
++  // Set tx_thread priority above normal.
++  param.sched_priority=1;
++  ret2=pthread_setschedparam(tx_thread,SCHED_OTHER,&amp;param);
++
++  // Detach the thread
++  ret3=pthread_detach(tx_thread);
++
++  return 0;
++
+ }
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-07 00:55:37 UTC (rev 2282)
++++ branches/wspr/wspr.py	2010-12-07 19:47:12 UTC (rev 2283)
+@@ -1031,8 +1031,9 @@
+             n=len(tw)
+             for i in range(n-1,-1,-1):
+                 x=465-39*i
+-                draw.text((x,148),tw[i],fill=253)   #Insert time label
+-                draw.text((x+10,1),fw[i],fill=253)   #Insert time label
++                draw.text((x,148),tw[i],fill=253)        #Insert time label
++                if i&lt;len(fw):
++                    draw.text((x+10,1),fw[i],fill=253)   #Insert band label
+                                
+         pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
+         graph1.delete(ALL)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001974.html">[WSJT-SVN] r2282 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001976.html">[WSJT-SVN] r2284 - in branches/wspr: . WsprMod
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1975">[ date ]</a>
+              <a href="thread.html#1975">[ thread ]</a>
+              <a href="subject.html#1975">[ subject ]</a>
+              <a href="author.html#1975">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

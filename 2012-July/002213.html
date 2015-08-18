@@ -1,0 +1,404 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2521 - branches/jtms3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2521%20-%20branches/jtms3&In-Reply-To=%3C20120718132516.A65EC55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002212.html">
+   <LINK REL="Next"  HREF="002214.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2521 - branches/jtms3</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2521%20-%20branches/jtms3&In-Reply-To=%3C20120718132516.A65EC55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2521 - branches/jtms3">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jul 18 15:25:16 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002212.html">[WSJT-SVN] r2520 - in branches/jtms3: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002214.html">[WSJT-SVN] r2522 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2213">[ date ]</a>
+              <a href="thread.html#2213">[ thread ]</a>
+              <a href="subject.html#2213">[ subject ]</a>
+              <a href="author.html#2213">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-07-18 15:25:16 +0200 (Wed, 18 Jul 2012)
+New Revision: 2521
+
+Modified:
+   branches/jtms3/jtms3.pro
+   branches/jtms3/mainwindow.cpp
+   branches/jtms3/mainwindow.h
+Log:
+Some cleanup of residual JT65-specific code.
+
+
+Modified: branches/jtms3/jtms3.pro
+===================================================================
+--- branches/jtms3/jtms3.pro	2012-07-17 19:56:55 UTC (rev 2520)
++++ branches/jtms3/jtms3.pro	2012-07-18 13:25:16 UTC (rev 2521)
+@@ -6,7 +6,7 @@
+ 
+ QT       += core gui network
+ CONFIG   += qwt thread
+-CONFIG   += console
++#CONFIG   += console
+ 
+ TARGET = jtms3
+ VERSION = 0.2
+
+Modified: branches/jtms3/mainwindow.cpp
+===================================================================
+--- branches/jtms3/mainwindow.cpp	2012-07-17 19:56:55 UTC (rev 2520)
++++ branches/jtms3/mainwindow.cpp	2012-07-18 13:25:16 UTC (rev 2521)
+@@ -8,8 +8,6 @@
+ #include &quot;sleep.h&quot;
+ #include &lt;portaudio.h&gt;
+ 
+-#define NFFT 32768
+-
+ short int iwave[30*48000];            //Wave file for Tx audio
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+@@ -17,7 +15,6 @@
+ qint16 id[30*48000];
+ 
+ WideGraph* g_pWideGraph = NULL;
+-QSharedMemory mem_m65(&quot;mem_m65&quot;);
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  JTMS3   v0.2, r&quot; + rev.mid(6,4) +
+@@ -79,15 +76,6 @@
+           SLOT(showStatusMessage(QString)));
+   createStatusBar();
+ 
+-  connect(&amp;proc_m65, SIGNAL(readyReadStandardOutput()),
+-                    this, SLOT(readFromStdout()));
+-
+-  connect(&amp;proc_m65, SIGNAL(error(QProcess::ProcessError)),
+-          this, SLOT(m65_error()));
+-
+-  connect(&amp;proc_m65, SIGNAL(readyReadStandardError()),
+-          this, SLOT(readFromStderr()));
+-
+   QTimer *guiTimer = new QTimer(this);
+   connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
+@@ -114,56 +102,20 @@
+   m_saveAll=false;
+   m_onlyEME=false;
+   m_sec0=-1;
+-  m_hsym0=-1;
+   m_palette=&quot;CuteSDR&quot;;
+   m_jtms3RxLog=1;                     //Write Date and Time to RxLog
+   m_nutc0=9999;
+-  m_kb8rq=false;
+   m_NB=false;
+-  m_mode=&quot;JT65B&quot;;
+-  m_mode65=2;
+-  m_fs96000=true;
+-  m_udpPort=50004;
+-  m_adjustIQ=0;
+-  m_applyIQcal=0;
++  m_mode=&quot;JTMSK&quot;;
+   m_colors=&quot;000066ff0000ffff00969696646464&quot;;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+-#ifdef WIN32
+-  while(true) {
+-      int iret=killbyname(&quot;m65.exe&quot;);
+-      if(iret == 603) break;
+-      if(iret != 0) msgBox(&quot;KillByName return code: &quot; +
+-                           QString::number(iret));
+-  }
+-#endif
+-/*
+-  if(!mem_m65.attach()) {
+-    if (!mem_m65.create(sizeof(mscom_))) {
+-      msgBox(&quot;Unable to create shared memory segment.&quot;);
+-    }
+-  }
+-  char *to = (char*)mem_m65.data();
+-  int size=sizeof(mscom_);
+-  if(mscom_.newdat==0) {
+-    int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
+-    to += noffset;
+-    size -= noffset;
+-  }
+-  memset(to,0,size);         //Zero all decoding params in shared memory
+-*/
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+     msgBox(&quot;Unable to initialize PortAudio.&quot;);
+   }
+   readSettings();		             //Restore user's setup params
+-  QFile lockFile(m_appDir + &quot;/.lock&quot;); //Create .lock so m65 will wait
+-  lockFile.open(QIODevice::ReadWrite);
+-  QFile quitFile(m_appDir + &quot;/.lock&quot;);
+-  quitFile.remove();
+-//  proc_m65.start(QDir::toNativeSeparators(m_appDir + &quot;/m65 -s&quot;));
+-
+   m_pbdecoding_style1=&quot;QPushButton{background-color: cyan; \
+       border-style: outset; border-width: 1px; border-radius: 5px; \
+       border-color: black; min-width: 5em; padding: 3px;}&quot;;
+@@ -357,7 +309,7 @@
+                                  &quot;PaletteAFMHot&quot;,false).toBool());
+   ui-&gt;actionBlue-&gt;setChecked(settings.value(
+                                  &quot;PaletteBlue&quot;,false).toBool());
+-  m_mode=settings.value(&quot;Mode&quot;,&quot;JT65B&quot;).toString();
++  m_mode=settings.value(&quot;Mode&quot;,&quot;JTMSK&quot;).toString();
+   ui-&gt;actionNone-&gt;setChecked(settings.value(&quot;SaveNone&quot;,true).toBool());
+   ui-&gt;actionSave_all-&gt;setChecked(settings.value(&quot;SaveAll&quot;,false).toBool());
+   m_saveAll=ui-&gt;actionSave_all-&gt;isChecked();
+@@ -445,23 +397,6 @@
+     g_pWideGraph-&gt;dataSink2(green,ig-1);
+   }
+ 
+-  /*
+-  //Average over specified number of spectra
+-  if (n==0) {
+-    for (int i=0; i&lt;NFFT; i++)
+-      splot[i]=s[i];
+-  } else {
+-    for (int i=0; i&lt;NFFT; i++)
+-      splot[i] += s[i];
+-  }
+-  n++;
+-
+-  if (n&gt;=m_waterfallAvg) {
+-    for (int i=0; i&lt;NFFT; i++) {
+-        splot[i] /= n;                           //Normalize the average
+-    }
+-
+-*/
+ // Time according to this computer
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   int n300 = (ms/100) % 300;
+@@ -722,14 +657,6 @@
+ {
+   g_pWideGraph-&gt;saveSettings();
+   m_killAll=true;
+-  mem_m65.detach();
+-  QFile quitFile(m_appDir + &quot;/.quit&quot;);
+-  quitFile.open(QIODevice::ReadWrite);
+-  QFile lockFile(m_appDir + &quot;/.lock&quot;);
+-  lockFile.remove();                      // Allow m65 to terminate
+-  bool b=proc_m65.waitForFinished(1000);
+-  if(!b) proc_m65.kill();
+-  quitFile.remove();
+   qApp-&gt;exit(0);                          // Exit the event loop
+ }
+ 
+@@ -972,148 +899,10 @@
+ 
+ void MainWindow::decode()                                       //decode()
+ {
+-/*
+-  ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+-  if(mscom_.nagain==0 &amp;&amp; (!m_diskData)) {
+-    qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+-    int imin=ms/60000;
+-    int ihr=imin/60;
+-    imin=imin % 60;
+-    mscom_.nutc=100*ihr + imin;
+-  }
+ 
+-  mscom_.idphi=m_dPhi;
+-  mscom_.mousedf=g_pWideGraph-&gt;DF();
+-  mscom_.mousefqso=g_pWideGraph-&gt;QSOfreq();
+-  mscom_.ndepth=m_ndepth;
+-  mscom_.ndiskdat=0;
+-  if(m_diskData) mscom_.ndiskdat=1;
+-  mscom_.neme=0;
+-  if(ui-&gt;actionOnly_EME_calls-&gt;isChecked()) mscom_.neme=1;
+-
+-  int ispan=int(g_pWideGraph-&gt;fSpan());
+-  if(ispan%2 == 1) ispan++;
+-  int ifc=int(1000.0*(mscom_.fcenter - int(mscom_.fcenter))+0.5);
+-  int nfa=g_pWideGraph-&gt;nStartFreq();
+-  int nfb=nfa+ispan;
+-  int nfshift=nfa + ispan/2 - ifc;
+-
+-  mscom_.nfa=nfa;
+-  mscom_.nfb=nfb;
+-  mscom_.nfcal=m_fCal;
+-  mscom_.nfshift=nfshift;
+-  mscom_.mcall3=0;
+-  if(m_call3Modified) mscom_.mcall3=1;
+-  mscom_.ntimeout=m_timeout;
+-  mscom_.ntol=m_tol;
+-  mscom_.nxant=0;
+-  if(m_xpolx) mscom_.nxant=1;
+-  if(mscom_.nutc &lt; m_nutc0) m_jtms3RxLog |= 1;  //Date and Time to all65.txt
+-  m_nutc0=mscom_.nutc;
+-//  mscom_.jtms3RxLog=m_jtms3RxLog;
+-  mscom_.nfsample=96000;
+-  if(!m_fs96000) mscom_.nfsample=95238;
+-  mscom_.nxpol=0;
+-  if(m_xpol) mscom_.nxpol=1;
+-  mscom_.mode65=m_mode65;
+-
+-  QString mcall=(m_myCall+&quot;            &quot;).mid(0,12);
+-  QString mgrid=(m_myGrid+&quot;            &quot;).mid(0,6);
+-  QString hcall=(ui-&gt;dxCallEntry-&gt;text()+&quot;            &quot;).mid(0,12);
+-  QString hgrid=(ui-&gt;dxGridEntry-&gt;text()+&quot;      &quot;).mid(0,6);
+-
+-  strncpy(mscom_.mycall, mcall.toAscii(), 12);
+-  strncpy(mscom_.mygrid, mgrid.toAscii(), 6);
+-  strncpy(mscom_.hiscall, hcall.toAscii(), 12);
+-  strncpy(mscom_.hisgrid, hgrid.toAscii(), 6);
+-  strncpy(mscom_.datetime, m_dateTime.toAscii(), 20);
+-
+-  //newdat=1  ==&gt; this is new data, must do the big FFT
+-  //nagain=1  ==&gt; decode only at fQSO +/- Tol
+-
+-  char *to = (char*)mem_m65.data();
+-  char *from = (char*) mscom_.d4;
+-  int size=sizeof(mscom_);
+-  if(mscom_.newdat==0) {
+-    int noffset = 4*4*5760000 + 4*4*322*32768 + 4*4*32768;
+-    to += noffset;
+-    from += noffset;
+-    size -= noffset;
+-  }
+-  memcpy(to, from, qMin(mem_m65.size(), size));
+-  mscom_.nagain=0;
+-  mscom_.ndiskdat=0;
+-  m_call3Modified=false;
+-
+-  QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow m65 to start
+-  lockFile.remove();
+-
+-  decodeBusy(true);
+-  */
+ }
+ 
+-void MainWindow::m65_error()                                     //m65_error
+-{
+-  if(!m_killAll) {
+-    msgBox(&quot;Error starting or running\n&quot; + m_appDir + &quot;/m65 -s&quot;);
+-    exit(1);
+-  }
+-}
+ 
+-void MainWindow::readFromStderr()                             //readFromStderr
+-{
+-  QByteArray t=proc_m65.readAllStandardError();
+-  msgBox(t);
+-}
+-
+-
+-void MainWindow::readFromStdout()                             //readFromStdout
+-{
+-  while(proc_m65.canReadLine())
+-  {
+-    QByteArray t=proc_m65.readLine();
+-    if(t.indexOf(&quot;&lt;m65aFinished&gt;&quot;) &gt;= 0) {
+-      if(m_widebandDecode) {
+-        m_widebandDecode=false;
+-      }
+-      QFile lockFile(m_appDir + &quot;/.lock&quot;);
+-      lockFile.open(QIODevice::ReadWrite);
+-      ui-&gt;DecodeButton-&gt;setStyleSheet(&quot;&quot;);
+-      decodeBusy(false);
+-      m_jtms3RxLog=0;
+-      m_startAnother=m_loopall;
+-      return;
+-    }
+-
+-    if(t.indexOf(&quot;!&quot;) &gt;= 0) {
+-      int n=t.length();
+-      if(n&gt;=30) ui-&gt;decodedTextBrowser-&gt;append(t.mid(1,n-3));
+-      if(n&lt;30) ui-&gt;decodedTextBrowser-&gt;append(t.mid(1,n-3));
+-      n=ui-&gt;decodedTextBrowser-&gt;verticalScrollBar()-&gt;maximum();
+-      ui-&gt;decodedTextBrowser-&gt;verticalScrollBar()-&gt;setValue(n);
+-    }
+-
+-    if(t.indexOf(&quot;@&quot;) &gt;= 0) {
+-//      m_messagesText += t.mid(1);
+-      m_widebandDecode=true;
+-    }
+-
+-    if(t.indexOf(&quot;&amp;&quot;) &gt;= 0) {
+-      QString q(t);
+-      QString callsign=q.mid(5);
+-      callsign=callsign.mid(0,callsign.indexOf(&quot; &quot;));
+-      if(callsign.length()&gt;2) {
+-        if(m_worked[callsign]) {
+-          q=q.mid(1,4) + &quot;  &quot; + q.mid(5);
+-        } else {
+-          q=q.mid(1,4) + &quot; *&quot; + q.mid(5);
+-        }
+-//        m_bandmapText += q;
+-      }
+-    }
+-  }
+-}
+-
+ void MainWindow::on_EraseButton_clicked()                          //Erase
+ {
+   ui-&gt;decodedTextBrowser-&gt;clear();
+@@ -1660,7 +1449,7 @@
+   QDateTime t = QDateTime::currentDateTimeUtc();
+   QString logEntry=t.date().toString(&quot;yyyy-MMM-dd,&quot;) +
+       t.time().toString(&quot;hh:mm,&quot;) + m_hisCall + &quot;,&quot; + m_hisGrid + &quot;,&quot; +
+-      QString::number(nMHz) + &quot;,JT65B\n&quot;;
++      QString::number(nMHz) + &quot;,JTMSK\n&quot;;
+   QFile f(&quot;wsjt.log&quot;);
+   if(!f.open(QFile::Append)) {
+     msgBox(&quot;Cannot open file \&quot;wsjt.log\&quot;.&quot;);
+
+Modified: branches/jtms3/mainwindow.h
+===================================================================
+--- branches/jtms3/mainwindow.h	2012-07-17 19:56:55 UTC (rev 2520)
++++ branches/jtms3/mainwindow.h	2012-07-18 13:25:16 UTC (rev 2521)
+@@ -34,9 +34,6 @@
+   void diskDat();
+   void diskWriteFinished();
+   void freezeDecode(int n);
+-  void readFromStdout();
+-  void readFromStderr();
+-  void m65_error();
+   void guiUpdate();
+   void doubleClickOnCall(QString hiscall, bool ctrl);
+ 
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002212.html">[WSJT-SVN] r2520 - in branches/jtms3: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002214.html">[WSJT-SVN] r2522 - branches/jtms3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2213">[ date ]</a>
+              <a href="thread.html#2213">[ thread ]</a>
+              <a href="subject.html#2213">[ subject ]</a>
+              <a href="author.html#2213">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r540 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r540%20-%20trunk&In-Reply-To=%3C200709221416.l8MEGilo001198%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000224.html">
+   <LINK REL="Next"  HREF="000226.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r540 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r540%20-%20trunk&In-Reply-To=%3C200709221416.l8MEGilo001198%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r540 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 22 16:16:44 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000224.html">[WSJT-SVN] r539 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000226.html">[WSJT-SVN] r541 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#225">[ date ]</a>
+              <a href="thread.html#225">[ thread ]</a>
+              <a href="subject.html#225">[ subject ]</a>
+              <a href="author.html#225">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-09-22 16:16:38 +0200 (Sat, 22 Sep 2007)
+New Revision: 540
+
+Modified:
+   trunk/Makefile.in
+   trunk/decode24.f
+   trunk/sync24.f
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjtrc
+Log:
+Buf fixes in JT2 decoding.
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/Makefile.in	2007-09-22 14:16:38 UTC (rev 540)
+@@ -118,6 +118,9 @@
+ decode_rs_int.o: decode_rs.c
+ 	$(CC) $(CFLAGS) -c -DBIGSYM=1 -o decode_rs_int.o decode_rs.c
+ 
++fourt.o: fourt.f
++	$(FC) -c -O fourt.f
++
+ .PHONY : clean
+ clean:	@LOCAL_PORTAUDIO_CLEAN@
+ 	${RM} -f *.o *.pyc *.so *~ JT65code wsjt6
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/decode24.f	2007-09-22 14:16:38 UTC (rev 540)
+@@ -15,6 +15,7 @@
+       complex c0,c1
+       integer*1 i1,symbol(207)
+       integer*1 data1(13)                   !Decoded data (8-bit bytes)
++      integer   data4a(9)                   !Decoded data (8-bit bytes)
+       integer   data4(12)                   !Decoded data (6-bit bytes)
+       integer amp,delta
+       integer mettab(0:255,0:1)             !Metric table
+@@ -69,7 +70,7 @@
+             k=k+1
+             phi=phi+dphi
+             cz=dcmplx(cos(phi),-sin(phi))
+-            c1=c1 + dat(k)*cz
++            if(k.le.npts) c1=c1 + dat(k)*cz
+          enddo
+          c1=fac*c1
+          rsym=amp*(real(c1)*real(c0) + aimag(c1)*aimag(c0))
+@@ -97,8 +98,7 @@
+          if(i4.lt.0) i4=i4+256
+          write(42,3091) i,i4,j
+  3091    format(3i6)
+-      enddo      
+-
++      enddo
+       nbits=72+31
+       delta=100
+       limit=100000
+@@ -130,19 +130,18 @@
+       call interleave24(symbol(2),-1)         !Remove the interleaving
+       ncount=fano(metric,ncycles,data1,symbol(2),nbits,mettab,
+      +     delta,limit)
+-!      print*,'Decode24  ncount:',ncount,ncycles
+ 
+-      write(c72,1100) (data1(i),i=1,9)
++      do i=1,9
++         i1=data1(i)
++         data4a(i)=i4
++      enddo
++      write(c72,1100) (data4a(i),i=1,9)
+  1100 format(9b8.8)
+-!      print*,c72
+       read(c72,1102) data4
+  1102 format(12b6)
+-!      write(*,3001) (data1(i),i=1,9),(data4(i),i=1,12)
+-! 3001 format('Decode24:'9(1x,z2),2x,12(1x,z2))
+ 
+       decoded='                      '
+       if(ncount.ge.0) call unpackmsg(data4,decoded)
+-!      print*,decoded
+ 
+ !      call extract(s3,nadd,ncount,decoded)     !Extract the message
+       qual=0.
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/sync24.f	2007-09-22 14:16:38 UTC (rev 540)
+@@ -13,7 +13,7 @@
+       real ccfblue(-5:540)             !CCF with pseudorandom sequence
+       real ccfred(-450:450)            !Peak of ccfblue, as function of freq
+       real ccfred1(-224:224)           !Peak of ccfblue, as function of freq
+-      real tmp(450)
++      real tmp(550)
+       save
+ 
+ C  Do FFTs of twice symbol length, stepped by half symbols.  Note that 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/wsjt.py	2007-09-22 14:16:38 UTC (rev 540)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#-------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/wsjt1.F	2007-09-22 14:16:38 UTC (rev 540)
+@@ -289,8 +289,7 @@
+  	   hiscall=HisCall(1:i-1)//'            '
+ 
+ !  Offset data by about 1 s.
+-! 	    jztest=126*2048
+-	   jztest=11025*ntdecode/2 - 2755
++	   jztest=165000
+  	   if(jz.ge.jztest) call wsjt24(dat(4097),jz-4096,cfile6,
+      +        NClearAve,MinSigdB,DFTolerance,NFreeze,NAFC,mode,mode4,
+      +        Nseg,MouseDF2,NAgain,ndepth,neme,idf,mycall,hiscall,
+
+Modified: trunk/wsjtrc
+===================================================================
+--- trunk/wsjtrc	2007-09-22 12:07:48 UTC (rev 539)
++++ trunk/wsjtrc	2007-09-22 14:16:38 UTC (rev 540)
+@@ -1,7 +1,7 @@
+-*font:			&quot;bitstream vera sans&quot; 11
+-*Label*font:		&quot;bitstream vera sans&quot; 11
+-*Text*font:		&quot;terminus&quot; 13
+-*Canvas*font:           &quot;LucidaTypewriter&quot; 18
++*font:			Arial 10
++*Label*font:		Arial 10
++*Text*font:		&quot;Courier New&quot; 12
++*Canvas*font:           &quot;Lucida Console&quot; 16
+ *background:		gray85
+ *Text*background:	white
+ *Entry*background:	white
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000224.html">[WSJT-SVN] r539 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000226.html">[WSJT-SVN] r541 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#225">[ date ]</a>
+              <a href="thread.html#225">[ thread ]</a>
+              <a href="subject.html#225">[ subject ]</a>
+              <a href="author.html#225">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

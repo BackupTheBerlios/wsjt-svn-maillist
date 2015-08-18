@@ -1,0 +1,489 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2968 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2968%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130122210448.3734A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002659.html">
+   <LINK REL="Next"  HREF="002661.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2968 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2968%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130122210448.3734A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2968 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Tue Jan 22 22:04:48 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002659.html">[WSJT-SVN] r2967 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002661.html">[WSJT-SVN] r2969 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2660">[ date ]</a>
+              <a href="thread.html#2660">[ thread ]</a>
+              <a href="subject.html#2660">[ subject ]</a>
+              <a href="author.html#2660">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-01-22 22:04:47 +0100 (Tue, 22 Jan 2013)
+New Revision: 2968
+
+Added:
+   branches/wsjtx/lib/deep24.f90
+   branches/wsjtx/lib/getmet24.f90
+Removed:
+   branches/wsjtx/lib/genmet24.f90
+Modified:
+   branches/wsjtx/lib/decode24.f90
+   branches/wsjtx/lib/decode9.f90
+   branches/wsjtx/lib/genmet.f90
+   branches/wsjtx/lib/wsjt24.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+More cleanup of JT4 stuff.  
+Improvement of message averaging, by correcting a flaw.
+
+
+Modified: branches/wsjtx/lib/decode24.f90
+===================================================================
+--- branches/wsjtx/lib/decode24.f90	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/lib/decode24.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -11,18 +11,18 @@
+   real*8 dt,df,phi,f0,dphi,twopi,phi1,dphi1
+   complex*16 cz,cz1,c0,c1
+   integer*1 symbol(207)
+-  real*4 rsymbol(207)
++  real*4 rsymbol(207,7)
++  integer nsum(7)
+   integer*1 data1(13)                   !Decoded data (8-bit bytes)
+   integer   data4a(9)                   !Decoded data (8-bit bytes)
+   integer   data4(12)                   !Decoded data (6-bit bytes)
+   integer amp,delta
+   integer mettab(0:255,0:1)             !Metric table
+-  integer fano
+   integer nch(7)
+   integer npr2(207)
+ !  common/ave/ppsave(64,63,MAXAVE),nflag(MAXAVE),nsave,iseg(MAXAVE)
+   data mode0/-999/
+-  data nsum/0/,rsymbol/207*0.0/
++  data nsum/7*0/,rsymbol/1449*0.0/
+   data npr2/                                                         &amp;
+        0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,1,1,0,0,  &amp;
+        0,0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,0,0,  &amp;
+@@ -35,7 +35,7 @@
+   data nch/1,2,4,9,18,36,72/
+   save mettab,mode0,nsum,rsymbol
+ 
+-  if(mode.ne.mode0) call genmet24(mode,mettab)
++  if(mode.ne.mode0) call getmet24(mode,mettab)
+   mode0=mode
+   twopi=8*atan(1.d0)
+   dt=2.d0/11025             !Sample interval (2x downsampled data)
+@@ -44,7 +44,6 @@
+   amp=15
+   istart=nint(dtx/dt)              !Start index for synced FFTs
+   if(istart.lt.0) istart=0
+-  idfbest=0
+   nchips=0
+   ich=0
+ 
+@@ -53,10 +52,8 @@
+ ! Compute soft symbols using differential BPSK demodulation
+   c0=0.                                !### C0=amp ???
+   k=istart
+-  fac=1.e-4
+   phi=0.d0
+   phi1=0.d0
+-  ang0=0.
+ 
+ 40 ich=ich+1
+   nchips=nch(ich)
+@@ -106,14 +103,14 @@
+      if(i4.gt.127) i4=i4-256
+      if(j.ge.1) then
+         symbol(j)=i4
+-        rsymbol(j)=rsymbol(j) + rsym
++        rsymbol(j,ich)=rsymbol(j,ich) + rsym
+      endif
+   enddo
+   
+ !###  The following does simple message averaging:
+-  nsum=nsum+1
++  nsum(ich)=nsum(ich)+1
+   do j=1,207
+-     r=rsymbol(j)/nsum + 128.
++     r=rsymbol(j,ich)/nsum(ich) + 128.
+      if(r.gt.255.0) r=255.0
+      if(r.lt.0.0) r=0.0
+      i4=nint(r)
+@@ -123,7 +120,7 @@
+ !###
+   
+   nbits=72+31
+-  delta=100
++  delta=50
+   limit=100000
+   ncycles=0
+   ncount=-1
+
+Modified: branches/wsjtx/lib/decode9.f90
+===================================================================
+--- branches/wsjtx/lib/decode9.f90	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/lib/decode9.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -62,7 +62,6 @@
+         mettab(i,0)=nint(scale*(xx0(i)-bias))
+         if(i.ge.1) mettab(256-i,1)=mettab(i,0)
+      enddo
+-    close(19)
+      first=.false.
+   endif
+ 
+
+Added: branches/wsjtx/lib/deep24.f90
+===================================================================
+--- branches/wsjtx/lib/deep24.f90	                        (rev 0)
++++ branches/wsjtx/lib/deep24.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -0,0 +1,173 @@
++subroutine deep24(s3,neme,flip,mycall,hiscall,hisgrid,decoded,qual)
++
++! Have barely begun converting this from JT65 to JT4
++
++  parameter (MAXCALLS=7000,MAXRPT=63)
++  real s3(64,63)
++  character callsign*12,grid*4,message*22,hisgrid*6,c*1,ceme*3
++  character*12 mycall,hiscall
++  character mycall0*12,hiscall0*12,hisgrid0*6
++  character*22 decoded
++  character*22 testmsg(2*MAXCALLS + 2 + MAXRPT)
++  character*15 callgrid(MAXCALLS)
++  character*180 line
++  character*4 rpt(MAXRPT)
++  integer ncode(63,2*MAXCALLS + 2 + MAXRPT)
++  real pp(2*MAXCALLS + 2 + MAXRPT)
++  common/mrscom/ mrs(63),mrs2(63)
++  common/c3com/ mcall3a
++
++  data neme0/-99/
++  data rpt/'-01','-02','-03','-04','-05',          &amp;
++           '-06','-07','-08','-09','-10',          &amp;
++           '-11','-12','-13','-14','-15',          &amp;
++           '-16','-17','-18','-19','-20',          &amp;
++           '-21','-22','-23','-24','-25',          &amp;
++           '-26','-27','-28','-29','-30',          &amp;
++           'R-01','R-02','R-03','R-04','R-05',     &amp;
++           'R-06','R-07','R-08','R-09','R-10',     &amp;
++           'R-11','R-12','R-13','R-14','R-15',     &amp;
++           'R-16','R-17','R-18','R-19','R-20',     &amp;
++           'R-21','R-22','R-23','R-24','R-25',     &amp;
++           'R-26','R-27','R-28','R-29','R-30',     &amp;
++           'RO','RRR','73'/
++  save
++
++  if(mycall.eq.mycall0 .and. hiscall.eq.hiscall0 .and.         &amp;
++       hisgrid.eq.hisgrid0 .and. mcall3a.eq.0 .and. neme.eq.neme0) go to 30
++      
++  mcall3a=0
++  rewind 23
++  k=0
++  icall=0
++  do n=1,MAXCALLS
++     if(n.eq.1) then
++        callsign=hiscall
++        do i=4,12
++           if(ichar(callsign(i:i)).eq.0) callsign(i:i)=' '
++        enddo
++        grid=hisgrid(1:4)
++        if(ichar(grid(3:3)).eq.0) grid(3:3)=' '
++        if(ichar(grid(4:4)).eq.0) grid(4:4)=' '
++     else
++        read(23,1002,end=20) line
++1002    format (A80)
++        if(line(1:4).eq.'ZZZZ') go to 20
++        if(line(1:2).eq.'//') go to 10
++        i1=index(line,',')
++        if(i1.lt.4) go to 10
++        i2=index(line(i1+1:),',')
++        if(i2.lt.5) go to 10
++        i2=i2+i1
++        i3=index(line(i2+1:),',')
++        if(i3.lt.1) i3=index(line(i2+1:),' ')
++        i3=i2+i3
++        callsign=line(1:i1-1)
++        grid=line(i1+1:i2-1)
++        ceme=line(i2+1:i3-1)
++        if(neme.eq.1 .and. ceme.ne.'EME') go to 10
++     endif
++
++     icall=icall+1
++     j1=index(mycall,' ') - 1
++     if(j1.le.-1) j1=12
++     if(j1.lt.3) j1=6
++     j2=index(callsign,' ') - 1
++     if(j2.le.-1) j2=12
++     if(j2.lt.3) j2=6
++     j3=index(mycall,'/')                 ! j3&gt;0 means compound mycall
++     j4=index(callsign,'/')               ! j4&gt;0 means compound hiscall
++     callgrid(icall)=callsign(1:j2)
++     
++     mz=1
++! Allow MyCall + HisCall + rpt (?)
++     if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.                       &amp;
++          flip.gt.0.0 .and. callsign(1:6).ne.'      ') mz=MAXRPT+1
++     do m=1,mz
++        if(m.gt.1) grid=rpt(m-1)
++        if(j3.lt.1 .and.j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++        message=mycall(1:j1)//' '//callgrid(icall)
++        k=k+1
++        testmsg(k)=message
++!        call encode65(message,ncode(1,k))
++        
++        if(n.ge.2) then
++! Insert CQ message
++           if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
++           message='CQ '//callgrid(icall)
++           k=k+1
++           testmsg(k)=message
++!           call encode65(message,ncode(1,k))
++        endif
++     enddo
++10   continue
++  enddo
++
++20 continue
++  ntot=k
++  neme0=neme
++
++30 mycall0=mycall
++  hiscall0=hiscall
++  hisgrid0=hisgrid
++  ref0=0.
++  do j=1,63
++     ref0=ref0 + s3(mrs(j),j)
++  enddo
++
++  p1=-1.e30
++  p2=-1.e30
++  do k=1,ntot
++     pp(k)=0.
++! Test all messages if flip=+1; skip the CQ messages if flip=-1.
++     if(flip.gt.0.0 .or. testmsg(k)(1:3).ne.'CQ ') then
++        sum=0.
++        ref=ref0
++        do j=1,63
++           i=ncode(j,k)+1
++           sum=sum + s3(i,j)
++           if(i.eq.mrs(j)) ref=ref - s3(i,j) + s3(mrs2(j),j)
++        enddo
++        p=sum/ref
++        pp(k)=p
++        if(p.gt.p1) then
++           p1=p
++           ip1=k
++        endif
++     endif
++  enddo
++
++  do i=1,ntot
++     if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
++  enddo
++
++! ### DO NOT REMOVE ### 
++  rewind 77
++  write(77,*) p1,p2
++! ### Works OK without it (in both Windows and Linux) if compiled 
++! ### without optimization.  However, in Windows this is a colossal 
++! ### pain because of the way F2PY wants to run the compile step.
++
++
++  if(p2.eq.p1 .and. p1.ne.-1.e30) stop 'Error in deep24'
++  qual=100.0*(p1-bias)
++
++  decoded='                      '
++  c=' '
++
++  if(qual.gt.1.0) then
++     if(qual.lt.6.0) c='?'
++     decoded=testmsg(ip1)
++  else
++     qual=0.
++  endif
++  decoded(22:22)=c
++
++! Make sure everything is upper case.
++  do i=1,22
++     if(decoded(i:i).ge.'a' .and. decoded(i:i).le.'z')                &amp;
++          decoded(i:i)=char(ichar(decoded(i:i))-32)
++  enddo
++
++  return
++end subroutine deep24
+
+Modified: branches/wsjtx/lib/genmet.f90
+===================================================================
+--- branches/wsjtx/lib/genmet.f90	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/lib/genmet.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -1,6 +1,6 @@
+ program genmet
+ 
+-! Former name: tstprob
++! Generate metric table for M-FSK modulation.
+ 
+   character*12 arg
+   real*4 r(0:255)
+
+Deleted: branches/wsjtx/lib/genmet24.f90
+===================================================================
+--- branches/wsjtx/lib/genmet24.f90	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/lib/genmet24.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -1,27 +0,0 @@
+-subroutine genmet24(mode,mettab)
+-
+-! Return appropriate metric table for soft-decision convolutional decoder.
+-
+-  real bias                         !bias for integer table
+-  integer scale                     !scale factor for integer table
+-! Metric table (RxSymbol,TxSymbol)
+-  integer mettab(0:255,0:1)
+-
+-  bias=0.5
+-  scale=10
+-  if(mode.eq.7) then  !Non-coherent 2FSK
+-     open(19,file='dmet_10_-1_3.dat',status='old')
+-  else
+-     print*,'Unsupported mode:',mode,' in genmet.'
+-     stop 'genmet'
+-  endif
+-
+-  do i=0,255
+-     read(19,*) junk,d0,d1
+-     mettab(i,0)=nint(scale*(d0-bias))
+-     mettab(i,1)=nint(scale*(d1-bias))
+-  enddo
+-
+-  return
+-end subroutine genmet24
+-
+
+Copied: branches/wsjtx/lib/getmet24.f90 (from rev 2966, branches/wsjtx/lib/genmet24.f90)
+===================================================================
+--- branches/wsjtx/lib/getmet24.f90	                        (rev 0)
++++ branches/wsjtx/lib/getmet24.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -0,0 +1,57 @@
++subroutine getmet24(mode,mettab)
++
++! Return appropriate metric table for soft-decision convolutional decoder.
++
++! Metric table (RxSymbol,TxSymbol)
++  integer mettab(0:255,0:1)
++  real*4 xx0(0:255)
++  logical first
++  data first/.true./
++  data xx0/                                                      &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000,  &amp;
++        0.988, 1.000, 0.991, 0.993, 1.000, 0.995, 1.000, 0.991,  &amp;
++        1.000, 0.991, 0.992, 0.991, 0.990, 0.990, 0.992, 0.996,  &amp;
++        0.990, 0.994, 0.993, 0.991, 0.992, 0.989, 0.991, 0.987,  &amp;
++        0.985, 0.989, 0.984, 0.983, 0.979, 0.977, 0.971, 0.975,  &amp;
++        0.974, 0.970, 0.970, 0.970, 0.967, 0.962, 0.960, 0.957,  &amp;
++        0.956, 0.953, 0.942, 0.946, 0.937, 0.933, 0.929, 0.920,  &amp;
++        0.917, 0.911, 0.903, 0.895, 0.884, 0.877, 0.869, 0.858,  &amp;
++        0.846, 0.834, 0.821, 0.806, 0.790, 0.775, 0.755, 0.737,  &amp;
++        0.713, 0.691, 0.667, 0.640, 0.612, 0.581, 0.548, 0.510,  &amp;
++        0.472, 0.425, 0.378, 0.328, 0.274, 0.212, 0.146, 0.075,  &amp;
++        0.000,-0.079,-0.163,-0.249,-0.338,-0.425,-0.514,-0.606,  &amp;
++       -0.706,-0.796,-0.895,-0.987,-1.084,-1.181,-1.280,-1.376,  &amp;
++       -1.473,-1.587,-1.678,-1.790,-1.882,-1.992,-2.096,-2.201,  &amp;
++       -2.301,-2.411,-2.531,-2.608,-2.690,-2.829,-2.939,-3.058,  &amp;
++       -3.164,-3.212,-3.377,-3.463,-3.550,-3.768,-3.677,-3.975,  &amp;
++       -4.062,-4.098,-4.186,-4.261,-4.472,-4.621,-4.623,-4.608,  &amp;
++       -4.822,-4.870,-4.652,-4.954,-5.108,-5.377,-5.544,-5.995,  &amp;
++       -5.632,-5.826,-6.304,-6.002,-6.559,-6.369,-6.658,-7.016,  &amp;
++       -6.184,-7.332,-6.534,-6.152,-6.113,-6.288,-6.426,-6.313,  &amp;
++       -9.966,-6.371,-9.966,-7.055,-9.966,-6.629,-6.313,-9.966,  &amp;
++       -5.858,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,  &amp;
++       -9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966,-9.966/
++  save
++
++  if(first) then
++     bias=0.5
++     scale=10.0
++     do i=0,255
++        mettab(i,0)=nint(scale*(xx0(i)-bias))
++        if(i.ge.1) mettab(256-i,1)=mettab(i,0)
++     enddo
++     first=.false.
++  endif
++
++  return
++end subroutine getmet24
++
+
+Modified: branches/wsjtx/lib/wsjt24.f90
+===================================================================
+--- branches/wsjtx/lib/wsjt24.f90	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/lib/wsjt24.f90	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -173,8 +173,6 @@
+ !  write(12,1011) ave1
+ !  write(12,1011) ave2
+ !  call flush(12)
+- 
+-  if(lumsg.ne.6) end file 11
+ !  call cs_unlock
+   
+ 900 continue
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-01-22 20:14:35 UTC (rev 2967)
++++ branches/wsjtx/mainwindow.cpp	2013-01-22 21:04:47 UTC (rev 2968)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002659.html">[WSJT-SVN] r2967 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002661.html">[WSJT-SVN] r2969 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2660">[ date ]</a>
+              <a href="thread.html#2660">[ thread ]</a>
+              <a href="subject.html#2660">[ subject ]</a>
+              <a href="author.html#2660">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

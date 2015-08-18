@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r803 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r803%20-%20trunk&In-Reply-To=%3C200805281912.m4SJCTGV002949%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000490.html">
+   <LINK REL="Next"  HREF="000492.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r803 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r803%20-%20trunk&In-Reply-To=%3C200805281912.m4SJCTGV002949%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r803 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 28 21:12:29 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000490.html">[WSJT-SVN] r802 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000492.html">[WSJT-SVN] r804 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#491">[ date ]</a>
+              <a href="thread.html#491">[ thread ]</a>
+              <a href="subject.html#491">[ subject ]</a>
+              <a href="author.html#491">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-28 21:12:25 +0200 (Wed, 28 May 2008)
+New Revision: 803
+
+Modified:
+   trunk/decode3.F90
+   trunk/getfile.F90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+Log:
+Starting work toward implementing WSPR decodes.
+
+
+Modified: trunk/decode3.F90
+===================================================================
+--- trunk/decode3.F90	2008-05-28 18:11:51 UTC (rev 802)
++++ trunk/decode3.F90	2008-05-28 19:12:25 UTC (rev 803)
+@@ -4,7 +4,7 @@
+   use dfport
+ #endif
+ 
+-  integer*2 d2(jz),d2d(65*11025)
++  integer*2 d2(jz),d2d(125*11025)
+   character*24 filename
+   character FileID*40
+   include 'gcom1.f90'
+
+Modified: trunk/getfile.F90
+===================================================================
+--- trunk/getfile.F90	2008-05-28 18:11:51 UTC (rev 802)
++++ trunk/getfile.F90	2008-05-28 19:12:25 UTC (rev 803)
+@@ -1,12 +1,10 @@
+-
+-!----------------------------------------------------- getfile
+ subroutine getfile(fname,len)
+ 
+ #ifdef CVF
+   use dflib
+ #endif
+ 
+-  parameter (NDMAX=661500)  ! =60*11025
++  parameter (NDMAX=120*11025)
+   character*(*) fname
+   include 'gcom1.f90'
+   include 'gcom2.f90'
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-05-28 18:11:51 UTC (rev 802)
++++ trunk/wsjt.py	2008-05-28 19:12:25 UTC (rev 803)
+@@ -678,19 +678,22 @@
+ #------------------------------------------------------ ModeWSPR
+ def ModeWSPR():
+     global slabel,isync,isync65,textheight,itol
++    ModeJT65()
+     mode.set(&quot;WSPR&quot;)
+     if lauto: toggleauto()
+     cleartext()
+     Audio.gcom1.trperiod=120
+     iframe4b.pack_forget()
+-##    text.configure(height=9)
+-##    bclravg.configure(state=DISABLED)
+-##    binclude.configure(state=DISABLED)
+-##    bexclude.configure(state=DISABLED)
++    text.configure(height=9)
++    bclravg.configure(state=DISABLED)
++    binclude.configure(state=DISABLED)
++    bexclude.configure(state=DISABLED)
++    cbafc.configure(state=DISABLED)
++
+ ##    cbfreeze.configure(state=DISABLED)
+-##    cbafc.configure(state=DISABLED)
++##    btxdf.configure(state=DISABLED)
++
+     if ltxdf: toggletxdf()
+-    btxdf.configure(state=DISABLED)
+     report.configure(state=NORMAL)
+     ntx.set(1)
+     GenStdMsgs()
+@@ -1588,7 +1591,8 @@
+             if ntx.get()==1 and noshjt65.get()==1: Audio.gcom2.ntx2=1
+ 
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4' or mode.get()[:2]=='CW':
++               mode.get()[:3]=='JT4' or mode.get()[:2]=='CW' or \
++               mode.get()=='WSPR':
+             graph2.delete(ALL)
+             graph2.create_text(80,13,anchor=CENTER,text=&quot;Moon&quot;,font=g2font)
+             graph2.create_text(13,37,anchor=W, text=&quot;Az: %6.2f&quot; % g.AzMoon,font=g2font)
+@@ -1761,8 +1765,9 @@
+             cmap0=g.cmap
+ 
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-                                     mode.get()[:3]=='JT4':
+-            plot_large()
++                mode.get()[:3]=='JT4' or mode.get()=='WSPR':
++            if mode.get()!='WSPR':
++                plot_large()
+         else:    
+             im.putdata(Audio.gcom2.b)
+             pim=ImageTk.PhotoImage(im)          #Convert Image to PhotoImage
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-05-28 18:11:51 UTC (rev 802)
++++ trunk/wsjt1.F	2008-05-28 19:12:25 UTC (rev 803)
+@@ -77,8 +77,9 @@
+ 	ndiag=1
+ 	close(16)
+ 
+- 4	if(jz.gt.655360) jz=655360
++ 4	if(mode.lt.8 .and. jz.gt.655360) jz=655360
+ 	if(mode.eq.4 .and. jz.gt.330750) jz=330750	!### Fix this!
++ 	if(mode.eq.8 .and. jz.gt.1323000) jz=1323000
+ 
+ 	sum=0.
+ 	do j=1,jz            !Convert raw data from i*2 to real, remove DC
+@@ -295,16 +296,6 @@
+ 
+ !  If we're in WSPR mode, call the wspr routines.
+   	if(mode.eq.8) then
+-!  Lowpass filter and decimate by 2
+- 	   call lpf1(dat,jz,jz2,MouseDF,MouseDF2)
+-	   idf=mousedf-mousedf2
+- 	   jz=jz2
+- 	   nadd=1
+- 	   fzap(1)=0.
+- 	   if(nzap.eq.1) call avesp2(dat,jz,nadd,mode,NFreeze,MouseDF2,
+-     +       DFTolerance,fzap)
+-    	   if(nzap.eq.1.and.nstest.eq.0) call bzap(dat,jz,nadd,mode,fzap)
+-
+  	   i=index(MyCall,char(0))
+ 	   if(i.le.0) i=index(MyCall,' ')
+  	   mycall=MyCall(1:i-1)//'            '
+@@ -373,6 +364,7 @@
+ 	call flushqqq(11)
+ 	call flushqqq(12)
+ 	call flushqqq(21)
++	print*,'End of wsjt1'
+ 
+  	return
+  	end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000490.html">[WSJT-SVN] r802 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000492.html">[WSJT-SVN] r804 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#491">[ date ]</a>
+              <a href="thread.html#491">[ thread ]</a>
+              <a href="subject.html#491">[ subject ]</a>
+              <a href="author.html#491">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r553 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r553%20-%20trunk&In-Reply-To=%3C200710041449.l94EnBB5029577%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000237.html">
+   <LINK REL="Next"  HREF="000239.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r553 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r553%20-%20trunk&In-Reply-To=%3C200710041449.l94EnBB5029577%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r553 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Oct  4 16:49:11 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000237.html">[WSJT-SVN] r552 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000239.html">[WSJT-SVN] r554 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-10-04 16:49:06 +0200 (Thu, 04 Oct 2007)
+New Revision: 553
+
+Modified:
+   trunk/decode24.f
+   trunk/gen24.f
+   trunk/sync24.f
+   trunk/wsjt.py
+Log:
+JT4 decoder now uses bid widths equal to tone spacing.  Mid-point of
+the four tone frequencies (i.e., bin 1.5 if bins are numbered 0-3) is 
+now set at 1270.46 Hz.
+
+
+Modified: trunk/decode24.f
+===================================================================
+--- trunk/decode24.f	2007-10-03 19:16:02 UTC (rev 552)
++++ trunk/decode24.f	2007-10-04 14:49:06 UTC (rev 553)
+@@ -145,35 +145,47 @@
+          enddo
+ !###
+       else                                    !JT4x
++         nspchip=1260/mode4
++         nchips=mode4
++         if(mode4.eq.72) then
++            nspchip=35
++            nchips=36
++         endif
++         fac2=1.e-8 * sqrt(float(mode4))
+          do j=1,nsym+1
+             if(flip.gt.0.0) then
+-               f0=1270.46 + dfx + npr2(j)*mode4*df
+-               f1=1270.46 + dfx + (2+npr2(j))*mode4*df
++               f0=1270.46 + dfx + (npr2(j)-1.5)*mode4*df
++               f1=1270.46 + dfx + (2+npr2(j)-1.5)*mode4*df
+             else
+-               f0=1270.46 + dfx + (1-npr2(j))*mode4*df
+-               f1=1270.46 + dfx + (3-npr2(j))*mode4*df
++               f0=1270.46 + dfx + (1-npr2(j)-1.5)*mode4*df
++               f1=1270.46 + dfx + (3-npr2(j)-1.5)*mode4*df
+             endif
+             dphi=twopi*dt*f0
+             dphi1=twopi*dt*f1
+-            c0=0.
+-            c1=0.
+-            phi=0.d0
+-            phi1=0.d0
+-            do i=1,1260
+-               k=k+1
+-               phi=phi+dphi
+-               phi1=phi1+dphi1
+-               cz=dcmplx(cos(phi),-sin(phi))
+-               cz1=dcmplx(cos(phi1),-sin(phi1))
+-               if(k.le.npts) then
+-                  c0=c0 + dat(k)*cz
+-                  c1=c1 + dat(k)*cz1
+-               endif
++            sq0=0.
++            sq1=0.
++            do nc=1,nchips
++               phi=0.d0
++               phi1=0.d0
++               c0=0.
++               c1=0.
++               do i=1,nspchip
++                  k=k+1
++                  phi=phi+dphi
++                  phi1=phi1+dphi1
++                  cz=dcmplx(cos(phi),-sin(phi))
++                  cz1=dcmplx(cos(phi1),-sin(phi1))
++                  if(k.le.npts) then
++                     c0=c0 + dat(k)*cz
++                     c1=c1 + dat(k)*cz1
++                  endif
++               enddo
++               sq0=sq0 + real(c0)**2 + aimag(c0)**2
++               sq1=sq1 + real(c1)**2 + aimag(c1)**2
+             enddo
+-            c0=fac*c0
+-            c1=fac*c1
+-            rsym=amp*(real(c1)**2 + aimag(c1)**2 - 
+-     +                real(c0)**2 - aimag(c0)**2)
++            sq0=fac2*sq0
++            sq1=fac2*sq1
++            rsym=amp*(sq1-sq0)
+             r=rsym+128.
+             if(r.gt.255.0) r=255.0
+             if(r.lt.0.0) r=0.0
+
+Modified: trunk/gen24.f
+===================================================================
+--- trunk/gen24.f	2007-10-03 19:16:02 UTC (rev 552)
++++ trunk/gen24.f	2007-10-04 14:49:06 UTC (rev 553)
+@@ -76,8 +76,8 @@
+             t=t+dt
+             j=int(t/tsymbol) + 1                  !Symbol number, 1-207
+             if(j.ne.j0) then
+-               f=f0 + (npr2(j) + 2*symbol(j)) * dfgen * mode4
+-               if(flip.lt.0.0) f=f0 + ((1-npr2(j)) + 2*symbol(j))*dfgen
++               f=f0 + (npr2(j)+2*symbol(j)-1.5) * dfgen * mode4
++               if(flip.lt.0.0) f=f0+((1-npr2(j))+2*symbol(j)-1.5)*dfgen
+                dphi=twopi*dt*f
+                j0=j
+             endif
+
+Modified: trunk/sync24.f
+===================================================================
+--- trunk/sync24.f	2007-10-03 19:16:02 UTC (rev 552)
++++ trunk/sync24.f	2007-10-04 14:49:06 UTC (rev 553)
+@@ -103,6 +103,7 @@
+ !      if(dx.gt.1.0) dx=1.0
+       dx=0.
+       dfx=(ipk+dx-i0)*df
++      dfx=dfx + 3*mode4*df
+ 
+ C  Peak up in time, at best whole-channel frequency
+       call xcor24(s2,ipk,nsteps,nsym,lag1,lag2,mode,mode4,
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2007-10-03 19:16:02 UTC (rev 552)
++++ trunk/wsjt.py	2007-10-04 14:49:06 UTC (rev 553)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#----------------------------------------------------------------------- WSJT
++#------------------------------------------------------------------------ WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000237.html">[WSJT-SVN] r552 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000239.html">[WSJT-SVN] r554 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

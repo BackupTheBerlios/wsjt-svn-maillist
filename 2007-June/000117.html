@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r432 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r432%20-%20branches/map65&In-Reply-To=%3C200706282003.l5SK3um5021360%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000116.html">
+   <LINK REL="Next"  HREF="000118.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r432 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r432%20-%20branches/map65&In-Reply-To=%3C200706282003.l5SK3um5021360%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r432 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 28 22:03:56 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000116.html">[WSJT-SVN] r431 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000118.html">[WSJT-SVN] r433 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#117">[ date ]</a>
+              <a href="thread.html#117">[ thread ]</a>
+              <a href="subject.html#117">[ subject ]</a>
+              <a href="author.html#117">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-28 22:03:52 +0200 (Thu, 28 Jun 2007)
+New Revision: 432
+
+Modified:
+   branches/map65/decode1.F90
+   branches/map65/recvpkt.F90
+   branches/map65/specjt.py
+   branches/map65/symspec.f
+Log:
+Working better ...
+
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-06-28 18:52:11 UTC (rev 431)
++++ branches/map65/decode1.F90	2007-06-28 20:03:52 UTC (rev 432)
+@@ -28,10 +28,12 @@
+      newdat=1
+   endif
+ 
+-  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise,newspec)
++  if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise,     &amp;
++       newspec,newdat,ndecoding)
+ 
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
++     print*,'C',nutc,newdat,kbuf,kk,kkdone
+      call map65a(newdat)
+      if(mousebutton.eq.0) ndecoding0=ndecoding
+      ndecoding=0
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-28 18:52:11 UTC (rev 431)
++++ branches/map65/recvpkt.F90	2007-06-28 20:03:52 UTC (rev 432)
+@@ -46,6 +46,11 @@
+      endif
+      first=.false.
+ 
++!###
++!     kbuf=kb
++!     kk=k
++!###
++
+      nsec=msec/1000
+      if(mod(nsec,60).eq.1) nreset=1
+      if(mod(nsec,60).eq.0 .and. nreset.eq.1) then
+@@ -108,13 +113,14 @@
+         nsec0=nsec
+         ntx=ntx+transmitting
+         if(mod(nsec,60).eq.52) then
++           kk=k
+            kbuf=kb
+            nutc=mutc
+            klost=nlost
+-           if(ntx.lt.20) then
+-              newdat=1
+-              ndecoding=1
+-           endif
++!           if(ntx.lt.20) then
++!              newdat=1
++!              ndecoding=1
++!           endif
+            ntx=0
+         endif
+      endif
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-06-28 18:52:11 UTC (rev 431)
++++ branches/map65/specjt.py	2007-06-28 20:03:52 UTC (rev 432)
+@@ -257,9 +257,13 @@
+             draw2.line((0,0,749,0),fill=128)    #Draw the minute separator
+ 
+         t=g.ftnstr(Audio.gcom2.utcdata)
+-        draw.text((4,1),t[0:5],fill=253)   #Insert time label
+-        draw2.text((4,1),t[0:5],fill=253)  #Insert time label
+ 
++# This test shouldn.t be needed, but ...
++        try:
++            draw.text((4,1),t[0:5],fill=253)   #Insert time label
++            draw2.text((4,1),t[0:5],fill=253)  #Insert time label
++        except:
++            pass
+ 
+         pim=ImageTk.PhotoImage(im)              #Convert Image to PhotoImage
+         graph1.delete(ALL)
+
+Modified: branches/map65/symspec.f
+===================================================================
+--- branches/map65/symspec.f	2007-06-28 18:52:11 UTC (rev 431)
++++ branches/map65/symspec.f	2007-06-28 20:03:52 UTC (rev 432)
+@@ -1,4 +1,5 @@
+-      subroutine symspec(id,kbuf,kk,kkdone,rxnoise,newspec)
++      subroutine symspec(id,kbuf,kk,kkdone,rxnoise,newspec,newdat,
++     +  ndecoding)
+ 
+ C  Compute spectra at four polarizations, using half-symbol steps.
+ 
+@@ -28,8 +29,9 @@
+       endif
+ 
+       do nn=1,ntot
+-         i0=ts+hsym             !Starting sample pointer
++         i0=ts+hsym                       !Starting sample pointer
+          if((i0+npts-1).gt.kk) go to 999  !See if we have enough points
++         i1=ts+2*hsym                     !Next starting sample pointer
+          ts=ts+hsym             !OK, update the exact sample pointer
+          do i=1,npts            !Copy data to FFT arrays
+             xr=fac*id(1,i0+i)
+@@ -49,6 +51,7 @@
+          call four2a(cy,NFFT,1,1,1)
+             
+          n=n+1
++         print*,'B',n,kbuf,kkdone,kk,i0,npts
+          do i=1,NFFT            !Save and accumulate power spectra
+             sx=real(cx(i))**2 + aimag(cx(i))**2
+             ss(1,n,i)=sx         ! Pol = 0
+@@ -84,11 +87,15 @@
+             ss5(n,i)=0.707*sqrt(q*q + u*u)
+ 
+          enddo
+-         if(n.eq.ntot) then
++!         if(n.eq.ntot) then
++         if(n.ge.279) then
+             newspec=1
++            newdat=1
++            ndecoding=1
+             go to 999
+          endif
+       enddo
+ 
+- 999  return
++ 999  kkdone=i1-1
++      return
+       end
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000116.html">[WSJT-SVN] r431 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000118.html">[WSJT-SVN] r433 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#117">[ date ]</a>
+              <a href="thread.html#117">[ thread ]</a>
+              <a href="subject.html#117">[ subject ]</a>
+              <a href="author.html#117">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

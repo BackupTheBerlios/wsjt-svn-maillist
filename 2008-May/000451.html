@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r763 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r763%20-%20branches/wspr&In-Reply-To=%3C200805061938.m46JcKAK022272%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000450.html">
+   <LINK REL="Next"  HREF="000452.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r763 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r763%20-%20branches/wspr&In-Reply-To=%3C200805061938.m46JcKAK022272%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r763 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue May  6 21:38:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000450.html">[WSJT-SVN] r762 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000452.html">[WSJT-SVN] r764 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#451">[ date ]</a>
+              <a href="thread.html#451">[ thread ]</a>
+              <a href="subject.html#451">[ subject ]</a>
+              <a href="author.html#451">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-05-06 21:38:15 +0200 (Tue, 06 May 2008)
+New Revision: 763
+
+Modified:
+   branches/wspr/decode162.f
+   branches/wspr/genmept.f
+   branches/wspr/sync162.f
+   branches/wspr/tx.f90
+   branches/wspr/wqdecode.f90
+   branches/wspr/wqencode.f90
+   branches/wspr/wspr.py
+Log:
+Corrected known flaws in encoding/decoding QSO-mode messages.
+
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/decode162.f	2008-05-06 19:38:15 UTC (rev 763)
+@@ -13,8 +13,6 @@
+       complex*16 cz,cz1,c0,c1
+       integer*1 i1,symbol(162)
+       integer*1 data1(11)
+-      integer   data4a(7)
+-      integer   data4(12)
+       integer amp
+       integer mettab(0:255,0:1)
+       logical first
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/genmept.f	2008-05-06 19:38:15 UTC (rev 763)
+@@ -1,5 +1,5 @@
+       subroutine genmept(message,ntxdf,snrdb,nreply,
+-     +      nsectx,iwave)
++     +      nsectx,msg2,iwave)
+ 
+ C  Encode an MEPT_JT message and generate the corresponding wavefile.
+ 
+@@ -7,7 +7,7 @@
+       character*4 grid,grid2
+       parameter (NMAX=120*12000)     !Max length of wave file
+       character*22 message           !Message to be generated
+-!      character*22 msg2,msg0
++      character*22 msg2
+       integer*2 iwave(NMAX)          !Generated wave file
+ 
+       parameter (MAXSYM=176)
+@@ -81,7 +81,7 @@
+ !         go to 999
+ !      endif
+ 
+-!      call wqdecode(data0,msg2,ntype2,msg0)
++      call wqdecode(data0,msg2,ntype2)
+ !      print*,message,msg2,ntype2
+ 
+ C  Set up necessary constants
+
+Modified: branches/wspr/sync162.f
+===================================================================
+--- branches/wspr/sync162.f	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/sync162.f	2008-05-06 19:38:15 UTC (rev 763)
+@@ -188,7 +188,7 @@
+          lag2=min(200,8*lagpk+16)
+          ccf=-fchisq(c2,jz,375.0,a,lag1,lag2,ccfbest,dtbest)
+          ipk=nint(freq(k)/df)
+-         snrx=db(max(psavg(ipk),0.0001)) - 26.5         !Empirical
++         snrx=db(max(psavg(ipk),0.0001)) - 27         !Empirical
+          sstf(1,k)=p1(k)
+          sstf(2,k)=snrx
+          sstf(3,k)=dtbest-2.0
+
+Modified: branches/wspr/tx.f90
+===================================================================
+--- branches/wspr/tx.f90	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/tx.f90	2008-05-06 19:38:15 UTC (rev 763)
+@@ -10,6 +10,7 @@
+ 
+   parameter (NMAX2=120*12000)
+   character message*22,call1*12,cdbm*3
++  character*22 msg2
+   integer*2 jwave(NMAX2)
+   integer soundout,ptt
+   include 'acom1.f90'
+@@ -35,7 +36,8 @@
+   ctxmsg=message
+   snr=99.0
+   if(ntest.eq.1) snr=-26.0
+-  call genmept(message,ntxdf,snr,nreply,nsectx,jwave)
++  call genmept(message,ntxdf,snr,nreply,nsectx,msg2,jwave)
++  ctxmsg=msg2
+   if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+   npts=114*12000
+   ierr=soundout(idevout,jwave,npts)
+
+Modified: branches/wspr/wqdecode.f90
+===================================================================
+--- branches/wspr/wqdecode.f90	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/wqdecode.f90	2008-05-06 19:38:15 UTC (rev 763)
+@@ -2,7 +2,7 @@
+ 
+   parameter (N15=32758)
+   integer*1 data0(11)
+-  character*22 message,msgold
++  character*22 message
+   character*12 callsign
+   character*3 cdbm
+   character*2 crpt
+@@ -12,7 +12,7 @@
+   logical first
+   character*12 dcall(0:N15-1)
+   data first/.true./
+-  save first
++  save first,dcall
+ 
+   if(first) then
+      dcall='            '
+@@ -24,8 +24,6 @@
+   i1=index(callsign,' ')
+   call unpackgrid(n2/128,grid)
+   ntype=iand(n2,127) -64
+-  msgold=callsign(:i1)//grid
+-  write(msgold(i1+5:),'(i4)') ntype
+ 
+ ! Standard WSPR message (types 0 3 7 10 13 17 ... 60)
+   nu=mod(ntype,10)
+@@ -108,7 +106,7 @@
+      ih=(n2-64+28-ntype)/128
+      if(dcall(ih)(1:1).ne.' ') then
+         i2=index(dcall(ih),' ')
+-        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1)//' RRR'
++        message='&lt;'//dcall(ih)(:i2-1)//'&gt; '//callsign(:i1)//'RRR'
+      else
+         message=callsign(:i1)//'&lt;...&gt; RRR'
+      endif
+
+Modified: branches/wspr/wqencode.f90
+===================================================================
+--- branches/wspr/wqencode.f90	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/wqencode.f90	2008-05-06 19:38:15 UTC (rev 763)
+@@ -84,7 +84,7 @@
+      if(index(msg,'/').le.0) then
+         ntype=8
+         ih=0
+-        call packcall(call2,n1,lbad1)
++        call packcall(call1,n1,lbad1)
+         grid=msg(i1+4:i1+7)
+         call packgrid(grid,ng,lbad2)
+         n2=128*ng + (ntype+64)
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-05-06 17:53:19 UTC (rev 762)
++++ branches/wspr/wspr.py	2008-05-06 19:38:15 UTC (rev 763)
+@@ -622,8 +622,9 @@
+     bgcolor='gray85'
+     t=''
+     if transmitting:
+-        t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
+-           options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
++##        t='Txing: '+options.MyCall.get().strip().upper() + ' ' + \
++##           options.MyGrid.get().strip().upper() + ' ' + str(options.dBm.get())
++        t='Txing: '+g.ftnstr(w.acom1.ctxmsg)
+         bgcolor='yellow'
+     if receiving:
+         bgcolor='green'
+@@ -990,7 +991,7 @@
+ draw_axis()
+ erase()
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+-root.title('  WSPR      by K1JT')
++root.title('  WSPR 0.8     by K1JT')
+ 
+ put_params()
+ try:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000450.html">[WSJT-SVN] r762 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000452.html">[WSJT-SVN] r764 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#451">[ date ]</a>
+              <a href="thread.html#451">[ thread ]</a>
+              <a href="subject.html#451">[ subject ]</a>
+              <a href="author.html#451">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

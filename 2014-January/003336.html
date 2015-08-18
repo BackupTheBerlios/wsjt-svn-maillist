@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3640 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3640%20-%20branches/map65&In-Reply-To=%3C20140116184729.675F655B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003335.html">
+   <LINK REL="Next"  HREF="003337.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3640 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3640%20-%20branches/map65&In-Reply-To=%3C20140116184729.675F655B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3640 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 16 19:47:29 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003335.html">[WSJT-SVN] r3639 - trunk
+</A></li>
+        <LI>Next message: <A HREF="003337.html">[WSJT-SVN] r3641 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3336">[ date ]</a>
+              <a href="thread.html#3336">[ thread ]</a>
+              <a href="subject.html#3336">[ subject ]</a>
+              <a href="author.html#3336">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-16 19:47:28 +0100 (Thu, 16 Jan 2014)
+New Revision: 3640
+
+Modified:
+   branches/map65/devsetup.ui
+   branches/map65/mainwindow.cpp
+   branches/map65/soundout.cpp
+   branches/map65/txtune.cpp
+   branches/map65/txtune.h
+   branches/map65/txtune.ui
+Log:
+Further progress on changes to support the IQ+ XT.
+Amplitude and phase adjustments of Tx audio are now working and need to 
+be tested.  Still need to implement function of &quot;Tune&quot; button.
+
+
+Modified: branches/map65/devsetup.ui
+===================================================================
+--- branches/map65/devsetup.ui	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/devsetup.ui	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -17,7 +17,7 @@
+    &lt;item&gt;
+     &lt;widget class=&quot;QTabWidget&quot; name=&quot;ioTabWidget&quot;&gt;
+      &lt;property name=&quot;currentIndex&quot;&gt;
+-      &lt;number&gt;0&lt;/number&gt;
++      &lt;number&gt;3&lt;/number&gt;
+      &lt;/property&gt;
+      &lt;widget class=&quot;QWidget&quot; name=&quot;tab&quot;&gt;
+       &lt;attribute name=&quot;title&quot;&gt;
+@@ -1461,7 +1461,7 @@
+       &lt;attribute name=&quot;title&quot;&gt;
+        &lt;string&gt;Si570 Control&lt;/string&gt;
+       &lt;/attribute&gt;
+-      &lt;widget class=&quot;QWidget&quot; name=&quot;&quot;&gt;
++      &lt;widget class=&quot;QWidget&quot; name=&quot;layoutWidget&quot;&gt;
+        &lt;property name=&quot;geometry&quot;&gt;
+         &lt;rect&gt;
+          &lt;x&gt;40&lt;/x&gt;
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/mainwindow.cpp	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -18,6 +18,7 @@
+ int nwave;                            //Length of Tx waveform
+ bool btxok;                           //True if OK to transmit
+ bool bTune;
++bool bIQxt;
+ double outputLatency;                 //Latency in seconds
+ int txPower;
+ int iqAmp;
+@@ -1515,6 +1516,7 @@
+   }
+ 
+   if(nsec != m_sec0) {                                     //Once per second
++//    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase;
+     soundInThread.setForceCenterFreqMHz(g_pWideGraph-&gt;m_dForceCenterFreq);
+     soundInThread.setForceCenterFreqBool(g_pWideGraph-&gt;m_bForceCenterFreq);
+ 
+@@ -1578,6 +1580,7 @@
+   }
+   iptt0=iptt;
+   btxok0=btxok;
++  bIQxt=m_bIQxt;
+ }
+ 
+ void MainWindow::ba2msg(QByteArray ba, char message[])             //ba2msg()
+@@ -2121,5 +2124,6 @@
+   }
+   g_pTxTune-&gt;set_iqAmp(iqAmp);
+   g_pTxTune-&gt;set_iqPhase(iqPhase);
++  g_pTxTune-&gt;set_txPower(txPower);
+   g_pTxTune-&gt;show();
+ }
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/soundout.cpp	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -12,12 +12,12 @@
+ extern int nwave;
+ extern bool btxok;
+ extern bool bTune;
++extern bool bIQxt;
+ extern int iqAmp;
+ extern int iqPhase;
+ extern int txPower;
+ extern double outputLatency;
+ 
+-
+ typedef struct   //Parameters sent to or received from callback function
+ {
+   int nTRperiod;
+@@ -41,15 +41,18 @@
+   int nsec;
+   int nTRperiod=udata-&gt;nTRperiod;
+ 
+-
+   // Get System time
+   qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+   tsec = 0.001*ms;
+   nsec = ms/1000;
++  qreal dPhase=iqPhase/5729.57795131;
++  qreal amp=1.0 + 0.0001*iqAmp;
++  qreal xAmp=txPower*295.00*qSqrt(2.0 - amp*amp);
++  qreal yAmp=txPower*295.00*amp;
+ 
+   static int nsec0=0;
+   if(nsec!=nsec0) {
+-    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase &lt;&lt; bTune;
++//    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase &lt;&lt; amp &lt;&lt; xAmp &lt;&lt; yAmp &lt;&lt; dPhase &lt;&lt; bTune;
+     nsec0=nsec;
+   }
+ 
+@@ -76,6 +79,15 @@
+         short int i2b=iwave[ic++];
+       if(ic &gt; nwave) {i2a=0; i2b=0;}
+ //      i2 = 500.0*(i2/32767.0 + 5.0*gran());      //Add noise (tests only!)
++//    if(bIQxt) {
++      if(1) {
++        qreal phi=qAtan2(qreal(i2a),qreal(i2b)) + dPhase;
++        i2a=xAmp*qCos(phi);
++        i2b=yAmp*qSin(phi);
++//        qDebug() &lt;&lt; xAmp &lt;&lt; yAmp &lt;&lt; phi &lt;&lt; i2a &lt;&lt; i2b;
++      }
++//      i2a=0.01*txPower*i2a;
++//      i2b=0.01*txPower*i2b;
+       *wptr++ = i2a;                     //left
+       *wptr++ = i2b;                     //right
+     }
+
+Modified: branches/map65/txtune.cpp
+===================================================================
+--- branches/map65/txtune.cpp	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/txtune.cpp	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -19,9 +19,25 @@
+     delete ui;
+ }
+ 
++void TxTune::accept()
++{
++  QDialog::accept();
++}
++
++void TxTune::reject()
++{
++  set_iqAmp(m_saveAmp);
++  set_iqPhase(m_savePha);
++  set_txPower(m_saveTxPower);
++  QDialog::reject();
++}
++
+ void TxTune::on_pwrSlider_valueChanged(int n)
+ {
+-  txPower=0.01*n;
++  txPower=n;
++  QString t;
++  t.sprintf(&quot;%d \%&quot;,n);
++  ui-&gt;labPower-&gt;setText(t);
+ }
+ 
+ void TxTune::on_ampSlider_valueChanged(int n)
+@@ -61,6 +77,7 @@
+ 
+ void TxTune::set_iqAmp(int n)
+ {
++  m_saveAmp=n;
+   m_iqAmp1=n/10;
+   m_iqAmp2=n%10;
+   ui-&gt;ampSlider-&gt;setValue(m_iqAmp1);
+@@ -69,12 +86,19 @@
+ 
+ void TxTune::set_iqPhase(int n)
+ {
++  m_savePha=n;
+   m_iqPha1=n/10;
+   m_iqPha2=n%10;
+   ui-&gt;phaSlider-&gt;setValue(m_iqPha1);
+   ui-&gt;finePhaSlider-&gt;setValue(m_iqPha2);
+ }
+ 
++void TxTune::set_txPower(int n)
++{
++  m_saveTxPower=n;
++  ui-&gt;pwrSlider-&gt;setValue(n);
++}
++
+ void TxTune::on_cbTxImage_toggled(bool b)
+ {
+   ui-&gt;ampSlider-&gt;setEnabled(b);
+
+Modified: branches/map65/txtune.h
+===================================================================
+--- branches/map65/txtune.h	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/txtune.h	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -15,6 +15,10 @@
+     explicit TxTune(QWidget *parent = 0);
+     ~TxTune();
+     
++public slots:
++  void accept();
++  void reject();
++
+ private slots:
+   void on_pwrSlider_valueChanged(int n);
+   void on_ampSlider_valueChanged(int n);
+@@ -27,12 +31,17 @@
+ public:
+   void set_iqAmp(int n);
+   void set_iqPhase(int n);
++  void set_txPower(int n);
+ 
+ private:
+   qint32  m_iqAmp1;
+   qint32  m_iqAmp2;
+   qint32  m_iqPha1;
+   qint32  m_iqPha2;
++  qint32  m_saveAmp;
++  qint32  m_savePha;
++  qint32  m_saveTxPower;
++
+   Ui::TxTune *ui;
+ };
+ 
+
+Modified: branches/map65/txtune.ui
+===================================================================
+--- branches/map65/txtune.ui	2014-01-16 01:46:10 UTC (rev 3639)
++++ branches/map65/txtune.ui	2014-01-16 18:47:28 UTC (rev 3640)
+@@ -74,13 +74,6 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
+-    &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
+-     &lt;widget class=&quot;QPushButton&quot; name=&quot;pbTune&quot;&gt;
+-      &lt;property name=&quot;text&quot;&gt;
+-       &lt;string&gt;Tune&lt;/string&gt;
+-      &lt;/property&gt;
+-     &lt;/widget&gt;
+-    &lt;/item&gt;
+     &lt;item row=&quot;1&quot; column=&quot;0&quot; colspan=&quot;2&quot;&gt;
+      &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbTxImage&quot;&gt;
+       &lt;property name=&quot;text&quot;&gt;
+@@ -251,6 +244,23 @@
+       &lt;/property&gt;
+      &lt;/widget&gt;
+     &lt;/item&gt;
++    &lt;item row=&quot;1&quot; column=&quot;2&quot;&gt;
++     &lt;widget class=&quot;QPushButton&quot; name=&quot;pbTune&quot;&gt;
++      &lt;property name=&quot;text&quot;&gt;
++       &lt;string&gt;Tune&lt;/string&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
++    &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
++     &lt;widget class=&quot;QLabel&quot; name=&quot;labPower&quot;&gt;
++      &lt;property name=&quot;text&quot;&gt;
++       &lt;string&gt;100 %&lt;/string&gt;
++      &lt;/property&gt;
++      &lt;property name=&quot;alignment&quot;&gt;
++       &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++      &lt;/property&gt;
++     &lt;/widget&gt;
++    &lt;/item&gt;
+    &lt;/layout&gt;
+   &lt;/widget&gt;
+  &lt;/widget&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003335.html">[WSJT-SVN] r3639 - trunk
+</A></li>
+	<LI>Next message: <A HREF="003337.html">[WSJT-SVN] r3641 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3336">[ date ]</a>
+              <a href="thread.html#3336">[ thread ]</a>
+              <a href="subject.html#3336">[ subject ]</a>
+              <a href="author.html#3336">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

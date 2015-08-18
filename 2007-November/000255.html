@@ -1,0 +1,274 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r570 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r570%20-%20branches/map65&In-Reply-To=%3C200711011903.lA1J39jb018136%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r570 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r570%20-%20branches/map65&In-Reply-To=%3C200711011903.lA1J39jb018136%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r570 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  1 20:03:09 CET 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000256.html">[WSJT-SVN] r571 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#255">[ date ]</a>
+              <a href="thread.html#255">[ thread ]</a>
+              <a href="subject.html#255">[ subject ]</a>
+              <a href="author.html#255">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-11-01 20:03:01 +0100 (Thu, 01 Nov 2007)
+New Revision: 570
+
+Modified:
+   branches/map65/decode1.F90
+   branches/map65/ftn_init.F90
+   branches/map65/map65.py
+   branches/map65/recvpkt.F90
+   branches/map65/symspec.f90
+Log:
+Enhanced diagnostics with ndebug=2.
+Possible fix for occasional Rx blackouts.  Extensive tests needed!
+
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-10-31 17:50:41 UTC (rev 569)
++++ branches/map65/decode1.F90	2007-11-01 19:03:01 UTC (rev 570)
+@@ -15,7 +15,7 @@
+   include 'gcom2.f90'
+   include 'gcom3.f90'
+   include 'gcom4.f90'
+-  data kbuf0/0/
++  data kbuf0/0/,ns00/-999/
+   data sending0/'                      '/
+   save
+ 
+@@ -33,12 +33,24 @@
+      newdat=1
+   endif
+ 
+-  if(kbuf.ne.kbuf0) kkdone=0
++  if(kbuf.ne.kbuf0) then
++     kkdone=0
++     rewind 29
++  endif
+   kbuf0=kbuf
+   kkk=kk
+   if(kbuf.eq.2) kkk=kk-5760000
+-  if((ndiskdat.eq.1 .or. ndecoding.eq.0) .and. ((kkk-kkdone).gt.32768))  &amp;
+-       call symspec(id,kbuf,kk,kkdone,nutc,newdat)
++  n=Tsec
++  if(n.ne.ns00) then
++     write(29,3101) nutc,mod(n,60),ndiskdat,ndecoding,kbuf,  &amp;
++          newdat,kk,kkdone
++3101 format('d1:',i5.4,i3.2,4i5,2i10)
++     ns00=n
++  endif
++  if((ndiskdat.eq.1 .or. ndecoding.eq.0) .and. ((kkk-kkdone).gt.32768)) then
++     call symspec(id,kbuf,kk,kkdone,nutc,newdat)
++     call sleep_msec(10)
++  endif
+ 
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
+@@ -51,7 +63,6 @@
+      rewind 21
+      ns0=999999
+   endif
+-  n=Tsec
+   if(n.lt.ns0 .and. utcdate(1:1).eq.'2') then
+      write(21,1001) utcdate(:11)
+ 1001 format(/'UTC Date: ',a11/'---------------------')
+@@ -72,7 +83,7 @@
+      mode0=mode
+   endif
+ 
+-  call sleep_msec(1000)                  !### was 100
++  call sleep_msec(100)                  !### was 100
+   go to 10
+ 
+ end subroutine decode1
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-10-31 17:50:41 UTC (rev 569)
++++ branches/map65/ftn_init.F90	2007-11-01 19:03:01 UTC (rev 570)
+@@ -16,9 +16,10 @@
+ !   23  CALL3.TXT
+ !   24  meas24.dat
+ !   25  meas25.dat
+-!   26  tmp26.tmp
++!   26  tmp26.txt
+ !   27  dphi.txt
+ !   28  saved *.tf2 files
++!   29  tmp29.txt
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+ 
+@@ -145,6 +146,14 @@
+   open(27,file=appdir(:iz)//'/dphi.txt',status='unknown')
+ #endif
+ 
++#ifdef Win32
++  open(29,file=appdir(:iz)//'/tmp29.txt',status='unknown',                 &amp;
++       share='denynone')
++#else
++  open(29,file=appdir(:iz)//'/tmp29.txt',status='unknown')
++#endif
++
++
+   return
+ 
+ 910 print*,'Error opening DECODED.TXT'
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-10-31 17:50:41 UTC (rev 569)
++++ branches/map65/map65.py	2007-11-01 19:03:01 UTC (rev 570)
+@@ -62,6 +62,7 @@
+ hisgrid=&quot;&quot;
+ hisgrid0=&quot;&quot;
+ isec0=-99
++isec00=-99
+ k2txb=IntVar()
+ kb8rq=IntVar()
+ kxp0=0
+@@ -955,12 +956,12 @@
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen,kxp0, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+-           bm_geom,bm2_geom,hisgrid0,fqso0
++           bm_geom,bm2_geom,hisgrid0,fqso0,isec00
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+     isec=utc[5]
+     txminute=0
+-    if Audio.gcom2.lauto and utc[4]%2 == Audio.gcom1.txfirst: txminute=1
++    if Audio.gcom2.lauto and utc[4]%2 != Audio.gcom1.txfirst: txminute=1
+ 
+     if isec != isec0:                           #Do once per second
+         isec0=isec
+@@ -976,7 +977,7 @@
+             bm_geom=bm.geometry()
+             bm2_geom=bm2.geometry()
+         except:
+-            pass
++            pass        
+         utchours=utc[3]+utc[4]/60.0 + utc[5]/3600.0
+         naz,nel,ndmiles,ndkm,nhotaz,nhotabetter=Audio.azdist0( \
+             options.MyGrid.get().upper(),HisGrid.get().upper(),utchours)
+@@ -1065,8 +1066,16 @@
+         Audio.gcom2.dftolerance=500
+         fqso0=int(Audio.gcom2.mousefqso)
+ 
++#    if mode.get()[:4]=='JT65' and (Audio.gcom2.ndecoding&gt;0 or \
++#         (isec&gt;45 and  txminute==0 and Audio.gcom2.monitoring==1 and \
++#    if isec != isec00:
++#        print isec,Audio.gcom2.ndecoding,txminute,Audio.gcom2.monitoring, \
++#            Audio.datcom.kkdone
++#        isec00=isec
++
+     if mode.get()[:4]=='JT65' and (Audio.gcom2.ndecoding&gt;0 or \
+-         (isec&gt;45 and  txminute==0 and Audio.gcom2.monitoring==1 and \
++         (isec&gt;=options.nt1.get() and txminute==0 and \
++          Audio.gcom2.monitoring==1 and \
+           Audio.datcom.kkdone!=-99 and Audio.gcom2.ndiskdat!=1)):
+ #Set button bg while decoding
+         bc='#66FFFF'
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-10-31 17:50:41 UTC (rev 569)
++++ branches/map65/recvpkt.F90	2007-11-01 19:03:01 UTC (rev 570)
+@@ -119,14 +119,16 @@
+         kk=k
+         ndiskdat=0
+         ndone1=1
+-        if(ndebug.eq.2) write(*,3001) nutc,mod(int(sec_midn()),60),ns
+-3001    format('recvpkt 1:',i5.4,2i3.2)
++        if(ndebug.eq.2) write(*,3001) nutc,mod(int(sec_midn()),60),ns,  &amp;
++             kbuf,kk
++3001    format('r1:',i5.4,2i3.2,2i10)
+      endif
+      if(ns.ge.nt2 .and. ndone2.eq.0) then
+         kk=k
+         ndone2=1
+-        if(ndebug.eq.2) write(*,3002) nutc,mod(int(sec_midn()),60),ns
+-3002    format('recvpkt 2:',i5.4,2i3.2)
++        if(ndebug.eq.2) write(*,3002) nutc,mod(int(sec_midn()),60),ns,  &amp;
++             kbuf,kk
++3002    format('r2:',i5.4,2i3.2,2i10)
+         nlost=lost_tot                         ! Save stats for printout
+      endif
+   endif
+
+Modified: branches/map65/symspec.f90
+===================================================================
+--- branches/map65/symspec.f90	2007-10-31 17:50:41 UTC (rev 569)
++++ branches/map65/symspec.f90	2007-11-01 19:03:01 UTC (rev 570)
+@@ -18,8 +18,9 @@
+ !       kbuf,kk,kkk,kkdone
+ !4001 format(a1,i5.4,2i3,3i9,i5)
+ 
+-  if(ndebug.eq.2) write(*,3001) nutc,mod(int(sec_midn()),60)
+-3001 format('symspec 1:',i5.4,i3.2)
++  if(ndebug.eq.2) write(*,3001) nutc,mod(int(sec_midn()),60),n,  &amp;
++       newdat,ndecoding,kbuf,kk,kkdone
++3001 format('s1:',i5.4,i3.2,4i5,2i10)
+   fac=0.0002
+   if(nagc.ne.0) fac=0.0002 * 10.0**(0.05*(-rxnoise))
+   hsym=2048.d0*96000.d0/11025.d0          !Samples per half symbol
+@@ -119,7 +120,8 @@
+ 999 continue
+ !  if(ndebug.gt.0) write(*,4001) 'B',nutc,mod(int(sec_midn()),60),  &amp;
+ !       kbuf,kk,kkk,kkdone,n
+-  if(ndebug.eq.2) write(*,3002) mod(int(sec_midn()),60),n
+-3002 format('symspec 2:',i8.2,i5)
++  if(ndebug.eq.2) write(*,3002) mod(int(sec_midn()),60),n,   &amp;
++       newdat,ndecoding,kbuf,kk,kkdone
++3002 format('s2:',i8.2,4i5,2i10)
+   return
+ end subroutine symspec
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000256.html">[WSJT-SVN] r571 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#255">[ date ]</a>
+              <a href="thread.html#255">[ thread ]</a>
+              <a href="subject.html#255">[ subject ]</a>
+              <a href="author.html#255">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3492 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3492%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130717191336.C03DB55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003183.html">
+   <LINK REL="Next"  HREF="003185.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3492 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3492%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20130717191336.C03DB55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3492 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jul 17 21:13:36 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003183.html">[WSJT-SVN] r3491 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="003185.html">[WSJT-SVN] r3493 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3184">[ date ]</a>
+              <a href="thread.html#3184">[ thread ]</a>
+              <a href="subject.html#3184">[ subject ]</a>
+              <a href="author.html#3184">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-07-17 21:13:36 +0200 (Wed, 17 Jul 2013)
+New Revision: 3492
+
+Modified:
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/extract.F90
+   branches/wsjtx/lib/jt65a.f90
+   branches/wsjtx/lib/symspec2.f90
+   branches/wsjtx/mainwindow.cpp
+Log:
+Further optimizations of the decoders, and some code cleanup.
+
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2013-07-17 14:18:18 UTC (rev 3491)
++++ branches/wsjtx/lib/decoder.f90	2013-07-17 19:13:36 UTC (rev 3492)
+@@ -73,14 +73,13 @@
+         limit=10000
+         ccflim=3.5
+      endif
+-     if(ndepth.ge.3) then
++     if(ndepth.ge.3 .or. nqd.eq.1) then
+         limit=100000
+         ccflim=2.5
+      endif
+      ccfok=.false.
+ 
+      if(nqd.eq.1) then
+-        limit=100000
+         nfa1=nfqso-ntol
+         nfb1=nfqso+ntol
+         ia=max(1,nint((nfa1-nf0)/df3))
+
+Modified: branches/wsjtx/lib/extract.F90
+===================================================================
+--- branches/wsjtx/lib/extract.F90	2013-07-17 14:18:18 UTC (rev 3491)
++++ branches/wsjtx/lib/extract.F90	2013-07-17 19:13:36 UTC (rev 3492)
+@@ -64,7 +64,8 @@
+   if(nokv) go to 900
+ 
+   maxe=8                             !Max KV errors in 12 most reliable symbols
+-  xlambda=10.0
++!  xlambda=12.0
++  xlambda=7.99
+   call graycode65(mr2sym,63,-1)
+   call interleave63(mr2sym,-1)
+   call interleave63(mr2prob,-1)
+
+Modified: branches/wsjtx/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx/lib/jt65a.f90	2013-07-17 14:18:18 UTC (rev 3491)
++++ branches/wsjtx/lib/jt65a.f90	2013-07-17 19:13:36 UTC (rev 3492)
+@@ -39,39 +39,27 @@
+      thresh0=1.5
+ 
+      do i=ia,ib                               !Search over freq range
+-        if(savg(i).lt.thresh0 .or. done(i)) cycle
+         freq=i*df
++        if(savg(i).lt.thresh0 .or. done(i)) cycle
+ 
+         call timer('ccf65   ',0)
+         call ccf65(ss(1,i),nhsym,savg(i),sync1,dt,flipk,syncshort,snr2,dt2)
+         call timer('ccf65   ',1)
+ 
+-! ########################### Search for Shorthand Messages #################
+-!  include 'shorthand1.f90'
+-
+-! ########################### Search for Normal Messages ###########
++        ftest=abs(freq-freq0)
+         thresh1=1.0
+-!  Use lower thresh1 at fQSO
+         if(nqd.eq.1 .and. ntol.le.100) thresh1=0.
++        if(sync1.lt.thresh1 .or. ftest.lt.ftol) cycle
+ 
+-!  Is sync1 above threshold?
+-        if(sync1.lt.thresh1) cycle
+-
+-!  Keep only the best candidate within ftol.
+-        if(freq-freq0.lt.ftol) cycle
+-
+         nflip=nint(flipk)
+         call timer('decod65a',0)
+         call decode65a(dd,npts,newdat,freq,nflip,mode65,sync2,a,dt,   &amp;
+              nbmkv,nhist,decoded)
+         call timer('decod65a',1)
+ 
+-!        write(71,3001) ia,ib,i,nfqso,freq0,freq,freq+a(1),decoded
+-!3001    format(4i6,3f10.3,2x,a22)
+-!        call flush(71)
++        ftest=abs(freq+a(1)-freq0)
++        if(ftest.lt.ftol) cycle
+ 
+-        if(freq+a(1)-freq0.lt.ftol) cycle
+-
+         if(decoded.ne.'                      ') then
+            ndecoded=1
+            nfreq=nint(freq+a(1))
+
+Modified: branches/wsjtx/lib/symspec2.f90
+===================================================================
+--- branches/wsjtx/lib/symspec2.f90	2013-07-17 14:18:18 UTC (rev 3491)
++++ branches/wsjtx/lib/symspec2.f90	2013-07-17 19:13:36 UTC (rev 3492)
+@@ -10,6 +10,7 @@
+   real ss2(0:8,85)
+   real ss3(0:7,69)
+   include 'jt9sync.f90'
++  data scale/10.0/
+ 
+   aa(1)=-1500.0/nsps8
+   aa(2)=0.
+@@ -32,12 +33,9 @@
+      enddo
+   enddo
+ 
+-!###
+-!  write(30) freq,drift,ss2
+-!  call flush(30)
+   call chkss2(ss2,freq,drift,schk)
+   if(schk.lt.2.0) go to 900
+-!###
++
+   ss=0.
+   sig=0.
+   do j=1,69
+@@ -77,7 +75,7 @@
+         endif
+ 
+         k=k+1
+-        i4=nint(10.0*(r1-r0))
++        i4=nint(scale*(r1-r0))
+         if(i4.lt.-127) i4=-127
+         if(i4.gt.127) i4=127
+         i4=i4+128
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-07-17 14:18:18 UTC (rev 3491)
++++ branches/wsjtx/mainwindow.cpp	2013-07-17 19:13:36 UTC (rev 3492)
+@@ -1,4 +1,4 @@
+-//--------------------------------------------------------------- MainWindow
++//-------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003183.html">[WSJT-SVN] r3491 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="003185.html">[WSJT-SVN] r3493 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3184">[ date ]</a>
+              <a href="thread.html#3184">[ thread ]</a>
+              <a href="subject.html#3184">[ subject ]</a>
+              <a href="author.html#3184">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

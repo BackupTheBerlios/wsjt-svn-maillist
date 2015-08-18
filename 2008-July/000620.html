@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r931 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r931%20-%20trunk&In-Reply-To=%3C200807110030.m6B0Uivb012303%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000619.html">
+   <LINK REL="Next"  HREF="000621.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r931 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r931%20-%20trunk&In-Reply-To=%3C200807110030.m6B0Uivb012303%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r931 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 11 02:30:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000619.html">[WSJT-SVN] r930 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000621.html">[WSJT-SVN] r932 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#620">[ date ]</a>
+              <a href="thread.html#620">[ thread ]</a>
+              <a href="subject.html#620">[ subject ]</a>
+              <a href="author.html#620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-11 02:30:40 +0200 (Fri, 11 Jul 2008)
+New Revision: 931
+
+Modified:
+   trunk/Makefile.MinGW
+   trunk/filbig2.F
+   trunk/get_fname.F90
+Log:
+Mods to filbig2.f -- now working with FFTW in Windows/MinGW.
+Some tweaks to get_fname.  
+NB: UTC date is wrong for part of the day; should pass mo, day, year 
+from Python?
+
+
+Modified: trunk/Makefile.MinGW
+===================================================================
+--- trunk/Makefile.MinGW	2008-07-10 20:42:04 UTC (rev 930)
++++ trunk/Makefile.MinGW	2008-07-11 00:30:40 UTC (rev 931)
+@@ -56,11 +56,11 @@
+ 
+ 
+ SRCS2C   = resample.c ptt.c igray.c wrapkarn.c start_portaudio.c cutil.c
+-WSJT7.EXE: Audio.pyd wsjt.spec
++WSJT7.EXE: WsjtMod/Audio.pyd wsjt.spec
+ 	c:/python25/python c:/python25/pyinstaller-1.3/Build.py wsjt.spec
+ 	mv wsjt.exe WSJT7.EXE
+ 
+-Audio.pyd: $(OBJS2C) $(SRCS2F90) $(SRCS2F77) $(SRCS2C) 
++WsjtMod/Audio.pyd: $(OBJS2C) $(SRCS2F90) $(SRCS2F77) $(SRCS2C) 
+ 	c:/python25/python c:/python25/scripts/f2py.py -c -I. \
+ 	--quiet --fcompiler=g95 \
+ 	--opt=&quot;-fbounds-check -ftrace=full -O2 -cpp -DUSE_PORTAUDIO&quot; \
+
+Modified: trunk/filbig2.F
+===================================================================
+--- trunk/filbig2.F	2008-07-10 20:42:04 UTC (rev 930)
++++ trunk/filbig2.F	2008-07-11 00:30:40 UTC (rev 931)
+@@ -1,23 +1,25 @@
+       subroutine filbig2(dat,nmax,f0,newdat,c4a,n4)
+ 
+-C  Filter and downsample complex data for X and Y polarizations,
+-C  stored in array dat(nmax).  Output is downsampled from 11025 or
+-C  12000 Hz to 375 Hz, and the low-pass filter has f_cutoff = 100 Hz, 
+-C  f_stop = 187.5 Hz, ripple=0.1 dB, Atten=50 dB.
++C  Filter and downsample real data for one polarization, stored
++C  in array dat(nmax).  Output is downsampled from 11025 (or 12000?) Hz
++C  to 375 Hz; the low-pass filter has f_cutoff = 100 Hz, f_stop = 187.5 Hz, 
++C  ripple=0.1 dB, Atten=50 dB.
+ 
+       parameter (NFFT1=1323000,NFFT2=45000)
+       real dat(nmax)                             !Input data
+       complex ca(NFFT1)                          !FFTs of input
+       complex c4a(NFFT2)                         !Output data
++      complex c4(NFFT2)
+       real*8 df
+ C Impulse response of filter (one side)
+       real halfpulse(4)
+ !Filter (complex; imag = 0)
+       complex cfilt(NFFT2)                       
+       real rfilt(NFFT2)                          !Filter (real)
+-      real*8 plan1,plan3,plan5
++      integer plan1,plan3,plan5
+       logical first
+       include 'fftw3.f'
++      common/filcom/ca,c4
+       equivalence (rfilt,cfilt)
+       data first/.true./
+       data halfpulse/0.758314821007,0.205883390004,-0.123207383552,
+@@ -32,14 +34,14 @@
+ #ifdef CVF
+          call sfftw_plan_dft_1d_(plan1,NFFT1,ca,ca,
+      +        FFTW_FORWARD,npatience)                      !BACK
+-         call sfftw_plan_dft_1d_(plan3,NFFT2,c4a,c4a,
++         call sfftw_plan_dft_1d_(plan3,NFFT2,c4,c4,
+      +        FFTW_BACKWARD,npatience)                     !FOR
+          call sfftw_plan_dft_1d_(plan5,NFFT2,cfilt,cfilt,
+      +        FFTW_FORWARD,npatience)                      !BACK
+ #else
+          call sfftw_plan_dft_1d(plan1,NFFT1,ca,ca,
+      +        FFTW_FORWARD,npatience)                      !BACK
+-         call sfftw_plan_dft_1d(plan3,NFFT2,c4a,c4a,
++         call sfftw_plan_dft_1d(plan3,NFFT2,c4,c4,
+      +        FFTW_BACKWARD,npatience)                     !FOR
+          call sfftw_plan_dft_1d(plan5,NFFT2,cfilt,cfilt,
+      +        FFTW_FORWARD,npatience)                      !BACK
+@@ -70,7 +72,7 @@
+       endif
+ 
+ C  When new data comes along, we need to compute a new &quot;big FFT&quot;
+-C  If we just have a new f0, continue with the existing ca and cb.
++C  If we just have a new f0, continue with the existing ca.
+ 
+       if(newdat.ne.0) then
+          nz=min(nmax,NFFT1)
+@@ -95,14 +97,14 @@
+ 
+       i0=nint(f0/df) + 1
+       nh=NFFT2/2
+-      do i=1,nh                                !Copy data into c4a and c4b,
+-         j=i0+i-1                              !and apply the filter function
+-         c4a(i)=rfilt(i)*ca(j)
++      do i=1,nh                                !Copy data into c4 and
++         j=i0+i-1                              !apply the filter function
++         c4(i)=rfilt(i)*ca(j)
+       enddo
+       do i=nh+1,NFFT2
+          j=i0+i-1-NFFT2
+          if(j.lt.1) j=j+NFFT1                  !### $$$ ###
+-         c4a(i)=rfilt(i)*ca(j)
++         c4(i)=rfilt(i)*ca(j)
+       enddo
+       n4=min(int(nmax*375.0/11025.0),NFFT2)
+ 
+@@ -113,6 +115,10 @@
+       call sfftw_execute(plan3)
+ #endif
+ 
++      do i=1,NFFT2                             !Copy data into c4a
++         c4a(i)=c4(i)
++      enddo
++
+       go to 999
+ 
+  900  if(plan1.ne.0) then
+
+Modified: trunk/get_fname.F90
+===================================================================
+--- trunk/get_fname.F90	2008-07-10 20:42:04 UTC (rev 930)
++++ trunk/get_fname.F90	2008-07-11 00:30:40 UTC (rev 931)
+@@ -10,10 +10,10 @@
+   integer trperiod
+   integer it(9),itt(8)
+ 
++#ifdef CVF
+   n1=ntime
+   n2=(n1+2)/trperiod
+-!  n3=n2*trperiod
+-#ifdef CVF
++  n3=n2*trperiod
+   call gmtime(n3,it)
+   it(5)=it(5)+1
+ #else
+@@ -29,6 +29,7 @@
+   it(1)=0
+ #endif
+   it(6)=mod(it(6),100)
++  if(trperiod.eq.120) it(2)=it(2)-1
+   write(fname,1000) (it(j),j=6,1,-1)
+ 1000 format('_',3i2.2,'_',3i2.2,'.WAV')
+   tag=hiscall(1:7) !XXX explicitly truncate this -db
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000619.html">[WSJT-SVN] r930 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000621.html">[WSJT-SVN] r932 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#620">[ date ]</a>
+              <a href="thread.html#620">[ thread ]</a>
+              <a href="subject.html#620">[ subject ]</a>
+              <a href="author.html#620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

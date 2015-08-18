@@ -1,0 +1,722 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2858 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2858%20-%20branches/wspr&In-Reply-To=%3C20121226212222.75C6755B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002549.html">
+   <LINK REL="Next"  HREF="002551.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2858 - branches/wspr</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2858%20-%20branches/wspr&In-Reply-To=%3C20121226212222.75C6755B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2858 - branches/wspr">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Dec 26 22:22:22 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002549.html">[WSJT-SVN] r2857 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002551.html">[WSJT-SVN] r2859 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2550">[ date ]</a>
+              <a href="thread.html#2550">[ thread ]</a>
+              <a href="subject.html#2550">[ subject ]</a>
+              <a href="author.html#2550">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-26 22:22:21 +0100 (Wed, 26 Dec 2012)
+New Revision: 2858
+
+Added:
+   branches/wspr/genmept.f90
+   branches/wspr/wspr0init.f90
+Removed:
+   branches/wspr/genmept.f
+Modified:
+   branches/wspr/wspr.py
+   branches/wspr/wspr0.f90
+   branches/wspr/wspr0_rx.f90
+   branches/wspr/wspr0_tx.f90
+Log:
+Working toward WSPR0 v2.0.  Presently generates and decodes *.wav files
+correctly in WSPR-2 mode.
+
+
+Deleted: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2012-12-25 15:49:27 UTC (rev 2857)
++++ branches/wspr/genmept.f	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -1,101 +0,0 @@
+-      subroutine genmept(message,ntxdf,snrdb,iwave)
+-
+-C  Encode a WSPR message and generate the corresponding wavefile.
+-
+-      character*22 message
+-      parameter (NMAX=120*12000)     !Max length of wave file
+-      integer*2 iwave(NMAX)          !Generated wave file
+-      parameter (MAXSYM=176)
+-      integer*1 symbol(MAXSYM)
+-      integer*1 data0(11),i1
+-      integer npr3(162)
+-      logical first
+-      real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
+-      equivalence(i1,i4)
+-      data npr3/
+-     + 1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+-     + 0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
+-     + 0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
+-     + 1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
+-     + 0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,
+-     + 0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
+-     + 0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
+-     + 0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
+-     + 0,0/
+-
+-      data first/.true./,idum/0/
+-      save
+-
+-      if(first) then
+-         pi=4.d0*atan(1.d0)
+-         twopi=2.d0*pi
+-         first=.false.
+-      endif
+-
+-      call wqencode(message,ntype,data0)
+-      nbytes=(50+31+7)/8
+-      call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+-      call inter_mept(symbol,1)                   !Apply interleaving
+-      do i=1,162
+-         i4=0
+-         i1=symbol(i)
+-      enddo
+-
+-C  Set up necessary constants
+-      tsymbol=8192.d0/12000.d0
+-      dt=1.d0/12000.d0
+-      f0=1500 + ntxdf
+-      dfgen=12000.d0/8192.d0                     !1.4649 Hz
+-      nsigs=1
+-      if(snrdb.eq.10.0) nsigs=10
+-      do isig=1,nsigs
+-         if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
+-         fac=3000.0
+-         if(snr.gt.1.0) fac=3000.0/snr
+-         if(nsigs.eq.10) then
+-            snr=10.0**(0.05*(-20-isig))
+-            f0=1390 + 20*isig
+-         endif
+-         t=-2.d0 - 0.1*(isig-1)
+-         phi=0.d0
+-         j0=0
+-
+-         do i=1,NMAX
+-            t=t+dt
+-            j=int(t/tsymbol) + 1                          !Symbol number
+-            sig=0.
+-            if(j.ge.1 .and. j.le.162) then
+-               if(j.ne.j0) then
+-                  f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
+-                  j0=j
+-                  if(snrdb.eq.11.0) then
+-                     k=npr3(j) + 2*symbol(j)
+-                     write(*,1000) j,k,f
+- 1000                format(i3,i3,f10.3)
+-                     go to 10
+-                  else
+-                     dphi=twopi*dt*f
+-                  endif
+-               endif
+-               sig=0.9999
+-            endif
+-            phi=phi+dphi
+-            if(snrdb.gt.50.0) then
+-               n=32767.0*sin(phi)           !Normal transmission, signal only
+-            else
+-               if(isig.eq.1) then
+-                  n=fac*(gran(idum) + sig*snr*sin(phi))
+-               else
+-                  n=iwave(i) + fac*sig*snr*sin(phi)
+-               endif
+-               if(n.gt.32767) n=32767
+-               if(n.lt.-32767) n=-32767
+-            endif
+-            iwave(i)=n
+- 10         continue
+-         enddo
+-      enddo
+-
+-      return
+-      end
+-
+
+Copied: branches/wspr/genmept.f90 (from rev 2853, branches/wspr/genmept.f)
+===================================================================
+--- branches/wspr/genmept.f90	                        (rev 0)
++++ branches/wspr/genmept.f90	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -0,0 +1,101 @@
++subroutine genmept(message,ntxdf,snrdb,iwave)
++
++! Encode a WSPR message and generate the corresponding wavefile.
++
++  character*22 message
++  parameter (NMAX=120*12000)     !Max length of wave file
++  integer*2 iwave(NMAX)          !Generated wave file
++  parameter (MAXSYM=176)
++  integer*1 symbol(MAXSYM)
++  integer*1 data0(11),i1
++  integer npr3(162)
++  logical first
++  real*8 t,dt,phi,f,f0,dfgen,dphi,pi,twopi,tsymbol
++  equivalence(i1,i4)
++  data npr3/                                    &amp;
++      1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,  &amp;
++      0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,  &amp;
++      0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,  &amp;
++      1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,  &amp;
++      0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,0,0,1,0,  &amp;
++      0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,  &amp;
++      0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,  &amp;
++      0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,  &amp;
++      0,0/
++
++  data first/.true./,idum/0/
++  save
++
++  if(first) then
++     pi=4.d0*atan(1.d0)
++     twopi=2.d0*pi
++     first=.false.
++  endif
++
++  call wqencode(message,ntype,data0)
++  nbytes=(50+31+7)/8
++  call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
++  call inter_mept(symbol,1)                   !Apply interleaving
++  do i=1,162
++     i4=0
++     i1=symbol(i)
++  enddo
++
++! Set up necessary constants
++  tsymbol=8192.d0/12000.d0
++  dt=1.d0/12000.d0
++  f0=1500 + ntxdf
++  dfgen=12000.d0/8192.d0                     !1.4649 Hz
++  nsigs=1
++  if(snrdb.eq.10.0) nsigs=10
++  do isig=1,nsigs
++     if(nsigs.eq.1) snr=10.0**(0.05*(snrdb-1))   !Bandwidth correction?
++     fac=3000.0
++     if(snr.gt.1.0) fac=3000.0/snr
++     if(nsigs.eq.10) then
++        snr=10.0**(0.05*(-20-isig))
++        f0=1390 + 20*isig
++     endif
++     t=-2.d0 - 0.1*(isig-1)
++     phi=0.d0
++     j0=0
++
++     do i=1,NMAX
++        t=t+dt
++        j=int(t/tsymbol) + 1                          !Symbol number
++        sig=0.
++        if(j.ge.1 .and. j.le.162) then
++           if(j.ne.j0) then
++              f=f0 + dfgen*(npr3(j)+2*symbol(j)-1.5)
++              j0=j
++              if(snrdb.eq.11.0) then
++                 k=npr3(j) + 2*symbol(j)
++                 write(*,1000) j,k,f
++1000             format(i3,i3,f10.3)
++                 go to 10
++              else
++                 dphi=twopi*dt*f
++              endif
++           endif
++           sig=0.9999
++        endif
++        phi=phi+dphi
++        if(snrdb.gt.50.0) then
++           n=32767.0*sin(phi)           !Normal transmission, signal only
++        else
++           if(isig.eq.1) then
++              n=fac*(gran(idum) + sig*snr*sin(phi))
++           else
++              n=iwave(i) + fac*sig*snr*sin(phi)
++           endif
++           if(n.gt.32767) n=32767
++           if(n.lt.-32767) n=-32767
++        endif
++        iwave(i)=n
++10      continue
++     enddo
++  enddo
++
++  return
++end subroutine genmept
++
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2012-12-25 15:49:27 UTC (rev 2857)
++++ branches/wspr/wspr.py	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -1,4 +1,4 @@
+-#----------------------------------------------------------------------- WSPR
++#---------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ # WSPR (pronounced &quot;whisper&quot;) stands for &quot;Weak Signal
+
+Modified: branches/wspr/wspr0.f90
+===================================================================
+--- branches/wspr/wspr0.f90	2012-12-25 15:49:27 UTC (rev 2857)
++++ branches/wspr/wspr0.f90	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -2,73 +2,38 @@
+ 
+ ! Command-line version of WSPR.
+ 
+-  character*12 arg
+   integer nt(9)
+   integer soundexit
+-  real*8 f0,tsec
++  real*8 f0,ftx,tsec
++  character*12 call12
++  character*6 grid6
++  character*80 outfile
+   character*11 utcdate
+   character*3 month(12)
+   data month/'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'/
+ 
+-  nargs=iargc()
+-10 if(nargs.eq.0) then
+-     print*,' '
+-     print*,'wspr0 -- version 1.0'
+-     print*,' '
+-     print*,'Usage: wspr0 Tx  f0 ftx nport call grid dBm [snr] [outfile | nfiles]'
+-     print*,'       wspr0 T/R f0 ftx nport call grid dBm pctx'
+-     print*,'       wspr0 Rx  f0 [infile ...]'
+-     print*,' '
+-     print*,'       f0 is the transceiver dial frequency (MHz)'
+-     print*,'       ftx is the signal frequency (MHz)'
+-     print*,'       nport is the COM port number for PTT control'
+-     print*,'       snr is the S/N in 2500 Hz bandwidth (for test files)'
+-     print*,'       pctx is the percentage of 2-minute periods to Tx'
+-     print*,' '
+-     print*,'Examples:'
+-     print*,'       wspr0 Tx  10.1387 10.140200 1 K1JT FN20 30'
+-     print*,'       wspr0 Tx  10.1387 10.140200 0 K1JT FN20 30 -22 test.wav'
+-     print*,'       wspr0 T/R 10.1387 10.140200 0 K1JT FN20 30 25'
+-     print*,'       wspr0 Rx  10.1387'
+-     print*,'       wspr0 Rx  10.1387 00001.wav 00002.wav 00003.wav'
+-     print*,' '
+-     print*,'For more information see:'
+-     print*,'       physics.princeton.edu/pulsar/K1JT/WSPR0_Instructions.TXT'
+-     go to 999
+-  endif
++  call wspr0init(ntrminutes,nrxtx,nport,nfiles,snrdb,pctx,f0,ftx,    &amp;
++       call12,grid6,ndbm,outfile)
++  print*,'A2',ntrminutes,nrxtx,nport,nfiles,snrdb,f0,ftx,call12,grid6,ndbm
+ 
+   ntr=0
+   nsec0=999999
+   open(14,file='ALL_WSPR0.TXT',status='unknown',access='append')
+   call soundinit
+-  call getarg(1,arg)
+-  if(arg(1:2).eq.'TX'.or. arg(1:2).eq.'Tx' .or. arg(1:2).eq.'tx') then
+-! Transmit only
+-     if(nargs.lt.7) then
+-        nargs=0
+-        go to 10
+-     endif
+-     call wspr0_tx(nargs,ntr)
+-  else if(arg(1:2).eq.'RX'.or. arg(1:2).eq.'Rx' .or. arg(1:2).eq.'rx') then
+-! Receive only
++
++  if(nrxtx.eq.1) then                            !Receive only
+         write(*,1026)
+ 1026    format(' UTC  dB   DT    Freq       Message'/54('-'))
+         write(14,1028)
+ 1028    format(' Date   UTC Sync dB   DT    Freq       Message'/50('-'))
+-     call wspr0_rx(nargs,ntr)
+-  else if(arg(1:3).eq.'T/R'.or. arg(1:3).eq.'t/r') then
+-! Transmit and receive, choosing sequences randomly
+-     if(nargs.ne.8) then
+-        nargs=0
+-        go to 10
+-     endif
++     call wspr0_rx(ntrminutes,nrxtx,nfiles,f0)
++
++  else if(nrxtx.eq.2) then                       !Transmit only
++     call wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,        &amp;
++          call12,grid6,ndbm,outfile,ntr)
++  else if(nrxtx.eq.3) then                       !Tx and Rx, choosen randomly
+      call random_seed
+      ntr=1
+-     call getarg(2,arg)
+-     read(arg,*) f0
+-     call getarg(8,arg)
+-     read(arg,*) pctx
+-     pctx=min(max(pctx,0.0),100.0)
+ 20   nsec=time()
+      call gmtime2(nt,tsec)
+      nsec=tsec
+@@ -83,17 +48,15 @@
+ 
+      call random_number(x)
+      if(100.0*x.lt.pctx) then
+-        call wspr0_tx(nargs,ntr)
++        call wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,      &amp;
++             call12,grid6,ndbm,outfile,ntr)
+      else
+-        call wspr0_rx(nargs,ntr)
++        call wspr0_rx(ntrminutes,f0,ntr)
+      endif
+      call msleep(100)
+      go to 20
+-  else
+-! Illegal set of command parameters
+-     nargs=0
+-     go to 10
+   endif
++
+   ierr=soundexit()
+ 
+-999 end program wspr0
++end program wspr0
+
+Modified: branches/wspr/wspr0_rx.f90
+===================================================================
+--- branches/wspr/wspr0_rx.f90	2012-12-25 15:49:27 UTC (rev 2857)
++++ branches/wspr/wspr0_rx.f90	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -1,18 +1,12 @@
+-subroutine wspr0_rx(nargs,ntr)
++subroutine wspr0_rx(ntrminutes,nrxtx,nfiles,f0)
+ 
+-!  Read Rx command-line args and the decode MEPT_JT signals from disk
+-!  or real-time data.
+-
+-!  use dfport
+-
+-  parameter (NMAX=120*12000)                          !Max length of waveform
++  parameter (NMAX=900*12000)                          !Max length of waveform
+   integer*2 iwave(NMAX)                               !Generated waveform
+   integer*1 i1
+   integer*1 hdr(44)
+   integer npr3(162)
+   integer soundin
+   real*8 f0
+-  character*20 arg
+   character*80 infile,appdir,thisfile
+   character*6 cfile6,cdate*8,utctime*10
+   equivalence(i1,i4)
+@@ -31,15 +25,14 @@
+   data nsec0/999999/
+   save
+ 
+-  call getarg(2,arg)
+-  read(arg,*) f0
+-  nfiles=0
+-  if(ntr.eq.0) nfiles=nargs-2
+-  npts=114*12000
++  nargs=iargc()
++  if(nrxtx.eq.1) ifile1=nargs-nfiles+1
++  npts=(60*ntrminutes-6)*12000
++  nz=60*ntrminutes*12000
+ 
+   if(nfiles.ge.1) then
+-     do ifile=1,nfiles
+-        call getarg(2+ifile,infile)
++     do ifile=ifile1,nargs
++        call getarg(ifile,infile)
+         open(10,file=infile,access='stream',status='old')
+         read(10) hdr
+         read(10) (iwave(i),i=1,npts)
+@@ -51,28 +44,27 @@
+            cfile6=infile(i0:i1-1)
+         endif
+         call getrms(iwave,npts,ave,rms)
+-        call mept162(infile,appdir,nappdir,f0,1,iwave,NMAX,nbfo,ierr)
++        call mept162(infile,appdir,nappdir,f0,1,iwave,nz,nbfo,ierr)
+      enddo
+   else
+ 20   nsec=time()
+      isec=mod(nsec,86400)
+-     ih=isec/3600
+-     im=(isec-ih*3600)/60
+-     is=mod(isec,60)
++!     ih=isec/3600
++!     im=(isec-ih*3600)/60
++!     is=mod(isec,60)
+      is120=mod(isec,120)
+      if(is120.eq.0) then
+         call getutc(cdate,utctime,tsec)
+         thisfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+         ierr=soundin(-1,12000,iwave,114*12000,0)
+-        npts=114*12000
++!        npts=114*12000
+         call getrms(iwave,npts,ave,rms)
+-        call mept162(thisfile,appdir,nappdir,f0,1,iwave,NMAX,nbfo,ierr)
+-        if(ntr.ne.0) go to 999
++        call mept162(thisfile,appdir,nappdir,f0,1,iwave,nz,nbfo,ierr)
++        if(nrxtx.ne.1) go to 999
+      endif
+-30   call msleep(100)
++     call msleep(100)
+      go to 20
+   endif
+       
+ 999 return
+ end subroutine wspr0_rx
+-
+
+Modified: branches/wspr/wspr0_tx.f90
+===================================================================
+--- branches/wspr/wspr0_tx.f90	2012-12-25 15:49:27 UTC (rev 2857)
++++ branches/wspr/wspr0_tx.f90	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -1,54 +1,34 @@
+-subroutine wspr0_tx(nargs,ntr)
++subroutine wspr0_tx(ntrminutes,nport,nfiles,snrdb,f0,ftx,      &amp;
++     call12,grid6,ndbm,outfile,ntr)
+ 
+ !  Read command-line arguments and generate Tx data for the MEPT_JT mode.
+ 
+-  parameter (NMAX=120*12000)
++  parameter (NMAX=900*12000)
+   real*8 f0,ftx
+-  character*70 arg
+-  character*12 call1
+-  character*4 grid
++  character*12 call12
++  character*6 grid6
+   character*3 cdbm
+   character*22 message
+   character*80 outfile
+   integer*2 iwave(NMAX)
+   integer ptt,soundout
+ 
+-  snrdb=99.
+-  outfile=''
+-  nfiles=9999
+-  call getarg(2,arg)
+-  read(arg,*) f0
+-  call getarg(3,arg)
+-  read(arg,*) ftx
+   ntxdf=nint(1.d6*(ftx-f0))-1500
+   if(abs(ntxdf).gt.100) then
+      print*,'Error: ftx must be above f0 by 1400 to 1600 Hz'
+      stop
+   endif
+-  call getarg(4,arg)
+-  read(arg,*) nport
+-  call getarg(5,call1)
+-  call getarg(6,grid)
+-  call getarg(7,arg)
+-  read(arg,*) ndbm
+-  if(nargs.lt.8 .or. ntr.ne.0) go to 10
+-  call getarg(8,arg)
+-  read(arg,*) snrdb
+-  if(nargs.lt.9) go to 10
+-  call getarg(9,outfile)
+-  read(outfile,1008,err=1) nfiles
+-1008  format(i4)
+-  outfile=&quot;&quot;
+-  go to 10
+-1 nfiles=1
+ 
+-10 i1=index(call1,' ')
++  i1=index(call12,' ')
+   write(cdbm,'(i3)'),ndbm
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+-  message=call1(1:i1)//grid//' '//cdbm
++
++! Should allow for compound callsign and/or 6-digit locator
++  message=call12(1:i1)//grid6(1:4)//' '//cdbm
++
+   do ifile=1,nfiles
+-     if(nfiles.gt.1 .and. nfiles.lt.9999) write(outfile,1010) ifile
++     if(nfiles.gt.1 .or. outfile(1:1).eq.' ') write(outfile,1010) ifile
+ 1010 format(i5.5,'.wav')
+      call genmept(message,ntxdf,snrdb,iwave)
+      if(snrdb.eq.11.0) go to 999
+@@ -61,7 +41,7 @@
+         isec=mod(nsec,86400)
+         ih=isec/3600
+         im=(isec-ih*3600)/60
+-        is=mod(isec,60)
++!        is=mod(isec,60)
+         is120=mod(isec,120)
+         if(is120.eq.0) then
+            if(nport.gt.0) ierr=ptt(nport,junk,1,iptt)
+
+Added: branches/wspr/wspr0init.f90
+===================================================================
+--- branches/wspr/wspr0init.f90	                        (rev 0)
++++ branches/wspr/wspr0init.f90	2012-12-26 21:22:21 UTC (rev 2858)
+@@ -0,0 +1,129 @@
++subroutine wspr0init(ntrminutes,nrxtx,nport,nfiles,snrdb,pctx,f0,ftx,   &amp;
++     call12,grid6,ndbm,outfile)
++
++  real*8 f0,ftx
++  character*12 arg
++  character*12 call12
++  character*6 grid6
++  character*80 outfile
++
++  nargs=iargc()
++  if(nargs.eq.0) then
++     print*,' '
++     print*,'wspr0 -- version 2.0'
++     print*,' '
++     print*,'Usage: wspr0 [options...] [files...]'
++     print*,' '
++     print*,'Options:'
++     print*,' '
++     print*,'Transmit/Receive status:'
++     print*,'       -t   Run in 100% Tx mode. (Default is Rx mode.)'
++     print*,'       -b   Pseudo-random selection of Rx and Tx cycles.'
++     print*,' '
++     print*,'Transmitted message:'
++     print*,'By default, the callsign, grid locator, and power level'
++     print*,'for the transmitted message are taken from file wspr0.def.'
++     print*,'These may be overridden by using options -c, -g, -d:'
++     print*,'       -c &lt;call&gt;'
++     print*,'       -g &lt;grid&gt;'
++     print*,'       -d &lt;dBm&gt;'
++     print*,' '
++     print*,'Frequencies:'
++     print*,'       -f x   Transceiver dial frequency is x'
++     print*,'       -F x   Center frequency of transmission is x'
++
++     print*,' '
++     print*,'       -m     Run in WSPR-15 mode (default is WSPR-2)'
++     print*,'       -n n   Number of files to be generated'
++     print*,'       -o outfile   Output filename, overrides default nnnnnn.'
++     print*,'       -p n   PTT port'
++     print*,'       -P n   Transmitting percent (default=25)'
++     print*,'       -s x   SNR of generated data, dB (default 100)'
++     print*,' '
++     print*,'Examples:'
++     print*,'       wspr0 -t                      #Transmit default message'
++     print*,'       wspr0 -t -s -22 -o test.wav   #Generate a test file'
++     print*,'       wspr0 -t -s -25 -n 3          #Generate three test files'
++     print*,'       wspr0 -b                      #Randomized T/R sequences'
++     print*,'       wspr0 -f 14.0956              #Rx only, on 20m'
++     print*,'       wspr0 00001.wav 00002.wav     #Decode two files'
++     print*,' '
++     print*,'For more information see:'
++     print*,'       physics.princeton.edu/pulsar/K1JT/WSPR0_Instructions.TXT'
++     stop
++  endif
++
++  nrxtx=1
++  ntrminutes=2
++  nfiles=9999
++  nport=2
++  snrdb=100.
++  call12='K1JT'
++  grid6='FN20qi'
++  ndbm=37
++  pctx=25.
++  outfile=&quot; &quot;
++  f0=10.1387
++  ftx=10.1402
++  mfiles=0
++  k=0
++
++  do n=1,99
++     k=k+1
++     call getarg(k,arg)
++     if(arg(1:2).eq.'-m') then
++        ntrminutes=15
++     else if(arg(1:2).eq.'-t') then
++        nrxtx=2
++     else if(arg(1:2).eq.'-b') then
++        nrxtx=3
++     else if(arg(1:2).eq.'-c') then
++        k=k+1
++        call getarg(k,call12)
++     else if(arg(1:2).eq.'-g') then
++        k=k+1
++        call getarg(k,grid6)
++     else if(arg(1:2).eq.'-d') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) ndbm
++     else if(arg(1:2).eq.'-f') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) f0
++     else if(arg(1:2).eq.'-F') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) ftx
++     else if(arg(1:2).eq.'-n') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) nfiles
++     else if(arg(1:2).eq.'-s') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) snrdb
++     else if(arg(1:2).eq.'-p') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) nport
++     else if(arg(1:2).eq.'-P') then
++        k=k+1
++        call getarg(k,arg)
++        read(arg,*) pctx
++        pctx=min(max(pctx,0.0),100.0)
++     else if(arg(1:2).eq.'-o') then
++        k=k+1
++        call getarg(k,outfile)
++     else
++        mfiles=mfiles+1
++     endif
++     if(k.ge.nargs) exit
++  enddo
++
++  if(outfile(1:1).ne.' ') nfiles=1
++  if(nrxtx.eq.1) nfiles=mfiles
++  
++  return
++end subroutine wspr0init
++
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002549.html">[WSJT-SVN] r2857 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002551.html">[WSJT-SVN] r2859 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2550">[ date ]</a>
+              <a href="thread.html#2550">[ thread ]</a>
+              <a href="subject.html#2550">[ subject ]</a>
+              <a href="author.html#2550">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

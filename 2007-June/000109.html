@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r424 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r424%20-%20branches/map65&In-Reply-To=%3C200706271625.l5RGPdGL002821%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000108.html">
+   <LINK REL="Next"  HREF="000110.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r424 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r424%20-%20branches/map65&In-Reply-To=%3C200706271625.l5RGPdGL002821%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r424 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 27 18:25:39 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000108.html">[WSJT-SVN] r423 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000110.html">[WSJT-SVN] r425 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#109">[ date ]</a>
+              <a href="thread.html#109">[ thread ]</a>
+              <a href="subject.html#109">[ subject ]</a>
+              <a href="author.html#109">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-27 18:25:32 +0200 (Wed, 27 Jun 2007)
+New Revision: 424
+
+Removed:
+   branches/map65/afc65.f
+   branches/map65/decode65.f
+Modified:
+   branches/map65/ccf2.f
+   branches/map65/deep65.F
+   branches/map65/map65.py
+Log:
+Extended DT search range.
+Tried to locate optimizing problem in deep65; used the kludge fix.
+
+
+Deleted: branches/map65/afc65.f
+===================================================================
+--- branches/map65/afc65.f	2007-06-27 02:28:25 UTC (rev 423)
++++ branches/map65/afc65.f	2007-06-27 16:25:32 UTC (rev 424)
+@@ -1,77 +0,0 @@
+-      subroutine afc65(s2,ipk,lagpk,flip,ftrack)
+-
+-      real s2(1024,320)
+-      real s(-10:10)
+-      real x(63),y(63),z(63)
+-      real ftrack(126)
+-      include 'prcom.h'
+-      data s/21*0.0/
+-
+-      k=0
+-      u=1.0
+-      u1=0.2
+-      fac=sqrt(1.0/u1)
+-      do j=1,126
+-         if(pr(j)*flip .lt. 0.0) go to 10
+-         k=k+1
+-         m=2*j-1+lagpk
+-         if(m.lt.1 .or. m.gt.320) go to 10
+-         smax=0.
+-         do i=-10,10
+-            s(i)=(1.0-u)*s(i) + u*s2(ipk+i,m)
+-            if(s(i).gt.smax) then
+-               smax=s(i)
+-               ipk2=i
+-            endif
+-         enddo
+-         u=u1
+-         dfx=0.0
+-         sig=100.0*fac*smax
+-         if(ipk2.gt.-10 .and. ipk2.lt.10 .and. (sig.gt.2.0)) 
+-     +      call peakup(s(ipk2-1),s(ipk2),s(ipk2+1),dfx)
+-         dfx=ipk2+dfx
+-         x(k)=j
+-         y(k)=dfx
+-         z(k)=sig
+-         if(z(k).lt.1.5 .or. abs(y(k)).gt.5.5) then
+-            y(k)=0.
+-            z(k)=0.
+-         endif
+- 10   enddo
+-
+-      zlim=5.0
+-      yfit=0.
+-      k=0
+-      do j=1,126
+-         if(pr(j)*flip .lt. 0.0) go to 30
+-         k=k+1
+-         sumy=0.
+-         sumz=0.
+-         if(k.ge.1) then
+-            sumz=z(k)
+-            sumy=sumy+z(k)*y(k)
+-         endif
+-         do n=1,30
+-            m=k-n
+-            if(m.ge.1)  then
+-               sumz=sumz+z(m)
+-               sumy=sumy+z(m)*y(m)
+-            endif
+-            m=k+n
+-            if(m.le.63) then
+-               sumz=sumz+z(m)
+-               sumy=sumy+z(m)*y(m)
+-            endif
+-            if(sumz.ge.zlim) go to 20
+-         enddo
+-         n=30
+- 20      yfit=0.
+-         if(sumz.gt.0.0) yfit=sumy/sumz
+-
+- 30      ftrack(j)=yfit*2.691650
+-      enddo
+-      if(ftrack(1).eq.99.0) ftrack(1)=ftrack(2)
+-
+-      return
+-      end
+-
+
+Modified: branches/map65/ccf2.f
+===================================================================
+--- branches/map65/ccf2.f	2007-06-27 02:28:25 UTC (rev 423)
++++ branches/map65/ccf2.f	2007-06-27 16:25:32 UTC (rev 424)
+@@ -1,7 +1,7 @@
+       subroutine ccf2(ss,nz,nflip,ccfbest,lagpk)
+ 
+ !      parameter (LAGMAX=20)
+-      parameter (LAGMAX=100)
++      parameter (LAGMAX=200)
+       real ss(nz)
+       real ccf(-LAGMAX:LAGMAX)
+       integer npr(126)
+
+Deleted: branches/map65/decode65.f
+===================================================================
+--- branches/map65/decode65.f	2007-06-27 02:28:25 UTC (rev 423)
++++ branches/map65/decode65.f	2007-06-27 16:25:32 UTC (rev 424)
+@@ -1,54 +0,0 @@
+-      subroutine decode65(dat,npts,dtx,dfx,flip,ndepth,neme,nsked,
+-     +  mycall,hiscall,hisgrid,mode65,nafc,decoded,ncount,
+-     +  deepmsg,qual)
+-
+-C  Decodes JT65 data, assuming that DT and DF have already been determined.
+-
+-      real dat(npts)                        !Raw data
+-      real s2(77,126)
+-      real s3(64,63)
+-      real ftrack(126)
+-      character decoded*22,deepmsg*22
+-      character mycall*12,hiscall*12,hisgrid*6
+-      include 'avecom.h'
+-      include 'prcom.h'
+-      save
+-
+-      dt=2.0/11025.0                   !Sample interval (2x downsampled data)
+-      istart=nint(dtx/dt)              !Start index for synced FFTs
+-      nsym=126
+-
+-C  Compute spectra of the channel symbols
+-      f0=1270.46 + dfx
+-      call spec2d65(dat,npts,nsym,flip,istart,f0,ftrack,nafc,mode65,s2)
+-
+-      do j=1,63
+-         k=mdat(j)                       !Points to data symbol
+-         if(flip.lt.0.0) k=mdat2(j)
+-         do i=1,64
+-            s3(i,j)=s2(i+7,k)
+-         enddo
+-      enddo
+-      nadd=mode65
+-
+-      call extract(s3,nadd,ncount,decoded)     !Extract the message
+-      qual=0.
+-      if(ndepth.ge.1) call deep65(s3,mode65,neme,
+-     +    nsked,flip,mycall,hiscall,hisgrid,deepmsg,qual)
+-      print*,ndepth,qual,deepmsg
+-
+-      if(ncount.lt.0) decoded='                      '
+-
+-C  Suppress &quot;birdie messages&quot;:
+-      if(decoded(1:7).eq.'000AAA ') decoded='                      '
+-      if(decoded(1:7).eq.'0L6MWK ') decoded='                      '
+-
+-C  Save symbol spectra for possible decoding of average.
+-      do j=1,63
+-         k=mdat(j)
+-         if(flip.lt.0.0) k=mdat2(j)
+-         call move(s2(8,k),ppsave(1,j,nsave),64)
+-      enddo
+-
+-      return
+-      end
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2007-06-27 02:28:25 UTC (rev 423)
++++ branches/map65/deep65.F	2007-06-27 16:25:32 UTC (rev 424)
+@@ -143,10 +143,13 @@
+          if(pp(i).gt.p2 .and. pp(i).ne.p1) p2=pp(i)
+       enddo
+ 
+-C  ### Find out why this needs to be here ### 
+-C  ### It's OK without it, in Linux, if compiled without optimization.
+-!      rewind 77
+-!      write(77,*) p1,p2
++C  ### DO NOT REMOVE ### 
++      rewind 77
++      write(77,*) p1,p2
++C  ### Works OK without it (in both Windows and Linux) if compiled 
++C  ### without optimization.  However, in Windows this is a colossal 
++C  ### pain because of the way McMillan Installer wants to run the 
++C  ### compile step.
+ 
+       if(mode65.eq.1) bias=max(1.12*p2,0.335)
+       if(mode65.eq.2) bias=max(1.08*p2,0.405)
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-06-27 02:28:25 UTC (rev 423)
++++ branches/map65/map65.py	2007-06-27 16:25:32 UTC (rev 424)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- MAP65
++#---------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000108.html">[WSJT-SVN] r423 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000110.html">[WSJT-SVN] r425 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#109">[ date ]</a>
+              <a href="thread.html#109">[ thread ]</a>
+              <a href="subject.html#109">[ subject ]</a>
+              <a href="author.html#109">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

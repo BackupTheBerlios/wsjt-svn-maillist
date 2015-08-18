@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3163 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3163%20-%20branches/wsjtx&In-Reply-To=%3C20130413122804.20CFF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002854.html">
+   <LINK REL="Next"  HREF="002856.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3163 - branches/wsjtx</H1>
+    <B>py2sdr at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3163%20-%20branches/wsjtx&In-Reply-To=%3C20130413122804.20CFF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3163 - branches/wsjtx">py2sdr at scm.berlios.de
+       </A><BR>
+    <I>Sat Apr 13 14:28:03 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002854.html">[WSJT-SVN] r3162 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002856.html">[WSJT-SVN] r3164 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2855">[ date ]</a>
+              <a href="thread.html#2855">[ thread ]</a>
+              <a href="subject.html#2855">[ subject ]</a>
+              <a href="author.html#2855">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: py2sdr
+Date: 2013-04-13 14:28:03 +0200 (Sat, 13 Apr 2013)
+New Revision: 3163
+
+Modified:
+   branches/wsjtx/main.cpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Moved initialization of shared memory segment to the main funcion in order to exit gracefully in case of errors.
+
+
+Modified: branches/wsjtx/main.cpp
+===================================================================
+--- branches/wsjtx/main.cpp	2013-04-13 01:53:24 UTC (rev 3162)
++++ branches/wsjtx/main.cpp	2013-04-13 12:28:03 UTC (rev 3163)
+@@ -2,6 +2,8 @@
+ #include &lt;QtGui/QApplication&gt;
+ #include &quot;mainwindow.h&quot;
+ 
++QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
++
+ int main(int argc, char *argv[])
+ {
+   QApplication a(argc, argv);
+@@ -18,7 +20,20 @@
+      a.setFont(font);
+   }
+ 
+-  MainWindow w;
++  // Create and initialize shared memory segment
++  if(!mem_jt9.attach()) {
++    if (!mem_jt9.create(sizeof(jt9com_))) {
++      QMessageBox::critical( 0, &quot;Error&quot;, &quot;Unable to create shared memory segment.&quot;);
++      exit(1);
++    }
++  }
++  char *to = (char*)mem_jt9.data();
++  int size=sizeof(jt9com_);
++  if(jt9com_.newdat==0) {
++  }
++  memset(to,0,size);         //Zero all decoding params in shared memory
++
++  MainWindow w(&amp;mem_jt9);
+   w.show();
+   return a.exec();
+ }
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-04-13 01:53:24 UTC (rev 3162)
++++ branches/wsjtx/mainwindow.cpp	2013-04-13 12:28:03 UTC (rev 3163)
+@@ -21,14 +21,13 @@
+            18.104,21.078,24.918,28.078,50.293,70.091,144.489,432.178};
+ 
+ WideGraph* g_pWideGraph = NULL;
+-QSharedMemory mem_jt9(&quot;mem_jt9&quot;);
+ 
+ QString rev=&quot;$Rev$&quot;;
+ QString Program_Title_Version=&quot;  WSJT-X   v0.9, r&quot; + rev.mid(6,4) +
+                               &quot;    by K1JT&quot;;
+ 
+ //-------------------------------------------------- MainWindow constructor
+-MainWindow::MainWindow(QWidget *parent) :
++MainWindow::MainWindow(QSharedMemory *shdmem, QWidget *parent) :
+   QMainWindow(parent),
+   ui(new Ui::MainWindow)
+ {
+@@ -193,6 +192,8 @@
+                            QString::number(iret));
+   }
+ #endif
++  mem_jt9 = shdmem;
++  /*
+   if(!mem_jt9.attach()) {
+     if (!mem_jt9.create(sizeof(jt9com_))) {
+       msgBox(&quot;Unable to create shared memory segment.&quot;);
+@@ -203,6 +204,7 @@
+   if(jt9com_.newdat==0) {
+   }
+   memset(to,0,size);         //Zero all decoding params in shared memory
++*/
+ 
+   PaError paerr=Pa_Initialize();                    //Initialize Portaudio
+   if(paerr!=paNoError) {
+@@ -895,7 +897,7 @@
+ {
+   g_pWideGraph-&gt;saveSettings();
+   m_killAll=true;
+-  mem_jt9.detach();
++  mem_jt9-&gt;detach();
+   QFile quitFile(m_appDir + &quot;/.quit&quot;);
+   quitFile.open(QIODevice::ReadWrite);
+   QFile lockFile(m_appDir + &quot;/.lock&quot;);
+@@ -1154,7 +1156,7 @@
+   //newdat=1  ==&gt; this is new data, must do the big FFT
+   //nagain=1  ==&gt; decode only at fQSO +/- Tol
+ 
+-  char *to = (char*)mem_jt9.data();
++  char *to = (char*)mem_jt9-&gt;data();
+   char *from = (char*) jt9com_.ss;
+   int size=sizeof(jt9com_);
+   if(jt9com_.newdat==0) {
+@@ -1163,7 +1165,7 @@
+     from += noffset;
+     size -= noffset;
+   }
+-  memcpy(to, from, qMin(mem_jt9.size(), size));
++  memcpy(to, from, qMin(mem_jt9-&gt;size(), size));
+ 
+   QFile lockFile(m_appDir + &quot;/.lock&quot;);       // Allow jt9 to start
+   lockFile.remove();
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-04-13 01:53:24 UTC (rev 3162)
++++ branches/wsjtx/mainwindow.h	2013-04-13 12:28:03 UTC (rev 3163)
+@@ -21,7 +21,7 @@
+   Q_OBJECT
+ 
+ public:
+-  explicit MainWindow(QWidget *parent = 0);
++  explicit MainWindow(QSharedMemory *shdmem, QWidget *parent = 0);
+   ~MainWindow();
+ 
+ public slots:
+@@ -309,6 +309,8 @@
+     SoundInThread soundInThread;             //Instantiate the audio threads
+     SoundOutThread soundOutThread;
+ 
++    QSharedMemory *mem_jt9;
++
+ //---------------------------------------------------- private functions
+     void readSettings();
+     void writeSettings();
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002854.html">[WSJT-SVN] r3162 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002856.html">[WSJT-SVN] r3164 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2855">[ date ]</a>
+              <a href="thread.html#2855">[ thread ]</a>
+              <a href="subject.html#2855">[ subject ]</a>
+              <a href="author.html#2855">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

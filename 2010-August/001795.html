@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2103 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2103%20-%20wsjt7a&In-Reply-To=%3C20100810134258.AC3A7480E8B%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001794.html">
+   <LINK REL="Next"  HREF="001796.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2103 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2103%20-%20wsjt7a&In-Reply-To=%3C20100810134258.AC3A7480E8B%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2103 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 10 15:42:58 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001794.html">[WSJT-SVN] r2102 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001796.html">[WSJT-SVN] r2104 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1795">[ date ]</a>
+              <a href="thread.html#1795">[ thread ]</a>
+              <a href="subject.html#1795">[ subject ]</a>
+              <a href="author.html#1795">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-08-10 15:42:58 +0200 (Tue, 10 Aug 2010)
+New Revision: 2103
+
+Modified:
+   wsjt7a/jtms.f90
+   wsjt7a/msdf.f90
+   wsjt7a/mtdecode.f
+   wsjt7a/wsjt.py
+Log:
+Perhaps this is a better algorithm for validating a JTMS signal?
+
+
+Modified: wsjt7a/jtms.f90
+===================================================================
+--- wsjt7a/jtms.f90	2010-08-10 12:24:03 UTC (rev 2102)
++++ wsjt7a/jtms.f90	2010-08-10 13:42:58 UTC (rev 2103)
+@@ -1,5 +1,5 @@
+ subroutine jtms(dat,npts,cfile6,t2,mswidth,ndb,nrpt,Nfreeze,       &amp;
+-     DFTolerance,MouseDF,mycall,hiscall)
++     DFTolerance,MouseDF,pick,mycall,hiscall)
+ 
+ ! Decode a JTMS ping
+ 
+@@ -8,6 +8,7 @@
+   complex cdat(NZ)                      !Analytic form of signal
+   character*6 cfile6                    !FileID
+   integer DFTolerance
++  logical pick
+   character*12 mycall,hiscall
+   real s(NZ)                            !Power spectrum
+   real s2(0:63,400)
+@@ -31,9 +32,15 @@
+   nfft1=2**n                            !FFT length
+   call analytic(dat,npts,nfft1,s,cdat)  !Convert to analytic signal
+ 
+-  call msdf(cdat,npts,t2,nfft1,f0,nfreeze,mousedf,dftolerance,dfx,ferr)  !Get DF
++  call msdf(cdat,npts,t2,nfft1,f0,nfreeze,mousedf,dftolerance,     &amp;
++       dfx,snrsq2)                      !Get DF
+ 
+-  if(abs(ferr).gt.0.006) go to 900      !Reject non-JTMS signals
++  sq2lim=7.0
++  if(pick) sq2lim=5.0
++!  write(*,3001) t2,dfx,snrsq2,npts
++!3001 format(3f7.1,i8)
++  if(snrsq2.lt.sq2lim) go to 900           !Reject non-JTMS signals
++
+   call tweak1(cdat,npts,-dfx,cdat)      !Mix to standard frequency
+ 
+ ! DF is known, now establish character sync.
+
+Modified: wsjt7a/msdf.f90
+===================================================================
+--- wsjt7a/msdf.f90	2010-08-10 12:24:03 UTC (rev 2102)
++++ wsjt7a/msdf.f90	2010-08-10 13:42:58 UTC (rev 2103)
+@@ -1,4 +1,4 @@
+-subroutine msdf(cdat,npts,t2,nfft1,f0,nfreeze,mousedf,dftolerance,dfx,ferr)
++subroutine msdf(cdat,npts,t2,nfft1,f0,nfreeze,mousedf,dftolerance,dfx,snrsq2)
+ 
+ ! Determine DF for a JTMS signal.  Also find ferr, a measure of
+ ! frequency differerence between 1st and 2nd harmonic.  
+@@ -8,14 +8,12 @@
+   complex cdat(npts)
+   integer dftolerance
+   real sq(NZ)
++  real ccf(-1200:1200)
+   real tmp(NZ)
+   complex c(NZ)
+   data nsps/8/
+   save c
+ 
+-  rewind 50
+-  rewind 51
+-
+   df1=11025.0/nfft1
+   nh=nfft1/2
+   fac=1.0/(nfft1**2)
+@@ -29,10 +27,7 @@
+ ! In the &quot;doubled-frequencies&quot; spectrum of squared cdat:
+   fa=2.0*(f0-400)
+   fb=2.0*(f0+400)
+-  if(NFreeze.gt.0) then
+-     fa=2.0*(f0+MouseDF-DFtolerance)
+-     fb=2.0*(f0+MouseDF+DFtolerance)
+-  endif  
++  j0=nint(2.0*f0/df1)
+   ja=nint(fa/df1)
+   jb=nint(fb/df1)
+   jd=nfft1/nsps
+@@ -41,49 +36,36 @@
+      sq(j)=real(c(j))**2 + aimag(c(j))**2
+   enddo
+ 
+-!  call smo(sq,nh+1,tmp,9)
+-!  call smo(sq,nh+1,tmp,9)
+-
+-  do j=1,nh+1
+-     sq2=0.
+-     if(j+jd.le.nfft1/2+1) sq2=sq(j+jd)
+-     f=0.5*(j-1)*df1 - f0
+-     write(50,3001) f,sq(j),sq2,j
+-3001 format(f10.2,2f12.3,i8)
++  ccf=0.
++  do j=ja,jb
++     ccf(j-j0-1)=sq(j)+sq(j+jd)
+   enddo
+ 
++  call pctile(ccf(ja-j0-1),tmp,jb-ja+1,50,base)
++  ccf=ccf/base
++
++  if(NFreeze.gt.0) then
++     fa=2.0*(f0+MouseDF-DFtolerance)
++     fb=2.0*(f0+MouseDF+DFtolerance)
++  endif  
++  ja=nint(fa/df1)
++  jb=nint(fb/df1)
++
+   smax=0.
+-  smax1=0.
+-  smax2=0.
+   do j=ja,jb
+-     ss=sq(j)+sq(j+jd)
+-     f=0.5*(j-1)*df1 - f0
+-     write(51,3001) f,ss
+-     if(ss.gt.smax) then
+-        smax=sq(j)+sq(j+jd)
++     k=j-j0-1
++     if(ccf(k).gt.smax) then
++        smax=ccf(k)
+         jpk=j
+      endif
+-     if(sq(j).gt.smax1) then
+-        smax1=sq(j)
+-        jpk1=j
+-     endif
+-     if(sq(j+jd).gt.smax2) then
+-        smax2=sq(j+jd)
+-        jpk2=j+jd
+-     endif
++     f=0.5*k*df1
++     write(51,3002) f,ccf(k)
++3002 format(2f12.3)
+   enddo
+ 
+   fpk=(jpk-1)*df1  
+   dfx=0.5*fpk-f0
++  snrsq2=smax
+ 
+-  fpk1=(jpk1-1)*df1
+-  fpk2=(jpk2-1)*df1
+-  ferr=(fpk2-fpk1)/1378.125 - 1.0
+-  
+-  write(*,3501) t2,dfx,ferr,fpk1,fpk2
+-3501 format(2f8.1,f12.6,2f10.2)
+-  call flush(50)
+-  call flush(51)
+-
+   return
+ end subroutine msdf
+
+Modified: wsjt7a/mtdecode.f
+===================================================================
+--- wsjt7a/mtdecode.f	2010-08-10 12:24:03 UTC (rev 2102)
++++ wsjt7a/mtdecode.f	2010-08-10 13:42:58 UTC (rev 2103)
+@@ -117,7 +117,7 @@
+ !     +      (dat(jj+j),j=1,jjz)
+             jjzz=min(jjz,2*11025)       !Max data size 2 s 
+             call jtms(dat(jj),jjzz,cfile6,t2,mswidth,int(peak),
+-     +           nrpt,nfreeze,DFTolerance,MouseDF,mycall,hiscall)
++     +           nrpt,nfreeze,DFTolerance,MouseDF,pick,mycall,hiscall)
+             go to 100
+          endif
+ 
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-08-10 12:24:03 UTC (rev 2102)
++++ wsjt7a/wsjt.py	2010-08-10 13:42:58 UTC (rev 2103)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#---------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001794.html">[WSJT-SVN] r2102 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001796.html">[WSJT-SVN] r2104 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1795">[ date ]</a>
+              <a href="thread.html#1795">[ thread ]</a>
+              <a href="subject.html#1795">[ subject ]</a>
+              <a href="author.html#1795">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,255 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1689 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1689%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911151958.nAFJwl1Y017105%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001379.html">
+   <LINK REL="Next"  HREF="001381.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1689 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1689%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C200911151958.nAFJwl1Y017105%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1689 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Sun Nov 15 20:58:47 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001379.html">[WSJT-SVN] r1688 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001381.html">[WSJT-SVN] r1690 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1380">[ date ]</a>
+              <a href="thread.html#1380">[ thread ]</a>
+              <a href="subject.html#1380">[ subject ]</a>
+              <a href="author.html#1380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-11-15 20:58:41 +0100 (Sun, 15 Nov 2009)
+New Revision: 1689
+
+Modified:
+   branches/wspr/WsprMod/advanced.py
+   branches/wspr/genwspr.F90
+   branches/wspr/tx.F90
+   branches/wspr/wspr.py
+Log:
+Implement calibration using intercept A and slope B.
+
+
+Modified: branches/wspr/WsprMod/advanced.py
+===================================================================
+--- branches/wspr/WsprMod/advanced.py	2009-11-15 19:06:24 UTC (rev 1688)
++++ branches/wspr/WsprMod/advanced.py	2009-11-15 19:58:41 UTC (rev 1689)
+@@ -23,12 +23,14 @@
+ bfofreq=IntVar()
+ idint=IntVar()
+ igrid6=IntVar()
+-calfactor=DoubleVar()
++encal=IntVar()
++Acal=DoubleVar()
++Bcal=DoubleVar()
+ 
+ #------------------------------------------------------ freqcal
+ def freqcal(event=NONE):
+     if w.acom1.ncal==0:
+-        bcal.configure(bg='green')
++        bmeas.configure(bg='green')
+         w.acom1.ncal=1
+ 
+ #-------------------------------------------------------- Create GUI widgets
+@@ -42,28 +44,36 @@
+ lab1=Label(g1.interior(),text=t,justify=LEFT)
+ lab1.pack(fill=X,expand=1,padx=5,pady=0)
+ 
+-cwid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='CW ID (minutes):',
++cwid=Pmw.EntryField(g1.interior(),labelpos=W,label_text='CW ID (min):',
+         value='0',entry_textvariable=idint,entry_width=5,
+         validate={'validator':'numeric','min':0,'max':60})
+-rxbfo=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Rx BFO (Hz):',
++cwid.pack(fill=X,padx=2,pady=2)
++rxbfo=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Rx BFO (Hz): ',
+         value='1500',entry_textvariable=bfofreq,entry_width=10,
+         validate={'validator':'real','min':-3000,'max':3000})
+-fcal=Pmw.EntryField(g1.interior(),labelpos=W,label_text='Fcal factor:',
+-        value='1.0000000',entry_textvariable=calfactor,entry_width=10,
+-        validate={'validator':'real','min':0.99999,'max':1.00001,
++rxbfo.pack(fill=X,padx=2,pady=2)
++enable_cal=Checkbutton(g1.interior(),text='Enable frequency correction',
++                   variable=encal)
++enable_cal.pack(padx=5,pady=5)
++A_entry=Pmw.EntryField(g1.interior(),labelpos=W,label_text='A (Hz):',
++        value='0.0',entry_textvariable=Acal,entry_width=10,
++        validate={'validator':'real','min':-100.0,'max':100.0,
+         'minstrict':0,'maxstrict':0})
+-widgets = (cwid,rxbfo,fcal)
+-for widget in widgets:
+-    widget.pack(fill=X,padx=2,pady=2)
++A_entry.pack(fill=X,padx=2,pady=2)
++B_entry=Pmw.EntryField(g1.interior(),labelpos=W,label_text='B (ppm):',
++        value='0.0',entry_textvariable=Bcal,entry_width=10,
++        validate={'validator':'real','min':-100.0,'max':100.0,
++        'minstrict':0,'maxstrict':0})
++B_entry.pack(fill=X,padx=2,pady=2)
++Pmw.alignlabels([cwid,rxbfo,A_entry,B_entry])
+ 
+-bcal=Button(g1.interior(), text='Measure an audio frequency',command=freqcal,
++bmeas=Button(g1.interior(), text='Measure an audio frequency',command=freqcal,
+              width=26,padx=1,pady=2)
+-bcal.pack(padx=5,pady=5)
++bmeas.pack(padx=5,pady=10)
+ bgrid6=Checkbutton(g1.interior(),text='Transmit 6-digit locator',
+                    variable=igrid6)
+ bgrid6.pack(padx=5,pady=2)
+ 
+-Pmw.alignlabels(widgets)
+ f1=Frame(g1.interior(),width=100,height=10)
+ f1.pack()
+ g1.pack(side=LEFT,fill=BOTH,expand=1,padx=4,pady=4)
+
+Modified: branches/wspr/genwspr.F90
+===================================================================
+--- branches/wspr/genwspr.F90	2009-11-15 19:06:24 UTC (rev 1688)
++++ branches/wspr/genwspr.F90	2009-11-15 19:58:41 UTC (rev 1689)
+@@ -68,7 +68,7 @@
+   snr=10.0**(0.05*(snrdb-6.5))   !Bandwidth correction?
+   fac=3000.0
+   if(snr.gt.1.0) fac=3000.0/snr
+-  t=-2.d0
++  t=-1.d0
+   phi=0.d0
+   j0=0
+   f=f0
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-11-15 19:06:24 UTC (rev 1688)
++++ branches/wspr/tx.F90	2009-11-15 19:58:41 UTC (rev 1689)
+@@ -99,7 +99,7 @@
+      cwmsg=call1(:i1)//'                      '
+      icwid=0
+      call gencwid(cwmsg,wpm,freqcw,icwid,ncwid)
+-     k0=113*48000
++     k0=112*48000
+      k1=k0+12000
+      k2=k1+4.5*48000
+      jwave(k0:k1)=0
+@@ -111,9 +111,8 @@
+ 
+   if(ntune.eq.0) then
+      call gmtime2(nt,tsec2)
+-!     print*,'B',tsec2-tsec0
+-     istart=48000*(1.0+tsec2-tsec0)
+-     ierr=soundout(ndevout,jwave(istart),npts-istart)
++     istart=48000*(tsec2-tsec0)
++     ierr=soundout(ndevout,jwave(istart),npts)
+   else
+      npts=48000*pctx
+      ierr=soundout(ndevout,jwave(2*48000),npts)
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-11-15 19:06:24 UTC (rev 1688)
++++ branches/wspr/wspr.py	2009-11-15 19:58:41 UTC (rev 1689)
+@@ -735,8 +735,12 @@
+         t=&quot;%.6f&quot; % (ftx.get(),)
+         sftx.set(t)
+         if options.cat_enable.get():
+-            calfac=float(advanced.calfactor.get())
+-            nHz=int(1000000.0*f0.get()*calfac+0.5)
++            print 'A',advanced.encal.get(),advanced.Acal.get(),advanced.Bcal.get()
++            if advanced.encal.get():
++                nHz=int(advanced.Acal.get() + \
++                        1000000.0*f0.get()*advanced.Bcal.get() + 0.5)
++            else:
++                nHz=int(1000000.0*f0.get() + 0.5)
+             cmd=&quot;rigctl -m %d -r %s -s %d -C data_bits=%s -C stop_bits=%s -C serial_handshake=%s F %d&quot; % \
+                  (options.rignum.get(),options.CatPort.get(), \
+                   options.serial_rate.get(),options.databits.get(), \
+@@ -826,7 +830,7 @@
+     else:
+         pctscale.configure(state=DISABLED)
+     if w.acom1.ncal==0:
+-        advanced.bcal.configure(bg='gray85')
++        advanced.bmeas.configure(bg='gray85')
+     else:
+         idle.set(1)
+     w.acom1.pctx=ipctx.get()
+@@ -837,10 +841,10 @@
+         bidle.configure(bg='yellow')
+     if w.acom1.transmitting or w.acom1.receiving:
+         btune.configure(state=DISABLED)
+-        advanced.bcal.configure(state=DISABLED)
++        advanced.bmeas.configure(state=DISABLED)
+     else:
+         btune.configure(state=NORMAL)
+-        advanced.bcal.configure(state=NORMAL)
++        advanced.bmeas.configure(state=NORMAL)
+     if upload.get()==1:
+         bupload.configure(bg='gray85')
+     else:
+@@ -968,7 +972,8 @@
+     f.write(&quot;BFOfreq &quot; + str(advanced.bfofreq.get()) + &quot;\n&quot;)
+     f.write(&quot;PTTmode &quot; + options.pttmode.get() + &quot;\n&quot;)
+     f.write(&quot;CATenable &quot; + str(options.cat_enable.get()) + &quot;\n&quot;)
+-    f.write(&quot;CalFactor &quot; + str(advanced.calfactor.get()) + &quot;\n&quot;)
++    f.write(&quot;Acal &quot; + str(advanced.Acal.get()) + &quot;\n&quot;)
++    f.write(&quot;Bcal &quot; + str(advanced.Acal.get()) + &quot;\n&quot;)
+     f.write(&quot;SerialRate &quot; + str(options.serial_rate.get()) + &quot;\n&quot;)
+     f.write(&quot;DataBits &quot; + str(options.databits.get()) + &quot;\n&quot;)
+     f.write(&quot;StopBits &quot; + str(options.stopbits.get()) + &quot;\n&quot;)
+@@ -1316,7 +1321,8 @@
+                 options.DevoutName.set(value)
+ 
+             elif key == 'BFOfreq': advanced.bfofreq.set(value)
+-            elif key == 'CalFactor': advanced.calfactor.set(value)
++            elif key == 'Acal': advanced.Acal.set(value)
++            elif key == 'Bcal': advanced.Acal.set(value)
+             elif key == 'PTTmode': options.pttmode.set(value)
+             elif key == 'CATenable': options.cat_enable.set(value)
+             elif key == 'SerialRate': options.serial_rate.set(int(value))
+@@ -1445,8 +1451,6 @@
+ 
+ # Clean up and save user options, then terminate.
+ if options.pttmode.get()=='CAT':
+-    calfac=float(advanced.calfactor.get())
+-    nHz=int(1000000.0*f0.get()*calfac+0.5)
+     cmd=&quot;rigctl -m %d -r %s -s %d -C data_bits=%s -C stop_bits=%s -C serial_handshake=%s T 0&quot; % \
+          (options.rignum.get(),options.CatPort.get(), \
+           options.serial_rate.get(),options.databits.get(), \
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001379.html">[WSJT-SVN] r1688 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001381.html">[WSJT-SVN] r1690 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1380">[ date ]</a>
+              <a href="thread.html#1380">[ thread ]</a>
+              <a href="subject.html#1380">[ subject ]</a>
+              <a href="author.html#1380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

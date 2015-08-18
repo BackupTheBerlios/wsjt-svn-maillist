@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r482 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r482%20-%20branches/map65&In-Reply-To=%3C200707100015.l6A0FJ37000338%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000166.html">
+   <LINK REL="Next"  HREF="000168.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r482 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r482%20-%20branches/map65&In-Reply-To=%3C200707100015.l6A0FJ37000338%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r482 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 10 02:15:19 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000166.html">[WSJT-SVN] r481 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000168.html">[WSJT-SVN] r483 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-10 02:15:11 +0200 (Tue, 10 Jul 2007)
+New Revision: 482
+
+Modified:
+   branches/map65/datcom.f90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/recvpkt.F90
+   branches/map65/specjt.py
+Log:
+Changed version number to 0.8.
+Display &quot;No data&quot; if not receiving packets.
+Permanent label at top of Messages window.
+Display green tick marks at startup.
+Fix display of quick-decode time.
+
+
+Modified: branches/map65/datcom.f90
+===================================================================
+--- branches/map65/datcom.f90	2007-07-09 20:40:18 UTC (rev 481)
++++ branches/map65/datcom.f90	2007-07-10 00:15:11 UTC (rev 482)
+@@ -1,5 +1,5 @@
+ parameter (NSMAX=60*96000)          !Samples per 60 s file
+ integer*2 id                        !46 MB: raw data from Linrad timf2
+ character*80 fname80
+-common/datcom/id(4,NSMAX,2),nutc,newdat2,kbuf,kk,kkdone,nlost,   &amp;
++common/datcom/id(4,NSMAX,2),nutc,newdat2,kbuf,kxp,kk,kkdone,nlost,   &amp;
+      nlen,fname80
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-09 20:40:18 UTC (rev 481)
++++ branches/map65/map65.py	2007-07-10 00:15:11 UTC (rev 482)
+@@ -17,7 +17,7 @@
+ import array
+ 
+ root = Tk()
+-Version=&quot;0.7 r&quot; + &quot;$Rev$&quot;[6:-1]
++Version=&quot;0.8 r&quot; + &quot;$Rev$&quot;[6:-1]
+ print &quot;******************************************************************&quot;
+ print &quot;MAP65 Version &quot; + Version + &quot;, by K1JT&quot;
+ print &quot;Revision date: &quot; + \
+@@ -61,6 +61,7 @@
+ isec0=-99
+ k2txb=IntVar()
+ kb8rq=IntVar()
++kxp0=0
+ loopall=0
+ mode=StringVar()
+ mode.set(&quot;&quot;)
+@@ -187,6 +188,8 @@
+     bm.geometry(bm_geom)
+     if g.Win32: bm.iconbitmap(&quot;wsjt.ico&quot;)
+     iframe_bm1 = Frame(bm, bd=1, relief=SUNKEN)
++    Label(iframe_bm1,text='Freq      DF     Pol     UTC').pack(anchor=W, \
++        pady=0,side='top')
+     msgtext=Text(iframe_bm1, height=35, width=41, bg=&quot;Navy&quot;, fg=&quot;yellow&quot;)
+     msgtext.bind('&lt;Double-Button-1&gt;',dbl_click_msgtext)
+     msgtext.pack(side=LEFT, fill=X, padx=1, pady=3)
+@@ -922,7 +925,7 @@
+ 
+ #------------------------------------------------------ update
+ def update():
+-    global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen, \
++    global root_geom,isec0,naz,nel,ndmiles,ndkm,nopen,kxp0, \
+            im,pim,cmap0,isync,isync_save,idsec,first,itol,txsnrdb,tx6alt,\
+            bm_geom,bm2_geom
+     
+@@ -949,6 +952,12 @@
+             options.MyGrid.get().upper(),HisGrid.get().upper(),utchours)
+         azdist()
+         g.nfreq=nfreq.get()
++        kxp=int(Audio.datcom.kxp)
++        if kxp-kxp0 &lt; 50000:
++            msg5.configure(text='No data',bg='red')
++        else:
++            msg5.configure(bg='gray85')            
++        kxp0=kxp
+ 
+         if Audio.gcom2.ndecoding==0:
+             g.AzSun,g.ElSun,g.AzMoon,g.ElMoon,g.AzMoonB,g.ElMoonB,g.ntsky, \
+@@ -1105,8 +1114,6 @@
+                 lines=&quot;&quot;
+             msgtext.configure(state=NORMAL)
+             msgtext.delete('1.0',END)
+-            msgtext.insert(END,'Freq  DF Pol  UTC\n')
+-            msgtext.insert(END,'----------------------------------------\n')
+             for i in range(len(lines)):
+                 try:
+                     nage=int(lines[i][41:])
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-09 20:40:18 UTC (rev 481)
++++ branches/map65/map65a.F90	2007-07-10 00:15:11 UTC (rev 482)
+@@ -254,12 +254,14 @@
+         iloop=iloop+1
+         go to 1
+      endif
+-     write(11,*) '$EOF'
+-     call flushqqq(11)
+-     ndecdone=1
+-     t2=sec_midn()
+-     if(ndebug.eq.2) write(*,3002) mod(int(t2),60)
+-3002 format('mod65a  2:'i8.2)
++     if(nqd.eq.1) then
++        write(11,*) '$EOF'
++        call flushqqq(11)
++        ndecdone=1
++        t2=sec_midn()
++        if(ndebug.eq.2) write(*,3002) mod(int(t2),60)
++3002    format('mod65a  2:'i8.2)
++     endif
+      if(nagain.eq.1) go to 999
+   enddo
+ 
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-07-09 20:40:18 UTC (rev 481)
++++ branches/map65/recvpkt.F90	2007-07-10 00:15:11 UTC (rev 482)
+@@ -76,6 +76,7 @@
+   enddo
+   sqave=sqave + u*(sq-sqave)
+   rxnoise=10.0*log10(sqave) - 48.0
++  kxp=k
+ 
+   if(mode.eq.'Measur') then
+      npkt=npkt+1
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-07-09 20:40:18 UTC (rev 481)
++++ branches/map65/specjt.py	2007-07-10 00:15:11 UTC (rev 482)
+@@ -289,7 +289,7 @@
+         nfreeze0=int(Audio.gcom2.nfreeze)
+ 
+     if g.mode!=mode0:
+-        draw_axis()
++        df_mark()                        ### was draw_axis()
+         mode0=g.mode
+ 
+     if nmark.get()!=nmark0:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000166.html">[WSJT-SVN] r481 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000168.html">[WSJT-SVN] r483 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2368 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2368%20-%20branches/wspr&In-Reply-To=%3C20110310024020.940BF481479%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002059.html">
+   <LINK REL="Next"  HREF="002061.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2368 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2368%20-%20branches/wspr&In-Reply-To=%3C20110310024020.940BF481479%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2368 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 10 03:40:20 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002059.html">[WSJT-SVN] r2367 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="002061.html">[WSJT-SVN] r2369 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2060">[ date ]</a>
+              <a href="thread.html#2060">[ thread ]</a>
+              <a href="subject.html#2060">[ subject ]</a>
+              <a href="author.html#2060">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-03-10 03:40:20 +0100 (Thu, 10 Mar 2011)
+New Revision: 2368
+
+Modified:
+   branches/wspr/calobs.f90
+   branches/wspr/wwv.f90
+Log:
+Tweaks to wwv, calobs.
+
+
+Modified: branches/wspr/calobs.f90
+===================================================================
+--- branches/wspr/calobs.f90	2011-03-09 13:35:56 UTC (rev 2367)
++++ branches/wspr/calobs.f90	2011-03-10 02:40:20 UTC (rev 2368)
+@@ -1,7 +1,7 @@
+ subroutine calobs(nfs,nsec,ndevin,id,x1)
+ 
+   parameter (NFSMAX=48000)
+-  parameter (NMAX=310*NFSMAX)                !Max length of data
++  parameter (NMAX=1210*NFSMAX)                !Max length of data
+   integer*2 id(NMAX)                         !Raw data
+   real*8 p1,samfac
+   real x1(NMAX),xx1(NMAX)
+@@ -50,15 +50,22 @@
+   enddo
+   prof1(:ip)=prof1(:ip)/pmax
+ 
+-  write(*,1000) ave1,rms1,xmax1,p1
+-1000 format('Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0,'   Fsample:',f12.4)
++  ppm=1.d6*(48000.d0/p1 - 1.d0)
++  err=1.e6/npts
++  write(*,1000) ave1,rms1,xmax1,p1,ppm,err
++1000 format('Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0/                   &amp;
++    'Fsample:',f12.4,'   Sample interval error:',f8.3,' +/-',f7.3,' ppm')
++  write(71,3001) ave1,rms1,xmax1,p1,ppm,err
++3001 format(2f8.2,f8.0,f12.4,2f9.3)
++  call flush(71)
+ 
+   open(10,file='prof_1pps.dat',status='unknown')
+   open(11,file='short_1pps.dat',status='unknown')
+-  write(10,1010) 0.0,0.0,ave1,rms1,xmax1,p1
+-  write(11,1010) 0.0,0.0,ave1,rms1,xmax1,p1
+-1010 format(2f10.3,'   Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0,         &amp;
+-          '   Fsample:',f12.4)
++  write(10,1010) 0.0,0.0,ave1,rms1,xmax1,p1,ppm,err
++  write(11,1010) 0.0,0.0,ave1,rms1,xmax1,p1,ppm,err
++1010 format(2f10.3,'   Ave:',f8.2,'   Rms:',f8.2,'   Max:',f8.0/         &amp;
++    'Fsample:',f12.4,'   Sample interval error:',f8.3,' +/-',f7.3,' ppm')
++
+   dt=1.0/nfs
+   i0=0.005/dt
+   do i=1,ip
+
+Modified: branches/wspr/wwv.f90
+===================================================================
+--- branches/wspr/wwv.f90	2011-03-09 13:35:56 UTC (rev 2367)
++++ branches/wspr/wwv.f90	2011-03-10 02:40:20 UTC (rev 2368)
+@@ -3,7 +3,7 @@
+ ! Find time delay between 1 PPS ticks from GPS and WWV.
+ 
+   parameter (NFSMAX=48000)
+-  parameter (NMAX=310*NFSMAX)                !Max length of data
++  parameter (NMAX=1210*NFSMAX)                !Max length of data
+   integer*2 id(NMAX)                         !Raw data
+   character arg*12                           !Command-line arg
+   character cdate*8                          !CCYYMMDD
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002059.html">[WSJT-SVN] r2367 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="002061.html">[WSJT-SVN] r2369 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2060">[ date ]</a>
+              <a href="thread.html#2060">[ thread ]</a>
+              <a href="subject.html#2060">[ subject ]</a>
+              <a href="author.html#2060">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

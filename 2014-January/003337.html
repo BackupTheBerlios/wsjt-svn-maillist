@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3641 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3641%20-%20branches/map65&In-Reply-To=%3C20140116192852.ED7B555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003336.html">
+   <LINK REL="Next"  HREF="003338.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3641 - branches/map65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3641%20-%20branches/map65&In-Reply-To=%3C20140116192852.ED7B555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3641 - branches/map65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Thu Jan 16 20:28:52 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003336.html">[WSJT-SVN] r3640 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="003338.html">[WSJT-SVN] r3642 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3337">[ date ]</a>
+              <a href="thread.html#3337">[ thread ]</a>
+              <a href="subject.html#3337">[ subject ]</a>
+              <a href="author.html#3337">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-16 20:28:52 +0100 (Thu, 16 Jan 2014)
+New Revision: 3641
+
+Modified:
+   branches/map65/mainwindow.cpp
+   branches/map65/soundout.cpp
+Log:
+OK, we have a functioning TUNE button.  Needs testing.
+
+
+Modified: branches/map65/mainwindow.cpp
+===================================================================
+--- branches/map65/mainwindow.cpp	2014-01-16 18:47:28 UTC (rev 3640)
++++ branches/map65/mainwindow.cpp	2014-01-16 19:28:52 UTC (rev 3641)
+@@ -1385,6 +1385,7 @@
+   static int iptt0=0;
+   static int iptt=0;
+   static bool btxok0=false;
++  static bool bTune0=false;
+   static int nc0=1;
+   static int nc1=1;
+   static char msgsent[23];
+@@ -1402,10 +1403,13 @@
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+   double t2p=fmod(tsec,120.0/m_nfast);
+-  bool bTxTime = t2p &gt;= tx1 &amp;&amp; t2p &lt; tx2;
++  bool bTxTime = (t2p &gt;= tx1) and (t2p &lt; tx2);
+ 
+-  if(m_auto) {
+-    if(bTxTime and iptt==0 and !m_txMute) {
++  if(bTune0 and !bTune) btxok=false;
++  bTune0=bTune;
++
++  if(m_auto or bTune) {
++    if((bTxTime or bTune) and iptt==0 and !m_txMute) {
+       int itx=1;
+       int ierr = ptt_(&amp;m_pttPort,&amp;itx,&amp;iptt);       // Raise PTT
+       if(ierr != 0) {
+@@ -1421,7 +1425,7 @@
+         soundOutThread.start(QThread::HighPriority);
+       }
+     }
+-    if(!bTxTime || m_txMute) {
++    if((!bTxTime and !bTune) or m_txMute) {
+       btxok=false;
+     }
+   }
+@@ -1485,7 +1489,10 @@
+     if(m_bIQxt) g_pWideGraph-&gt;rx570();     // Set Si570 back to Rx Freq
+     int itx=0;
+     ptt_(&amp;m_pttPort,&amp;itx,&amp;iptt);       // Lower PTT
+-    if(!m_txMute) soundOutThread.quitExecution=true;
++    if(!m_txMute) {
++//      qDebug() &lt;&lt; &quot;C&quot;;
++      soundOutThread.quitExecution=true;\
++    }
+     m_transmitting=false;
+     g_pWideGraph-&gt;enableSetRxHardware(true);
+     if(m_auto) {
+@@ -1517,6 +1524,7 @@
+ 
+   if(nsec != m_sec0) {                                     //Once per second
+ //    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase;
++//    qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; bTune &lt;&lt; bTxTime &lt;&lt; btxok;
+     soundInThread.setForceCenterFreqMHz(g_pWideGraph-&gt;m_dForceCenterFreq);
+     soundInThread.setForceCenterFreqBool(g_pWideGraph-&gt;m_bForceCenterFreq);
+ 
+
+Modified: branches/map65/soundout.cpp
+===================================================================
+--- branches/map65/soundout.cpp	2014-01-16 18:47:28 UTC (rev 3640)
++++ branches/map65/soundout.cpp	2014-01-16 19:28:52 UTC (rev 3641)
+@@ -36,8 +36,10 @@
+   static int n;
+   static int ic=0;
+   static bool btxok0=false;
++  static bool bTune0=false;
+   static int nStart=0;
+-  double tsec,tstart;
++  static double phi=0.;
++  double tsec,tstart,dphi;
+   int nsec;
+   int nTRperiod=udata-&gt;nTRperiod;
+ 
+@@ -49,10 +51,19 @@
+   qreal amp=1.0 + 0.0001*iqAmp;
+   qreal xAmp=txPower*295.00*qSqrt(2.0 - amp*amp);
+   qreal yAmp=txPower*295.00*amp;
++  static int nsec0=0;
+ 
+-  static int nsec0=0;
++  if(bTune) {
++    ic=0;
++    dphi=6.28318530718*1270.46/11025.0;
++  }
++  if(bTune0 and !bTune) btxok=false;
++  bTune0=bTune;
++
+   if(nsec!=nsec0) {
+ //    qDebug() &lt;&lt; txPower &lt;&lt; iqAmp &lt;&lt; iqPhase &lt;&lt; amp &lt;&lt; xAmp &lt;&lt; yAmp &lt;&lt; dPhase &lt;&lt; bTune;
++//    qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; nsec%60 &lt;&lt; bTune &lt;&lt; btxok;
++    ic=0;
+     nsec0=nsec;
+   }
+ 
+@@ -81,9 +92,13 @@
+ //      i2 = 500.0*(i2/32767.0 + 5.0*gran());      //Add noise (tests only!)
+ //    if(bIQxt) {
+       if(1) {
+-        qreal phi=qAtan2(qreal(i2a),qreal(i2b)) + dPhase;
++        if(bTune) {
++          phi += dphi;
++        } else {
++          phi=qAtan2(qreal(i2a),qreal(i2b));
++        }
+         i2a=xAmp*qCos(phi);
+-        i2b=yAmp*qSin(phi);
++        i2b=yAmp*qSin(phi + dPhase);
+ //        qDebug() &lt;&lt; xAmp &lt;&lt; yAmp &lt;&lt; phi &lt;&lt; i2a &lt;&lt; i2b;
+       }
+ //      i2a=0.01*txPower*i2a;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003336.html">[WSJT-SVN] r3640 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="003338.html">[WSJT-SVN] r3642 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3337">[ date ]</a>
+              <a href="thread.html#3337">[ thread ]</a>
+              <a href="subject.html#3337">[ subject ]</a>
+              <a href="author.html#3337">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

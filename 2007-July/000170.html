@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r485 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r485%20-%20branches/map65&In-Reply-To=%3C200707101602.l6AG2CPT021988%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000169.html">
+   <LINK REL="Next"  HREF="000171.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r485 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r485%20-%20branches/map65&In-Reply-To=%3C200707101602.l6AG2CPT021988%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r485 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 10 18:02:12 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000169.html">[WSJT-SVN] r484 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000171.html">[WSJT-SVN] r486 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-10 18:02:04 +0200 (Tue, 10 Jul 2007)
+New Revision: 485
+
+Modified:
+   branches/map65/deep65.F
+   branches/map65/display.F90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/specjt.py
+Log:
+Corrected deep65 so that station with add-on prefix can decode 
+CQ messages using deep search.
+Added green bar to indocate Fmin-Fmax range.
+Added current utc to end of tmp26, in case there were no messages decoded.
+
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2007-07-10 15:23:54 UTC (rev 484)
++++ branches/map65/deep65.F	2007-07-10 16:02:04 UTC (rev 485)
+@@ -83,6 +83,7 @@
+          mz=1
+          if(n.eq.1 .and. j3.lt.1 .and. j4.lt.1 .and.
+      +      callsign(1:6).ne.'      ') mz=MAXRPT+1
++
+ C  Test for messages with MyCall + HisCall + report
+          do m=1,mz
+             if(m.gt.1) grid=rpt(m-1)
+@@ -93,7 +94,9 @@
+             testmsg(k)=message
+             call encode65(message,ncode(1,k))
+             nflip(k)=flip
++
+ C  Insert CQ message
++            if(j4.lt.1) callgrid(icall)=callsign(1:j2)//' '//grid
+             message='CQ '//callgrid(icall)
+             k=k+1
+             testmsg(k)=message
+
+Modified: branches/map65/display.F90
+===================================================================
+--- branches/map65/display.F90	2007-07-10 15:23:54 UTC (rev 484)
++++ branches/map65/display.F90	2007-07-10 16:02:04 UTC (rev 485)
+@@ -28,8 +28,8 @@
+   enddo
+ 
+ 10 nz=i-1
+-
+   utcz=utc(nz)
++  nz=nz-1
+   nquad=nkeep/4
+   do i=1,nz
+      nage=utcz-utc(i)
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-10 15:23:54 UTC (rev 484)
++++ branches/map65/map65.py	2007-07-10 16:02:04 UTC (rev 485)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- MAP65
++#-------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-10 15:23:54 UTC (rev 484)
++++ branches/map65/map65a.F90	2007-07-10 16:02:04 UTC (rev 485)
+@@ -333,6 +333,9 @@
+      endif
+      j=j+nsiz(n)
+   enddo
++  write(26,1015) nutc
++1015 format(39x,i4.4)
++  call flushqqq(26)
+   call display(nkeep)
+   ndecdone=2
+ 
+
+Modified: branches/map65/specjt.py
+===================================================================
+--- branches/map65/specjt.py	2007-07-10 15:23:54 UTC (rev 484)
++++ branches/map65/specjt.py	2007-07-10 16:02:04 UTC (rev 485)
+@@ -150,6 +150,9 @@
+     df=96.0/750.0
+     x1=393.0 + (Audio.gcom2.mousefqso-125)/df
+     c.create_line(x1,25,x1,12,fill=color,width=2)
++    x1=393.0 + (Audio.gcom2.nfa-125)/df
++    x2=393.0 + (Audio.gcom2.nfb-125)/df
++    c.create_line(x1,25,x2,25,fill=color,width=2)
+ 
+     df=96000.0/32768.0
+ # Mark sync tone and top JT65 tone (green) and shorthand tones (red)
+@@ -195,7 +198,7 @@
+ #---------------------------------------------------- update
+ def update():
+     global a,a2,b0,c0,g0,im,im2,isec0,line0,line02,newMinute,\
+-           nscroll,pim,pim2, \
++           nscroll,pim,pim2,nfa0,nfb0, \
+            root_geom,t0,mousedf0,mousefqso0,nfreeze0,tol0,mode0,nmark0, \
+            fmid,fmid0,frange,frange0,dftolerance0
+     
+@@ -274,14 +277,16 @@
+ 
+     if (Audio.gcom2.mousedf != mousedf0 or
+             Audio.gcom2.mousefqso != mousefqso0 or
+-            Audio.gcom2.dftolerance != dftolerance0):
++            Audio.gcom2.dftolerance != dftolerance0 or
++            Audio.gcom2.nfa != nfa0 or Audio.gcom2.nfb != nfb0): 
+         df_mark()
+-        
+ # The following int() calls are to ensure that the values copied to
+ # mousedf0 and mousefqso0 are static.
+         mousedf0=int(Audio.gcom2.mousedf)
+         mousefqso0=int(Audio.gcom2.mousefqso)
+         dftolerance0=int(Audio.gcom2.dftolerance)
++        nfa0=int(Audio.gcom2.nfa)
++        nfb0=int(Audio.gcom2.nfb)
+ 
+     if Audio.gcom2.nfreeze != nfreeze0:
+         if not Audio.gcom2.nfreeze: draw_axis()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000169.html">[WSJT-SVN] r484 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000171.html">[WSJT-SVN] r486 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

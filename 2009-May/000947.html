@@ -1,0 +1,767 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1253 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1253%20-%20branches/wspr&In-Reply-To=%3C200905201824.n4KIOxKN004379%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000946.html">
+   <LINK REL="Next"  HREF="000948.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1253 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1253%20-%20branches/wspr&In-Reply-To=%3C200905201824.n4KIOxKN004379%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1253 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed May 20 20:24:59 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000946.html">[WSJT-SVN] r1252 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000948.html">[WSJT-SVN] r1254 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#947">[ date ]</a>
+              <a href="thread.html#947">[ thread ]</a>
+              <a href="subject.html#947">[ subject ]</a>
+              <a href="author.html#947">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2009-05-20 20:24:50 +0200 (Wed, 20 May 2009)
+New Revision: 1253
+
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/acom1.f90
+   branches/wspr/decode.F90
+   branches/wspr/decode162.f
+   branches/wspr/fano232.f
+   branches/wspr/flat3.f
+   branches/wspr/genmept.f
+   branches/wspr/getfile.F90
+   branches/wspr/grid2deg.f
+   branches/wspr/inter_mept.f
+   branches/wspr/mept162.F
+   branches/wspr/padevsub.c
+   branches/wspr/rx.F90
+   branches/wspr/spec162.F
+   branches/wspr/tx.F90
+   branches/wspr/wspr.py
+   branches/wspr/wspr1.F90
+   branches/wspr/wspr2.F90
+Log:
+Many changes to implement proper thread control.  These are not yet
+correct for CVF!
+1. Put mutex locks around all Fortran I/O, including internal read/writes.
+2. Label defining &quot;who has the lock&quot; forwarded to GUI.  This is for
+   diagmostic purposes, can be removed later.
+3. Better bit-reversal algorithm in inter_mept.f
+4. Move enumeration of audio devices into padevsub.
+5. New routine ftn_quit to free mutex memory.
+6. Clean up code in a number of places.
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/Makefile.in	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -57,7 +57,7 @@
+ 	startdec.F90 startrx.F90 starttx.F90 tx.F90 getfile.F90 \
+ 	paterminate.f90 wqencode.f90 chklevel.F90 \
+ 	wqdecode.f90 hash.f90 packname.f90 packtext2.f90 \
+-	unpackname.f90 unpacktext2.f90 \
++	unpackname.f90 unpacktext2.f90 ftn_quit.f90 \
+ 	packpfx.f90 packprop.f90 unpackpfx.f90 unpackprop.f90 \
+ 
+ 
+@@ -75,7 +75,9 @@
+ 
+ OBJS2F77 = ${SRCS2F77:.f=.o} deep65.o
+ 
+-SRCS2C = padevsub.c start_threads.c sound.c gmtime2.c ptt_unix.c nhash.c
++SRCS2C = padevsub.c start_threads.c sound.c gmtime2.c ptt_unix.c \
++	nhash.c fthread.c
++
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+ WsprMod/w.so:	${OBJS2C} $(SRCS2F90) $(SRCS2F77) acom1.f90
+@@ -89,8 +91,8 @@
+ 	${MKDIR} -p build/lib/WsprMod
+ 	${MV} w.so WsprMod/w.so
+ 
+-wspr.spec: wspr.py g.py options.py palettes.py 
+-	c:/python25/python c:/python25/pyinstaller-1.3/makespec.py --icon \
++wspr.spec: wspr.py WsprMod/g.py WsprMod/options.py WsprMod/palettes.py 
++	python /home/joe/temp/pyinstaller-1.3/Makespec.py --icon \
+ 	  wsjt.ico --tk --onefile wspr.py
+ 
+ sound.o: sound.c
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/acom1.f90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -3,14 +3,15 @@
+   logical ltest
+   integer nreceiving
+   integer ntransmitting
++  integer mtx1
+   character*80 infile,outfile,pttport,thisfile
+   character cdate*8,utctime*10,rxtime*4
+-  character cmd*60,pttmode*3
++  character cmd*60,pttmode*3,cmtx*12
+   character callsign*6,grid*4,ctxmsg*22,sending*22
+   integer*2 iwave
+   common/acom1/ f0,ftx,rms,pctx,nsec,ndevin,ndevout,nsave,nrxdone,      &amp;
+-       ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,       &amp;
++       ndbm,nport,ndec,ndecdone,ntxdone,nreceiving,ntransmitting,mtx1,  &amp;
+        ndiskdat,ndecoding,ntr,ndebug,idevin,idevout,idsec,nsectx,       &amp;
+        ntxfirst,ntest,ncat,ltest,iwave(NMAX),nsec1,nsec2,rms1,xdb1,     &amp;
+        infile,outfile,pttport,cdate,utctime,callsign,grid,rxtime,       &amp;
+-       ctxmsg,sending,thisfile,cmd,pttmode
++       ctxmsg,sending,thisfile,cmd,cmtx,pttmode
+
+Modified: branches/wspr/decode.F90
+===================================================================
+--- branches/wspr/decode.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/decode.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -11,19 +11,28 @@
+ 
+   minsync=1
+   ndec=0
+-  call mept162(thisfile,f0,minsync,iwave,NMAX,ndec,ierr)
++  call mept162(thisfile,f0,minsync,iwave,NMAX,ndec,ierr,mtx1,cmtx)
+   if(nsave.gt.0 .and. ndiskdat.eq.0 .and. ierr.eq.0) then
+      savefile='save/'//outfile
+      npts=114*12000
++     call fthread_mutex_lock(mtx1)
++     cmtx='decode'
+      call wfile5(iwave,npts,12000,savefile)
++     cmtx=''
++     call fthread_mutex_unlock(mtx1)
+   endif
+ 
++  call fthread_mutex_lock(mtx1)
++  cmtx='decode'
+   if(ndec.eq.0) then
+      write(14,1100)
+ 1100 format('$EOF')
+   endif
+   call flush(14)
+   rewind 14
++  cmtx=''
++  call fthread_mutex_unlock(mtx1)
++
+   ndecdone=1
+   ndiskdat=0
+   ndecoding=0
+
+Modified: branches/wspr/decode162.f
+===================================================================
+--- branches/wspr/decode162.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/decode162.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,9 +1,11 @@
+-      subroutine decode162(c4,npts,message,ncycles,metric,nerr)
++      subroutine decode162(c4,npts,message,ncycles,metric,nerr,
++     +    mtx1,cmtx)
+ 
+ C  Decode MEPT_JT data, assuming that DT and DF have already been determined.
+ 
+       complex c4(npts)
+       character*22 message
++      character*12 cmtx
+       real*8 dt,df,twopi,f0,f1,dphi0,dphi1
+       complex*16 c0,c1
+       complex*16 w0,w1,ws0,ws1
+@@ -132,7 +134,13 @@
+       call fano232(symbol,nbits,mettab,ndelta,limit,
+      +     data1,ncycles,metric,nerr)
+       message='                      '
+-      if(nerr.ge.0) call wqdecode(data1,message,ntype2)
++      if(nerr.ge.0) then
++         call fthread_mutex_lock(mtx1)
++         cmtx='decode162'
++         call wqdecode(data1,message,ntype2)
++         cmtx=''
++         call fthread_mutex_unlock(mtx1)
++      endif
+ 
+       return
+       end
+
+Modified: branches/wspr/fano232.f
+===================================================================
+--- branches/wspr/fano232.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/fano232.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -135,7 +135,6 @@
+          endif
+          go to 10
+  99      continue
+-!         print*,np,nt,gamma(np)
+       enddo
+       i=nbits*maxcycles
+ 
+
+Modified: branches/wspr/flat3.f
+===================================================================
+--- branches/wspr/flat3.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/flat3.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -16,19 +16,9 @@
+       do i=ia,ib
+          call pctile(ss(i-nsmo),tmp,2*nsmo+1,35,ref(i))
+       enddo
+-!      call pctile(ref(ia),tmp,ib-ia+1,68,base2)
+-
+-C  Don't flatten if signal is extremely low (e.g., RX is off).
+-!      print*,base2/(0.05*base)
+-!      if(base2.gt.0.005*base) then
+       do i=ia,ib
+          ss(i)=base*ss(i)/ref(i)
+       enddo
+-!      else
+-!         do i=1,n
+-!            ss(i)=0.
+-!         enddo
+-!      endif
+ 
+       call move(ss(129),ss0,128)
+       call move(ss,ss0(129),128)
+
+Modified: branches/wspr/genmept.f
+===================================================================
+--- branches/wspr/genmept.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/genmept.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,10 +1,11 @@
+-      subroutine genmept(message,ntxdf,snrdb,msg2,iwave)
++      subroutine genmept(message,ntxdf,snrdb,msg2,iwave,mtx1,cmtx)
+ 
+ C  Encode an MEPT_JT message and generate the corresponding wavefile.
+ 
+       parameter (NMAX=120*12000)     !Max length of wave file
+       character*22 message           !Message to be generated
+       character*22 msg2
++      character*12 cmtx
+       integer*2 iwave(NMAX)          !Generated wave file
+ 
+       parameter (MAXSYM=176)
+@@ -40,7 +41,11 @@
+          first=.false.
+       endif
+ 
++      call fthread_mutex_lock(mtx1)
++      cmtx='genmept'
+       call wqencode(message,ntype,data0)
++      cmtx=''
++      call fthread_mutex_unlock(mtx1)
+       nbytes=(50+31+7)/8
+       call encode232(data0,nbytes,symbol,MAXSYM)  !Convolutional encoding
+       call inter_mept(symbol,1)                   !Apply interleaving
+@@ -49,7 +54,11 @@
+          i1=symbol(i)
+       enddo
+ 
++      call fthread_mutex_lock(mtx1)
++      cmtx='genmept'
+       call wqdecode(data0,msg2,ntype2)
++      cmtx=''
++      call fthread_mutex_unlock(mtx1)
+ 
+ C  Set up necessary constants
+       tsymbol=8192.d0/12000.d0
+
+Modified: branches/wspr/getfile.F90
+===================================================================
+--- branches/wspr/getfile.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/getfile.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -24,6 +24,8 @@
+   i=0
+ 10  continue
+ 
++  call fthread_mutex_lock(mtx1)
++  cmtx='getfile'
+ #ifdef CVF
+   open(10,file=fname,form='binary',status='old')
+ #else
+@@ -32,6 +34,10 @@
+   read(10) hdr
+   npts=114*12000
+   read(10) (iwave(i),i=1,npts)
++  close(10)
++  cmtx=''
++  call fthread_mutex_unlock(mtx1)
++
+   n4=1
+   if (n1.eq.1) goto 8                     !skip byteswap if little endian
+   do i=1,npts
+@@ -44,6 +50,5 @@
+   outfile=fname
+   nrxdone=1
+ 
+-  close(10)
+   return
+ end subroutine getfile
+
+Modified: branches/wspr/grid2deg.f
+===================================================================
+--- branches/wspr/grid2deg.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/grid2deg.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -30,11 +30,9 @@
+       n20d = 2*(ichar(g3)-ichar('0'))
+       xminlong = 5*(ichar(g5)-ichar('a')+0.5)
+       dlong = nlong - n20d - xminlong/60.0
+-c      print*,nlong,n20d,xminlong,dlong
+       nlat = -90+10*(ichar(g2)-ichar('A')) + ichar(g4)-ichar('0')
+       xminlat = 2.5*(ichar(g6)-ichar('a')+0.5)
+       dlat = nlat + xminlat/60.0
+-c      print*,nlat,xminlat,dlat
+ 
+       return
+       end
+
+Modified: branches/wspr/inter_mept.f
+===================================================================
+--- branches/wspr/inter_mept.f	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/inter_mept.f	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -10,13 +10,16 @@
+       save
+ 
+       if(first) then
++! Compute the interleave table using bit reversal.
+          k=-1
+          do i=0,255
+-            write(c0,1001) i
+- 1001       format(b8.8)
+-            c1=c0(8:8)//c0(7:7)//c0(6:6)//c0(5:5)//c0(4:4)//c0(3:3)//
+-     +         c0(2:2)//c0(1:1)
+-            read(c1,1001) n
++            n=0
++            ii=i
++            do j=0,7
++               n=n+n
++               if(iand(ii,1).ne.0) n=n+1
++               ii=ii/2
++            enddo
+             if(n.le.161) then
+                k=k+1
+                j0(k)=n
+
+Modified: branches/wspr/mept162.F
+===================================================================
+--- branches/wspr/mept162.F	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/mept162.F	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,4 +1,4 @@
+-      subroutine mept162(outfile,f0,minsync,id,npts,ndec,ierr)
++      subroutine mept162(outfile,f0,minsync,id,npts,ndec,ierr,mtx1,cmtx)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+@@ -7,7 +7,7 @@
+       character*22 message
+       character*80 outfile
+       character*11 datetime
+-      character cdate*8,ctime*10
++      character cdate*8,ctime*10,cmtx*12
+       real*8 f0,freq,tsec
+       real ps(-256:256)
+       real sstf(5,275)
+@@ -19,19 +19,12 @@
+       call mix162(id,npts,c2,jz,ps)
+ 
+ C  Compute pixmap.dat
+-      call spec162(c2,jz)
++      call spec162(c2,jz,mtx1,cmtx)
+ 
+ C  Look for sync patterns, get DF and DT
+       call sync162(c2,jz,ps,sstf,kz)
+       ierr = 0
+       if(kz.eq.0) go to 900
+-      if (kz.gt.275 .or. kz.lt.0) then
+-        call getutc(cdate,ctime,tsec)
+-        write(*,1000) ctime,kz
+- 1000   format('Time ',a8,'. Error from sync162: kz is',i10)
+-        ierr = 1
+-        return
+-      endif
+       do k=1,kz
+          snrsync=sstf(1,k)
+          snrx=sstf(2,k)
+@@ -66,7 +59,8 @@
+                   c4(-i1+2:jz)=c3(:i1+jz-1)
+                   if(jz.lt.45000) c4(jz:)=0.
+                endif
+-               call decode162(c4,45000,message,ncycles,metric,nerr)
++               call decode162(c4,45000,message,ncycles,metric,nerr,
++     +                        mtx1,cmtx)
+                if(message(1:6).ne.'      ' .and. 
+      +            message(1:6).ne.'000AAA') go to 23
+             enddo
+@@ -77,6 +71,8 @@
+             datetime(7:7)=' '
+             nf1=nint(-a(2))
+ 
++            call fthread_mutex_lock(mtx1)
++            cmtx='mept162'
+ #ifdef CVF
+             open(13,file='ALL_MEPT.TXT',status='unknown',
+      +                position='append',share='denynone')
+@@ -91,6 +87,8 @@
+      +           ncycles/81,ii
+  1010       format(a11,i4,i4,f5.1,f11.6,2x,a22,i3,i6,i5)
+             i1=index(message,' ')
++            cmtx=''
++            call fthread_mutex_unlock(mtx1)
+          endif
+  24      continue
+       enddo
+
+Modified: branches/wspr/padevsub.c
+===================================================================
+--- branches/wspr/padevsub.c	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/padevsub.c	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,18 +1,18 @@
+ #include &lt;stdio.h&gt;
+ #include &lt;portaudio.h&gt;
+-#include &lt;string.h&gt;
+ 
+-int padevsub_(int *numdev, int *ndefin, int *ndefout, 
+-	      int nchin[], int nchout[])
++int padevsub_(int *idevin, int *idevout)
+ {
++  int numdev,ndefin,ndefout;
++  int nchin[21], nchout[21];
+   int      i, devIdx;
+   int      numDevices;
+-  const    PaDeviceInfo *pdi;
++  const PaDeviceInfo *pdi;
+   PaError  err;
+ 
+   Pa_Initialize();
+   numDevices = Pa_GetDeviceCount();
+-  *numdev = numDevices;
++  numdev = numDevices;
+ 
+   if( numDevices &lt; 0 )  {
+     err = numDevices;
+@@ -21,15 +21,15 @@
+   }
+ 
+   if ((devIdx = Pa_GetDefaultInputDevice()) &gt; 0) {
+-    *ndefin = devIdx;
++    ndefin = devIdx;
+   } else {
+-    *ndefin = 0;
++    ndefin = 0;
+   }
+ 
+   if ((devIdx = Pa_GetDefaultOutputDevice()) &gt; 0) {
+-    *ndefout = devIdx;
++    ndefout = devIdx;
+   } else {
+-    *ndefout = 0;
++    ndefout = 0;
+   }
+ 
+   printf(&quot;\nAudio     Input    Output     Device Name\n&quot;);
+@@ -38,12 +38,28 @@
+ 
+   for( i=0; i &lt; numDevices; i++ )  {
+     pdi = Pa_GetDeviceInfo(i);
+-//    if(i == Pa_GetDefaultInputDevice()) *ndefin = i;
+-//    if(i == Pa_GetDefaultOutputDevice()) *ndefout = i;
++//    if(i == Pa_GetDefaultInputDevice()) ndefin = i;
++//    if(i == Pa_GetDefaultOutputDevice()) ndefout = i;
+     nchin[i]=pdi-&gt;maxInputChannels;
+     nchout[i]=pdi-&gt;maxOutputChannels;
+     printf(&quot;  %2d       %2d        %2d       %s\n&quot;,i,nchin[i],nchout[i],pdi-&gt;name);
+   }
++
++  printf(&quot;\nUser requested devices:   Input = %2d   Output = %2d\n&quot;,
++  	 *idevin,*idevout);
++  printf(&quot;Default devices:          Input = %2d   Output = %2d\n&quot;,
++  	 ndefin,ndefout);
++  if((*idevin&lt;0) || (*idevin&gt;=numdev)) *idevin=ndefin;
++  if((*idevout&lt;0) || (*idevout&gt;=numdev)) *idevout=ndefout;
++  if((*idevin==0) &amp;&amp; (*idevout==0))  {
++    *idevin=ndefin;
++    *idevout=ndefout;
++  }
++  printf(&quot;Will open devices:        Input = %2d   Output = %2d\n&quot;,
++  	 *idevin,*idevout);
++
++  //  Pa_Terminate();
++
+   return 0;
+ }
+ 
+
+Modified: branches/wspr/rx.F90
+===================================================================
+--- branches/wspr/rx.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/rx.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -19,10 +19,6 @@
+      stop
+   endif
+   nsec2=time()
+-  if(ndebug.ne.0) then
+-     write(*,1010) mod(nsec1,120),mod(nsec2,120),nsec2-nsec1
+-1010 format('Rx: '3i5)
+-  endif
+   call getrms(iwave,npts,ave,rms)
+   nrxdone=1
+ 
+
+Modified: branches/wspr/spec162.F
+===================================================================
+--- branches/wspr/spec162.F	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/spec162.F	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,8 +1,9 @@
+-      subroutine spec162(c2,jz)
++      subroutine spec162(c2,jz,mtx1,cmtx)
+ 
+       parameter(NX=500,NY=160)
+       complex c2(65536)
+       complex c(0:255)
++      character*12 cmtx
+       real s(120,0:255)
+       real ss(0:255)
+       real w(0:255)
+@@ -23,6 +24,8 @@
+       istep=nfft/2
+       nsteps=(jz-nfft)/(nadd*istep)
+ 
++      call fthread_mutex_lock(mtx1)
++      cmtx='spec162'
+ #ifdef CVF
+       open(16,file='pixmap.dat',form='binary',status='unknown',err=1)
+ #else
+@@ -33,11 +36,12 @@
+  1    call zero(a,NX*NY/2)
+ 
+  2    nmove=nsteps+1
++      cmtx=''
++      call fthread_mutex_unlock(mtx1)
+       do j=1,NY                 !Move waterfall left
+          do i=1,NX-nmove
+             a(i,j)=a(i+nmove,j)
+          enddo
+-!         a(NX-nmove+1,j)=255
+          a(NX-nmove+1,j)=255*ntransmitted
+       enddo
+       ntransmitted=0
+@@ -88,9 +92,13 @@
+          enddo
+       enddo
+ 
++      call fthread_mutex_lock(mtx1)
++      cmtx='spec162'
+       rewind 16
+       write(16) a
+       close(16)
++      cmtx=''
++      call fthread_mutex_unlock(mtx1)
+ 
+       return
+       end
+
+Modified: branches/wspr/tx.F90
+===================================================================
+--- branches/wspr/tx.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/tx.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -37,7 +37,12 @@
+      endif
+   endif
+ 
++  call fthread_mutex_lock(mtx1)
++  cmtx='tx'
+   write(cdbm,'(i3)'),ndbm
++  cmtx=''
++  call fthread_mutex_unlock(mtx1)
++
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   if(cdbm(1:1).eq.' ') cdbm=cdbm(2:)
+   do i=6,1,-1
+@@ -51,7 +56,7 @@
+   ctxmsg=message
+   snr=99.0
+   if(ntest.eq.1) snr=-26.0
+-  call genmept(message,ntxdf,snr,msg2,jwave)
++  call genmept(message,ntxdf,snr,msg2,jwave,mtx1,cmtx)
+   sending=msg2
+ 
+   npts=114*12000
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/wspr.py	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- WSPR
++#----------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+@@ -683,6 +683,8 @@
+         bg='gray85'
+         if ndb&lt;-10 or ndb&gt;10: bg='red'
+         msg1.configure(text=t,bg=bg)
++	t=g.ftnstr(w.acom1.cmtx)
++        msg2.configure(text=t)
+ 
+ # If T/R status has changed, get new info
+     ntr=int(w.acom1.ntr)
+@@ -997,8 +999,8 @@
+ iframe6 = Frame(frame, bd=1, relief=SUNKEN)
+ msg1=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+ msg1.pack(side=LEFT, fill=X, padx=1)
+-##msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+-##msg2.pack(side=LEFT, fill=X, padx=1)
++msg2=Message(iframe6, text='      ', width=300,relief=SUNKEN)
++msg2.pack(side=LEFT, fill=X, padx=1)
+ ##msg3=Message(iframe6, text='      ',width=300,relief=SUNKEN)
+ ##msg3.pack(side=LEFT, fill=X, padx=1)
+ ##msg4=Message(iframe6, text='      ', width=300,relief=SUNKEN)
+@@ -1136,11 +1138,11 @@
+ root.title('  WSPR 1.13     by K1JT')
+ 
+ put_params()
++f=open(appdir+'/decoded.txt',mode='w')
++f.write(&quot;$EOF&quot;)
++f.close
++
+ try:
+-    os.remove('decoded.txt')
+-except:
+-    pass
+-try:
+     os.remove('pixmap.dat')
+ except:
+     pass
+@@ -1199,4 +1201,5 @@
+ 
+ #Terminate PortAudio
+ w.paterminate()
++w.ftn_quit()
+ time.sleep(0.5)
+
+Modified: branches/wspr/wspr1.F90
+===================================================================
+--- branches/wspr/wspr1.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/wspr1.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -25,6 +25,7 @@
+ !     THREAD_PRIORITY_HIGHEST            2
+ !     THREAD_PRIORITY_TIME_CRITICAL     15
+ 
++  cmtx=''
+   nrxdone=0
+   m0=SetPriorityClass(GetCurrentProcess(),NORMAL_PRIORITY_CLASS)
+ ! Start a thread for acquiring audio data
+@@ -32,7 +33,10 @@
+   m1=SetThreadPriority(Thread0,THREAD_PRIORITY_NORMAL)
+   m2=ResumeThread(Thread0)
+ #else
+-! Start a thread for acquiring audio data
++! Create a mutex
++  call fthread_mutex_init(mtx1)
++! Start a background thread for supervising data acquisition, decoding,
++! and transmitting functions.
+   ierr=th_wspr2()
+   if(ierr.ne.0) then
+      print*,'Error creating thread for wspr2',ierr
+
+Modified: branches/wspr/wspr2.F90
+===================================================================
+--- branches/wspr/wspr2.F90	2009-05-20 14:25:50 UTC (rev 1252)
++++ branches/wspr/wspr2.F90	2009-05-20 18:24:50 UTC (rev 1253)
+@@ -18,34 +18,20 @@
+   data idle/.true./,receiving/.false./,transmitting/.false./
+   data decoding/.false./,ns1200/-999/
+ 
++  call fthread_mutex_lock(mtx1)
++  cmtx='wspr2'
+ #ifdef CVF
+   open(14,file='decoded.txt',status='unknown',share='denynone')
+ #else
+   open(14,file='decoded.txt',status='unknown')
+ #endif
+-  write(14,1002)
+-1002 format('$EOF')
+-  call flush(14)
+-  rewind 14
++  cmtx=''
++  call fthread_mutex_unlock(mtx1)
+ 
+   idevin=ndevin
+   idevout=ndevout
+ 
+-  call padevsub(numdevs,ndefin,ndefout,nchin,nchout)
+-  write(*,1003) idevin,idevout
+-1003 format(/'User requested devices:  Input =',i2,'   Output =',i2)
+-  write(*,1004) ndefin,ndefout
+-1004 format( 'Default devices:         Input =',i2,'   Output =',i2)
+-  if(idevin.lt.0 .or. idevin.ge.numdevs) idevin=ndefin
+-  if(idevout.lt.0 .or. idevout.ge.numdevs) idevout=ndefout
+-  if(idevin.eq.0 .and. idevout.eq.0) then
+-     idevin=ndefin
+-     idevout=ndefout
+-  endif
+-  write(*,1005) idevin,idevout
+-1005 format( 'Will open devices:       Input =',i2,'   Output =',i2)
+-  write(*,1006)
+-1006 format(66('*'))
++  call padevsub(idevin,idevout)
+   call random_seed
+   nrx=1
+ 
+@@ -94,6 +80,9 @@
+      transmitting=.true.
+      call random_number(x)
+      nrx=nint(rxavg + rr*(x-0.5))
++
++     call fthread_mutex_lock(mtx1)
++     cmtx='wspr2'
+      write(message(13:16),'(i4)') ndbm
+      message(1:12)='&quot;'//callsign//' '//grid
+      message(17:17)='&quot;'
+@@ -112,6 +101,8 @@
+      write(13,1030) cdate(3:8),utctime(1:4),ftx,message
+ 1030 format(a6,1x,a4,14x,f11.6,2x,'Transmitting ',a17)
+      close(13)
++     cmtx=''
++     call fthread_mutex_unlock(mtx1)
+      ntr=-1
+      nsectx=mod(nsec,86400)
+      call starttx
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000946.html">[WSJT-SVN] r1252 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000948.html">[WSJT-SVN] r1254 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#947">[ date ]</a>
+              <a href="thread.html#947">[ thread ]</a>
+              <a href="subject.html#947">[ subject ]</a>
+              <a href="author.html#947">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

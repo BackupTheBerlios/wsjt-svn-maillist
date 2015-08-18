@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3360 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3360%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130609010316.D749555B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003051.html">
+   <LINK REL="Next"  HREF="003053.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3360 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3360%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130609010316.D749555B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3360 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Jun  9 03:03:16 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003051.html">[WSJT-SVN] r3359 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003053.html">[WSJT-SVN] r3361 - branches/wsjtx_k1jt_p1/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3052">[ date ]</a>
+              <a href="thread.html#3052">[ thread ]</a>
+              <a href="subject.html#3052">[ subject ]</a>
+              <a href="author.html#3052">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-09 03:03:16 +0200 (Sun, 09 Jun 2013)
+New Revision: 3360
+
+Modified:
+   branches/wsjtx_k1jt_p1/lib/flat2.f90
+   branches/wsjtx_k1jt_p1/lib/symspec.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+Log:
+More effective spectrum-flattening scheme: a hard-wired straight line 
+slope (in dB) is applied.  A scheme for fitting a low-order polynomial might
+be better.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/flat2.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/flat2.f90	2013-06-08 20:49:05 UTC (rev 3359)
++++ branches/wsjtx_k1jt_p1/lib/flat2.f90	2013-06-09 01:03:16 UTC (rev 3360)
+@@ -8,7 +8,7 @@
+   ia=nsmo+1
+   ib=nz-nsmo-1
+   do i=ia,ib
+-     call pctile(s(i-nsmo),2*nsmo+1,25,ref(i))
++     call pctile(s(i-nsmo),2*nsmo+1,5,ref(i))
+   enddo
+ 
+   ref(:ia-1)=ref(ia)
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-08 20:49:05 UTC (rev 3359)
++++ branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-09 01:03:16 UTC (rev 3360)
+@@ -20,8 +20,7 @@
+   include 'constants.f90'
+   real*4 w3(MAXFFT3)
+   real*4 s(NSMAX)
+-  real*4 ref(NSMAX)
+-  real*4 refsum(NSMAX)
++  real*4 scale(NSMAX)
+   real*4 ssum(NSMAX)
+   real*4 xc(0:MAXFFT3-1)
+   complex cx(0:MAXFFT3/2)
+@@ -45,13 +44,18 @@
+         w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+      enddo
+      nfft3z=nfft3
++     nh=NSMAX/2
++     alpha=1.1
++     do i=1,NSMAX
++        x=alpha*float(i)/nh - 1.0 + 2.6
++        scale(i)=10.0**x
++     enddo
+   endif
+ 
+   if(k.lt.k0) then                             !Start a new data block
+      ja=0
+      ssum=0.
+      ihsym=0
+-     refsum=0.
+      if(ndiskdat.eq.0) id2(k+1:)=0   !Needed to prevent &quot;ghosts&quot;. Not sure why.
+   endif
+   gain=10.0**(0.05*ingain)
+@@ -97,10 +101,9 @@
+      s(i)=sx
+   enddo
+ 
+-  call flat2(s,iz,ref)
+-  refsum=refsum+ref
+-  s=0.2*s/ref
+-  savg=0.2*ssum/refsum
++!  s=0.05*s/ref
++  s=scale*s
++  savg=scale*ssum/ihsym
+ 
+ 900 npts8=k/8
+ 
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-08 20:49:05 UTC (rev 3359)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-09 01:03:16 UTC (rev 3360)
+@@ -1,4 +1,4 @@
+-//-------------------------------------------------------------- MainWindow
++//--------------------------------------------------------------- MainWindow
+ #include &quot;mainwindow.h&quot;
+ #include &quot;ui_mainwindow.h&quot;
+ #include &quot;devsetup.h&quot;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003051.html">[WSJT-SVN] r3359 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003053.html">[WSJT-SVN] r3361 - branches/wsjtx_k1jt_p1/lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3052">[ date ]</a>
+              <a href="thread.html#3052">[ thread ]</a>
+              <a href="subject.html#3052">[ subject ]</a>
+              <a href="author.html#3052">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

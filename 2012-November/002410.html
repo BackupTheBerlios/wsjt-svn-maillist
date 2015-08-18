@@ -1,0 +1,688 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2718 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2718%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121112163345.E196155B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002409.html">
+   <LINK REL="Next"  HREF="002411.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2718 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2718%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20121112163345.E196155B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2718 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 17:33:45 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002409.html">[WSJT-SVN] r2717 - in branches/wsjtx: . lib
+</A></li>
+        <LI>Next message: <A HREF="002411.html">[WSJT-SVN] r2719 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2410">[ date ]</a>
+              <a href="thread.html#2410">[ thread ]</a>
+              <a href="subject.html#2410">[ subject ]</a>
+              <a href="author.html#2410">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-11-12 17:33:45 +0100 (Mon, 12 Nov 2012)
+New Revision: 2718
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/devsetup.cpp
+   branches/wsjtx/devsetup.ui
+   branches/wsjtx/getfile.h
+   branches/wsjtx/lib/decoder.f90
+   branches/wsjtx/lib/genjt9.f90
+   branches/wsjtx/lib/jt9.f90
+   branches/wsjtx/lib/jt9a.f90
+   branches/wsjtx/lib/jt9sync.f90
+   branches/wsjtx/lib/spec9.f90
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/mainwindow.ui
+   branches/wsjtx/plotter.cpp
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/wsjtx.iss
+Log:
+Much code cleanup: remove unised variables and code.
+Include # channels in audio device offerings.
+Start implementing &quot;msgsent&quot; correctly.  (Not finished!)
+Include Date in UTC display.
+Use the properly computer snrdb.
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/commons.h	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -13,7 +13,6 @@
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+   int nfqso;                        //User-selected QSO freq (kHz)
+-  int nagain;                       //1 ==&gt; decode only at fQSO +/- Tol
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int npts8;                        //npts for c0() array
+   int nfb;                          //High decode limit (kHz)
+
+Modified: branches/wsjtx/devsetup.cpp
+===================================================================
+--- branches/wsjtx/devsetup.cpp	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/devsetup.cpp	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -8,7 +8,7 @@
+ //----------------------------------------------------------- DevSetup()
+ DevSetup::DevSetup(QWidget *parent) :	QDialog(parent)
+ {
+-  ui.setupUi(this);	//setup the dialog form
++  ui.setupUi(this);	                              //setup the dialog form
+   m_restartSoundIn=false;
+   m_restartSoundOut=false;
+ }
+@@ -30,26 +30,11 @@
+   char pa_device_name[128];
+   char pa_device_hostapi[128];
+ 
+-/*
+-  getDev(&amp;numDevices,hostAPI_DeviceName,minChan,maxChan,minSpeed,maxSpeed);
+   k=0;
+-  for(id=0; id&lt;numDevices; id++)  {
+-    if(48000 &gt;= minSpeed[id] &amp;&amp; 48000 &lt;= maxSpeed[id]) {
+-      m_inDevList[k]=id;
+-      k++;
+-      sprintf(s,&quot;%2d   %d  %-49s&quot;,id,maxChan[id],hostAPI_DeviceName[id]);
+-      QString t(s);
+-      ui.comboBoxSndIn-&gt;addItem(t);
+-      valid_devices++;
+-    }
+-  }
+-*/
+-
+-  k=0;
+   for(id=0; id&lt;numDevices; id++ )  {
+     pdi=Pa_GetDeviceInfo(id);
+     nchin=pdi-&gt;maxInputChannels;
+-    if(nchin&gt;=2) {
++    if(nchin&gt;0) {
+       m_inDevList[k]=id;
+       k++;
+       sprintf((char*)(pa_device_name),&quot;%s&quot;,pdi-&gt;name);
+@@ -68,7 +53,7 @@
+       p=strstr(pa_device_hostapi,&quot;WDM-KS&quot;);
+       if(p!=NULL) p1=(char*)&quot;WDM-KS&quot;;
+ 
+-      sprintf(p2,&quot;%2d   %-8s  %-39s&quot;,id,p1,pa_device_name);
++      sprintf(p2,&quot;%2d   %d   %-8s  %-39s&quot;,id,nchin,p1,pa_device_name);
+       QString t(p2);
+       ui.comboBoxSndIn-&gt;addItem(t);
+     }
+@@ -78,7 +63,7 @@
+   for(id=0; id&lt;numDevices; id++ )  {
+     pdi=Pa_GetDeviceInfo(id);
+     nchout=pdi-&gt;maxOutputChannels;
+-    if(nchout&gt;=2) {
++    if(nchout&gt;0) {
+       m_outDevList[k]=id;
+       k++;
+       sprintf((char*)(pa_device_name),&quot;%s&quot;,pdi-&gt;name);
+@@ -97,7 +82,7 @@
+       p=strstr(pa_device_hostapi,&quot;WDM-KS&quot;);
+       if(p!=NULL) p1=(char*)&quot;WDM-KS&quot;;
+ 
+-      sprintf(p2,&quot;%2d   %-8s  %-39s&quot;,id,p1,pa_device_name);
++      sprintf(p2,&quot;%2d   %d   %-8s  %-39s&quot;,id,nchout,p1,pa_device_name);
+       QString t(p2);
+       ui.comboBoxSndOut-&gt;addItem(t);
+     }
+
+Modified: branches/wsjtx/devsetup.ui
+===================================================================
+--- branches/wsjtx/devsetup.ui	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/devsetup.ui	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -29,7 +29,7 @@
+          &lt;x&gt;10&lt;/x&gt;
+          &lt;y&gt;34&lt;/y&gt;
+          &lt;width&gt;421&lt;/width&gt;
+-         &lt;height&gt;216&lt;/height&gt;
++         &lt;height&gt;221&lt;/height&gt;
+         &lt;/rect&gt;
+        &lt;/property&gt;
+        &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_8&quot;&gt;
+@@ -321,6 +321,13 @@
+          &lt;/spacer&gt;
+         &lt;/item&gt;
+         &lt;item&gt;
++         &lt;widget class=&quot;QLabel&quot; name=&quot;label_8&quot;&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;                  Dev Ch API      Name&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/widget&gt;
++        &lt;/item&gt;
++        &lt;item&gt;
+          &lt;layout class=&quot;QVBoxLayout&quot; name=&quot;verticalLayout_6&quot;&gt;
+           &lt;item&gt;
+            &lt;layout class=&quot;QHBoxLayout&quot; name=&quot;horizontalLayout_3&quot;&gt;
+
+Modified: branches/wsjtx/getfile.h
+===================================================================
+--- branches/wsjtx/getfile.h	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/getfile.h	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -6,7 +6,6 @@
+ #include &quot;commons.h&quot;
+ 
+ void getfile(QString fname, int ntrperiod);
+-void savetf2(QString fname, int ntrperiod);
+ float gran();
+ int ptt(int* nport, int* ntx, int* iptt);
+ 
+
+Modified: branches/wsjtx/lib/decoder.f90
+===================================================================
+--- branches/wsjtx/lib/decoder.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/decoder.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -1,8 +1,6 @@
+ subroutine decoder(ntrSeconds,ndepth,nRxLog,c00)
+ 
+-! Decoder for JT9.  Can run stand-alone, reading data from *.wav files;
+-! or as the back end of wsjt-x, with data placed in a shared memory region.
+-
++! Decoder for JT9.  
+ ! NB: For unknown reason, ***MUST*** be compiled by g95 with -O0 !!!
+ 
+   parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
+@@ -15,7 +13,7 @@
+   integer*2 id2
+   complex c0(NDMAX),c00(NDMAX)
+   common/jt9com/ss0(184,NSMAX),savg(NSMAX),id2(NMAX),nutc0,ndiskdat,    &amp;
+-       ntr,nfqso,nagain,newdat,npts80,nfb,ntol,kin,nsynced,ndecoded
++       ntr,nfqso,newdat,npts80,nfb,ntol,kin,nsynced,ndecoded
+   common/jt9comB/ss(184,NSMAX),c0
+   logical first
+   data first/.true./
+@@ -55,12 +53,10 @@
+   endif
+   if(nsps.eq.0) stop 'Error: bad TRperiod'    !Better: return an error code###
+ 
+-! Now do the decoding
+   kstep=nsps/2
+   tstep=kstep/12000.0
+ 
+-! Get sync, approx freq
+-  call sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)
++  call sync9(ss,tstep,df3,ntol,nfqso,ccfred,ia,ib,ipk)  ! Get sync, approx freq
+ 
+   open(13,file='decoded.txt',status='unknown')
+   rewind 13
+@@ -81,7 +77,8 @@
+      if((i.eq.ipk .or. ccfred(i).ge.3.0) .and. f.gt.fgood+10.0*df8) then
+         call spec9(c0,npts8,nsps,f,fpk,xdt,snrdb,i1SoftSymbols)
+         call decode9(i1SoftSymbols,limit,nlim,msg)
+-        snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
++!        snr=10.0*log10(ccfred(i)) - 10.0*log10(2500.0/df3) + 2.0
++        snr=snrdb
+         sync=ccfred(i) - 2.0
+         if(sync.lt.0.0) sync=0.0
+         nsync=sync
+
+Modified: branches/wsjtx/lib/genjt9.f90
+===================================================================
+--- branches/wsjtx/lib/genjt9.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/genjt9.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -23,6 +23,7 @@
+ 
+   call packmsg(message,i4Msg6BitWords)    !Pack message into 12 6-bit bytes
+   call unpackmsg(i4Msg6BitWords,msgsent)  !Unpack to get msgsent
++  if(i4tone(1).eq.-99) go to 999
+   call entail(i4Msg6BitWords,i1Msg8BitBytes)  !Add tail, convert to 8-bit bytes
+   nsym2=206
+   call encode232(i1Msg8BitBytes,nsym2,i1EncodedBits)   !Encode K=32, r=1/2
+@@ -41,5 +42,5 @@
+      endif
+   enddo
+ 
+-  return
++999 return
+ end subroutine genjt9
+
+Modified: branches/wsjtx/lib/jt9.f90
+===================================================================
+--- branches/wsjtx/lib/jt9.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/jt9.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -19,7 +19,7 @@
+   integer*2 id2
+   complex c0(NDMAX)
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
+-       ntr,mousefqso,nagain,newdat,nfa,nfb,ntol,kin
++       ntr,mousefqso,newdat,nfa,nfb,ntol,kin
+ 
+   nargs=iargc()
+   if(nargs.lt.1) then
+
+Modified: branches/wsjtx/lib/jt9a.f90
+===================================================================
+--- branches/wsjtx/lib/jt9a.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/jt9a.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -74,7 +74,7 @@
+   character*12 mycall,hiscall
+   character*6 mygrid,hisgrid
+   character*20 datetime
+-  common/npar/fcenter,nutc,idphi,mousedf,mousefqso,nagain,              &amp;
++  common/npar/fcenter,nutc,idphi,mousedf,mousefqso,                     &amp;
+        ndepth,ndiskdat,neme,newdat,nfa,nfb,nfcal,nfshift,               &amp;
+        mcall3,nkeep,ntol,nxant,nrxlog,nfsample,nxpol,mode65,            &amp;
+        mycall,mygrid,hiscall,hisgrid,datetime
+
+Modified: branches/wsjtx/lib/jt9sync.f90
+===================================================================
+--- branches/wsjtx/lib/jt9sync.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/jt9sync.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -1,19 +1,11 @@
+   integer ii(16)                       !Locations of sync symbols
+-!  data ii/1,6,11,16,21,26,31,39,45,51,57,63,69,75,81,85/
+   data ii/ 1,2,5,10,16,23,33,35,51,52,55,60,66,73,83,85/
+ 
+-  integer ii2(16)                     !Locations of sync half-symbols
+-!  data ii2/1,11,21,31,41,51,61,77,89,101,113,125,137,149,161,169/
++  integer ii2(16)                      !Locations of sync half-symbols
+   data ii2/1,3,9,19,31,45,65,69,101,103,109,119,131,145,165,169/
+ 
+ 
+   integer isync(85)                    !Sync vector
+-!  data isync/                                    &amp;
+-!       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,  &amp;
+-!       1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,  &amp;
+-!       0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,  &amp;
+-!       0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,  &amp;
+-!       1,0,0,0,1/
+   data isync/                                     &amp;
+        1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,   &amp;
+        0,0,1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,   &amp;
+
+Modified: branches/wsjtx/lib/spec9.f90
+===================================================================
+--- branches/wsjtx/lib/spec9.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/spec9.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -84,10 +84,9 @@
+   ave=sum/(69*7)
+   ssym=ssym/ave
+   sig=sig/69.
+-  snr=sig/ave
+   df8=1500.0/nsps8
+-  snrdb=db(snr) - db(2500.0/df8)
+-!  print*,ave,sig,snr,df8,snrdb
++  t=max(1.0,sig/ave - 1.0)
++  snrdb=db(t) - db(2500.0/df8)
+      
+   m0=3
+   ntones=8
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/lib/symspec.f90	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -33,7 +33,7 @@
+   integer*2 id2
+   complex c0(NDMAX)
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,    &amp;
+-       ntr,mousefqso,nagain,newdat,nfa,nfb,ntol,kin
++       ntr,mousefqso,newdat,nfa,nfb,ntol,kin
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
+   save
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/mainwindow.cpp	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -86,13 +86,11 @@
+ 
+   m_auto=false;
+   m_waterfallAvg = 1;
+-  m_network = true;
+   m_txFirst=false;
+   m_txMute=false;
+   btxok=false;
+   m_restart=false;
+   m_transmitting=false;
+-  m_killAll=false;
+   m_widebandDecode=false;
+   m_ntx=1;
+   m_myCall=&quot;K1JT&quot;;
+@@ -322,7 +320,7 @@
+ //-------------------------------------------------------------- dataSink()
+ void MainWindow::dataSink(int k)
+ {
+-  static float s[NSMAX],red[NSMAX],splot[NSMAX];
++  static float s[NSMAX],red[NSMAX];
+   static int n=0;
+   static int ihsym=0;
+   static int nzap=0;
+@@ -354,7 +352,7 @@
+            &amp;df3, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong, c0, &amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+-  m_pctZap=nzap/178.3;
++  m_pctZap=nzap*100.0/m_nsps;
+   t.sprintf(&quot; Rx noise: %5.1f  %5.1f %% &quot;,px,m_pctZap);
+   lab3-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);   //Update the thermometer
+@@ -362,38 +360,11 @@
+     g_pWideGraph-&gt;dataSink2(s,red,df3,ihsym,m_diskData,lstrong);
+   }
+ 
+-  //Average over specified number of spectra
+-  if (n==0) {
+-    for (int i=0; i&lt;NSMAX; i++)
+-      splot[i]=s[i];
+-  } else {
+-    for (int i=0; i&lt;NSMAX; i++)
+-      splot[i] += s[i];
+-  }
+-  n++;
+-
+-  if (n&gt;=m_waterfallAvg) {
+-    for (int i=0; i&lt;NSMAX; i++) {
+-        splot[i] /= n;                           //Normalize the average
+-    }
+-
+-// Time according to this computer
+-    qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+-    int ntr = (ms/1000) % m_TRperiod;
+-    if((m_diskData &amp;&amp; ihsym &lt;= m_waterfallAvg) || (!m_diskData &amp;&amp; ntr&lt;ntr0)) {
+-      for (int i=0; i&lt;NSMAX; i++) {
+-        splot[i] = 1.e30;
+-      }
+-    }
+-    ntr0=ntr;
+-    n=0;
+-  }
+   // This is a bit strange.  Why do we need the &quot;-3&quot; ???
+   if(ihsym == m_hsymStop-3) {
+     m_dataAvailable=true;
+     jt9com_.npts8=(ihsym*m_nsps)/16;
+     jt9com_.newdat=1;
+-    jt9com_.nagain=0;
+     QDateTime t = QDateTime::currentDateTimeUtc();
+     m_dateTime=t.toString(&quot;yyyy-MMM-dd hh:mm&quot;);
+     decode();                                           //Start the decoder
+@@ -620,7 +591,6 @@
+ void MainWindow::OnExit()
+ {
+   g_pWideGraph-&gt;saveSettings();
+-  m_killAll=true;
+   qApp-&gt;exit(0);                                      // Exit the event loop
+ }
+ 
+@@ -731,7 +701,8 @@
+     k=(n+1)*kstep;
+     jt9com_.npts8=k/8;
+     dataSink(k);
+-    if(n%10 == 1 or n == m_hsymStop) qApp-&gt;processEvents();   //Keep GUI responsive
++    if(n%10 == 1 or n == m_hsymStop)
++        qApp-&gt;processEvents();                   //Keep GUI responsive
+   }
+ }
+ 
+@@ -839,7 +810,6 @@
+ {
+   if(!m_decoderBusy) {
+     jt9com_.newdat=0;
+-    jt9com_.nagain=1;
+     decode();
+   }
+ }
+@@ -849,7 +819,6 @@
+   static int ntol[] = {1,2,5,10,20,50,100,200,500,1000};
+   if(!m_decoderBusy) {
+     jt9com_.newdat=0;
+-    jt9com_.nagain=1;
+     int i;
+     if(m_mode==&quot;JT9-1&quot;) i=4;
+     if(m_mode==&quot;JT9-2&quot;) i=4;
+@@ -869,7 +838,7 @@
+   decodeBusy(true);
+   ui-&gt;DecodeButton-&gt;setStyleSheet(m_pbdecoding_style1);
+ 
+-  if(jt9com_.nagain==0 &amp;&amp; (!m_diskData)) {
++  if(!m_diskData) {
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int imin=ms/60000;
+     int ihr=imin/60;
+@@ -927,7 +896,7 @@
+   int nsec=ms/1000;
+   double tsec=0.001*ms;
+   double t2p=fmod(tsec,2*m_TRperiod);
+-  bool bTxTime = t2p &gt;= tx1 &amp;&amp; t2p &lt; tx2;
++  bool bTxTime = (t2p &gt;= tx1) &amp;&amp; (t2p &lt; tx2);
+ 
+   if(m_auto) {
+ 
+@@ -969,10 +938,10 @@
+     if(m_ntx == 6) ba=ui-&gt;tx6-&gt;text().toLocal8Bit();
+ 
+     ba2msg(ba,message);
+-    ba2msg(ba,msgsent);
++//    ba2msg(ba,msgsent);
+     int len1=22;
+-    int len2=22;
+-    genjt9_(message,msgsent,itone,len1,len2);
++    genjt9_(message,msgsent,itone,len1,len1);
++    msgsent[22]=0;
+     if(m_restart) {
+       QFile f(&quot;wsjtx_tx.log&quot;);
+       f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append);
+@@ -989,7 +958,7 @@
+   if(iptt==1 &amp;&amp; iptt0==0) nc1=-9;    // TxDelay = 0.8 s
+   if(nc1 &lt;= 0) nc1++;
+   if(nc1 == 0) {
+-    ui-&gt;xThermo-&gt;setValue(0.0);   //Set the Thermos to zero
++    ui-&gt;xThermo-&gt;setValue(0.0);   //Set Thermo to zero
+     m_monitoring=false;
+     soundInThread.setMonitoring(false);
+     btxok=true;
+@@ -1062,7 +1031,8 @@
+     }
+ 
+     m_setftx=0;
+-    QString utc = &quot; &quot; + t.time().toString() + &quot; &quot;;
++    QString utc = t.date().toString(&quot;yyyy MMM dd&quot;) + &quot;\n &quot; +
++            t.time().toString() + &quot; &quot;;
+     ui-&gt;labUTC-&gt;setText(utc);
+     if(!m_monitoring and !m_diskData) {
+       ui-&gt;xThermo-&gt;setValue(0.0);
+@@ -1340,6 +1310,7 @@
+   char message[23];
+   char msgsent[23];
+   int len1=22;
++  int jtone[1];
+   double samfac=1.0;
+   int nsendingsh=0;
+   int mwave;
+@@ -1347,7 +1318,8 @@
+   int i1=t.indexOf(&quot; OOO&quot;);
+   QByteArray s=t.toUpper().toLocal8Bit();
+   ba2msg(s,message);
+-//  gen65_(message,&amp;mode65,&amp;samfac,&amp;nsendingsh,msgsent,iwave,&amp;mwave,len1,len1);
++  jtone[0]=-99;
++  genjt9_(message,msgsent,jtone,len1,len1);
+   nsendingsh=0;
+   QPalette p(tx-&gt;palette());
+   if(nsendingsh==1) {
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/mainwindow.h	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -1,17 +1,12 @@
+ #ifndef MAINWINDOW_H
+ #define MAINWINDOW_H
+ #include &lt;QtGui&gt;
+-#include &lt;QLabel&gt;
+ #include &lt;QTimer&gt;
+ #include &lt;QDateTime&gt;
+-#include &lt;QHash&gt;
+ #include &quot;soundin.h&quot;
+ #include &quot;soundout.h&quot;
+ #include &quot;commons.h&quot;
+-#include &quot;sleep.h&quot;
+ 
+-#define NFFT 32768
+-
+ //--------------------------------------------------------------- MainWindow
+ namespace Ui {
+     class MainWindow;
+@@ -24,7 +19,6 @@
+ public:
+   explicit MainWindow(QWidget *parent = 0);
+   ~MainWindow();
+-  bool m_network;
+ 
+ public slots:
+   void showSoundInError(const QString&amp; errorMsg);
+@@ -149,7 +143,6 @@
+     bool    m_auto;
+     bool    m_txMute;
+     bool    m_restart;
+-    bool    m_killAll;
+     bool    m_startAnother;
+     bool    m_saveSynced;
+     bool    m_saveDecoded;
+@@ -159,31 +152,22 @@
+     bool    m_NB;
+     bool    m_call3Modified;
+     bool    m_dataAvailable;
+-
+     char    m_decoded[80];
+-
+     float   m_pctZap;
+-
+     QRect   m_wideGraphGeom;
+-
+     QLabel* lab1;                            // labels in status bar
+     QLabel* lab2;
+     QLabel* lab3;
+     QLabel* lab4;
+     QLabel* lab5;
+     QLabel* lab6;
+-
+     QMessageBox msgBox0;
+-
+     QFuture&lt;void&gt;* future1;
+     QFuture&lt;void&gt;* future2;
+     QFuture&lt;void&gt;* future3;
+     QFutureWatcher&lt;void&gt;* watcher1;
+     QFutureWatcher&lt;void&gt;* watcher2;
+     QFutureWatcher&lt;void&gt;* watcher3;
+-
+-    QProcess proc_m65;
+-
+     QString m_path;
+     QString m_pbdecoding_style1;
+     QString m_pbmonitor_style;
+
+Modified: branches/wsjtx/mainwindow.ui
+===================================================================
+--- branches/wsjtx/mainwindow.ui	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/mainwindow.ui	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -491,12 +491,12 @@
+            &lt;property name=&quot;maximumSize&quot;&gt;
+             &lt;size&gt;
+              &lt;width&gt;150&lt;/width&gt;
+-             &lt;height&gt;40&lt;/height&gt;
++             &lt;height&gt;60&lt;/height&gt;
+             &lt;/size&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;font&quot;&gt;
+             &lt;font&gt;
+-             &lt;pointsize&gt;20&lt;/pointsize&gt;
++             &lt;pointsize&gt;16&lt;/pointsize&gt;
+             &lt;/font&gt;
+            &lt;/property&gt;
+            &lt;property name=&quot;frameShape&quot;&gt;
+@@ -505,6 +505,9 @@
+            &lt;property name=&quot;text&quot;&gt;
+             &lt;string&gt; 01:23:45 &lt;/string&gt;
+            &lt;/property&gt;
++           &lt;property name=&quot;alignment&quot;&gt;
++            &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++           &lt;/property&gt;
+           &lt;/widget&gt;
+          &lt;/item&gt;
+         &lt;/layout&gt;
+
+Modified: branches/wsjtx/plotter.cpp
+===================================================================
+--- branches/wsjtx/plotter.cpp	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/plotter.cpp	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -73,8 +73,6 @@
+ 
+ void CPlotter::paintEvent(QPaintEvent *)                    // paintEvent()
+ {
+-  static int x00=-99;
+-
+   if(m_paintEventBusy) return;
+   m_paintEventBusy=true;
+   QPainter painter(this);
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/soundin.cpp	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -14,7 +14,6 @@
+   int ndiskdat;                     //1 ==&gt; data read from *.wav file
+   int ntrperiod;                    //TR period (seconds)
+   int mousefqso;                    //User-selected QSO freq (kHz)
+-  int nagain;                       //1 ==&gt; decode only at fQSO +/- Tol
+   int newdat;                       //1 ==&gt; new data, must do long FFT
+   int npts8;                        //npts in c0() array
+   int nfb;                          //High decode limit (kHz)
+
+Modified: branches/wsjtx/wsjtx.iss
+===================================================================
+--- branches/wsjtx/wsjtx.iss	2012-11-06 21:28:59 UTC (rev 2717)
++++ branches/wsjtx/wsjtx.iss	2012-11-12 16:33:45 UTC (rev 2718)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=wsjtx
+-AppVerName=wsjtx Version 0.2 r2713
++AppVerName=wsjtx Version 0.3 r2717
+ AppCopyright=Copyright (C) 2001-2012 by Joe Taylor, K1JT
+ DefaultDirName=c:\wsjtx
+ DefaultGroupName=wsjtx
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002409.html">[WSJT-SVN] r2717 - in branches/wsjtx: . lib
+</A></li>
+	<LI>Next message: <A HREF="002411.html">[WSJT-SVN] r2719 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2410">[ date ]</a>
+              <a href="thread.html#2410">[ thread ]</a>
+              <a href="subject.html#2410">[ subject ]</a>
+              <a href="author.html#2410">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r480 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r480%20-%20branches/map65&In-Reply-To=%3C200707092036.l69KaqAj003026%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000164.html">
+   <LINK REL="Next"  HREF="000166.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r480 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r480%20-%20branches/map65&In-Reply-To=%3C200707092036.l69KaqAj003026%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r480 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  9 22:36:52 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000164.html">[WSJT-SVN] r479 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000166.html">[WSJT-SVN] r481 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#165">[ date ]</a>
+              <a href="thread.html#165">[ thread ]</a>
+              <a href="subject.html#165">[ subject ]</a>
+              <a href="author.html#165">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-09 22:36:44 +0200 (Mon, 09 Jul 2007)
+New Revision: 480
+
+Modified:
+   branches/map65/ftn_init.F90
+   branches/map65/map65.py
+   branches/map65/map65a.F90
+   branches/map65/savetf2.F90
+Log:
+IMplemented &quot;Save All&quot;.
+
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-07-09 19:32:50 UTC (rev 479)
++++ branches/map65/ftn_init.F90	2007-07-09 20:36:44 UTC (rev 480)
+@@ -18,7 +18,7 @@
+ !   25  meas25.dat
+ !   26  tmp26.tmp
+ !   27  dphi.txt
+-
++!   28  saved *.tf2 files
+ !------------------------------------------------ ftn_init
+ subroutine ftn_init
+ 
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-09 19:32:50 UTC (rev 479)
++++ branches/map65/map65.py	2007-07-09 20:36:44 UTC (rev 480)
+@@ -1,4 +1,4 @@
+-#---------------------------------------------------------------------- MAP65
++#--------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -1342,8 +1342,7 @@
+ savebutton['menu'] = savemenu
+ nsave=IntVar()
+ savemenu.add_radiobutton(label = 'None', variable=nsave,value=0)
+-savemenu.add_radiobutton(label = 'Save timf2', variable=nsave,value=1,
+-            state=DISABLED)
++savemenu.add_radiobutton(label = 'Save all', variable=nsave,value=1)
+ nsave.set(0)
+ 
+ #------------------------------------------------------ Band menu
+
+Modified: branches/map65/map65a.F90
+===================================================================
+--- branches/map65/map65a.F90	2007-07-09 19:32:50 UTC (rev 479)
++++ branches/map65/map65a.F90	2007-07-09 20:36:44 UTC (rev 480)
+@@ -334,8 +334,9 @@
+   call display(nkeep)
+   ndecdone=2
+ 
+-  if(nsave.gt.0) call savetf2(id(1,1,kbuf),nsave,nutc)
+-    
++  if(nsave.gt.0 .and. ndiskdat.eq.0) call savetf2(id(1,1,kbuf),nsave,   &amp;
++       ntime,nutc,savedir)
++
+ 999 close(23)
+   ndphi=0
+   if(kbuf.eq.1) kkdone=60*96000
+
+Modified: branches/map65/savetf2.F90
+===================================================================
+--- branches/map65/savetf2.F90	2007-07-09 19:32:50 UTC (rev 479)
++++ branches/map65/savetf2.F90	2007-07-09 20:36:44 UTC (rev 480)
+@@ -1,50 +1,100 @@
+-subroutine savetf2(id,nsave,nutc)
++subroutine savetf2(id,nsave,ntime,nutc,savedir)
++
++#ifdef Win32
++  use dfport
++#else
++  external gmtime_r
++#endif
++
+   parameter (NZ=60*96000)
+   parameter (NSPP=174)
+   parameter (NPKTS=NZ/NSPP)
+   integer*2 id(4,NZ)
+   real*4 ss(NPKTS),ss2(60)
+   real*8 dt,t,t2
++  character*80 savedir,fname
++  integer it(9)
+ 
+-  dt=NSPP/96000.d0
+-  t=0.d0
+-  nh=nutc/100
+-  nm=mod(nutc,100)
+-  t2=3600*nh + 60*nm
+-  fac=1.0/(4.0*NSPP)
++  if(nsave.eq.1) then
++     print*,nsave,nutc
++     print*,savedir
+ 
+-  do i=1,NPKTS
+-     s=0.
+-     do n=1,NSPP
+-        s=s + float(int(id(1,i)))**2 + float(int(id(2,i)))**2 +     &amp;
+-	     float(int(id(3,i)))**2 + float(int(id(4,i)))**2 
++     n2=ntime/60
++     n3=(n2-1)*60
++
++#ifdef Win32
++     call gmtime(n3,it)
++#else
++     call gmtime_r(n3,it)
++#endif
++     it(5)=it(5)+1
++     it(6)=mod(it(6),100)
++     nhr=nutc/100
++     nmin=mod(nutc,100)
++     write(fname,1000) it(6),it(5),it(4),nhr,nmin
++1000 format('/',3i2.2,'_',2i2.2,'.tf2')
++     do i=80,1,-1
++        if(savedir(i:i).ne.' ') go to 1
+      enddo
+-     ss(i)=fac*s
+-     t=t+dt
+-     t2=t2+dt
+-     if(nsave.eq.3) write(24,1010) t,t2,ss(i)
+-1010 format(f9.6,f15.6,f10.3)
+-  enddo
+ 
+-  if(nsave.eq.2) then
+-     dt2=551*dt
++1    iz=i
++     fname=savedir(1:iz)//fname
++#ifdef Win32
++     open(17,file=fname,status='unknown',form='binary',err=998)
++     write(17) id
++     close(17)
++#else
++     open(17,file=fname,status='unknown',form='unformatted',      &amp;
++          access='direct',recl=nbytes,err=998)
++     write(17,rec=1) id
++     close(17)     
++#endif
++
++
++  else
++     dt=NSPP/96000.d0
+      t=0.d0
++     nh=nutc/100
++     nm=mod(nutc,100)
+      t2=3600*nh + 60*nm
+-     k=0
+-     do i=1,60
++     fac=1.0/(4.0*NSPP)
++     do i=1,NPKTS
+         s=0.
+-        ns=0
+-        do n=1,551
+-           k=k+1
+-           s=s + ss(k)
+-           if(ss(k).gt.0.0) ns=ns+1
++        do n=1,NSPP
++           s=s + float(int(id(1,i)))**2 + float(int(id(2,i)))**2 +     &amp;
++                float(int(id(3,i)))**2 + float(int(id(4,i)))**2 
+         enddo
+-        ss2(i)=s/ns
++        ss(i)=fac*s
+         t=t+dt
+-        t2=t2+dt2
+-        write(25,1010) t,t2,ss2(i)
++        t2=t2+dt
++        if(nsave.eq.3) write(24,1010) t,t2,ss(i)
++1010    format(f9.6,f15.6,f10.3)
+      enddo
++
++     if(nsave.eq.2) then
++        dt2=551*dt
++        t=0.d0
++        t2=3600*nh + 60*nm
++        k=0
++        do i=1,60
++           s=0.
++           ns=0
++           do n=1,551
++              k=k+1
++              s=s + ss(k)
++              if(ss(k).gt.0.0) ns=ns+1
++           enddo
++           ss2(i)=s/ns
++           t=t+dt
++           t2=t2+dt2
++           write(25,1010) t,t2,ss2(i)
++        enddo
++     endif
+   endif
++  go to 999
+ 
+-  return
++998 print*,'Cannot open file:'
++  print*,fname
++
++999 return
+ end subroutine savetf2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000164.html">[WSJT-SVN] r479 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000166.html">[WSJT-SVN] r481 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#165">[ date ]</a>
+              <a href="thread.html#165">[ thread ]</a>
+              <a href="subject.html#165">[ subject ]</a>
+              <a href="author.html#165">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

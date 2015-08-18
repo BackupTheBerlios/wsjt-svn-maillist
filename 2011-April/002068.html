@@ -1,0 +1,453 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2376 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2376%20-%20trunk&In-Reply-To=%3C20110404195431.9D864480CFC%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002067.html">
+   <LINK REL="Next"  HREF="002069.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2376 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2376%20-%20trunk&In-Reply-To=%3C20110404195431.9D864480CFC%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2376 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr  4 21:54:31 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002067.html">[WSJT-SVN] r2375 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002069.html">[WSJT-SVN] r2377 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2068">[ date ]</a>
+              <a href="thread.html#2068">[ thread ]</a>
+              <a href="subject.html#2068">[ subject ]</a>
+              <a href="author.html#2068">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2011-04-04 21:54:31 +0200 (Mon, 04 Apr 2011)
+New Revision: 2376
+
+Modified:
+   trunk/Makefile.MinGW
+   trunk/decode2.f90
+   trunk/gcom2.f90
+   trunk/iscat.f90
+   trunk/pix2d.f90
+   trunk/wsjt.py
+   trunk/wsjt1.f90
+   trunk/wsjt9.iss
+Log:
+Improvements to ISCAT decoder:
+Enable &quot;mouse-swipe&quot; decodes.
+Omit display of zoomed spectrogram.
+Start implementing AFC.
+
+
+Modified: trunk/Makefile.MinGW
+===================================================================
+--- trunk/Makefile.MinGW	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/Makefile.MinGW	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -33,11 +33,11 @@
+ OBJS2C   = init_rs.o encode_rs.o decode_rs.o jtaudio.o fano.o \
+ 	tab.o nhash.o
+ 
+-OBJS4	= t74.o analytic.o four2b.o iscat.o db.o pctile.o \
+-	sort.o ssort.o
++OBJS4	= t75.o iscat.o four2a.o db.o pctile.o match.o \
++	sort.o ssort.o thnix_stub.o geniscat.o tweak2.o
+ 
+-t74:	$(OBJS4)
+-	$(FC) -o t74 $(OBJS4) libfftw3f_win.a
++t75.exe:$(OBJS4)
++	$(FC) -o t75 $(OBJS4) libfftw3f_win.a
+ 
+ OBJS5	= techo.o analytic.o four2b.o db.o
+ 
+@@ -56,7 +56,7 @@
+ 	iscat.f90 four2a.f90 hipass.f90 msdf.f90 syncms.f90 lenms.f90 \
+ 	jtms.f90 foldms.f90 avecho.f90 echogen.f90 alignmsg.f90 \
+ 	chk441.f90 gen441.f90 tm2.f90 gendiana.f90 diana.f90 \
+-	specdiana.f90 syncdiana.f90 decdiana.f90
++	specdiana.f90 syncdiana.f90 decdiana.f90 tweak2.f90
+ 
+ 
+ SRCS2F77 = avesp2.f bzap.f spec441.f spec2d.f mtdecode.f \
+
+Modified: trunk/decode2.f90
+===================================================================
+--- trunk/decode2.f90	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/decode2.f90	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -20,7 +20,12 @@
+ 
+   lenpick=22050                !Length of FSK441 mouse-picked region
+   istart=1.0 + 11025*0.001*npingtime - lenpick/2
++  if(npingtime2.ge.npingtime+1000) then
++     lenpick=11025*0.001*(npingtime2-npingtime)
++     istart=1.0 + 11025*0.001*npingtime
++  endif
+   if(istart.lt.2) istart=2
++
+   if(ndecoding.eq.1) then
+ ! Normal decoding at end of Rx period (or at t=53s in JT65)
+      istart=1
+
+Modified: trunk/gcom2.f90
+===================================================================
+--- trunk/gcom2.f90	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/gcom2.f90	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -18,6 +18,7 @@
+ integer mousebutton    !Which button was clicked?               GUI
+ integer ndecdone       !Is decoder finished?                 GUI,Decoder
+ integer npingtime      !Time in file of mouse-selected ping  GUI,Decoder
++integer npingtime2     !End time of mouse-selected ping      GUI,Decoder
+ integer ntc            !Time constand for echo averaging (m)    GUI
+ integer necho          !0 for CW, 1 for 27x27 Costas            GUI
+ integer nfrit          !RIT setting for Echo mode (Hz)          GUI
+@@ -106,8 +107,8 @@
+ common/gcom2/ps0(431),psavg(450),s2(64,3100),ccf(-5:540),             &amp;
+      green(500),ngreen,dgain,dlatency,fecho,iter,iyr,imo,ida,         &amp;
+      ndecoding,ndecoding0,mousebutton,ntc,necho,nfrit,ndither,        &amp;
+-     nsumecho,ndecdone,npingtime,ierr,lauto,mantx,nrestart,ntr,       &amp;
+-     ntxboth,nmsg,                                                    &amp;
++     nsumecho,ndecdone,npingtime,npingtime2,ierr,lauto,mantx,         &amp;
++     nrestart,ntr,ntxboth,nmsg,                                       &amp;
+      nsave,nadd5,dftolerance,LDecoded,rxdone,monitoring,nzap,         &amp;
+      nsavecum,minsigdb,nclearave,newdat2,nfreeze,nafc,nmode,mode65,   &amp;
+      mode4,ndebug,nport,ndtr,mousedf,                                 &amp;
+
+Modified: trunk/iscat.f90
+===================================================================
+--- trunk/iscat.f90	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/iscat.f90	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -1,5 +1,5 @@
+ subroutine iscat(dat,npts0,cfile6,MinSigdB,DFTolerance,NFreeze,MouseDF,    &amp;
+-     mousebutton,mode4,ccf,psavg)
++     mousebutton,mode4,nafc,psavg)
+ 
+ ! Decode an ISCAT signal
+ 
+@@ -7,9 +7,11 @@
+   parameter (NSZ=4*1400)
+   real dat(NMAX)                          !Raw signal, 30 s at 11025 sps
+   complex cdat(368640)
++  complex cdat0(368640)
+   character cfile6*6                      !File time
+   character c42*42
+   character msg*29,msg1*29
++  character csync*1
+   real x(NSZ),x2(NSZ)
+   complex c(288)
+   real s0(288,NSZ)
+@@ -17,7 +19,7 @@
+   real fs1(0:41,30)
+   real savg(288)
+   real b(288)
+-  real ccf(-5:540)
++  real ccf(1:96)
+   real psavg(72)                          !Average spectrum of whole file
+   integer dftolerance
+   integer icos(4)
+@@ -49,10 +51,12 @@
+   df=fsample/nfft
+   fac=1.0/1000.0                       !Somewhat arbitrary
+   savg=0.
++  cdat0(:npts)=cdat(:npts)
+ 
+-!  f0=0.
+-!  f1=0.
+-!  call tweak2(cdat,npts,fsample,f0,f1,cdat)
++!  do idf1=-3,3
++!     f0=0.
++!     f1=5.0*idf1
++!     call tweak2(cdat0,npts,fsample,f0,f1,cdat)
+ 
+   ia=1-kstep
+   do j=1,4*nsym                                   !Compute symbol spectra
+@@ -73,11 +77,11 @@
+   savg=savg/jsym
+   do i=1,nfft
+      x(1:jsym)=s0(i,1:jsym)
+-     call pctile(x,x2,jsym,30,b(i))               !Baseline level for each freq bin
++     call pctile(x,x2,jsym,30,b(i))           !Baseline level for each freq bin
+   enddo
+   b(1:10)=b(11)
+ 
+-  do i=1,71                                       !Compute spectrum in dB, for plot
++  do i=1,71                                   !Compute spectrum in dB, for plot
+      if(mode4.eq.1) then
+         psavg(i)=2*db(savg(4*i)+savg(4*i-1)+savg(4*i-2)+savg(4*i-3)) + 1.0
+      else
+@@ -105,8 +109,8 @@
+   enddo
+ 
+   i0=27
+-  if(mode4.eq.1) i0=95                      !i0 is bin of nominal lowest tone freq
+-  ia=i0-600/df                              !Set search range in frequency...
++  if(mode4.eq.1) i0=95                  !i0 is bin of nominal lowest tone freq
++  ia=i0-600/df                          !Set search range in frequency...
+   ib=i0+600/df
+   if(nfreeze.eq.1) then
+      ia=i0+(mousedf-dftolerance)/df
+@@ -233,17 +237,19 @@
+   if(navg.gt.10) navg=10
+   isync=xsync
+   if(navg.le.0) msg=' '
++  csync=' '
++  if(isync.ge.1) csync='*'
+ 
+   call cs_lock('iscat')
+-  write(11,1020) cfile6,nsig,ndf0,msg,msglen,nworst,navg
+-  write(21,1020) cfile6,nsig,ndf0,msg,msglen,nworst,navg
+-1020 format(a6,i5,i5,6x,a28,i4,2i3)
++  write(11,1020) cfile6,nsig,ndf0,csync,msg,msglen,nworst,navg
++  write(21,1020) cfile6,nsig,ndf0,csync,msg,msglen,nworst,navg
++1020 format(a6,i5,i5,1x,a1,2x,a28,i4,2i3)
+   call match('VK7MO',msg(1:msglen-1),nstart1,nmatch1)
+   call match('VK3HZ',msg(1:msglen-1),nstart2,nmatch2)
+ 
+-  write(*,1021) cfile6,nsig,ndf0,msg,xsync,msglen,nworst,navg,       &amp;
++  write(*,1021) cfile6,nsig,ndf0,csync,msg,xsync,msglen,nworst,navg,       &amp;
+        nmatch1,nmatch2
+-1021 format(a6,i5,i5,2x,a28,f5.1,5i3)
++1021 format(a6,i5,i5,1x,a1,2x,a28,f5.1,5i3)
+   call cs_unlock
+ 
+ !  enddo
+
+Modified: trunk/pix2d.f90
+===================================================================
+--- trunk/pix2d.f90	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/pix2d.f90	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -13,7 +13,6 @@
+   tbest=s2(2,1)
+   s2(1,1)=s2(3,1)
+   s2(2,1)=s2(3,1)
+-
+   gain=100.
+   offset=0.0
+ 
+@@ -29,11 +28,7 @@
+         enddo
+         k=k+500-nz
+      enddo
+-     do i=k+1,60000
+-        b(i)=0
+-     enddo
+-
+-  else
++  else if(mode.eq.'FSK441') then
+ ! This is a mouse-picked decode, so we compute the &quot;zoomed&quot; region.
+      k=50*500
+      do i=54,7,-1
+@@ -47,6 +42,7 @@
+         k=k+500-nz
+      enddo
+   endif
++  b(k+1:)=0
+ 
+   if(mousebutton.eq.0) then
+ ! Compute the green curve
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/wsjt.py	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -634,7 +634,6 @@
+     binclude.pack(side=LEFT,expand=1,fill=X)
+     bexclude.pack(side=LEFT,expand=1,fill=X)
+     btxstop.pack(side=LEFT,expand=1,fill=X)
+-
+     cbfreeze.grid(column=1,row=2,padx=2,sticky='W')
+     cbafc.grid(column=1,row=1,padx=2,sticky='W')
+     if ltxdf: toggletxdf()
+@@ -697,10 +696,11 @@
+         cleartext()
+         ModeFSK441()
+         mode.set(&quot;ISCAT-B&quot;)
+-        lab2.configure(text='FileID      Avg dB        DF')
++        lab2.configure(text='FileID      Avg dB       DF')
+         isync=isync_iscat
+         lsync.configure(text=slabel+str(isync))
+-        cbfreeze.grid(column=1,row=1,padx=2,sticky='W')
++        cbafc.grid(column=1,row=1,padx=2,sticky='W')
++        cbfreeze.grid(column=1,row=2,padx=2,sticky='W')
+         itol=3
+         ltol.configure(text='Tol    '+str(ntol[itol]))
+         inctol()
+@@ -1262,10 +1262,11 @@
+                 Audio.gcom2.nagain=1
+                 Audio.gcom2.mousebutton=event.num     #Left=1, Right=3
+                 Audio.gcom2.npingtime=int(195+60*event.x) #Time (ms) of mouse-picked ping
+-                if Audio.gcom2.ndecoding0==4:
+-                    Audio.gcom2.ndecoding=4           #Decode from recorded file
+-                elif Audio.gcom2.ndecoding0==1:
+-                    Audio.gcom2.ndecoding=5        #Decode data in main screen
++                if mode.get()[:5]!='ISCAT' or event.num==3:
++                    if Audio.gcom2.ndecoding0==4:
++                        Audio.gcom2.ndecoding=4           #Decode from recorded file
++                    elif Audio.gcom2.ndecoding0==1:
++                        Audio.gcom2.ndecoding=5        #Decode data in main screen
+     nopen=0
+ 
+ #------------------------------------------------------ double-click_g1
+@@ -1276,8 +1277,14 @@
+     
+ #------------------------------------------------------ mouse_up_g1
+ def mouse_up_g1(event):
+-#    print event.x
+-    pass
++    if mode.get()[:5]=='ISCAT' and Audio.gcom2.ndecoding==0:
++        Audio.gcom2.nagain=1
++        Audio.gcom2.mousebutton=event.num          #Left=1, Right=3
++        Audio.gcom2.npingtime2=int(195+60*event.x) #Time (ms) of mouse-picked ping
++        if Audio.gcom2.ndecoding0==4:
++            Audio.gcom2.ndecoding=4           #Decode from recorded file
++        elif Audio.gcom2.ndecoding0==1:
++            Audio.gcom2.ndecoding=5           #Decode data in main screen
+ 
+ #------------------------------------------------------ right_arrow
+ def right_arrow(event=NONE):
+@@ -1628,7 +1635,7 @@
+ #------------------------------------------------------ update
+ def update():
+     global root_geom,isec0,naz,nel,ndmiles,ndkm,nhotaz,nhotabetter,nopen, \
+-           im,pim,cmap0,isync,isync441,isync_iscat,isync65,       \
++           im,pim,cmap0,isync,isync441,isync_iscat,isync65,               \
+            isync_save,idsec,first,itol,txsnrdb,tx6alt,nmeas
+     
+     utc=time.gmtime(time.time()+0.1*idsec)
+@@ -1907,6 +1914,18 @@
+             graph1.create_image(0,0,anchor='nw',image=pim)
+             t=g.filetime(g.ftnstr(Audio.gcom2.decodedfile))
+             graph1.create_text(100,80,anchor=W,text=t,fill=&quot;white&quot;)
++            if mode.get()[:5]=='ISCAT' and Audio.gcom2.npingtime&gt;0:
++                if Audio.gcom2.npingtime2-Audio.gcom2.npingtime &gt;= 1000:
++                    x1=(Audio.gcom2.npingtime - 195)/60.0
++                    x2=(Audio.gcom2.npingtime2 - 195)/60.0
++                else:
++                    x1=(Audio.gcom2.npingtime  - 195 - 1000)/60.0
++                    x2=(Audio.gcom2.npingtime2 - 195 + 1000)/60.0                    
++                graph1.create_line([x1,90,x2,90],fill=&quot;yellow&quot;)
++                graph1.create_line([x1,85,x1,95],fill=&quot;yellow&quot;)
++                graph1.create_line([x2,85,x2,95],fill=&quot;yellow&quot;)
++                Audio.gcom2.npingtime=0
++                Audio.gcom2.npingtime2=0
+             plot_small()
+         if loopall: opennext()
+         nopen=0
+@@ -2134,8 +2153,8 @@
+     decodebutton['menu'] = decodemenu
+ else:    
+     decodemenu = Menu(mbar, tearoff=use_tearoff)
+-##decodemenu.FSK441=Menu(decodemenu,tearoff=0)
+-##decodemenu.FSK441.add_checkbutton(label='No shorthands',variable=nosh441)
++##decodemenu.ISCAT=Menu(decodemenu,tearoff=0)
++##decodemenu.ISCAT.add_checkbutton(label='Exhaustive',variable=iscat_ex)
+ decodemenu.JT65=Menu(decodemenu,tearoff=0)
+ decodemenu.JT65.add_checkbutton(label='Only EME calls in Deep Search',variable=neme)
+ decodemenu.JT65.add_checkbutton(label='No Shorthand decodes',variable=noshjt65all)
+@@ -2151,7 +2170,7 @@
+ decodemenu.JT65.add_radiobutton(label ='Include Average in Aggressive Deep Search',
+                                 variable=ndepth, value=3)
+ 
+-##decodemenu.add_cascade(label = 'FSK441',menu=decodemenu.FSK441)
++##decodemenu.add_cascade(label = 'ISCAT',menu=decodemenu.ISCAT)
+ decodemenu.add_cascade(label = 'JT65',menu=decodemenu.JT65)
+ 
+ if (sys.platform == 'darwin'):
+
+Modified: trunk/wsjt1.f90
+===================================================================
+--- trunk/wsjt1.f90	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/wsjt1.f90	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -237,7 +237,7 @@
+ !     write(74) jz,cfile6,(dat(j),j=1,jz)
+      call spec2d(dat,jz,nstep,s2,nchan,nz,psavg,sigma)
+      if(jz.ge.11025) call iscat(dat,jz,cfile6,MinSigdB,DFTolerance,     &amp;
+-          NFreeze,MouseDF,mousebutton,mode4,ccf,psavg)
++          NFreeze,MouseDF,mousebutton,mode4,nafc,psavg)
+      psavg(65:)=0.
+      go to 800
+   endif
+
+Modified: trunk/wsjt9.iss
+===================================================================
+--- trunk/wsjt9.iss	2011-04-04 15:40:47 UTC (rev 2375)
++++ trunk/wsjt9.iss	2011-04-04 19:54:31 UTC (rev 2376)
+@@ -1,24 +1,24 @@
+ [Setup]
+ AppName=WSJT
+-AppVerName=WSJT Version 9.01 r2226
+-AppCopyright=Copyright (C) 2001-2010 by Joe Taylor, K1JT
++AppVerName=WSJT Version 9.1 r2372
++AppCopyright=Copyright (C) 2001-2011 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSJT9
+ DefaultGroupName=WSJT9
+ 
+ [Files]
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\WSJT9.EXE&quot;;         DestDir: &quot;{app}&quot;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\UpdateHistory.txt&quot;; DestDir: &quot;{app}&quot;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\wsjt.ico&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\TSKY.DAT&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\libsamplerate.dll&quot;; DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\KVASD_g95.EXE&quot;;     DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\kvasd.dat&quot;;         DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\wsjtrc.win&quot;;        DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\WSJT_User_600.pdf&quot;; DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\WSJT_Quick_Reference.pdf&quot;; DestDir: &quot;{app}&quot;;
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\rxwav\samples\W8WN_010809_110400.WAV&quot;;  DestDir: &quot;{app}\RxWav\Samples\&quot;; Flags: onlyifdoesntexist
+-Source: &quot;c:\Users\joe\wsjt\wsjt7a\dmet_10_-1_3.dat&quot;;  DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\WSJT9.EXE&quot;;         DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\trunk\UpdateHistory.txt&quot;; DestDir: &quot;{app}&quot;
++Source: &quot;c:\Users\joe\wsjt\trunk\CALL3.TXT&quot;;         DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\wsjt.ico&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\TSKY.DAT&quot;;          DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\libsamplerate.dll&quot;; DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\KVASD_g95.EXE&quot;;     DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\trunk\kvasd.dat&quot;;         DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\wsjtrc.win&quot;;        DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\trunk\WSJT_User_600.pdf&quot;; DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\trunk\WSJT_Quick_Reference.pdf&quot;; DestDir: &quot;{app}&quot;;
++Source: &quot;c:\Users\joe\wsjt\trunk\rxwav\samples\W8WN_010809_110400.WAV&quot;;  DestDir: &quot;{app}\RxWav\Samples\&quot;; Flags: onlyifdoesntexist
++Source: &quot;c:\Users\joe\wsjt\trunk\dmet_10_-1_3.dat&quot;;  DestDir: &quot;{app}&quot;; Flags: onlyifdoesntexist
+ 
+ [Icons]
+ Name: &quot;{group}\WSJT9&quot;;        Filename: &quot;{app}\WSJT9.EXE&quot;; WorkingDir: {app}; IconFileName: &quot;{app}\wsjt.ico&quot;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002067.html">[WSJT-SVN] r2375 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002069.html">[WSJT-SVN] r2377 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2068">[ date ]</a>
+              <a href="thread.html#2068">[ thread ]</a>
+              <a href="subject.html#2068">[ subject ]</a>
+              <a href="author.html#2068">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

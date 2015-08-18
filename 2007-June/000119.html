@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r434 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r434%20-%20branches/map65&In-Reply-To=%3C200706290021.l5T0LqDS020841%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000118.html">
+   <LINK REL="Next"  HREF="000120.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r434 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r434%20-%20branches/map65&In-Reply-To=%3C200706290021.l5T0LqDS020841%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r434 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 29 02:21:52 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000118.html">[WSJT-SVN] r433 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000120.html">[WSJT-SVN] r435 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#119">[ date ]</a>
+              <a href="thread.html#119">[ thread ]</a>
+              <a href="subject.html#119">[ subject ]</a>
+              <a href="author.html#119">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-06-29 02:21:31 +0200 (Fri, 29 Jun 2007)
+New Revision: 434
+
+Modified:
+   branches/map65/decode1.F90
+   branches/map65/decode1a.f
+   branches/map65/getfile2.F90
+   branches/map65/map65a.f90
+   branches/map65/recvpkt.F90
+   branches/map65/symspec.f
+Log:
+Mostly working now, with multicast input.  FFTs start at t=43 s, though.
+
+
+Modified: branches/map65/decode1.F90
+===================================================================
+--- branches/map65/decode1.F90	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/decode1.F90	2007-06-29 00:21:31 UTC (rev 434)
+@@ -30,11 +30,9 @@
+ 
+   if((kk-kkdone).gt.32768) call symspec(id,kbuf,kk,kkdone,rxnoise,     &amp;
+        newspec,newdat,ndecoding)
+-  print*,'A',kbuf,kk,kkdone,newspec,newdat,ndecoding
+ 
+   if(ndecoding.gt.0 .and. mode(1:4).eq.'JT65') then
+      ndecdone=0
+-     print*,'C',nutc,newdat,kbuf,kk,kkdone
+      call map65a(newdat)
+      if(mousebutton.eq.0) ndecoding0=ndecoding
+      ndecoding=0
+
+Modified: branches/map65/decode1a.f
+===================================================================
+--- branches/map65/decode1a.f	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/decode1a.f	2007-06-29 00:21:31 UTC (rev 434)
+@@ -86,25 +86,25 @@
+       if(i0.lt.1) i0=1
+       nz=n6+1-i0
+ 
+-      ip0=ipol
+-      nflip=1
++!      ip0=ipol
++!      nflip=1
+       call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
+      +     ccfbest,dtbest)
+ 
+-      nflip=-1
+-      ipol=ip0
+-      call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
+-     +     ccfbest2,dtbest)
++!      nflip=-1
++!      ipol=ip0
++!      call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
++!     +     ccfbest2,dtbest)
++!
++!      if(ccfbest2.lt.ccfbest) then
++!         nflip=1
++!         ipol=ip0
++!         call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
++!     +        ccfbest,dtbest)
++!      else
++!         ccfbest=ccfbest
++!      endif
+ 
+-      if(ccfbest2.lt.ccfbest) then
+-         nflip=1
+-         ipol=ip0
+-         call afc65b(c5x(i0),c5y(i0),nz,fsample,nflip,ipol,a,dt,
+-     +        ccfbest,dtbest)
+-      else
+-         ccfbest=ccfbest
+-      endif
+-
+       pol=a(4)/57.2957795
+       aa=cos(pol)
+       bb=sin(pol)
+
+Modified: branches/map65/getfile2.F90
+===================================================================
+--- branches/map65/getfile2.F90	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/getfile2.F90	2007-06-29 00:21:31 UTC (rev 434)
+@@ -55,6 +55,7 @@
+   ndiskdat=1
+   ndecoding=4
+   mousebutton=0
++  rxnoise=7.0
+   go to 999
+ 
+ 998 ierr=1001
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/map65a.f90	2007-06-29 00:21:31 UTC (rev 434)
+@@ -17,14 +17,13 @@
+   logical even
+   character decoded*22,blank*22
+   include 'datcom.f90'
++  include 'gcom2.f90'
+   common/spcom/ip0,ss(4,322,NFFT),ss5(322,NFFT),savg(4,NFFT)
+   data blank/'                      '/
+   data shmsg0/'ATT','RO ','RRR','73 '/
+   data nfile/0/,nutc0/-999/,nid/0/,ip000/1/,ip001/1/
+-  include 'gcom2.f90'
+   save
+ 
+-!  print*,'a',newdat,nagain,kbuf,kk,kkdone
+   pctlost=nlost/331.03
+   if(nlost.ne.0) write(*,1001) nutc,nlost,pctlost
+ 1001 format('UTC:',i5.4,'   Lost packets:',i6,', or',f6.1,' %')
+@@ -219,7 +218,7 @@
+               nsync2=nint(10.0*log10(sync2)) - 40 !### empirical ###
+               nw=0
+               write(11,1010) nkHz,ndf,npol,nutc,nsync2,dt,nw,decoded,nkv,nqual
+-1010          format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,2i3)
++1010          format(i3,i5,i4,i5.4,i4,f5.1,i3,2x,a22,i3,i4)
+            endif
+         enddo
+         write(11,*) '$EOF'
+
+Modified: branches/map65/recvpkt.F90
+===================================================================
+--- branches/map65/recvpkt.F90	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/recvpkt.F90	2007-06-29 00:21:31 UTC (rev 434)
+@@ -21,7 +21,7 @@
+   include 'gcom2.f90'
+   equivalence (id,d8)
+   data nblock0/0/,first/.true./,kb/1/,ntx/0/,npkt/0/,nw/0/
+-  data sqave/0.0/,u/0.001/,rxnoise/0.0/
++  data sqave/0.0/,u/0.001/,rxnoise/0.0/,kbuf/1/
+   save
+ 
+ ! Open a socket to receive multicast data from Linrad
+@@ -46,11 +46,6 @@
+      endif
+      first=.false.
+ 
+-!###
+-!     kbuf=kb
+-!     kk=k
+-!###
+-
+      nsec=msec/1000
+      if(mod(nsec,60).eq.1) nreset=1
+      if(mod(nsec,60).eq.0 .and. nreset.eq.1) then
+@@ -60,6 +55,7 @@
+         k=0
+         if(kb.eq.2) k=NSMAX
+         nlost=0
++        kbuf=kb
+      endif
+ 
+      if(kb.eq.1 .and. (k+174).gt.NSMAX) go to 20
+@@ -112,17 +108,20 @@
+ !1010 format('UTC:',i5.4,'   ns:',i3,'   t:',f10.3,'   k:',i8)
+         nsec0=nsec
+         ntx=ntx+transmitting
++
++        nutc=mutc
++        if(mod(nsec,60).eq.43) kk=k           !### ??? ###
+         if(mod(nsec,60).eq.52) then
+            kk=k
+            kbuf=kb
+-           nutc=mutc
+            klost=nlost
+ !           if(ntx.lt.20) then
+ !              newdat=1
+ !              ndecoding=1
+ !           endif
+-           ntx=0
++!           ntx=0
+         endif
++        print*,ns,nutc,kbuf,kk,kkdone
+      endif
+ 
+   endif
+
+Modified: branches/map65/symspec.f
+===================================================================
+--- branches/map65/symspec.f	2007-06-28 20:36:17 UTC (rev 433)
++++ branches/map65/symspec.f	2007-06-29 00:21:31 UTC (rev 434)
+@@ -11,9 +11,9 @@
+       real*8 ts,hsym
+       common/spcom/ip0,ss(4,322,NFFT),ss5(322,NFFT),savg(4,NFFT)
+ 
+-      fac=1.e-4
++!      fac=1.e-4
+ !       fac=1.7e-4
+-!       fac=0.0002 * 10.0**(0.05*(-rxnoise))
++       fac=0.0002 * 10.0**(0.05*(-rxnoise))
+       hsym=2048.d0*96000.d0/11025.d0 !Samples per half symbol
+       npts=hsym                 !Integral samples per half symbol
+       ntot=322                  !Half symbols per transmission
+@@ -51,7 +51,6 @@
+          call four2a(cy,NFFT,1,1,1)
+             
+          n=n+1
+-         print*,'B',n,kbuf,kkdone,kk,i0
+          do i=1,NFFT            !Save and accumulate power spectra
+             sx=real(cx(i))**2 + aimag(cx(i))**2
+             ss(1,n,i)=sx         ! Pol = 0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000118.html">[WSJT-SVN] r433 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000120.html">[WSJT-SVN] r435 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#119">[ date ]</a>
+              <a href="thread.html#119">[ thread ]</a>
+              <a href="subject.html#119">[ subject ]</a>
+              <a href="author.html#119">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

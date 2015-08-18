@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r927 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r927%20-%20trunk&In-Reply-To=%3C200807101902.m6AJ2uhF016245%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000615.html">
+   <LINK REL="Next"  HREF="000617.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r927 - trunk</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r927%20-%20trunk&In-Reply-To=%3C200807101902.m6AJ2uhF016245%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r927 - trunk">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 10 21:02:56 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000615.html">[WSJT-SVN] r926 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000617.html">[WSJT-SVN] r928 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#616">[ date ]</a>
+              <a href="thread.html#616">[ thread ]</a>
+              <a href="subject.html#616">[ subject ]</a>
+              <a href="author.html#616">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-10 21:02:52 +0200 (Thu, 10 Jul 2008)
+New Revision: 927
+
+Modified:
+   trunk/mept162a.f
+   trunk/pix2d65.f90
+   trunk/sync162.f
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjtwspr.f90
+Log:
+Implementing green and red curves for WSPR mode.
+
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/mept162a.f	2008-07-10 19:02:52 UTC (rev 927)
+@@ -1,11 +1,13 @@
+       subroutine mept162a(c2,jz,f0,cfile6,ndiag,minsync,mousedf,ndftol,
+-     +    ndwspr)
++     +    ndwspr,ccfblue,ccfred)
+ 
+ C  Orchestrates the process of finding, synchronizing, and decoding 
+ C  WSPR signals.
+ 
+       character*22 message
+       character*8 cfile6
++      real ccfblue(-5:540)
++      real ccfred(-224:224)
+       logical first
+       real ps(-256:256)
+       real sstf(5,275)
+@@ -18,7 +20,6 @@
+ 
+ C  Mix 1500 Hz +/- 100 Hz to baseband, and downsample by 1/32
+ !      call mix162(id,npts,c2,jz,ps)
+-
+       c2a(0:jz-1)=c2
+       c2a(jz:)=0.
+       nfft0=65536
+@@ -39,7 +40,7 @@
+ !      call spec162(c2,jz)
+ 
+ C  Look for sync patterns, get DF and DT
+-      call sync162(c2,jz,mousedf,ndftol,ps,sstf,kz)
++      call sync162(c2,jz,mousedf,ndftol,ccfblue,ccfred,ps,sstf,kz)
+ 
+       idtmax=64
+       idtstep=1
+
+Modified: trunk/pix2d65.f90
+===================================================================
+--- trunk/pix2d65.f90	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/pix2d65.f90	2008-07-10 19:02:52 UTC (rev 927)
+@@ -11,6 +11,7 @@
+   enddo
+   nave=nint(sum/jz)
+   nadd=nint(53.0*11025.0/500.0)
++  if(mode(1:4).eq.'WSPR') nadd=nint(114.0*11025.0/500.0)
+   ngreen=min(jz/nadd,500)
+   k=0
+   do i=1,ngreen
+
+Modified: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/sync162.f	2008-07-10 19:02:52 UTC (rev 927)
+@@ -1,4 +1,4 @@
+-      subroutine sync162(c2,jz,mousedf,ndftol,ps,sstf,kz)
++      subroutine sync162(c2,jz,mousedf,ndftol,ccfblue,ccfred,ps,sstf,kz)
+ 
+ C  Find WSPR sync signals, with best-fit DT and DF.  
+ 
+@@ -8,6 +8,8 @@
+       parameter (NSMAX=351)            !Number of half-symbol steps
+       parameter (NF0=136,NF1=10)
+       parameter (LAGMAX=26)
++      real ccfblue(-5:540)
++      real ccfred(-224:224)
+       real psavg(-NH:NH)               !Average spectrum of whole record
+       real s2(-NH:NH,NSMAX)            !2d spectrum, stepped by half-symbols
+       real ps(-NH:NH)
+@@ -35,6 +37,8 @@
+      +  0,0/
+       save
+ 
++      call zero(ccfblue,546)
++      call zero(ccfred,449)
+       nsym=162
+       do i=1,nsym
+          pr3(i)=2*npr3(i)-1
+@@ -44,7 +48,7 @@
+ C  Do FFTs of twice symbol length, stepped by half symbols.  
+       nq=NFFT/4
+       nsteps=jz/nq - 1
+-      df=375.0/nfft
++      df=375.0/NFFT
+       dt=1.0/375.0
+       call zero(psavg,NFFT+1)
+ 
+@@ -140,6 +144,7 @@
+          freq(i)=df*i
+          drift(i)=df*kpk
+          dtx(i)=128.0*dt*lagpk
++         ccfred(i)=smax
+  10      continue
+       enddo
+ 
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/wsjt.py	2008-07-10 19:02:52 UTC (rev 927)
+@@ -1244,11 +1244,17 @@
+                  (event.y&lt;95 and Audio.gcom2.nspecial&gt;0):
+             lab1.configure(text='DF (Hz)',bg='red')
+             idf=Audio.gcom2.idf
+-            t=&quot;%d&quot; % int(idf+1200.0*event.x/500.0-600.0,)
++            if mode.get()=='WSPR':
++                t=&quot;%d&quot; % int(0.7324*(event.x-250.0))
++            else:
++                t=&quot;%d&quot; % int(idf+1200.0*event.x/500.0-600.0,)
+             lab6.configure(text=t,bg=&quot;red&quot;)
+         else:
+             lab1.configure(text='Time (s)',bg='green')
+-            t=&quot;%.1f&quot; % (53.0*event.x/500.0,)
++            if mode.get()=='WSPR':
++                t=&quot;%.1f&quot; % (114.0*event.x/500.0,)
++            else:
++                t=&quot;%.1f&quot; % (53.0*event.x/500.0,)
+             lab6.configure(text=t,bg=&quot;green&quot;)
+ 
+ #---------------------------------------------------- mouse_click_g1
+@@ -1446,7 +1452,7 @@
+     
+ #------------------------------------------------------ plot_large
+ def plot_large():
+-    &quot;Plot the green, red, and blue curves in JT65, JT2, and JT4 modes.&quot;
++    &quot;Plot the green, red, and blue curves.&quot;
+     graph1.delete(ALL)
+     y=[]
+     ngreen=Audio.gcom2.ngreen
+@@ -1481,6 +1487,8 @@
+                 x=i*fac
+                 if mode.get()[:3]=='JT2' or mode.get()[:3]=='JT4':
+                     x=i*500.0/548.571 + 47                      #empirical
++                if mode.get()[:4]=='WSPR':
++                    x=(i-224) + 250                #empirical
+                 psavg=Audio.gcom2.psavg[i+1]
+                 n=int(90.0-yfac*psavg)
+                 xy.append(x)
+@@ -1826,8 +1834,7 @@
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+                 mode.get()[:3]=='JT4' or mode.get()=='WSPR' \
+                 or mode.get()[:4]=='JT64':
+-            if mode.get()!='WSPR':
+-                plot_large()
++            plot_large()
+         else:    
+             im.putdata(Audio.gcom2.b)
+             pim=ImageTk.PhotoImage(im)          #Convert Image to PhotoImage
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/wsjt1.F	2008-07-10 19:02:52 UTC (rev 927)
+@@ -302,7 +302,7 @@
+            i=index(MyCall,char(0))
+            if(i.le.0) i=index(MyCall,' ')
+            mycall=MyCall(1:i-1)//'            '
+-           call wsjtwspr(dat,jz,cfile6,ndiag)
++           call wsjtwspr(dat,jz,cfile6,ccf,psavg,ndiag)
+            goto 900
+         endif
+ 
+
+Modified: trunk/wsjtwspr.f90
+===================================================================
+--- trunk/wsjtwspr.f90	2008-07-10 18:03:20 UTC (rev 926)
++++ trunk/wsjtwspr.f90	2008-07-10 19:02:52 UTC (rev 927)
+@@ -1,6 +1,8 @@
+-subroutine wsjtwspr(dat,jz,cfile6,ndiag)
++subroutine wsjtwspr(dat,jz,cfile6,ccfblue,ccfred,ndiag)
+ 
+   real dat(jz)
++  real ccfblue(-5:540)
++  real ccfred(-224:224)
+   character cfile6*6
+   complex c2(45000)
+   include 'gcom2.f90'
+@@ -9,8 +11,7 @@
+   newdat=1
+   if(nagain.eq.1) newdat=0
+   call filbig2(dat,jz,f0,newdat,c2,n4)
+-  minsync=0
+-  call mept162a(c2,n4,f0,cfile6,ndiag,minsync,mousedf,DFTolerance,ndwspr)
+-
++  call mept162a(c2,n4,f0,cfile6,ndiag,minsigdb,mousedf,DFTolerance,ndwspr, &amp;
++       ccfblue,ccfred)
+   return
+ end subroutine wsjtwspr
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000615.html">[WSJT-SVN] r926 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000617.html">[WSJT-SVN] r928 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#616">[ date ]</a>
+              <a href="thread.html#616">[ thread ]</a>
+              <a href="subject.html#616">[ subject ]</a>
+              <a href="author.html#616">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

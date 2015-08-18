@@ -1,0 +1,705 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3642 - in branches/wsjtx: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2014-January/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3642%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20140117144624.349EC55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003337.html">
+   <LINK REL="Next"  HREF="003339.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3642 - in branches/wsjtx: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3642%20-%20in%20branches/wsjtx%3A%20.%20lib&In-Reply-To=%3C20140117144624.349EC55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3642 - in branches/wsjtx: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Fri Jan 17 15:46:24 CET 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003337.html">[WSJT-SVN] r3641 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="003339.html">[WSJT-SVN] r3643 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3338">[ date ]</a>
+              <a href="thread.html#3338">[ thread ]</a>
+              <a href="subject.html#3338">[ subject ]</a>
+              <a href="author.html#3338">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2014-01-17 15:46:23 +0100 (Fri, 17 Jan 2014)
+New Revision: 3642
+
+Added:
+   branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx
+Removed:
+   branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx
+Modified:
+   branches/wsjtx/lib/symspec.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+   branches/wsjtx/widegraph.ui
+Log:
+IMplement new spectrum flattening.
+
+
+Deleted: branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx
+===================================================================
+(Binary files differ)
+
+Copied: branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx (from rev 3590, branches/wsjtx/WSJT-X_Users_Guide_v1.2.docx)
+===================================================================
+(Binary files differ)
+
+Modified: branches/wsjtx/lib/symspec.f90
+===================================================================
+--- branches/wsjtx/lib/symspec.f90	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/lib/symspec.f90	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,ntrperiod,nsps,ingain,slope,pxdb,s,df3,ihsym,npts8)
++subroutine symspec(k,ntrperiod,nsps,ingain,nflatten,pxdb,s,df3,ihsym,npts8)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -20,7 +20,6 @@
+   include 'constants.f90'
+   real*4 w3(MAXFFT3)
+   real*4 s(NSMAX)
+-  real*4 scale(NSMAX)
+   real*4 ssum(NSMAX)
+   real*4 xc(0:MAXFFT3-1)
+   complex cx(0:MAXFFT3/2)
+@@ -28,7 +27,7 @@
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,         &amp;
+        ntr,mousefqso,newdat,npts8a,nfa,nfsplit,nfb,ntol,kin,nzhsym,         &amp;
+        nsave,nagain,ndepth,ntxmode,nmode,junk(5)
+-  data rms/999.0/,k0/99999999/,nfft3z/0/,slope0/0.0/
++  data rms/999.0/,k0/99999999/,nfft3z/0/
+   equivalence (xc,cx)
+   save
+ 
+@@ -41,23 +40,14 @@
+      go to 900                                 !Wait for enough samples to start
+   endif
+ 
+-  if(nfft3.ne.nfft3z .or. slope.ne.slope0) then
+-! Compute new window and adjust scale factor
++  if(nfft3.ne.nfft3z) then
++! Compute new window
+      pi=4.0*atan(1.0)
+      do i=1,nfft3
+         w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+      enddo
+      nfft3z=nfft3
+      nh=NSMAX/2
+-     if(abs(slope+0.1).gt.0.05) then
+-        do i=1,NSMAX
+-           x=slope*float(i)/nh - 1.0 + 2.6
+-           scale(i)=10.0**x
+-        enddo
+-     else
+-        scale=1.0
+-     endif
+-     slope0=slope
+   endif
+ 
+   if(k.lt.k0) then                             !Start a new data block
+@@ -109,10 +99,9 @@
+      s(i)=gain*sx
+   enddo
+ 
+-  s=scale*s
+-  savg=scale*ssum/ihsym
++  savg=ssum/ihsym
+ 
+-  if(abs(slope+0.1).lt.0.01) then
++  if(nflatten.ne.0) then
+      call flat3(s,iz,nfa,nfb,3,1.0,s)
+      call flat3(savg,iz,nfa,nfb,3,1.0,savg)
+      savg=7.0*savg
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/mainwindow.cpp	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -699,9 +699,9 @@
+   static int nzap=0;
+   static int trmin;
+   static int npts8;
++  static int nflatten=0;
+   static float px=0.0;
+   static float df3;
+-  static float slope;
+ 
+   if(m_diskData) {
+     jt9com_.ndiskdat=1;
+@@ -711,12 +711,12 @@
+ 
+ // Get power, spectrum, and ihsym
+   trmin=m_TRperiod/60;
+-  slope=0.0;
+-  slope=(float)m_wideGraph-&gt;getSlope();
+   int k (frames - 1);
+   jt9com_.nfa=m_wideGraph-&gt;nStartFreq();
+   jt9com_.nfb=m_wideGraph-&gt;getFmax();
+-  symspec_(&amp;k,&amp;trmin,&amp;m_nsps,&amp;m_inGain,&amp;slope,&amp;px,s,&amp;df3,&amp;ihsym,&amp;npts8);
++  nflatten=0;
++  if(m_wideGraph-&gt;flatten()) nflatten=1;
++  symspec_(&amp;k,&amp;trmin,&amp;m_nsps,&amp;m_inGain,&amp;nflatten,&amp;px,s,&amp;df3,&amp;ihsym,&amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap*100.0/m_nsps;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/mainwindow.h	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -426,7 +426,7 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, float* slope,
++void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, int* nflatten,
+               float* px, float s[], float* df3, int* nhsym, int* npts8);
+ 
+ void genjt9_(char* msg, int* ichk, char* msgsent, int itone[],
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/widegraph.cpp	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -26,6 +26,9 @@
+   connect(ui-&gt;widePlot, SIGNAL(setFreq1(int,int)),this,
+           SLOT(setFreq2(int,int)));
+ 
++  connect (ui-&gt;cbFlatten, SIGNAL(toggled(bool)),this,
++           SLOT(on_cbFlatten_toggled(bool)));
++
+   //Restore user's settings
+   m_settings-&gt;beginGroup(&quot;WideGraph&quot;);
+   restoreGeometry (m_settings-&gt;value (&quot;geometry&quot;, saveGeometry ()).toByteArray ());
+@@ -35,6 +38,8 @@
+   ui-&gt;gainSpinBox-&gt;setValue(ui-&gt;widePlot-&gt;getPlotGain());
+   int n = m_settings-&gt;value(&quot;FreqSpan&quot;,2).toInt();
+   int w = m_settings-&gt;value(&quot;PlotWidth&quot;,1000).toInt();
++  m_bFlatten=m_settings-&gt;value(&quot;Flatten&quot;,true).toBool();
++  ui-&gt;cbFlatten-&gt;setChecked(m_bFlatten);
+   ui-&gt;widePlot-&gt;m_w=w;
+   ui-&gt;freqSpanSpinBox-&gt;setValue(n);
+   ui-&gt;widePlot-&gt;setNSpan(n);
+@@ -46,8 +51,6 @@
+   if(ui-&gt;widePlot-&gt;m_bCumulative) ui-&gt;spec2dComboBox-&gt;setCurrentIndex(1);
+   int nbpp=m_settings-&gt;value(&quot;BinsPerPixel&quot;,2).toInt();
+   ui-&gt;widePlot-&gt;setBinsPerPixel(nbpp);
+-  m_slope=m_settings-&gt;value(&quot;Slope&quot;,0.0).toDouble();
+-  ui-&gt;slopeSpinBox-&gt;setValue(m_slope);
+   ui-&gt;widePlot-&gt;setStartFreq(m_settings-&gt;value(&quot;StartFreq&quot;,0).toInt());
+   ui-&gt;fStartSpinBox-&gt;setValue(ui-&gt;widePlot-&gt;startFreq());
+   m_waterfallPalette=m_settings-&gt;value(&quot;WaterfallPalette&quot;,&quot;Default&quot;).toString();
+@@ -95,10 +98,10 @@
+   m_settings-&gt;setValue (&quot;Current&quot;, ui-&gt;widePlot-&gt;m_bCurrent);
+   m_settings-&gt;setValue (&quot;Cumulative&quot;, ui-&gt;widePlot-&gt;m_bCumulative);
+   m_settings-&gt;setValue (&quot;BinsPerPixel&quot;, ui-&gt;widePlot-&gt;binsPerPixel ());
+-  m_settings-&gt;setValue (&quot;Slope&quot;, m_slope);
+   m_settings-&gt;setValue (&quot;StartFreq&quot;, ui-&gt;widePlot-&gt;startFreq ());
+   m_settings-&gt;setValue (&quot;WaterfallPalette&quot;, m_waterfallPalette);
+   m_settings-&gt;setValue (&quot;Fmin&quot;, m_fMin);
++  m_settings-&gt;setValue(&quot;Flatten&quot;,m_bFlatten);
+   m_settings-&gt;endGroup ();
+ }
+ 
+@@ -288,26 +291,11 @@
+   setRxRange(m_fMin);
+ }
+ 
+-void WideGraph::on_slopeSpinBox_valueChanged(double d)
+-{
+-  m_slope=d;
+-}
+-
+-void WideGraph::setSlope(double d)
+-{
+-  m_slope=d;
+-  ui-&gt;slopeSpinBox-&gt;setValue(d);
+-}
+-
+ void WideGraph::setLockTxFreq(bool b)
+ {
+   m_lockTxFreq=b;
+   ui-&gt;widePlot-&gt;m_lockTxFreq=b;
+ }
+-double WideGraph::getSlope()
+-{
+-  return m_slope;
+-}
+ 
+ void WideGraph::setFreq2(int rxFreq, int txFreq)
+ {
+@@ -364,3 +352,14 @@
+   m_waterfallPalette=palette;
+   readPalette(&quot;Palettes/&quot; + palette + &quot;.pal&quot;);
+ }
++
++void WideGraph::on_cbFlatten_toggled(bool b)
++{
++  m_bFlatten=b;
++
++}
++
++bool WideGraph::flatten()
++{
++  return m_bFlatten;
++}
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/widegraph.h	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -33,11 +33,10 @@
+   void   setTxFreq(int n);
+   void   setMode(QString mode);
+   void   setModeTx(QString modeTx);
+-  void   setSlope(double d);
+   void   setLockTxFreq(bool b);
+-  double getSlope();
+   double fGreen();
+   void   readPalette(QString fileName);
++  bool   flatten();
+ 
+ signals:
+   void freezeDecode2(int n);
+@@ -61,9 +60,9 @@
+   void on_gainSpinBox_valueChanged(int arg1);
+   void on_spec2dComboBox_currentIndexChanged(const QString &amp;arg1);
+   void on_fMinSpinBox_valueChanged(int n);
+-  void on_slopeSpinBox_valueChanged(double d);
+   void on_fStartSpinBox_valueChanged(int n);
+   void on_paletteComboBox_activated(const QString &amp;palette);
++  void on_cbFlatten_toggled(bool b);
+ 
+ private:
+   QScopedPointer&lt;Ui::WideGraph&gt; ui;
+@@ -72,7 +71,6 @@
+   qint32 m_rxFreq;
+   qint32 m_txFreq;
+ 
+-  double m_slope;
+   double m_dialFreq;
+ 
+   qint32 m_waterfallAvg;
+@@ -84,6 +82,7 @@
+   qint32 m_fMax;
+ 
+   bool   m_lockTxFreq;
++  bool   m_bFlatten;
+ 
+   QString m_mode;
+   QString m_modeTx;
+
+Modified: branches/wsjtx/widegraph.ui
+===================================================================
+--- branches/wsjtx/widegraph.ui	2014-01-16 19:28:52 UTC (rev 3641)
++++ branches/wsjtx/widegraph.ui	2014-01-17 14:46:23 UTC (rev 3642)
+@@ -52,18 +52,34 @@
+      &lt;/item&gt;
+      &lt;item&gt;
+       &lt;layout class=&quot;QGridLayout&quot; name=&quot;gridLayout&quot;&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;6&quot;&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;labPalette&quot;&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;Palette&lt;/string&gt;
++       &lt;item row=&quot;1&quot; column=&quot;6&quot;&gt;
++        &lt;widget class=&quot;QComboBox&quot; name=&quot;spec2dComboBox&quot;&gt;
++         &lt;property name=&quot;toolTip&quot;&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select data for spectral display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;alignment&quot;&gt;
+-          &lt;set&gt;Qt::AlignCenter&lt;/set&gt;
++         &lt;property name=&quot;currentIndex&quot;&gt;
++          &lt;number&gt;1&lt;/number&gt;
+          &lt;/property&gt;
++         &lt;item&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Current&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/item&gt;
++         &lt;item&gt;
++          &lt;property name=&quot;text&quot;&gt;
++           &lt;string&gt;Cumulative&lt;/string&gt;
++          &lt;/property&gt;
++         &lt;/item&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;3&quot;&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;zeroSpinBox&quot;&gt;
++       &lt;item row=&quot;1&quot; column=&quot;2&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;waterfallAvgSpinBox&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;80&lt;/width&gt;
+@@ -77,78 +93,50 @@
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Constant offset applied to spectra&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
++          &lt;string&gt;Number of FFTs averaged (controls waterfall scrolling rate)&lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;suffix&quot;&gt;
+-          &lt;string/&gt;
+-         &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;Zero &lt;/string&gt;
++          &lt;string&gt;N Avg &lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+-          &lt;number&gt;-100&lt;/number&gt;
++          &lt;number&gt;1&lt;/number&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;maximum&quot;&gt;
+-          &lt;number&gt;100&lt;/number&gt;
++          &lt;number&gt;20&lt;/number&gt;
+          &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;1&quot; column=&quot;3&quot;&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;gainSpinBox&quot;&gt;
++       &lt;item row=&quot;1&quot; column=&quot;4&quot;&gt;
++        &lt;widget class=&quot;QComboBox&quot; name=&quot;paletteComboBox&quot;&gt;
++         &lt;property name=&quot;sizePolicy&quot;&gt;
++          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
++           &lt;horstretch&gt;0&lt;/horstretch&gt;
++           &lt;verstretch&gt;0&lt;/verstretch&gt;
++          &lt;/sizepolicy&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;80&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;38&lt;/width&gt;
+-           &lt;height&gt;16777215&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Gain (dB) applied to spectra before display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
++          &lt;string&gt;Select waterfall palette&lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;Gain &lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;minimum&quot;&gt;
+-          &lt;number&gt;-20&lt;/number&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;maximum&quot;&gt;
+-          &lt;number&gt;20&lt;/number&gt;
+-         &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
+-        &lt;spacer name=&quot;horizontalSpacer&quot;&gt;
+-         &lt;property name=&quot;orientation&quot;&gt;
+-          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
++       &lt;item row=&quot;0&quot; column=&quot;4&quot;&gt;
++        &lt;widget class=&quot;QLabel&quot; name=&quot;labPalette&quot;&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;  Palette&lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;40&lt;/width&gt;
+-           &lt;height&gt;20&lt;/height&gt;
+-          &lt;/size&gt;
++         &lt;property name=&quot;alignment&quot;&gt;
++          &lt;set&gt;Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter&lt;/set&gt;
+          &lt;/property&gt;
+-        &lt;/spacer&gt;
++        &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;7&quot;&gt;
+-        &lt;spacer name=&quot;horizontalSpacer_2&quot;&gt;
+-         &lt;property name=&quot;orientation&quot;&gt;
+-          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;40&lt;/width&gt;
+-           &lt;height&gt;20&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-        &lt;/spacer&gt;
+-       &lt;/item&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;fStartSpinBox&quot;&gt;
++       &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;fMinSpinBox&quot;&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+            &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -157,25 +145,31 @@
+          &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;80&lt;/width&gt;
++           &lt;width&gt;110&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Frequency (Hz) at left edge of waterfall&lt;/string&gt;
++          &lt;string&gt;Decode JT65 below this frequency, JT9 above&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;suffix&quot;&gt;
+-          &lt;string&gt; Hz&lt;/string&gt;
++          &lt;string&gt;  JT9&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;Start &lt;/string&gt;
++          &lt;string&gt;JT65  &lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;minimum&quot;&gt;
++          &lt;number&gt;0&lt;/number&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;maximum&quot;&gt;
+           &lt;number&gt;5000&lt;/number&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;singleStep&quot;&gt;
+           &lt;number&gt;100&lt;/number&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;value&quot;&gt;
++          &lt;number&gt;3000&lt;/number&gt;
++         &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+        &lt;item row=&quot;0&quot; column=&quot;1&quot;&gt;
+@@ -221,8 +215,8 @@
+          &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;1&quot; column=&quot;1&quot;&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;fMinSpinBox&quot;&gt;
++       &lt;item row=&quot;0&quot; column=&quot;2&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;fStartSpinBox&quot;&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+            &lt;horstretch&gt;0&lt;/horstretch&gt;
+@@ -231,88 +225,83 @@
+          &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;110&lt;/width&gt;
++           &lt;width&gt;80&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Decode JT65 below this frequency, JT9 above&lt;/string&gt;
++          &lt;string&gt;Frequency (Hz) at left edge of waterfall&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;suffix&quot;&gt;
+-          &lt;string&gt;  JT9&lt;/string&gt;
++          &lt;string&gt; Hz&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;JT65  &lt;/string&gt;
++          &lt;string&gt;Start &lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;minimum&quot;&gt;
+-          &lt;number&gt;0&lt;/number&gt;
+-         &lt;/property&gt;
+          &lt;property name=&quot;maximum&quot;&gt;
+           &lt;number&gt;5000&lt;/number&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;singleStep&quot;&gt;
+           &lt;number&gt;100&lt;/number&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;value&quot;&gt;
+-          &lt;number&gt;3000&lt;/number&gt;
+-         &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;1&quot; column=&quot;6&quot;&gt;
+-        &lt;widget class=&quot;QComboBox&quot; name=&quot;paletteComboBox&quot;&gt;
+-         &lt;property name=&quot;sizePolicy&quot;&gt;
+-          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-           &lt;horstretch&gt;0&lt;/horstretch&gt;
+-           &lt;verstretch&gt;0&lt;/verstretch&gt;
+-          &lt;/sizepolicy&gt;
++       &lt;item row=&quot;0&quot; column=&quot;7&quot;&gt;
++        &lt;spacer name=&quot;horizontalSpacer_2&quot;&gt;
++         &lt;property name=&quot;orientation&quot;&gt;
++          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;minimumSize&quot;&gt;
++         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;80&lt;/width&gt;
+-           &lt;height&gt;0&lt;/height&gt;
++           &lt;width&gt;40&lt;/width&gt;
++           &lt;height&gt;20&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Select waterfall palette&lt;/string&gt;
++        &lt;/spacer&gt;
++       &lt;/item&gt;
++       &lt;item row=&quot;0&quot; column=&quot;0&quot;&gt;
++        &lt;spacer name=&quot;horizontalSpacer&quot;&gt;
++         &lt;property name=&quot;orientation&quot;&gt;
++          &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+          &lt;/property&gt;
+-        &lt;/widget&gt;
++         &lt;property name=&quot;sizeHint&quot; stdset=&quot;0&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;40&lt;/width&gt;
++           &lt;height&gt;20&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++        &lt;/spacer&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;1&quot; column=&quot;2&quot;&gt;
+-        &lt;widget class=&quot;QDoubleSpinBox&quot; name=&quot;slopeSpinBox&quot;&gt;
++       &lt;item row=&quot;1&quot; column=&quot;3&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;gainSpinBox&quot;&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;80&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;maximumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;38&lt;/width&gt;
++           &lt;height&gt;16777215&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Correction applied to flatted displayed spectra&lt;/string&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Gain (dB) applied to spectra before display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;Slope &lt;/string&gt;
++          &lt;string&gt;Gain &lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;decimals&quot;&gt;
+-          &lt;number&gt;1&lt;/number&gt;
+-         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+-          &lt;double&gt;-2.000000000000000&lt;/double&gt;
++          &lt;number&gt;-20&lt;/number&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;maximum&quot;&gt;
+-          &lt;double&gt;2.000000000000000&lt;/double&gt;
++          &lt;number&gt;20&lt;/number&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;singleStep&quot;&gt;
+-          &lt;double&gt;0.100000000000000&lt;/double&gt;
+-         &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;0&quot; column=&quot;4&quot;&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;waterfallAvgSpinBox&quot;&gt;
+-         &lt;property name=&quot;sizePolicy&quot;&gt;
+-          &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+-           &lt;horstretch&gt;0&lt;/horstretch&gt;
+-           &lt;verstretch&gt;0&lt;/verstretch&gt;
+-          &lt;/sizepolicy&gt;
+-         &lt;/property&gt;
++       &lt;item row=&quot;0&quot; column=&quot;3&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;zeroSpinBox&quot;&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;80&lt;/width&gt;
+@@ -326,37 +315,27 @@
+           &lt;/size&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;Number of FFTs averaged (controls waterfall scrolling rate)&lt;/string&gt;
++          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Constant offset applied to spectra&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;suffix&quot;&gt;
++          &lt;string/&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;prefix&quot;&gt;
+-          &lt;string&gt;N Avg &lt;/string&gt;
++          &lt;string&gt;Zero &lt;/string&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+-          &lt;number&gt;1&lt;/number&gt;
++          &lt;number&gt;-100&lt;/number&gt;
+          &lt;/property&gt;
+          &lt;property name=&quot;maximum&quot;&gt;
+-          &lt;number&gt;20&lt;/number&gt;
++          &lt;number&gt;100&lt;/number&gt;
+          &lt;/property&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+-       &lt;item row=&quot;1&quot; column=&quot;4&quot;&gt;
+-        &lt;widget class=&quot;QComboBox&quot; name=&quot;spec2dComboBox&quot;&gt;
+-         &lt;property name=&quot;toolTip&quot;&gt;
+-          &lt;string&gt;&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select data for spectral display&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&lt;/string&gt;
++       &lt;item row=&quot;0&quot; column=&quot;6&quot;&gt;
++        &lt;widget class=&quot;QCheckBox&quot; name=&quot;cbFlatten&quot;&gt;
++         &lt;property name=&quot;text&quot;&gt;
++          &lt;string&gt;Flatten&lt;/string&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;currentIndex&quot;&gt;
+-          &lt;number&gt;1&lt;/number&gt;
+-         &lt;/property&gt;
+-         &lt;item&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Current&lt;/string&gt;
+-          &lt;/property&gt;
+-         &lt;/item&gt;
+-         &lt;item&gt;
+-          &lt;property name=&quot;text&quot;&gt;
+-           &lt;string&gt;Cumulative&lt;/string&gt;
+-          &lt;/property&gt;
+-         &lt;/item&gt;
+         &lt;/widget&gt;
+        &lt;/item&gt;
+       &lt;/layout&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003337.html">[WSJT-SVN] r3641 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="003339.html">[WSJT-SVN] r3643 - in branches/wsjtx: . lib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3338">[ date ]</a>
+              <a href="thread.html#3338">[ thread ]</a>
+              <a href="subject.html#3338">[ subject ]</a>
+              <a href="author.html#3338">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

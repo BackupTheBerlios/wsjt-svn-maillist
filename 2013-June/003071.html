@@ -1,0 +1,792 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3379 - in branches/wsjtx_k1jt_p1: . lib
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3379%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130612150034.A96D4BF401%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003070.html">
+   <LINK REL="Next"  HREF="003072.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3379 - in branches/wsjtx_k1jt_p1: . lib</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3379%20-%20in%20branches/wsjtx_k1jt_p1%3A%20.%20lib&In-Reply-To=%3C20130612150034.A96D4BF401%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3379 - in branches/wsjtx_k1jt_p1: . lib">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Jun 12 17:00:34 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003070.html">[WSJT-SVN] r3378 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+        <LI>Next message: <A HREF="003072.html">[WSJT-SVN] r3380 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3071">[ date ]</a>
+              <a href="thread.html#3071">[ thread ]</a>
+              <a href="subject.html#3071">[ subject ]</a>
+              <a href="author.html#3071">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-06-12 17:00:34 +0200 (Wed, 12 Jun 2013)
+New Revision: 3379
+
+Added:
+   branches/wsjtx_k1jt_p1/lib/extract.F90
+Removed:
+   branches/wsjtx_k1jt_p1/lib/extract.f90
+Modified:
+   branches/wsjtx_k1jt_p1/lib/decoder.f90
+   branches/wsjtx_k1jt_p1/lib/fchisq65.f90
+   branches/wsjtx_k1jt_p1/lib/gen65.f90
+   branches/wsjtx_k1jt_p1/lib/jt65a.f90
+   branches/wsjtx_k1jt_p1/lib/symspec.f90
+   branches/wsjtx_k1jt_p1/mainwindow.cpp
+   branches/wsjtx_k1jt_p1/mainwindow.h
+   branches/wsjtx_k1jt_p1/widegraph.cpp
+   branches/wsjtx_k1jt_p1/widegraph.h
+   branches/wsjtx_k1jt_p1/widegraph.ui
+Log:
+Add &quot;slope&quot; and implement spinner on WideGraph.
+Minor code cleanup.
+
+
+Modified: branches/wsjtx_k1jt_p1/lib/decoder.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/decoder.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -5,7 +5,6 @@
+   include 'constants.f90'
+   real ss(184,NSMAX)
+   character*22 msg
+-  character*80 fmt
+   character*20 datetime
+   real*4 ccfred(NSMAX)
+   real*4 red2(NSMAX)
+@@ -42,7 +41,6 @@
+ 
+   if(nmode.eq.65) go to 800
+ 
+-  ntrMinutes=ntrperiod/60
+   nsynced=0
+   ndecoded=0
+   nsps=0
+
+Copied: branches/wsjtx_k1jt_p1/lib/extract.F90 (from rev 3378, branches/wsjtx_k1jt_p1/lib/extract.f90)
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/extract.F90	                        (rev 0)
++++ branches/wsjtx_k1jt_p1/lib/extract.F90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -0,0 +1,103 @@
++subroutine extract(s3,nadd,ncount,nhist,decoded,ltext)
++
++  real s3(64,63)
++  character decoded*22
++  integer era(51),dat4(12),indx(64)
++  integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
++  logical nokv,ltext
++  data nokv/.false./,nsec1/0/
++  save
++
++  nfail=0
++1 continue
++  call demod64a(s3,nadd,mrsym,mrprob,mr2sym,mr2prob,ntest,nlow)
++  if(ntest.lt.50 .or. nlow.gt.20) then
++     ncount=-999                         !Flag bad data
++     go to 900
++  endif
++  call chkhist(mrsym,nhist,ipk)
++
++  if(nhist.ge.20) then
++     nfail=nfail+1
++     call pctile(s3,4032,50,base)     ! ### or, use ave from demod64a
++     do j=1,63
++        s3(ipk,j)=base
++     enddo
++     if(nfail.gt.30) then
++        decoded='                      '
++        ncount=-1
++        go to 900
++     endif
++     go to 1
++  endif
++
++  call graycode65(mrsym,63,-1)
++  call interleave63(mrsym,-1)
++  call interleave63(mrprob,-1)
++
++! Decode using Berlekamp-Massey algorithm
++  nemax=30                                         !Max BM erasures
++  call indexx(63,mrprob,indx)
++  do i=1,nemax
++     j=indx(i)
++     if(mrprob(j).gt.120) then
++        ne2=i-1
++        go to 2
++     endif
++     era(i)=j-1
++  enddo
++  ne2=nemax
++2 decoded='                      '
++  do nerase=0,ne2,2
++     call rs_decode(mrsym,era,nerase,dat4,ncount)
++     if(ncount.ge.0) then
++        call unpackmsg(dat4,decoded)
++        if(iand(dat4(10),8).ne.0) ltext=.true.
++        go to 900
++     endif
++  enddo
++
++! Berlekamp-Massey algorithm failed, try Koetter-Vardy
++
++  maxe=8                             !Max KV errors in 12 most reliable symbols
++  xlambda=10.0
++  call graycode65(mr2sym,63,-1)
++  call interleave63(mr2sym,-1)
++  call interleave63(mr2prob,-1)
++
++  nsec1=nsec1+1
++  write(22,rec=1) nsec1,xlambda,maxe,200,mrsym,mrprob,mr2sym,mr2prob
++  call flush(22)
++  call timer('kvasd   ',0)
++#ifdef UNIX
++  iret=system('./kvasd -q &gt; dev_null')
++#else
++  iret=system('kvasd -q &gt; dev_null')
++#endif
++  call timer('kvasd   ',1)
++  if(iret.ne.0) then
++     if(.not.nokv) write(*,1000) 
++1000 format('Error in KV decoder, or no KV decoder present.')
++     nokv=.true.
++     go to 900
++  endif
++
++  read(22,rec=2) nsec2,ncount,dat4
++  j=nsec2                !Silence compiler warning
++  decoded='                      '
++  ltext=.false.
++  if(ncount.ge.0) then
++     call unpackmsg(dat4,decoded)     !Unpack the user message
++     if(iand(dat4(10),8).ne.0) ltext=.true.
++!     do i=2,12
++!        if(dat4(i).ne.dat4(1)) go to 900
++!     enddo
++!     write(13,*) 'Bad decode?',nhist,nfail,ipk,' ',dat4,decoded
++!     ncount=-1           !Suppress supposedly bogus decodes
++!     decoded='                      '
++  endif
++
++900 continue
++
++  return
++end subroutine extract
+
+Deleted: branches/wsjtx_k1jt_p1/lib/extract.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/extract.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -1,103 +0,0 @@
+-subroutine extract(s3,nadd,ncount,nhist,decoded,ltext)
+-
+-  real s3(64,63)
+-  character decoded*22
+-  integer era(51),dat4(12),indx(64)
+-  integer mrsym(63),mr2sym(63),mrprob(63),mr2prob(63)
+-  logical nokv,ltext
+-  data nokv/.false./,nsec1/0/
+-  save
+-
+-  nfail=0
+-1 continue
+-  call demod64a(s3,nadd,mrsym,mrprob,mr2sym,mr2prob,ntest,nlow)
+-  if(ntest.lt.50 .or. nlow.gt.20) then
+-     ncount=-999                         !Flag bad data
+-     go to 900
+-  endif
+-  call chkhist(mrsym,nhist,ipk)
+-
+-  if(nhist.ge.20) then
+-     nfail=nfail+1
+-     call pctile(s3,4032,50,base)     ! ### or, use ave from demod64a
+-     do j=1,63
+-        s3(ipk,j)=base
+-     enddo
+-     if(nfail.gt.30) then
+-        decoded='                      '
+-        ncount=-1
+-        go to 900
+-     endif
+-     go to 1
+-  endif
+-
+-  call graycode65(mrsym,63,-1)
+-  call interleave63(mrsym,-1)
+-  call interleave63(mrprob,-1)
+-
+-! Decode using Berlekamp-Massey algorithm
+-  nemax=30                                         !Max BM erasures
+-  call indexx(63,mrprob,indx)
+-  do i=1,nemax
+-     j=indx(i)
+-     if(mrprob(j).gt.120) then
+-        ne2=i-1
+-        go to 2
+-     endif
+-     era(i)=j-1
+-  enddo
+-  ne2=nemax
+-2 decoded='                      '
+-  do nerase=0,ne2,2
+-     call rs_decode(mrsym,era,nerase,dat4,ncount)
+-     if(ncount.ge.0) then
+-        call unpackmsg(dat4,decoded)
+-        if(iand(dat4(10),8).ne.0) ltext=.true.
+-        go to 900
+-     endif
+-  enddo
+-
+-! Berlekamp-Massey algorithm failed, try Koetter-Vardy
+-
+-  maxe=8                             !Max KV errors in 12 most reliable symbols
+-  xlambda=10.0
+-  call graycode65(mr2sym,63,-1)
+-  call interleave63(mr2sym,-1)
+-  call interleave63(mr2prob,-1)
+-
+-  nsec1=nsec1+1
+-  write(22,rec=1) nsec1,xlambda,maxe,200,mrsym,mrprob,mr2sym,mr2prob
+-  call flush(22)
+-!         call timer('kvasd   ',0)
+-!#ifdef UNIX
+-!         iret=system('./kvasd -q &gt; dev_null')
+-!#else
+-  iret=system('kvasd -q &gt; dev_null')
+-!#endif
+-!         call timer('kvasd   ',1)
+-  if(iret.ne.0) then
+-     if(.not.nokv) write(*,1000) 
+-1000 format('Error in KV decoder, or no KV decoder present.')
+-     nokv=.true.
+-     go to 900
+-  endif
+-
+-  read(22,rec=2) nsec2,ncount,dat4
+-  j=nsec2                !Silence compiler warning
+-  decoded='                      '
+-  ltext=.false.
+-  if(ncount.ge.0) then
+-     call unpackmsg(dat4,decoded)     !Unpack the user message
+-     if(iand(dat4(10),8).ne.0) ltext=.true.
+-!     do i=2,12
+-!        if(dat4(i).ne.dat4(1)) go to 900
+-!     enddo
+-!     write(13,*) 'Bad decode?',nhist,nfail,ipk,' ',dat4,decoded
+-!     ncount=-1           !Suppress supposedly bogus decodes
+-!     decoded='                      '
+-  endif
+-
+-900 continue
+-
+-  return
+-end subroutine extract
+
+Modified: branches/wsjtx_k1jt_p1/lib/fchisq65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/fchisq65.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/fchisq65.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -3,7 +3,7 @@
+   parameter (NMAX=60*12000)          !Samples per 60 s
+   complex cx(npts)
+   real a(5)
+-  complex w,wstep,za,zb,z
++  complex w,wstep,z
+   real ss(3000)
+   complex csx(0:NMAX/8)
+   data twopi/6.283185307/a1,a2,a3/99.,99.,99./
+
+Modified: branches/wsjtx_k1jt_p1/lib/gen65.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/gen65.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/gen65.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -7,7 +7,7 @@
+   character*22 message          !Message to be generated
+   character*22 msgsent          !Message as it will be received
+   integer itone(126)
+-  character*3 cok               !'   ' or 'OOO'
++!  character*3 cok               !'   ' or 'OOO'
+   integer dgen(13)
+   integer sent(63)
+   logical text
+@@ -54,11 +54,8 @@
+      call graycode65(sent,63,1)          !Apply Gray code
+   write(39,*) 'F'; flush(39)
+      nsym=126                            !Symbols per transmission
+-     nsps=4096
+   else
+      nsym=32
+-     nsps=16384
+-     nsendingsh=1                         !Flag for shorthand message
+   endif
+ 
+   k=0
+
+Modified: branches/wsjtx_k1jt_p1/lib/jt65a.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/jt65a.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -34,7 +34,6 @@
+      ib=min(NSZ-51,nint(fb/df))
+ 
+      freq0=-999.
+-     sync10=-999.
+      thresh0=1.5
+ 
+      do i=ia,ib                               !Search over freq range
+@@ -58,7 +57,6 @@
+         if(sync1.lt.thresh1) cycle
+ 
+ !  Keep only the best candidate within ftol.
+-!        if(freq-freq0.lt.ftol .or. sync1.lt.sync10) cycle
+         if(freq-freq0.lt.ftol) cycle
+ 
+         nflip=nint(flipk)
+@@ -78,7 +76,6 @@
+ !           write(39,3010) nutc,decoded,sync1,s2db
+ !3010       format(i4.4,2x,a22,2x,2f6.1)
+            freq0=freq
+-           sync10=sync1
+            i2=min(NSZ,i+10)                !### ??? ###
+            done(i:i2)=.true.
+         endif
+
+Modified: branches/wsjtx_k1jt_p1/lib/symspec.f90
+===================================================================
+--- branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/lib/symspec.f90	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -1,4 +1,4 @@
+-subroutine symspec(k,ntrperiod,nsps,ingain,pxdb,s,df3,ihsym,npts8)
++subroutine symspec(k,ntrperiod,nsps,ingain,slope,pxdb,s,df3,ihsym,npts8)
+ 
+ ! Input:
+ !  k         pointer to the most recent new data
+@@ -27,7 +27,7 @@
+   integer*2 id2
+   common/jt9com/ss(184,NSMAX),savg(NSMAX),id2(NMAX),nutc,ndiskdat,         &amp;
+        ntr,mousefqso,newdat,nfa,nfb,ntol,kin,nzhsym,nsynced,ndecoded
+-  data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/
++  data rms/999.0/,k0/99999999/,ntrperiod0/0/,nfft3z/0/,slope0/0.0/
+   equivalence (xc,cx)
+   save
+ 
+@@ -38,18 +38,19 @@
+      ihsym=0
+      go to 900                                 !Wait for enough samples to start
+   endif
+-  if(nfft3.ne.nfft3z) then                     !New nfft3, compute window
++
++  if(nfft3.ne.nfft3z .or. slope.ne.slope0) then    !New nfft3, compute window
+      pi=4.0*atan(1.0)
+      do i=1,nfft3
+         w3(i)=2.0*(sin(i*pi/nfft3))**2         !Window for nfft3 spectrum
+      enddo
+      nfft3z=nfft3
+      nh=NSMAX/2
+-     alpha=1.1
+      do i=1,NSMAX
+-        x=alpha*float(i)/nh - 1.0 + 2.6
++        x=slope*float(i)/nh - 1.0 + 2.6
+         scale(i)=10.0**x
+      enddo
++     slope0=slope
+   endif
+ 
+   if(k.lt.k0) then                             !Start a new data block
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/mainwindow.cpp	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -585,6 +585,7 @@
+   static int npts8;
+   static float px=0.0;
+   static float df3;
++  static float slope;
+ 
+   if(m_diskData) {
+     jt9com_.ndiskdat=1;
+@@ -594,7 +595,9 @@
+ 
+ // Get power, spectrum, and ihsym
+   trmin=m_TRperiod/60;
+-  symspec_(&amp;k,&amp;trmin,&amp;m_nsps,&amp;m_inGain,&amp;px,s,&amp;df3,&amp;ihsym,&amp;npts8);
++  slope=0.0;
++  if(g_pWideGraph!=NULL) slope=(float)g_pWideGraph-&gt;getSlope();
++  symspec_(&amp;k,&amp;trmin,&amp;m_nsps,&amp;m_inGain,&amp;slope,&amp;px,s,&amp;df3,&amp;ihsym,&amp;npts8);
+   if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap*100.0/m_nsps;
+
+Modified: branches/wsjtx_k1jt_p1/mainwindow.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/mainwindow.h	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -368,7 +368,7 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain,
++void symspec_(int* k, int* ntrperiod, int* nsps, int* ingain, float* slope,
+               float* px, float s[], float* df3, int* nhsym, int* npts8);
+ 
+ void genjt9_(char* msg, int* ichk, char* msgsent, int itone[],
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.cpp
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/widegraph.cpp	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -46,6 +46,8 @@
+   ui-&gt;widePlot-&gt;setBinsPerPixel(nbpp);
+   m_qsoFreq=settings.value(&quot;QSOfreq&quot;,1500).toInt();
+   ui-&gt;widePlot-&gt;setFQSO(m_qsoFreq,true);
++  m_slope=settings.value(&quot;Slope&quot;,0.0).toDouble();
++  ui-&gt;slopeSpinBox-&gt;setValue(m_slope);
+   settings.endGroup();
+ }
+ 
+@@ -72,6 +74,7 @@
+   settings.setValue(&quot;Cumulative&quot;,ui-&gt;widePlot-&gt;m_bCumulative);
+   settings.setValue(&quot;BinsPerPixel&quot;,ui-&gt;widePlot-&gt;binsPerPixel());
+   settings.setValue(&quot;QSOfreq&quot;,ui-&gt;widePlot-&gt;fQSO());
++  settings.setValue(&quot;Slope&quot;,m_slope);
+   settings.endGroup();
+ }
+ 
+@@ -274,4 +277,18 @@
+   setRxRange(m_fMin);
+ }
+ 
++void WideGraph::on_slopeSpinBox_valueChanged(double d)
++{
++  m_slope=d;
++}
+ 
++void WideGraph::setSlope(double d)
++{
++  m_slope=d;
++  ui-&gt;slopeSpinBox-&gt;setValue(d);
++}
++
++double WideGraph::getSlope()
++{
++  return m_slope;
++}
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.h
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.h	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/widegraph.h	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -31,6 +31,8 @@
+   void   setPeriod(int ntrperiod, int nsps);
+   void   setTxFreq(int n);
+   void   setModeTx(QString modeTx);
++  void   setSlope(double d);
++  double getSlope();
+   double fGreen();
+ 
+   qint32 m_qsoFreq;
+@@ -54,8 +56,11 @@
+   void on_gainSpinBox_valueChanged(int arg1);
+   void on_spec2dComboBox_currentIndexChanged(const QString &amp;arg1);
+   void on_fMinSpinBox_valueChanged(int n);
++  void on_slopeSpinBox_valueChanged(double d);
+ 
+ private:
++  double m_slope;
++
+   qint32 m_waterfallAvg;
+   qint32 m_fCal;
+   qint32 m_fSample;
+
+Modified: branches/wsjtx_k1jt_p1/widegraph.ui
+===================================================================
+--- branches/wsjtx_k1jt_p1/widegraph.ui	2013-06-12 14:08:04 UTC (rev 3378)
++++ branches/wsjtx_k1jt_p1/widegraph.ui	2013-06-12 15:00:34 UTC (rev 3379)
+@@ -69,25 +69,6 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;label_3&quot;&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;25&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;autoFillBackground&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;FFT Bins/Pixel&lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;margin&quot;&gt;
+-          &lt;number&gt;2&lt;/number&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;widget class=&quot;QSpinBox&quot; name=&quot;freqSpanSpinBox&quot;&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -97,7 +78,7 @@
+          &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;40&lt;/width&gt;
++           &lt;width&gt;80&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+@@ -113,6 +94,9 @@
+          &lt;property name=&quot;suffix&quot;&gt;
+           &lt;string/&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;Bins/Pixel &lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+           &lt;number&gt;1&lt;/number&gt;
+          &lt;/property&gt;
+@@ -144,25 +128,6 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;label_2&quot;&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;25&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;autoFillBackground&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;N Avg&lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;margin&quot;&gt;
+-          &lt;number&gt;2&lt;/number&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;widget class=&quot;QSpinBox&quot; name=&quot;waterfallAvgSpinBox&quot;&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -172,7 +137,7 @@
+          &lt;/property&gt;
+          &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;0&lt;/width&gt;
++           &lt;width&gt;60&lt;/width&gt;
+            &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+@@ -185,6 +150,9 @@
+          &lt;property name=&quot;toolTip&quot;&gt;
+           &lt;string&gt;Number of FFTs averaged (controls waterfall scrolling rate)&lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;N Avg &lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+           &lt;number&gt;1&lt;/number&gt;
+          &lt;/property&gt;
+@@ -210,26 +178,13 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;label_4&quot;&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;gainSpinBox&quot;&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;25&lt;/height&gt;
++           &lt;width&gt;60&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;autoFillBackground&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;Gain&lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;margin&quot;&gt;
+-          &lt;number&gt;2&lt;/number&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;gainSpinBox&quot;&gt;
+          &lt;property name=&quot;maximumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;38&lt;/width&gt;
+@@ -239,6 +194,9 @@
+          &lt;property name=&quot;toolTip&quot;&gt;
+           &lt;string&gt;Scaling (dB) applied to spectra before plotting&lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;Gain &lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+           &lt;number&gt;-20&lt;/number&gt;
+          &lt;/property&gt;
+@@ -264,26 +222,13 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;label&quot;&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
++        &lt;widget class=&quot;QSpinBox&quot; name=&quot;zeroSpinBox&quot;&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
+           &lt;size&gt;
+-           &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;25&lt;/height&gt;
++           &lt;width&gt;60&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
+           &lt;/size&gt;
+          &lt;/property&gt;
+-         &lt;property name=&quot;autoFillBackground&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;Zero&lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;margin&quot;&gt;
+-          &lt;number&gt;2&lt;/number&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+-        &lt;widget class=&quot;QSpinBox&quot; name=&quot;zeroSpinBox&quot;&gt;
+          &lt;property name=&quot;maximumSize&quot;&gt;
+           &lt;size&gt;
+            &lt;width&gt;38&lt;/width&gt;
+@@ -293,6 +238,12 @@
+          &lt;property name=&quot;toolTip&quot;&gt;
+           &lt;string&gt;Constant offset applied to waterfall data&lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;suffix&quot;&gt;
++          &lt;string/&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;Zero &lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+           &lt;number&gt;-100&lt;/number&gt;
+          &lt;/property&gt;
+@@ -302,6 +253,31 @@
+         &lt;/widget&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
++        &lt;widget class=&quot;QDoubleSpinBox&quot; name=&quot;slopeSpinBox&quot;&gt;
++         &lt;property name=&quot;minimumSize&quot;&gt;
++          &lt;size&gt;
++           &lt;width&gt;60&lt;/width&gt;
++           &lt;height&gt;0&lt;/height&gt;
++          &lt;/size&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;Slope &lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;decimals&quot;&gt;
++          &lt;number&gt;1&lt;/number&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;minimum&quot;&gt;
++          &lt;double&gt;-2.000000000000000&lt;/double&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;maximum&quot;&gt;
++          &lt;double&gt;2.000000000000000&lt;/double&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;singleStep&quot;&gt;
++          &lt;double&gt;0.100000000000000&lt;/double&gt;
++         &lt;/property&gt;
++        &lt;/widget&gt;
++       &lt;/item&gt;
++       &lt;item&gt;
+         &lt;spacer name=&quot;horizontalSpacer&quot;&gt;
+          &lt;property name=&quot;orientation&quot;&gt;
+           &lt;enum&gt;Qt::Horizontal&lt;/enum&gt;
+@@ -318,25 +294,6 @@
+         &lt;/spacer&gt;
+        &lt;/item&gt;
+        &lt;item&gt;
+-        &lt;widget class=&quot;QLabel&quot; name=&quot;label_5&quot;&gt;
+-         &lt;property name=&quot;maximumSize&quot;&gt;
+-          &lt;size&gt;
+-           &lt;width&gt;16777215&lt;/width&gt;
+-           &lt;height&gt;25&lt;/height&gt;
+-          &lt;/size&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;autoFillBackground&quot;&gt;
+-          &lt;bool&gt;true&lt;/bool&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;text&quot;&gt;
+-          &lt;string&gt;JT65 | JT9&lt;/string&gt;
+-         &lt;/property&gt;
+-         &lt;property name=&quot;margin&quot;&gt;
+-          &lt;number&gt;2&lt;/number&gt;
+-         &lt;/property&gt;
+-        &lt;/widget&gt;
+-       &lt;/item&gt;
+-       &lt;item&gt;
+         &lt;widget class=&quot;QSpinBox&quot; name=&quot;fMinSpinBox&quot;&gt;
+          &lt;property name=&quot;sizePolicy&quot;&gt;
+           &lt;sizepolicy hsizetype=&quot;Fixed&quot; vsizetype=&quot;Fixed&quot;&gt;
+@@ -347,6 +304,12 @@
+          &lt;property name=&quot;toolTip&quot;&gt;
+           &lt;string&gt;Minimum frequency for wideband decodes&lt;/string&gt;
+          &lt;/property&gt;
++         &lt;property name=&quot;suffix&quot;&gt;
++          &lt;string&gt;  JT9&lt;/string&gt;
++         &lt;/property&gt;
++         &lt;property name=&quot;prefix&quot;&gt;
++          &lt;string&gt;JT65  &lt;/string&gt;
++         &lt;/property&gt;
+          &lt;property name=&quot;minimum&quot;&gt;
+           &lt;number&gt;0&lt;/number&gt;
+          &lt;/property&gt;
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003070.html">[WSJT-SVN] r3378 - in branches/wsjtx_k1jt_p1: . lib
+</A></li>
+	<LI>Next message: <A HREF="003072.html">[WSJT-SVN] r3380 - branches/wsjtx_k1jt_p1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3071">[ date ]</a>
+              <a href="thread.html#3071">[ thread ]</a>
+              <a href="subject.html#3071">[ subject ]</a>
+              <a href="author.html#3071">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

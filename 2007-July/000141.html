@@ -1,0 +1,525 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r456 - branches/map65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r456%20-%20branches/map65&In-Reply-To=%3C200707021917.l62JHDii003058%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000140.html">
+   <LINK REL="Next"  HREF="000142.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r456 - branches/map65</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r456%20-%20branches/map65&In-Reply-To=%3C200707021917.l62JHDii003058%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r456 - branches/map65">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  2 21:17:13 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000140.html">[WSJT-SVN] r455 - branches/map65
+</A></li>
+        <LI>Next message: <A HREF="000142.html">[WSJT-SVN] r457 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2007-07-02 21:17:07 +0200 (Mon, 02 Jul 2007)
+New Revision: 456
+
+Modified:
+   branches/map65/decode1a.f
+   branches/map65/decode65b.f
+   branches/map65/deep65.F
+   branches/map65/ftn_init.F90
+   branches/map65/map65.py
+   branches/map65/map65a.f90
+Log:
+Many tweaks to user interface.
+Included &quot;ndepth&quot; adjustments of deep search.
+Changed name of bandmap -&gt; messages, bandmap2 -&gt; bandmap.
+
+
+Modified: branches/map65/decode1a.f
+===================================================================
+--- branches/map65/decode1a.f	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/decode1a.f	2007-07-02 19:17:07 UTC (rev 456)
+@@ -1,5 +1,6 @@
+-      subroutine decode1a(id,newdat,nfilt,freq,nflip,dphi,ipol,
+-     +  sync2,a,dt,pol,nkv,nhist,qual,decoded)
++      subroutine decode1a(id,newdat,nfilt,freq,nflip,
++     +         mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,          
++     +         ipol,sync2,a,dt,pol,nkv,nhist,qual,decoded)
+ 
+ C  Apply AFC corrections to a candidate JT65 signal, and then try
+ C  to decode it.
+@@ -21,6 +22,7 @@
+       integer resample
+       logical first
+       character decoded*22
++      character mycall*12,hiscall*12,hisgrid*6
+       data first/.true./,jjjmin/1000/,jjjmax/-1000/
+       save
+ 
+@@ -124,7 +126,8 @@
+       enddo
+ 
+       flip=nflip
+-      call decode65b(s2,flip,nkv,nhist,qual,decoded)
++      call decode65b(s2,flip,mycall,hiscall,hisgrid,neme,ndepth,
++     +    nqd,nkv,nhist,qual,decoded)
+       dt=dt00 + dtbest
+ 
+       return
+
+Modified: branches/map65/decode65b.f
+===================================================================
+--- branches/map65/decode65b.f	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/decode65b.f	2007-07-02 19:17:07 UTC (rev 456)
+@@ -1,4 +1,5 @@
+-      subroutine decode65b(s2,flip,nkv,nhist,qual,decoded)
++      subroutine decode65b(s2,flip,mycall,hiscall,hisgrid,neme,ndepth,
++     +  nqd,nkv,nhist,qual,decoded)
+ 
+       real s2(256,126)
+       real s3(64,63)
+@@ -36,14 +37,9 @@
+ 
+       qual=0.
+ !      if(nkv.eq.0) then
+-         mycall='K1JT'
+-         hiscall='W1ABC'
+-         hisgrid='EM79'
+-         neme=0
+-         nsked=0
+-         ndepth=5
+          if(ndepth.ge.1) call deep65(s3,mode65,neme,
+-     +        nsked,flip,mycall,hiscall,hisgrid,deepmsg,qual)
++     +        flip,mycall,hiscall,hisgrid,deepmsg,qual)
++         if(nqd.ne.1 .and. qual.lt.10.0) qual=0.0
+ 
+ C  Save symbol spectra for possible decoding of average.
+ !      do j=1,63
+@@ -51,6 +47,7 @@
+ !         if(flip.lt.0.0) k=mdat2(j)
+ !         call move(s2(8,k),ppsave(1,j,nsave),64)
+ !      enddo
++
+ !      endif
+ 
+       if(nkv.eq.0 .and. qual.ge.1.0) decoded=deepmsg
+
+Modified: branches/map65/deep65.F
+===================================================================
+--- branches/map65/deep65.F	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/deep65.F	2007-07-02 19:17:07 UTC (rev 456)
+@@ -1,4 +1,4 @@
+-      subroutine deep65(s3,mode65,neme,nsked,flip,mycall,hiscall,
++      subroutine deep65(s3,mode65,neme,flip,mycall,hiscall,
+      +  hisgrid,decoded,qual)
+ 
+       parameter (MAXCALLS=7000,MAXRPT=63)
+@@ -100,7 +100,6 @@
+             call encode65(message,ncode(1,k))
+             nflip(k)=flip
+          enddo
+-         if(nsked.eq.1) go to 20
+  10      continue
+       enddo
+  20   ntot=k
+
+Modified: branches/map65/ftn_init.F90
+===================================================================
+--- branches/map65/ftn_init.F90	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/ftn_init.F90	2007-07-02 19:17:07 UTC (rev 456)
+@@ -9,8 +9,8 @@
+ !   16  c:/wsjt.reg 
+ !   17  wave files written to disk
+ !   18  test file to be transmitted (wsjtgen.f90)
+-!   19  bandmap.txt
+-!   20  bandmap2.txt
++!   19  messages.txt
++!   20  bandmap.txt
+ !   21  ALL65.TXT
+ !   22  kvasd.dat
+ !   23  CALL3.TXT
+@@ -73,19 +73,19 @@
+ #endif
+ 
+ #ifdef Win32
+-  open(19,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
++  open(19,file=appdir(:iz)//'/messages.txt',status='unknown',               &amp;
+        share='denynone',err=911)
+ #else
+-  open(19,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
++  open(19,file=appdir(:iz)//'/messages.txt',status='unknown',               &amp;
+        err=911)
+ #endif
+   endfile 19
+ 
+ #ifdef Win32
+-  open(20,file=appdir(:iz)//'/bandmap2.txt',status='unknown',               &amp;
++  open(20,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
+        share='denynone',err=912)
+ #else
+-  open(20,file=appdir(:iz)//'/bandmap2.txt',status='unknown',               &amp;
++  open(20,file=appdir(:iz)//'/bandmap.txt',status='unknown',               &amp;
+        err=912)
+ #endif
+   endfile 20
+@@ -135,9 +135,9 @@
+ 
+ 910 print*,'Error opening DECODED.TXT'
+   stop
+-911 print*,'Error opening bandmap.txt'
++911 print*,'Error opening messages.txt'
+   stop
+-912 print*,'Error opening bandmap2.txt'
++912 print*,'Error opening bandmap.txt'
+   stop
+ 920 print*,'Error opening DECODED.AVE'
+   stop
+
+Modified: branches/map65/map65.py
+===================================================================
+--- branches/map65/map65.py	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/map65.py	2007-07-02 19:17:07 UTC (rev 456)
+@@ -1,4 +1,4 @@
+-#--------------------------------------------------------------------- MAP65
++#-------------------------------------------------------------------- MAP65
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -82,7 +82,6 @@
+ nosh441=IntVar()
+ noshjt65=IntVar()
+ setseq=IntVar()
+-textheight=7
+ tx6alt=&quot;&quot;
+ txsnrdb=99.
+ TxFirst=IntVar()
+@@ -167,8 +166,8 @@
+     tx5.insert(0,&quot;@1000&quot;)
+     tx6.insert(0,&quot;@2000&quot;)
+ 
+-#------------------------------------------------------ bandmap
+-def bandmap(event=NONE):
++#------------------------------------------------------ 
++def messages(event=NONE):
+     global Version,bm,bm_geom,bmtext
+     bm=Toplevel(root)
+     bm.title(&quot;Messages&quot;)
+@@ -187,8 +186,8 @@
+     bmtext.tag_configure('age3',foreground='gray50')
+     iframe_bm1.pack(expand=1, fill=X, padx=4)
+ 
+-#------------------------------------------------------ bandmap2
+-def bandmap2(event=NONE):
++#------------------------------------------------------ bandmap
++def bandmap(event=NONE):
+     global Version,bm2,bm2_geom,bm2text
+     bm2=Toplevel(root)
+     bm2.title(&quot;Band Map&quot;)
+@@ -518,23 +517,19 @@
+ 
+ #------------------------------------------------------ ModeJT65
+ def ModeJT65():
+-    global isync,textheight,itol
++    global isync,itol
+     cleartext()
+     Audio.gcom1.trperiod=60
+     iframe4b.pack(after=iframe4,expand=1, fill=X, padx=4)
+-    textheight=7
+-    text.configure(height=textheight)
+     bclravg.configure(state=NORMAL)
+     binclude.configure(state=NORMAL)
+     bexclude.configure(state=NORMAL)
+-    graph2.configure(bg='#66FFFF')
+     itol=4
+     inctol()
+     nfreeze.set(0)
+     ntx.set(1)
+     GenStdMsgs()
+     erase()
+-#    graph2.pack_forget()
+ 
+ #------------------------------------------------------ ModeJT65A
+ def ModeJT65A(event=NONE):
+@@ -607,13 +602,12 @@
+ F8	Set JT65A mode
+ Shift+F8	Set JT65B mode
+ Ctrl+F8	Set JT65C mode
+-F10	Show SpecJT
++F10	Show Waterfall
+ Shift+F10   Show astronomical data
+ Alt+1 to Alt+6	Tx1 to Tx6
+ Alt+A	Toggle Auto On/Off
+ Alt+D	Decode
+ Alt+E	Erase
+-Alt+F	Toggle Freeze
+ Alt+G	Generate Standard Messages
+ Ctrl+G	Generate Alternate JT65 Messages
+ Alt+I	Include
+@@ -624,7 +618,6 @@
+ Alt+Q	Log QSO
+ Alt+S	Stop Monitoring or Decoding
+ Alt+X	Exclude
+-Alt+Z	Toggle Zap
+ Right/Left Arrow	Increase/decrease Freeze DF
+ &quot;&quot;&quot;
+     Label(scwid,text=t,justify=LEFT).pack(padx=20)
+@@ -638,17 +631,14 @@
+     t=&quot;&quot;&quot;
+ Click on          Action
+ --------------------------------------------------------
+-Waterfall         Click to set DF for Freeze
+-                  Double-click to Freeze and Decode
++Waterfall (upper)   Click to set QSO frequency; double-click to set
++                               QSO frequency and Decode
+ 
+-Main screen,      Click to set DF for Freeze
+-graphics area     Double-click to Freeze and Decode
++Waterfall (lower)   Click to set target DF; double-click to set
++                               target DF and Decode
+ 
+-Main screen,      Double-click puts callsign in Tx messages
+-text area         Right-double-click also sets Auto ON
+-
+-Sync, Clip,      Left/Right click to increase/decrease
+-Tol, ...
++Main screen,          Double-click puts callsign in Tx messages
++text area
+ &quot;&quot;&quot;
+     Label(scwid,text=t,justify=LEFT).pack(padx=20)
+     scwid.focus_set()
+@@ -753,14 +743,12 @@
+ 
+ #------------------------------------------------------ erase
+ def erase(event=NONE):
+-    graph1.delete(ALL)
+     text.configure(state=NORMAL)
+     text.delete('1.0',END)
+     text.configure(state=DISABLED)
+     avetext.configure(state=NORMAL)
+     avetext.delete('1.0',END)
+     avetext.configure(state=DISABLED)
+-    lab3.configure(text=&quot; &quot;)
+     Audio.gcom2.decodedfile=&quot;                        &quot;
+ #------------------------------------------------------ clear_avg
+ def clear_avg(event=NONE):
+@@ -952,14 +940,18 @@
+             if len(HisGrid.get().strip())&lt;4:
+                 g.ndop=g.ndop00
+                 g.dfdt=g.dfdt0
++        astrotext.delete(1.0,END)
++        astrotext.insert(END,'   Moon\n')
++        astrotext.insert(END,&quot;Az: %7.1f\n&quot; % g.AzMoon)
++        astrotext.insert(END,&quot;El: %7.1f\n&quot; % g.ElMoon)
++        astrotext.insert(END,&quot;DxAz: %5.1f\n&quot; % g.AzMoonB)
++        astrotext.insert(END,&quot;DxEl: %5.1f\n&quot; % g.ElMoonB)
++        astrotext.insert(END,'    Sun\n')
++        astrotext.insert(END,&quot;Az: %7.1f\n&quot; % g.AzSun)
++        astrotext.insert(END,&quot;El: %7.1f\n\n&quot; % g.ElSun)
++        astrotext.insert(END,&quot;Dop:%7d\n&quot; % g.ndop)
++        astrotext.insert(END,&quot;Dgrd:%6.1f\n&quot; % g.Dgrd)
+ 
+-        graph2.delete(ALL)
+-        graph2.create_text(80,13,anchor=CENTER,text=&quot;Moon&quot;,font=g2font)
+-        graph2.create_text(13,37,anchor=W, text=&quot;Az: %6.2f&quot; % g.AzMoon,font=g2font)
+-        graph2.create_text(13,61,anchor=W, text=&quot;El: %6.2f&quot; % g.ElMoon,font=g2font)
+-        graph2.create_text(13,85,anchor=W, text=&quot;Dop:%6d&quot; % g.ndop,font=g2font)
+-        graph2.create_text(13,109,anchor=W,text=&quot;Dgrd:%5.1f&quot; % g.Dgrd,font=g2font)
+-
+     if g.freeze_decode and mode.get()[:4]=='JT65':
+         itol=5
+         ltol.configure(text='Tol    '+str(500))
+@@ -976,10 +968,8 @@
+         g.freeze_decode=0
+ 
+     t=g.ftnstr(Audio.gcom2.decodedfile)
+-#    i=t.rfind(&quot;.&quot;)
+     i=g.rfnd(t,&quot;.&quot;)
+     t=t[:i]
+-    lab3.configure(text=t)
+     if mode.get() != g.mode or first:
+         msg2.configure(bg='#00FFFF')
+         g.mode=mode.get()
+@@ -1093,7 +1083,7 @@
+ 
+         if Audio.gcom2.ndecdone==2:
+             try:
+-                f=open(appdir+'/bandmap.txt',mode='r')
++                f=open(appdir+'/messages.txt',mode='r')
+                 lines=f.readlines()
+                 f.close()
+             except:
+@@ -1116,7 +1106,7 @@
+             bmtext.see(END)
+ 
+             try:
+-                f=open(appdir+'/bandmap2.txt',mode='r')
++                f=open(appdir+'/bandmap.txt',mode='r')
+                 lines=f.readlines()
+                 f.close()
+             except:
+@@ -1249,8 +1239,8 @@
+ viewbutton['menu']=viewmenu
+ viewmenu.add('command', label = 'SpecJT', command = showspecjt, \
+              accelerator='F10')
+-viewmenu.add('command', label = 'Band Map 1', command = bandmap)
+-viewmenu.add('command', label = 'Band Map 2', command = bandmap2)
++viewmenu.add('command', label = 'Messages', command = messages)
++viewmenu.add('command', label = 'Band Map', command = bandmap)
+ viewmenu.add('command', label = 'Astronomical data', command = astro1, \
+              accelerator='Shift+F10')
+ 
+@@ -1288,8 +1278,8 @@
+                                 variable=ndepth, value=1)
+ decodemenu.add_radiobutton(label = 'Aggressive Deep Search',
+                                 variable=ndepth, value=2)
+-decodemenu.add_radiobutton(label ='Include Average in Aggressive Deep Search',
+-                                variable=ndepth, value=3)
++#decodemenu.add_radiobutton(label ='Include Average in Aggressive Deep Search',
++#                                variable=ndepth, value=3)
+ 
+ #------------------------------------------------------ Save menu
+ savebutton = Menubutton(mbar, text = 'Save')
+@@ -1331,43 +1321,17 @@
+ helpmenu.add('command', label = 'About MAP65', command = about, \
+              accelerator='Ctrl+F1')
+ 
+-#------------------------------------------------------ Graphics areas
+-iframe1 = Frame(frame, bd=1, relief=SUNKEN)
+-graph1=Canvas(iframe1, bg='black', width=500, height=120,cursor='crosshair')
+-Widget.bind(graph1,&quot;&lt;Motion&gt;&quot;,dtdf_change)
+-Widget.bind(graph1,&quot;&lt;Button-1&gt;&quot;,mouse_click_g1)
+-Widget.bind(graph1,&quot;&lt;Double-Button-1&gt;&quot;,double_click_g1)
+-Widget.bind(graph1,&quot;&lt;ButtonRelease-1&gt;&quot;,mouse_up_g1)
+-Widget.bind(graph1,&quot;&lt;Button-3&gt;&quot;,mouse_click_g1)
+-graph1.pack(side=LEFT)
+-graph2=Canvas(iframe1, bg='black', width=150, height=120,cursor='crosshair')
+-graph2.pack(side=LEFT)
+-g2font=graph2.option_get(&quot;font&quot;,&quot;font&quot;)
+-if g2font!=&quot;&quot;: g.g2font=g2font
+-iframe1.pack(expand=1, fill=X, padx=4)
+-
+ #------------------------------------------------------ Labels under graphics
+-iframe2a = Frame(frame, bd=1, relief=FLAT, height=15)
+-lab1=Label(iframe2a, text='Time (s)')
+-lab1.place(x=250, y=6, anchor=CENTER)
+-lab3=Label(iframe2a, text=' ')
+-lab3.place(x=400,y=6, anchor=CENTER)
+-iframe2a.pack(expand=1, fill=X, padx=1)
+ iframe2 = Frame(frame, bd=1, relief=FLAT,height=15)
+-#lab2=Label(iframe2, text=' UTC      dB       DT        DF    W')
+ lab2=Label(iframe2, text='Freq      DF     Pol    UTC     dB        DT     W')
+ lab2.place(x=3,y=6, anchor='w')
+-lab6=Label(iframe2a,text='0.0',bg='green')
+-lab6.place(x=40,y=6, anchor=CENTER)
+-lab7=Label(iframe2a,text='F3',fg='gray85')
++lab7=Label(iframe2,text='F3',fg='gray85')
+ lab7.place(x=495,y=6, anchor=CENTER)
+-lab8=Label(iframe2a,text='1.0000  1.0000',fg='gray85')
+-lab8.place(x=135,y=6, anchor=CENTER)
+ iframe2.pack(expand=1, fill=X, padx=4)
+ 
+ #-------------------------------------------------------- Decoded text
+-iframe4 = Frame(frame, bd=1, relief=SUNKEN)
+-text=Text(iframe4, height=6, width=80)
++iframe4 = Frame(frame, bd=2, relief=SUNKEN)
++text=Text(iframe4, height=16, width=65)
+ text.bind('&lt;Double-Button-1&gt;',dbl_click_text)
+ #text.bind('&lt;Double-Button-3&gt;',dbl_click_text)
+ text.bind('&lt;Key&gt;',textkey)
+@@ -1434,11 +1398,18 @@
+ 
+ text.pack(side=LEFT, fill=X, padx=1)
+ sb = Scrollbar(iframe4, orient=VERTICAL, command=text.yview)
+-sb.pack(side=RIGHT, fill=Y)
++sb.pack(side=LEFT, fill=Y)
+ text.configure(yscrollcommand=sb.set)
++
++astrotext_font='&quot;Lucida Console&quot; 16'
++astrotext=Text(iframe4, bg=&quot;#66FFFF&quot;,height=10,width=11,font=astrotext_font)
++astrotext.pack(side=LEFT, fill=BOTH, padx=4)
++g2font=astrotext_font
++if g2font!=&quot;&quot;: g.g2font=g2font
++
+ iframe4.pack(expand=1, fill=X, padx=4)
+-iframe4b = Frame(frame, bd=1, relief=SUNKEN)
+-avetext=Text(iframe4b, height=2, width=80)
++iframe4b = Frame(frame, bd=2, relief=SUNKEN)
++avetext=Text(iframe4b, height=2, width=65)
+ avetext.bind('&lt;Double-Button-1&gt;',dbl_click_ave)
+ #avetext.bind('&lt;Double-Button-3&gt;',dbl_click_ave)
+ avetext.bind('&lt;Key&gt;',avetextkey)
+@@ -1467,7 +1438,6 @@
+                 padx=1,pady=1)
+ 
+ blogqso.pack(side=LEFT,expand=1,fill=X)
+-#bplay.pack(side=LEFT,expand=1,fill=X)
+ bstop.pack(side=LEFT,expand=1,fill=X)
+ bmonitor.pack(side=LEFT,expand=1,fill=X)
+ bdecode.pack(side=LEFT,expand=1,fill=X)
+@@ -1728,8 +1698,8 @@
+ first=1
+ if g.Win32: root.iconbitmap(&quot;wsjt.ico&quot;)
+ root.title('  MAP65     by K1JT')
++messages()
+ bandmap()
+-bandmap2()
+ import astro
+ import specjt
+ 
+
+Modified: branches/map65/map65a.f90
+===================================================================
+--- branches/map65/map65a.f90	2007-07-02 16:28:52 UTC (rev 455)
++++ branches/map65/map65a.f90	2007-07-02 19:17:07 UTC (rev 456)
+@@ -156,7 +156,8 @@
+ 
+               if(freq-freq0.gt.ftol .or. sync1.gt.sync10 .and. nqd.eq.0) then
+                  nflip=nint(flipk)
+-                 call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,dphi,  &amp;
++                 call decode1a(id(1,1,kbuf),newdat,nfilt,freq,nflip,    &amp;
++                      mycall,hiscall,hisgrid,neme,ndepth,nqd,dphi,      &amp;
+                       ipol,sync2,a,dt,pol,nkv,nhist,qual,decoded)
+                  km=km+1
+                  sig(km,1)=nfile
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000140.html">[WSJT-SVN] r455 - branches/map65
+</A></li>
+	<LI>Next message: <A HREF="000142.html">[WSJT-SVN] r457 - branches/map65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

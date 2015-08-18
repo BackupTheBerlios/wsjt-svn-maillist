@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2834 - branches/wsprx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2834%20-%20branches/wsprx&In-Reply-To=%3C20121217183922.2A69A55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002525.html">
+   <LINK REL="Next"  HREF="002527.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2834 - branches/wsprx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2834%20-%20branches/wsprx&In-Reply-To=%3C20121217183922.2A69A55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2834 - branches/wsprx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Mon Dec 17 19:39:22 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002525.html">[WSJT-SVN] r2833 - branches/wsprx
+</A></li>
+        <LI>Next message: <A HREF="002527.html">[WSJT-SVN] r2835 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2526">[ date ]</a>
+              <a href="thread.html#2526">[ thread ]</a>
+              <a href="subject.html#2526">[ subject ]</a>
+              <a href="author.html#2526">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-12-17 19:39:21 +0100 (Mon, 17 Dec 2012)
+New Revision: 2834
+
+Modified:
+   branches/wsprx/mainwindow.cpp
+   branches/wsprx/mainwindow.h
+Log:
+Working on guiUpdate2()
+
+
+Modified: branches/wsprx/mainwindow.cpp
+===================================================================
+--- branches/wsprx/mainwindow.cpp	2012-12-17 16:03:14 UTC (rev 2833)
++++ branches/wsprx/mainwindow.cpp	2012-12-17 18:39:21 UTC (rev 2834)
+@@ -118,6 +118,7 @@
+   m_mode=&quot;WSPR-2&quot;;
+   m_TRperiod=120;
+   m_inGain=0;
++  m_hopping=false;
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+ 
+@@ -486,7 +487,7 @@
+   soundInThread.setReceiving(m_receiving);
+   QString fname;
+   fname=QFileDialog::getOpenFileName(this, &quot;Open File&quot;, m_path,
+-                                       &quot;WSJT Files (*.wav)&quot;);
++                                       &quot;WSPR Files (*.wav)&quot;);
+   if(fname != &quot;&quot;) {
+     m_path=fname;
+     int i;
+@@ -890,11 +891,15 @@
+ //------------------------------------------------------------- //guiUpdate2()
+ void MainWindow::guiUpdate2()
+ {
+-//  m_nseq=tseq();
++  m_nseq=int(tsec()) % m_TRperiod;
++  m_rxavg=1.0;
++  if(m_pctx&gt;0) m_rxavg=100.0/m_pctx - 1.0;
++
+   if(m_rxdone) {
+     m_receiving=false;
+     m_rxdone=false;
+-    //thisfile=
++    //thisfile= yymmdd + m_rxtime + &quot;.wav&quot;
++    //if(m_diskData) thisfile=file2
+     if((m_rxnormal and m_ncal==0) or (!m_rxnormal and m_ncal==2) or
+        (m_diskData==1)) {
+       //decode()
+@@ -916,13 +921,16 @@
+   if(m_pctx&lt;1) m_ntune=0;
+ 
+   if(m_ntune!=0 and !m_transmitting and !m_receiving and m_pctx&gt;=1) {
++    //Make a test transmission of duration pctx.
++    //m_nsectx=nsec
+     m_transmitting=true;
+     //starttx()
+   }
+ 
+   if(m_ncal==1 and !m_transmitting and !m_receiving) {
++    //Execute one Rx sequence (length??)
+     m_receiving=true;
+-    //thisfile=
++    //m_rxtime=hhmm
+     m_rxnormal=false;
+     m_diskData=0;
+     //startrx()
+@@ -946,7 +954,7 @@
+   if(m_pctx&gt;0 and (m_txnext or (m_nrx==0 and m_ntr!=-1))) {
+     m_transmitting=true;              //Start a normal Tx sequence
+     float x=0.5;
+-//    x=ran();
++//    x=ran();                                //###
+     if(m_pctx&lt;50) {
+       m_nrx=int(m_rxavg + 3.0*(x-0.5) + 0.5);
+     } else {
+@@ -954,15 +962,24 @@
+       if(x&lt;m_rxavg) m_nrx=1;
+     }
+ //    message=MyCall + MyGrid + &quot;ndbm&quot;;
++    //linetx = yymmdd + hhmm + ftx(f11.6) + &quot;  Transmitting on &quot;
+     m_ntr=-1;
++    //m_nsectx=nsec
+     m_txdone=false;
+     m_txnext=false;
+     //starttx()
+   } else {
+     m_receiving=true;                 //Start a normal Rx sequence
++    //m_rxtime=hhmm
+     m_ntr=1;
+     m_rxnormal=true;
+     //startrx()
+     m_nrx=m_nrx-1;
+   }
+ }
++
++double MainWindow::tsec()
++{
++  qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
++  return 0.001*ms;
++}
+
+Modified: branches/wsprx/mainwindow.h
+===================================================================
+--- branches/wsprx/mainwindow.h	2012-12-17 16:03:14 UTC (rev 2833)
++++ branches/wsprx/mainwindow.h	2012-12-17 18:39:21 UTC (rev 2834)
+@@ -30,7 +30,6 @@
+   void diskWriteFinished();
+   void guiUpdate();
+   void guiUpdate2();
+-  void oneSec();
+   void readFromStdout();
+   void readFromStderr();
+   void jt9_error();
+@@ -158,6 +157,8 @@
+     void createStatusBar();
+     void updateStatusBar();
+     void msgBox(QString t);
++    void oneSec();
++    double tsec();
+ };
+ 
+ extern void getfile(QString fname, int ntrperiod);
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002525.html">[WSJT-SVN] r2833 - branches/wsprx
+</A></li>
+	<LI>Next message: <A HREF="002527.html">[WSJT-SVN] r2835 - branches/wsprx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2526">[ date ]</a>
+              <a href="thread.html#2526">[ thread ]</a>
+              <a href="subject.html#2526">[ subject ]</a>
+              <a href="author.html#2526">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

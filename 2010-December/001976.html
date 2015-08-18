@@ -1,0 +1,397 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2284 - in branches/wspr: . WsprMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2284%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101208203025.4FD63480D17%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001975.html">
+   <LINK REL="Next"  HREF="001977.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2284 - in branches/wspr: . WsprMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2284%20-%20in%20branches/wspr%3A%20.%20WsprMod&In-Reply-To=%3C20101208203025.4FD63480D17%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2284 - in branches/wspr: . WsprMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Dec  8 21:30:25 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001975.html">[WSJT-SVN] r2283 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="001977.html">[WSJT-SVN] r2285 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1976">[ date ]</a>
+              <a href="thread.html#1976">[ thread ]</a>
+              <a href="subject.html#1976">[ subject ]</a>
+              <a href="author.html#1976">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-12-08 21:30:24 +0100 (Wed, 08 Dec 2010)
+New Revision: 2284
+
+Added:
+   branches/wspr/rxtxcoord.f90
+Modified:
+   branches/wspr/Makefile.in
+   branches/wspr/WSPR.iss
+   branches/wspr/WsprMod/hopping.py
+   branches/wspr/acom1.f90
+   branches/wspr/start_threads.c
+   branches/wspr/wspr.py
+   branches/wspr/wspr2.f90
+Log:
+Revert start_threads.c to r2282.
+Use a &quot;less random&quot; Rx/Tx decision scheme when using coordinated hopping.
+
+
+Modified: branches/wspr/Makefile.in
+===================================================================
+--- branches/wspr/Makefile.in	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/Makefile.in	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -84,7 +84,7 @@
+ 	nhash.c fthread.c
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+-WsprMod/w.so:	${OBJS2C} $(SRCS2F90) $(SRCS2F77) acom1.f90
++WsprMod/w.so:	${OBJS2C} $(SRCS2C) $(SRCS2F90) $(SRCS2F77) acom1.f90
+ 	${F2PY} -c --quiet --noopt --debug -m w \
+ 	--f77flags=&quot;${FFLAGS}&quot; --f90flags=&quot;${FFLAGS}&quot; \
+ 	--fcompiler=${FCV} --f77exec=${FC} --f90exec=${FC} \
+
+Modified: branches/wspr/WSPR.iss
+===================================================================
+--- branches/wspr/WSPR.iss	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/WSPR.iss	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -1,6 +1,6 @@
+ [Setup]
+ AppName=WSPR
+-AppVerName=WSPR Version 2.11 r2275
++AppVerName=WSPR Version 2.11 r2284
+ 
+ AppCopyright=Copyright (C) 2008-2010 by Joe Taylor, K1JT
+ DefaultDirName={pf}\WSPR
+
+Modified: branches/wspr/WsprMod/hopping.py
+===================================================================
+--- branches/wspr/WsprMod/hopping.py	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/WsprMod/hopping.py	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -89,7 +89,7 @@
+                            variable=tuneupflag[r])
+     btuneup[r].grid(row=r,column=3,padx=2,pady=3,sticky='SW')
+ 
+-cbcoord=Checkbutton(g1.interior(),text='Coordinated bands',variable=coord_bands)
++cbcoord=Checkbutton(g1.interior(),text='Coordinated hopping',variable=coord_bands)
+ cbcoord.grid(row=18,column=1,padx=2,pady=2,sticky='S')
+ g1.pack(side=LEFT,fill=X,expand=0,padx=4,pady=4)
+ 
+
+Modified: branches/wspr/acom1.f90
+===================================================================
+--- branches/wspr/acom1.f90	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/acom1.f90	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -8,7 +8,7 @@
+   character callsign*12,grid*4,grid6*6,ctxmsg*22,sending*22
+   integer*2 iwave,kwave
+   common/acom1/ f0,f0a,f0b,ftx,tsec0,rms,pctx,igrid6,nsec,ndevin,      &amp;
+-       nfhopping,nfhopok,                                              &amp;
++       nfhopping,nfhopok,iband,ncoord,                                 &amp;
+        ndevout,nsave,nrxdone,ndbm,nport,ndec,ndecdone,ntxdone,         &amp;
+        idint,ndiskdat,ndecoding,ntr,nbaud,ndatabits,nstopbits,         &amp;
+        receiving,transmitting,nrig,nappdir,iqmode,iqrx,iqtx,nfiq,      &amp;
+
+Added: branches/wspr/rxtxcoord.f90
+===================================================================
+--- branches/wspr/rxtxcoord.f90	                        (rev 0)
++++ branches/wspr/rxtxcoord.f90	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -0,0 +1,64 @@
++subroutine rxtxcoord(nsec,iband,pctx,nrx,ntxnext)
++
++! Determine Rx or Tx in coordinated hopping mode.
++
++  integer tx(10,6)
++  real r(6)
++  integer ii(1)
++  data nsec0/-1/
++  save nsec0,tx
++  
++  if(nsec-nsec0.gt.2*3600) then
++! At startup and whenever 2 hours have elapsed, compute new Rx/Tx pattern
++     nsec0=nsec
++     tx=0
++     do j=1,10
++        call random_number(r)
++        do i=1,6,2
++           if(r(i).gt.r(i+1)) then
++              tx(j,i)=1
++              r(i+1)=0.
++           else
++              tx(j,i+1)=1
++              r(i)=0.
++           endif
++        enddo
++
++        if(pctx.lt.50.0) then
++           ii=maxloc(r)
++           i=ii(1)
++           call random_number(rr)
++           rrtest=(50.0-pctx)/16.667
++           if(rr.lt.rrtest) then
++              tx(j,i)=0
++              r(i)=0.
++           endif
++        endif
++
++        if(pctx.lt.33.333) then
++           ii=maxloc(r)
++           i=ii(1)
++           call random_number(rr)
++           rrtest=(33.333-pctx)/16.667
++           if(rr.lt.rrtest) then
++              tx(j,i)=0
++              r(i)=0.
++           endif
++        endif
++     enddo
++  endif
++
++  iseq=mod((nsec-nsec0)/120,6) + 1
++  ib=mod(iband+8,10) + 1
++  if(tx(ib,iseq).eq.1) then
++     ntxnext=1
++  else
++     nrx=1
++  endif
++
++  call cs_lock('rxtxccoord')
++  print*,'A',iband,ib,iseq,nrx,ntxnext
++  call cs_unlock
++
++  return
++end subroutine rxtxcoord
+
+
+Property changes on: branches/wspr/rxtxcoord.f90
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Modified: branches/wspr/start_threads.c
+===================================================================
+--- branches/wspr/start_threads.c	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/start_threads.c	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -17,32 +17,37 @@
+ pthread_t decode_thread;
+ static int decode_started=0;
+ 
+-int th_wspr2_(void)
+-{
+-  pthread_t wspr2_thread;
+-  int ret1,ret2,ret3;
++int spawn_thread(void (*f)(int *n)) {
++  pthread_t thread;
++  int iret;
+   int iarg0 = 0;
+-  struct sched_param param;
+ 
+-  // Create wspr2 thread.
+-  ret1=pthread_create(&amp;wspr2_thread,NULL,wspr2_,&amp;iarg0);
++  iret=pthread_create(&amp;thread,NULL,(void *)f,&amp;iarg0);
++  if (iret) {
++    perror(&quot;spawning new thread&quot;);
++    return iret;
++  }
+ 
+-  // Set wspr2_thread priority to normal.
+-  param.sched_priority=0;
+-  ret2=pthread_setschedparam(wspr2_thread,SCHED_OTHER,&amp;param);
+-
+-  // Detach the thread
+-  ret3=pthread_detach(wspr2_thread);
+-
++  iret = pthread_detach(thread);
++  if (iret) {
++    perror(&quot;detaching thread&quot;);
++    return iret;
++  }
+   return 0;
++}
+ 
++
++int th_wspr2_(void)
++{
++  int ierr;
++  ierr=spawn_thread(wspr2_);
++  return ierr;
+ }
+ 
+ int th_decode_(void)
+ {
+-  int ret1,ret2;
++  int iret1;
+   int iarg1 = 1;
+-  struct sched_param param;
+ 
+   if(decode_started&gt;0)  {
+     // the following was &quot;&lt; 100&quot;:
+@@ -54,54 +59,17 @@
+     pthread_join(decode_thread,NULL);
+     decode_started=0;
+   }
+-
+-  ret1 = pthread_create(&amp;decode_thread,NULL,decode_,&amp;iarg1);
+-  if(ret1==0) decode_started=time(NULL);
+-
+-  // Set thread priority below normal. (Priority must be in range -15 to +15.)
+-  param.sched_priority=-1;
+-  ret2=pthread_setschedparam(decode_thread,SCHED_OTHER,&amp;param);
+-
+-  return ret1;
++  iret1 = pthread_create(&amp;decode_thread,NULL,decode_,&amp;iarg1);
++  if(iret1==0) decode_started=time(NULL);
++  return iret1;
+ }
+ 
+ int th_rx_(void)
+ {
+-  pthread_t rx_thread;
+-  int ret1,ret2,ret3;
+-  int iarg0 = 0;
+-  struct sched_param param;
+-
+-  // Create rx thread.
+-  ret1=pthread_create(&amp;rx_thread,NULL,rx_,&amp;iarg0);
+-
+-  // Set rx_thread priority above normal.
+-  param.sched_priority=1;
+-  ret2=pthread_setschedparam(rx_thread,SCHED_OTHER,&amp;param);
+-
+-  // Detach the thread
+-  ret3=pthread_detach(rx_thread);
+-
+-  return 0;
++  return spawn_thread(rx_);
+ }
+ 
+ int th_tx_(void)
+ {
+-  pthread_t tx_thread;
+-  int ret1,ret2,ret3;
+-  int iarg0 = 0;
+-  struct sched_param param;
+-
+-  // Create tx thread.
+-  ret1=pthread_create(&amp;tx_thread,NULL,tx_,&amp;iarg0);
+-
+-  // Set tx_thread priority above normal.
+-  param.sched_priority=1;
+-  ret2=pthread_setschedparam(tx_thread,SCHED_OTHER,&amp;param);
+-
+-  // Detach the thread
+-  ret3=pthread_detach(tx_thread);
+-
+-  return 0;
+-
++  return spawn_thread(tx_);
+ }
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/wspr.py	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -807,8 +807,8 @@
+                         found=True
+             ipctx.set(hopping.hoppingpctx[b].get())
+             if b!=iband.get(): hopped=1
++            w.acom1.iband=b
+             iband.set(b)
+-##            print 'Hopping to',hopping.bandlabels[b],' at',ns120
+ 
+     else:
+         w.acom1.nfhopping=0
+@@ -1099,6 +1099,7 @@
+         advanced.encal.set(0)
+     w.acom1.pttmode=(options.pttmode.get().strip()+'   ')[:3]
+     w.acom1.ncat=options.cat_enable.get()
++    w.acom1.ncoord=hopping.coord_bands.get()
+ 
+     if g.ndevin.get()!= nin0 or g.ndevout.get()!=nout0:
+         audio_config()
+
+Modified: branches/wspr/wspr2.f90
+===================================================================
+--- branches/wspr/wspr2.f90	2010-12-07 19:47:12 UTC (rev 2283)
++++ branches/wspr/wspr2.f90	2010-12-08 20:30:24 UTC (rev 2284)
+@@ -125,23 +125,25 @@
+ 
+ 30 outfile=cdate(3:8)//'_'//utctime(1:4)//'.'//'wav'
+ 
+-  ! Frequency hopping scheduling; overrides normal scheduling
++! Frequency hopping scheduling; overrides normal scheduling
+   if (nfhopping.eq.1) then
+-    if (pctx.eq.0.0) then
+-      nrx=1
+-    else
+-      call random_number(x)
+-!      print *,'random number: ',x,100.0*x,1.0*pctx
+-      if (100*x .lt. 1.0*pctx) then
+-        ntxnext=1
+-      else
++     if (pctx.eq.0.0) then
+         nrx=1
+-      endif 
+-    endif
++     else
++        if(ncoord.eq.0) then
++           call random_number(x)
++           if (100*x .lt. pctx) then
++              ntxnext=1
++           else
++              nrx=1
++           endif
++        else
++           call rxtxcoord(nsec,iband,pctx,nrx,ntxnext)
++        endif
++     endif
+   else
+-    if(pctx.eq.0.0) nrx=1
++     if(pctx.eq.0.0) nrx=1
+   endif
+-  
+ 
+   if(ntxnext.eq.1 .or. (nrx.eq.0 .and. ntr.ne.-1)) then
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001975.html">[WSJT-SVN] r2283 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="001977.html">[WSJT-SVN] r2285 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1976">[ date ]</a>
+              <a href="thread.html#1976">[ thread ]</a>
+              <a href="subject.html#1976">[ subject ]</a>
+              <a href="author.html#1976">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,507 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r841 - trunk
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r841%20-%20trunk&In-Reply-To=%3C200806052157.m55Lv6r6031075%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000528.html">
+   <LINK REL="Next"  HREF="000530.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r841 - trunk</H1>
+    <B>va3db at BerliOS</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r841%20-%20trunk&In-Reply-To=%3C200806052157.m55Lv6r6031075%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r841 - trunk">va3db at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun  5 23:57:06 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000528.html">[WSJT-SVN] r840 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000530.html">[WSJT-SVN] r842 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#529">[ date ]</a>
+              <a href="thread.html#529">[ thread ]</a>
+              <a href="subject.html#529">[ subject ]</a>
+              <a href="author.html#529">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: va3db
+Date: 2008-06-05 23:57:06 +0200 (Thu, 05 Jun 2008)
+New Revision: 841
+
+Modified:
+   trunk/Makefile.in
+   trunk/configure
+   trunk/configure.ac
+   trunk/four2a.f
+   trunk/ptt_unix.c
+Log:
+- removed -ftrace=full from gfortran build (same bugs as wspr)
+- removed attempts to compile a static portaudio
+  It seemed like a good idea at one time.
+- link with a temporary locally generated fortran shim for fftw3f
+  I will be adding the code to build this later.
+- removed superfluous space in ptt_unix.c
+
+
+
+Modified: trunk/Makefile.in
+===================================================================
+--- trunk/Makefile.in	2008-06-05 18:53:45 UTC (rev 840)
++++ trunk/Makefile.in	2008-06-05 21:57:06 UTC (rev 841)
+@@ -1,11 +1,12 @@
+ MV ?= mv
+ CC ?= @CC@
+ FFLAGS	= @FFLAGS@
+-F2PYFLAGS=	@F2PYFLAGS@
+-#for gfortran F2PYFLAGS=--f77exec=${FC} --f90exec=${FC}
+-#for g95      F2PYFLAGS=--fcompiler=${FC}
+ LDFLAGS	= @LDFLAGS@
+-LIBS	= @LIBS@
++#
++# XXX N.B. this is non standard
++#
++LIBS	= ./libfftw3single.a
++LIBS	+= @LIBS@
+ CPPFLAGS = @CPPFLAGS@
+ CFLAGS	= @CFLAGS@
+ # WSJT specific C flags
+@@ -13,7 +14,6 @@
+ DEFS = @DEFS@
+ CFLAGS += ${DEFS}
+ CPPFLAGS += ${DEFS} -I.
+-LIBS += /usr/lib/libfftw3f.a
+ 
+ # WSJT specific Fortran flags
+ FFLAGS += -Wall -fbounds-check -fno-second-underscore -fPIC
+@@ -32,6 +32,7 @@
+ 
+ OS=@OS@
+ FC=@FC@
++FCV=@FCV@
+ COMPILER += @FC_LIB_PATH@
+ 
+ LDFLAGS	+= -L${COMPILER}
+@@ -88,45 +89,32 @@
+ SRCS2C	= init_rs.c encode_rs.c decode_rs.c fano.o tab.c nhash.c cutil.c
+ OBJS2C  = ${SRCS2C:.c=.o}
+ 
+-# for unix @AUDIO@ will be a2d.f90, jtaudio.c start_portaudio.c
+-
+ SRCS3C	= ptt_unix.c igray.c wrapkarn.c
+ OBJS3C  = ${SRCS3C:.c=.o}
+-AUDIOSRCS = @AUDIO@
++AUDIOSRCS =	a2d.f90 jtaudio.c start_portaudio.c resample.c
+ 
+ all:	wsjt6 JT65code
+ 
+ JT65code: $(OBJS1)
+ 	$(FC) -o JT65code $(OBJS1)
+ 
+-portaudio:	portaudio-v19/lib/.libs/libportaudio.a
++wsjt6:	Audio.so
+ 
+-portaudio-v19/lib/.libs/libportaudio.a:
+-	(cd portaudio-v19;./configure --with-pic --with-jack=no)
+-	(cd portaudio-v19;${MAKE})
+-
+-portaudio_clean:
+-	(cd portaudio-v19;${MAKE} clean)
+-
+-wsjt6:	@LOCAL_PORTAUDIO@ Audio.so
+-
+ deep65.o: deep65.F
+ 	$(FC) -c -O0 -Wall -fPIC deep65.F
+ 
+-# gfortran
+-# F2PYFLAGS = &quot;--f77exec=${FC} --f90exec=${FC}&quot;
+-
+ Audio.so: $(OBJS2C) $(OBJS3C) $(OBJS2F77) $(SRCS2F90) $(AUDIOSRCS)
+ 	 ${F2PY} -c --quiet --opt=&quot;-O ${CFLAGS} \
+ 	-fno-second-underscore&quot;	$(OBJS2C) $(OBJS2F77) -m Audio \
+-	${F2PYFLAGS} ${CPPFLAGS} ${LDFLAGS} ${LIBS} \
++	--fcompiler=${FCV} --f77exec=${FC} --f90exec=${FC} \
++	${CPPFLAGS} ${LDFLAGS} ${LIBS} \
+ 	only: $(F2PYONLY) \
+ 	: $(SRCS2F90) \
+ 	${SRCS3C} ${AUDIOSRCS}
+ 	${MV} Audio.so WsjtMod
+ 
+ wsjt.spec: wsjt.py WsjtMod/astro.py WsjtMod/g.py wsjtMod/options.py \
+-	WsjtMod/ palettes.py WsjtMod/smeter.py WsjtMod/specjt.py
++	WsjtMod/palettes.py WsjtMod/smeter.py WsjtMod/specjt.py
+ 
+ init_rs_int.o: init_rs.c
+ 	$(CC) $(CFLAGS) -c -DBIGSYM=1 -o init_rs_int.o init_rs.c
+@@ -142,7 +130,7 @@
+ 	$(FC) -c -O fourt.f
+ 
+ .PHONY : clean
+-clean:	@LOCAL_PORTAUDIO_CLEAN@
++clean:
+ 	${RM} -f *.o *.pyc *.so *~ JT65code wsjt6 WsjtMod/*.pyc WsjtMod/*.pyc \
+ 		WsjtMod/*.so
+ 
+
+Modified: trunk/configure
+===================================================================
+--- trunk/configure	2008-06-05 18:53:45 UTC (rev 840)
++++ trunk/configure	2008-06-05 21:57:06 UTC (rev 841)
+@@ -707,10 +707,8 @@
+ CLOBBER
+ FC_LIB_PATH
+ FC
+-AUDIO
++FCV
+ F2PYFLAGS
+-LOCAL_PORTAUDIO
+-LOCAL_PORTAUDIO_CLEAN
+ LIBOBJS
+ LTLIBOBJS'
+ ac_subst_files=''
+@@ -3043,7 +3041,8 @@
+ 
+ CPPFLAGS=&quot;-I/usr/local/include ${CPPFLAGS}&quot;
+ LDFLAGS=&quot;-L/usr/local/lib ${LDFLAGS}&quot;
+-LIBS=&quot; -lpthread ${LIBS}&quot;
++LIBS=&quot; -lpthread -lfftw3f ${LIBS}&quot;
++FCV=&quot;&quot;
+ 
+ { $as_echo &quot;$as_me:$LINENO: checking uname -s for Cygwin, Solaris or HPUX&quot; &gt;&amp;5
+ $as_echo_n &quot;checking uname -s for Cygwin, Solaris or HPUX... &quot; &gt;&amp;6; }
+@@ -4271,8 +4270,10 @@
+ G95_LIB_PATH=`${G95} -print-file-name=`
+ { $as_echo &quot;$as_me:$LINENO: result: ${G95_LIB_PATH}&quot; &gt;&amp;5
+ $as_echo &quot;${G95_LIB_PATH}&quot; &gt;&amp;6; }
+-# Extract the first word of &quot;gfortran&quot;, so it can be a program name with args.
+-set dummy gfortran; ac_word=$2
++{ $as_echo &quot;$as_me:$LINENO: checking g95 lib path&quot; &gt;&amp;5
++$as_echo_n &quot;checking g95 lib path... &quot; &gt;&amp;6; }
++# Extract the first word of &quot;gfortran42&quot;, so it can be a program name with args.
++set dummy gfortran42; ac_word=$2
+ { $as_echo &quot;$as_me:$LINENO: checking for $ac_word&quot; &gt;&amp;5
+ $as_echo_n &quot;checking for $ac_word... &quot; &gt;&amp;6; }
+ if test &quot;${ac_cv_path_GFORTRAN+set}&quot; = set; then
+@@ -4311,8 +4312,8 @@
+ fi
+ 
+ 
+-# Extract the first word of &quot;gfortran42&quot;, so it can be a program name with args.
+-set dummy gfortran42; ac_word=$2
++# Extract the first word of &quot;gfortran&quot;, so it can be a program name with args.
++set dummy gfortran; ac_word=$2
+ { $as_echo &quot;$as_me:$LINENO: checking for $ac_word&quot; &gt;&amp;5
+ $as_echo_n &quot;checking for $ac_word... &quot; &gt;&amp;6; }
+ if test &quot;${ac_cv_path_GFORTRAN+set}&quot; = set; then
+@@ -7319,7 +7320,7 @@
+ 		FC=`basename ${GFORTRAN}`
+ 		g95=no
+ 		FFLAGS=&quot;$FFLAGS -fno-range-check -ffixed-line-length-none&quot;
+-		F2PYFLAGS=&quot;--f77exec=${FC} --f90exec=${FC}&quot;
++		FCV=&quot;gnu95&quot;
+ 	fi
+ else
+ 	echo &quot;*** No gfortran compiler found&quot;
+@@ -7331,7 +7332,8 @@
+ 		FC_LIB_PATH=${G95_LIB_PATH}
+ 		FC=`basename ${G95}`
+ 		gfortran=no
+-		F2PYFLAGS=&quot;--fcompiler=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -ftrace=full -cpp&quot;
++		FCV=&quot;g95&quot;
+ 	fi
+ else
+ 	echo &quot;*** No g95 compiler found&quot;
+@@ -7342,13 +7344,14 @@
+        		FC_LIB_PATH=${GFORTRAN_LIB_PATH}
+ 	        FC=`basename ${GFORTRAN}`
+ 		gfortran=yes
+-		FFLAGS=&quot;$FFLAGS -fno-range-check -ffixed-line-length-none&quot;
+-		F2PYFLAGS=&quot;--f77exec=${FC} --f90exec=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -fno-range-check -ffixed-line-length-none&quot;
++		FCV=&quot;gnu95&quot;
+ 	elif test ! -z $G95 ; then
+        		FC_LIB_PATH=${G95_LIB_PATH}
+ 	        FC=`basename ${G95}`
+ 		g95=yes
+-		F2PYFLAGS=&quot;--fcompiler=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -ftrace=full -cpp&quot;
++		FCV=&quot;g95&quot;
+ 	fi
+ fi
+ 
+@@ -7373,36 +7376,26 @@
+ 
+ FC=&quot;${FC}&quot;
+ 
++FCV=&quot;${FCV}&quot;
+ 
+ 
+ 
++
+ if test $HAS_PORTAUDIO -eq 0; then
+-	portaudio_include_dir=&quot;portaudio-v19/include&quot;
+-	LIBS=&quot;${LIBS} ${RTLIBS} -lsamplerate portaudio-v19/lib/.libs/libportaudio.a&quot;
+-	LOCAL_PORTAUDIO=&quot;portaudio&quot;
+-	LOCAL_PORTAUDIO_CLEAN=&quot;portaudio_clean&quot;
+-else
+-	LDFLAGS=&quot;-L${portaudio_lib_dir} ${LDFLAGS}&quot;
+-	LIBS=&quot;${LIBS} ${RTLIBS} -lsamplerate -lportaudio&quot;
+-	LOCAL_PORTAUDIO=&quot;&quot;
+-	LOCAL_PORTAUDIO_CLEAN=&quot;&quot;
++	{ { $as_echo &quot;$as_me:$LINENO: error: You need to install an usable portaudio v19; see README&quot; &gt;&amp;5
++$as_echo &quot;$as_me: error: You need to install an usable portaudio v19; see README&quot; &gt;&amp;2;}
++   { (exit 1); exit 1; }; }
+ fi
+-	AUDIO=&quot;a2d.f90 jtaudio.c resample.c start_portaudio.c&quot;
+ 
+ 
+-cat &gt;&gt;confdefs.h &lt;&lt;\_ACEOF
+-#define USE_PORTAUDIO 1
+-_ACEOF
+-
+-	CPPFLAGS=&quot;-I${portaudio_include_dir} ${CPPFLAGS}&quot;
+-
+-
+-
+ if test $HAS_PORTAUDIO_H -eq 1; then
+ 	cat &gt;&gt;confdefs.h &lt;&lt;\_ACEOF
+ #define HAS_PORTAUDIO_H 1
+ _ACEOF
+ 
++	LDFLAGS=&quot;-L${portaudio_lib_dir} ${LDFLAGS}&quot;
++	LIBS=&quot;${LIBS} -lportaudio&quot;
++	CPPFLAGS=&quot;-I${portaudio_include_dir} $(CPPFLAGS)&quot;
+ fi
+ 
+ if test $HAS_SAMPLERATE_H -eq 1; then
+@@ -7410,6 +7403,7 @@
+ #define HAS_SAMPLERATE_H 1
+ _ACEOF
+ 
++	LIBS=&quot;${LIBS} -lsamplerate&quot;
+ fi
+ 
+ if test &quot;$F2PY&quot; = &quot;&quot;; then
+@@ -7427,11 +7421,7 @@
+ 
+ 
+ 
+-LOCAL_PORTAUDIO=&quot;${LOCAL_PORTAUDIO}&quot;
+ 
+-LOCAL_PORTAUDIO_CLEAN=&quot;${LOCAL_PORTAUDIO_CLEAN}&quot;
+-
+-
+ cat &gt;confcache &lt;&lt;\_ACEOF
+ # This file is a shell script that caches the results of configure
+ # tests run on this system so they can be shared between configure
+@@ -8551,12 +8541,7 @@
+ 	echo &quot;Using gfortran as fortran compiler.&quot;;
+ fi
+ 
+-echo
+ 
+-if test $HAS_PORTAUDIO -eq 0; then
+-	echo &quot;Using built in portaudio distribution&quot;
+-fi
+-
+ echo
+ echo &quot;Compiling $PACKAGE_NAME $PACKAGE_VERSION&quot;
+ echo
+
+Modified: trunk/configure.ac
+===================================================================
+--- trunk/configure.ac	2008-06-05 18:53:45 UTC (rev 840)
++++ trunk/configure.ac	2008-06-05 21:57:06 UTC (rev 841)
+@@ -22,7 +22,9 @@
+ dnl Lets guess at some likely places for extra libs/includes XXX -db
+ CPPFLAGS=&quot;-I/usr/local/include ${CPPFLAGS}&quot;
+ LDFLAGS=&quot;-L/usr/local/lib ${LDFLAGS}&quot;
+-LIBS=&quot; -lpthread ${LIBS}&quot;
++dnl XXX check for fftw3 in configure!
++LIBS=&quot; -lpthread -lfftw3f ${LIBS}&quot;
++FCV=&quot;&quot;
+ 
+ AC_MSG_CHECKING([uname -s for Cygwin, Solaris or HPUX])
+ case `uname -s` in
+@@ -85,11 +87,9 @@
+ AC_MSG_CHECKING([g95 lib path])
+ G95_LIB_PATH=`${G95} -print-file-name=`
+ AC_MSG_RESULT(${G95_LIB_PATH})
+-AC_PATH_PROG(GFORTRAN, gfortran)
+-dnl
+-dnl FreeBSD currently installs gfortran as gfortran42
+-dnl
++AC_MSG_CHECKING([g95 lib path])
+ AC_PATH_PROG(GFORTRAN, gfortran42)
++AC_PATH_PROG(GFORTRAN, gfortran)
+ AC_MSG_CHECKING([gfortran lib path])
+ GFORTRAN_LIB_PATH=`${GFORTRAN} -print-file-name=`
+ AC_MSG_RESULT(${GFORTRAN_LIB_PATH})
+@@ -256,7 +256,7 @@
+ 		FC=`basename ${GFORTRAN}`
+ 		g95=no
+ 		FFLAGS=&quot;$FFLAGS -fno-range-check -ffixed-line-length-none&quot;
+-		F2PYFLAGS=&quot;--f77exec=${FC} --f90exec=${FC}&quot;
++		FCV=&quot;gnu95&quot;
+ 	fi
+ else
+ 	echo &quot;*** No gfortran compiler found&quot;
+@@ -268,7 +268,8 @@
+ 		FC_LIB_PATH=${G95_LIB_PATH}
+ 		FC=`basename ${G95}`
+ 		gfortran=no
+-		F2PYFLAGS=&quot;--fcompiler=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -ftrace=full -cpp&quot;
++		FCV=&quot;g95&quot;
+ 	fi
+ else
+ 	echo &quot;*** No g95 compiler found&quot;
+@@ -279,13 +280,14 @@
+        		FC_LIB_PATH=${GFORTRAN_LIB_PATH}
+ 	        FC=`basename ${GFORTRAN}`
+ 		gfortran=yes
+-		FFLAGS=&quot;$FFLAGS -fno-range-check -ffixed-line-length-none&quot;
+-		F2PYFLAGS=&quot;--f77exec=${FC} --f90exec=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -fno-range-check -ffixed-line-length-none&quot;
++		FCV=&quot;gnu95&quot;
+ 	elif test ! -z $G95 ; then
+        		FC_LIB_PATH=${G95_LIB_PATH}
+ 	        FC=`basename ${G95}`
+ 		g95=yes
+-		F2PYFLAGS=&quot;--fcompiler=${FC}&quot;
++		FFLAGS=&quot;${FFLAGS} -ftrace=full -cpp&quot;
++		FCV=&quot;g95&quot;
+ 	fi
+ fi
+ 
+@@ -298,6 +300,7 @@
+ AC_SUBST(FC_LIB_PATH, &quot;${FC_LIB_PATH}&quot;)
+ AC_DEFINE_UNQUOTED(FC, &quot;${FC}&quot;, [Fortran compiler.])
+ AC_SUBST(FC, &quot;${FC}&quot;)
++AC_SUBST(FCV, &quot;${FCV}&quot;)
+ 
+ dnl set defaults
+ dnl ============
+@@ -305,20 +308,8 @@
+ dnl sanity tests.
+ 
+ if test $HAS_PORTAUDIO -eq 0; then
+-	portaudio_include_dir=&quot;portaudio-v19/include&quot;
+-	LIBS=&quot;${LIBS} ${RTLIBS} -lsamplerate portaudio-v19/lib/.libs/libportaudio.a&quot;
+-	LOCAL_PORTAUDIO=&quot;portaudio&quot;
+-	LOCAL_PORTAUDIO_CLEAN=&quot;portaudio_clean&quot;
+-else
+-	LDFLAGS=&quot;-L${portaudio_lib_dir} ${LDFLAGS}&quot;
+-	LIBS=&quot;${LIBS} ${RTLIBS} -lsamplerate -lportaudio&quot;
+-	LOCAL_PORTAUDIO=&quot;&quot;
+-	LOCAL_PORTAUDIO_CLEAN=&quot;&quot;
++	AC_MSG_ERROR([You need to install an usable portaudio v19; see README])
+ fi
+-	AC_SUBST(AUDIO, &quot;a2d.f90 jtaudio.c resample.c start_portaudio.c&quot;)
+-	AC_DEFINE(USE_PORTAUDIO, 1, [Define if you want PORTAUDIO used.])
+-	CPPFLAGS=&quot;-I${portaudio_include_dir} ${CPPFLAGS}&quot;
+-
+ dnl =====================
+ 
+ dnl set conf flags
+@@ -326,10 +317,14 @@
+ 
+ if test $HAS_PORTAUDIO_H -eq 1; then
+ 	AC_DEFINE(HAS_PORTAUDIO_H, 1, )
++	LDFLAGS=&quot;-L${portaudio_lib_dir} ${LDFLAGS}&quot;
++	LIBS=&quot;${LIBS} -lportaudio&quot;
++	CPPFLAGS=&quot;-I${portaudio_include_dir} $(CPPFLAGS)&quot;
+ fi
+ 
+ if test $HAS_SAMPLERATE_H -eq 1; then
+         AC_DEFINE(HAS_SAMPLERATE_H, 1, )
++	LIBS=&quot;${LIBS} -lsamplerate&quot;
+ fi
+ 
+ if test &quot;$F2PY&quot; = &quot;&quot;; then
+@@ -343,8 +338,6 @@
+ AC_SUBST(CFLAGS)
+ AC_SUBST(FFLAGS)
+ AC_SUBST(F2PYFLAGS)
+-AC_SUBST(LOCAL_PORTAUDIO,&quot;${LOCAL_PORTAUDIO}&quot;)
+-AC_SUBST(LOCAL_PORTAUDIO_CLEAN,&quot;${LOCAL_PORTAUDIO_CLEAN}&quot;)
+ 
+ AC_OUTPUT
+ dnl AC_CONFIG_FILES(Makefile)
+@@ -360,12 +353,7 @@
+ 	echo &quot;Using gfortran as fortran compiler.&quot;;
+ fi
+ 
+-echo
+ 
+-if test $HAS_PORTAUDIO -eq 0; then
+-	echo &quot;Using built in portaudio distribution&quot;
+-fi
+-
+ echo
+ echo &quot;Compiling $PACKAGE_NAME $PACKAGE_VERSION&quot;
+ echo
+
+Modified: trunk/four2a.f
+===================================================================
+--- trunk/four2a.f	2008-06-05 18:53:45 UTC (rev 840)
++++ trunk/four2a.f	2008-06-05 21:57:06 UTC (rev 841)
+@@ -23,7 +23,7 @@
+       integer nn(NPMAX),ns(NPMAX),nf(NPMAX),nl(NPMAX)
+       real*8 plan(NPMAX)                   !Should be i*8
+       data nplan/0/
+-      include 'fftw3.f'
++      include &lt;fftw3.f&gt;
+       save
+ 
+       if(nfft.lt.0) go to 999
+
+Modified: trunk/ptt_unix.c
+===================================================================
+--- trunk/ptt_unix.c	2008-06-05 18:53:45 UTC (rev 840)
++++ trunk/ptt_unix.c	2008-06-05 21:57:06 UTC (rev 841)
+@@ -22,7 +22,7 @@
+  * along with this program; if not, write to the Free Software
+  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+  */
+-# if HAVE_STDIO_H
++#if HAVE_STDIO_H
+ # include &lt;stdio.h&gt;
+ #endif
+ #if STDC_HEADERS
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000528.html">[WSJT-SVN] r840 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000530.html">[WSJT-SVN] r842 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#529">[ date ]</a>
+              <a href="thread.html#529">[ thread ]</a>
+              <a href="subject.html#529">[ subject ]</a>
+              <a href="author.html#529">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

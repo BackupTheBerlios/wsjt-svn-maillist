@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r895 - in trunk: . WsjtMod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r895%20-%20in%20trunk%3A%20.%20WsjtMod&In-Reply-To=%3C200807081546.m68FktvZ022421%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000583.html">
+   <LINK REL="Next"  HREF="000585.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r895 - in trunk: . WsjtMod</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r895%20-%20in%20trunk%3A%20.%20WsjtMod&In-Reply-To=%3C200807081546.m68FktvZ022421%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r895 - in trunk: . WsjtMod">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul  8 17:46:55 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000583.html">[WSJT-SVN] r894 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000585.html">[WSJT-SVN] r896 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#584">[ date ]</a>
+              <a href="thread.html#584">[ thread ]</a>
+              <a href="subject.html#584">[ subject ]</a>
+              <a href="author.html#584">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-07-08 17:46:49 +0200 (Tue, 08 Jul 2008)
+New Revision: 895
+
+Modified:
+   trunk/WsjtMod/specjt.py
+   trunk/getfile.F90
+   trunk/mept162a.f
+   trunk/resample.c
+   trunk/sync162.f
+   trunk/wqdecode.f90
+   trunk/wsjt.py
+   trunk/wsjt1.F
+   trunk/wsjtwspr.f90
+Log:
+Many changes toward fully implementing a WSPR-based QSO mode.  The
+program is now capable of making WSPR QSOs.
+
+
+Modified: trunk/WsjtMod/specjt.py
+===================================================================
+--- trunk/WsjtMod/specjt.py	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/WsjtMod/specjt.py	2008-07-08 15:46:49 UTC (rev 895)
+@@ -160,6 +160,7 @@
+ #        if n&gt;600:  n=600
+         if n&lt;-1270: n=-1270
+         if n&gt;3800: n=3800
++        if g.mode==&quot;WSPR&quot;: n=n+1270-1500
+         Audio.gcom2.mousedf=n
+     else:
+         decode_request(event)
+@@ -192,7 +193,9 @@
+                     c.create_line(x1-0.5,25,x1-0.5,12,fill=color)
+                     c.create_line(x1+0.5,25,x1+0.5,12,fill=color)
+                 for i in range(n):
+-                    x1=(Audio.gcom2.mousedf + i*fstep)/df + dx
++                    mdf=Audio.gcom2.mousedf
++                    if g.mode==&quot;WSPR&quot;: mdf=mdf-1270+1500
++                    x1=(mdf + i*fstep)/df + dx
+                     j=12
+                     if i&gt;0: j=15
+                     if i!=1: c.create_line(x1-0.5,25,x1-0.5,j,fill=color)
+@@ -210,7 +213,9 @@
+                     c.create_line(x1-0.5,25,x1-0.5,12,fill=color)
+                     c.create_line(x1+0.5,25,x1+0.5,12,fill=color)
+                 for i in range(n):
+-                    x1=(Audio.gcom2.mousedf + i*fstep)/(2*df) + dx
++                    mdf=Audio.gcom2.mousedf
++                    if g.mode==&quot;WSPR&quot;: mdf=mdf-1270+1500
++                    x1=(mdf + i*fstep)/(2*df) + dx
+                     j=12
+                     if i&gt;0: j=15
+                     if i!=1: c.create_line(x1-0.5,25,x1-0.5,j,fill=color)
+@@ -410,7 +415,11 @@
+ #-------------------------------------------------------- draw_axis
+ def draw_axis():
+     xmid=fmid
+-    if naxis.get(): xmid=xmid-1270.46
++    if naxis.get():
++        if g.mode=='WSPR':
++            xmid=xmid-1500
++        else:
++            xmid=xmid-1270.46
+     c.delete(ALL)
+     if nspeed0.get()&lt;6:
+ # Draw the frequency or DF tick marks
+@@ -449,9 +458,11 @@
+                 x1=(Audio.gcom2.mousedf-600)/dff + dx
+                 x2=(Audio.gcom2.mousedf+600)/dff + dx
+             else:
+-                tol=Audio.gcom2.dftolerance    
+-                x1=(Audio.gcom2.mousedf-tol)/dff + dx
+-                x2=(Audio.gcom2.mousedf+tol)/dff + dx
++                tol=Audio.gcom2.dftolerance
++                mdf=Audio.gcom2.mousedf
++                if g.mode==&quot;WSPR&quot;: mdf=mdf-1270+1500
++                x1=(mdf-tol)/dff + dx
++                x2=(mdf+tol)/dff + dx
+             c.create_line(x1,25,x2,25,fill='green',width=2)
+             
+     else:
+
+Modified: trunk/getfile.F90
+===================================================================
+--- trunk/getfile.F90	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/getfile.F90	2008-07-08 15:46:49 UTC (rev 895)
+@@ -12,13 +12,13 @@
+ 
+ 
+   integer*1 d1(NDMAX)
+-  integer*1 hdr(44),n1
++  integer*1 hdr(44)
+   integer*2 d2(NDMAX)
+   integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
+   character*4 ariff,awave,afmt,adata
+   common/hdr/ariff,lenfile,awave,afmt,lenfmt,nfmt2,nchan2, &amp;
+      nsamrate,nbytesec,nbytesam2,nbitsam2,adata,ndata,d2
+-  equivalence (ariff,hdr),(n1,n4),(d1,d2)
++  equivalence (ariff,hdr),(d1,d2)
+ 
+ 1 if(ndecoding.eq.0) go to 2
+ #ifdef CVF
+@@ -91,14 +91,14 @@
+   parameter (NDMAX=120*11025)
+ 
+   integer*1 d1(NDMAX)
+-  integer*1 hdr(44),n1
++  integer*1 hdr(44)
+   integer*2 d2(NDMAX)
+   integer*2 nfmt2,nchan2,nbitsam2,nbytesam2
+   integer*2 iswap_short
+   character*4 ariff,awave,afmt,adata
+   common/hdr/ariff,lenfile,awave,afmt,lenfmt,nfmt2,nchan2, &amp;
+      nsamrate,nbytesec,nbytesam2,nbitsam2,adata,ndata,d2
+-  equivalence (ariff,hdr),(n1,n4),(d1,d2)
++  equivalence (ariff,hdr),(d1,d2)
+ 
+   if (nfmt2.eq.1) return             ! correct endianess for this CPU
+   write(*,1000)
+
+Modified: trunk/mept162a.f
+===================================================================
+--- trunk/mept162a.f	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/mept162a.f	2008-07-08 15:46:49 UTC (rev 895)
+@@ -40,7 +40,7 @@
+ !      call spec162(c2,jz)
+ 
+ C  Look for sync patterns, get DF and DT
+-      call sync162(c2,jz,ndftol,ps,sstf,kz)
++      call sync162(c2,jz,mousedf,ndftol,ps,sstf,kz)
+ 
+       do k=1,kz
+          snrsync=sstf(1,k)
+@@ -48,10 +48,10 @@
+          dtx=sstf(3,k)
+          dfx=sstf(4,k)
+          drift=sstf(5,k)
+-         ndf=nint(f0-1270.46+dfx)
++         ndf=nint(f0-1500.0+dfx)
+ !         write(*,3001) f0,dfx,ndf,mousedf,ndf-mousedf,ndftol
+ ! 3001    format(2f7.1,4i6)
+-         if(abs(ndf-mousedf).gt.ndftol) go to 24
++!###         if(abs(ndf-mousedf).gt.ndftol) go to 24
+          a(1)=-dfx
+          a(2)=-0.5*drift
+          a(3)=0.
+
+Modified: trunk/resample.c
+===================================================================
+--- trunk/resample.c	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/resample.c	2008-07-08 15:46:49 UTC (rev 895)
+@@ -1,12 +1,13 @@
+ #include &lt;stdio.h&gt;
+ #include &lt;samplerate.h&gt;
+ 
+-int resample_( float din[], float dout[], double *samfac, int *jz)
++int resample_( float din[], float dout[], double *samfac, int *jz, int *ntype)
+ {
+   SRC_DATA src_data;
+   int input_len;
+   int output_len;
+   int ierr;
++  int nchan=1;
+   double src_ratio;
+ 
+   src_ratio=*samfac;
+@@ -19,9 +20,10 @@
+   src_data.input_frames=input_len;
+   src_data.output_frames=output_len;
+ 
+-  ierr=src_simple(&amp;src_data,2,1);
++  ierr=src_simple(&amp;src_data,*ntype,nchan);
+   *jz=output_len;
+-  /*   printf(&quot;%d  %d  %d  %d  %f\n&quot;,input_len,output_len,src_data.input_frames_used,
++  /*  printf(&quot;%d  %d  %d  %d  %f\n&quot;,input_len,output_len,
++	 src_data.input_frames_used,
+ 	 src_data.output_frames_gen,src_ratio);
+   */
+   return ierr;
+
+Modified: trunk/sync162.f
+===================================================================
+--- trunk/sync162.f	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/sync162.f	2008-07-08 15:46:49 UTC (rev 895)
+@@ -1,4 +1,4 @@
+-      subroutine sync162(c2,jz,ndftol,ps,sstf,kz)
++      subroutine sync162(c2,jz,mousedf,ndftol,ps,sstf,kz)
+ 
+ C  Find WSPR sync signals, with best-fit DT and DF.  
+ 
+@@ -74,7 +74,11 @@
+ ! (Keep only the best one within a surrounding range of +/- 8 bins.)
+ 
+       plimit=0.                      !### Are the plimit values OK? ###
+-      do i=-NF0,NF0
++      i0=0
++      nfa=i0-nint(ndftol/df)
++      nfb=i0+nint(ndftol/df)
++!      do i=-NF0,NF0
++      do i=nfa,nfb
+          keep0(i)=0
+          keep(i)=0
+          ia=i-4
+@@ -96,7 +100,7 @@
+       enddo
+ 
+ ! Now mark the bins +/- 1 from each one already marked.
+-      do i=-NF0+1,NF0-1
++      do i=nfa+1,nfb-1
+          if(keep0(i).eq.1) then
+             keep(i-1)=1
+             keep(i)=1
+@@ -107,7 +111,7 @@
+ ! Now do the main search over DT, DF, and drift.  (Do CCFs in all marked
+ ! frequency bins and over a range of reasonable fdot values and lags.)
+       p1=0.
+-      do i=-NF0,NF0
++      do i=nfa,nfb
+          if(keep(i).eq.0) go to 10
+          smax=0.
+          do k=-NF1,NF1
+@@ -142,9 +146,9 @@
+ ! Eliminate potential duplicates and peaks smaller than plimit.
+       keep=0
+       plimit=10.0*plimit                             !### ??? ###
+-      do i=-NF0,NF0
+-         ia=max(-NF0,i-8)
+-         ib=min(NF0,i+8)
++      do i=nfa,nfb
++         ia=max(nfa,i-8)
++         ib=min(nfb,i+8)
+          pmax=-1.e30
+          do ii=ia,ib
+             if(p1(ii).gt.pmax) then
+@@ -164,7 +168,7 @@
+ ! Recalibrate sync indicator p1 on a dB scale.  
+ ! (NB: p1 sould be compared with snrx!)
+       k=0
+-      do i=-NF0,NF0
++      do i=nfa,nfb
+          if(keep(i).ne.0) then
+             x=10.0*log10(p1(i)) - 22       !### ??? ###
+             if(x.ge.0.5) then
+
+Modified: trunk/wqdecode.f90
+===================================================================
+--- trunk/wqdecode.f90	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/wqdecode.f90	2008-07-08 15:46:49 UTC (rev 895)
+@@ -280,9 +280,9 @@
+   else if(ntype.eq.-57) then
+      ng=n2/128
+      call unpacktext2(n1,ng,message)
+-  else if(ntype.eq.-64) then
+-     message='&lt;Unknown message type&gt;'
+-     message='******** ??? ********'
++  else 
++!     message='&lt;Unknown message type&gt;'
++     message='BadMsg: '//callsign
+   endif
+ 
+   do i=1,22
+
+Modified: trunk/wsjt.py
+===================================================================
+--- trunk/wsjt.py	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/wsjt.py	2008-07-08 15:46:49 UTC (rev 895)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#--------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+@@ -103,6 +103,10 @@
+ textheight=7
+ ToRadio0=&quot;&quot;
+ tx6alt=&quot;&quot;
++tx6list=(&quot;73 DE call grid&quot;, &quot;73 DE p/call&quot;, &quot;TNX name 73 GL&quot;,
++         &quot;OP name 73 GL&quot;, &quot;pwr W gain dbd&quot;, &quot;pwr W gain dbd 73 GL&quot;,
++         &quot;pwr W DIPOLE&quot;, &quot;pwr W VERTICAL&quot;, &quot;PSE QSY freq KHZ&quot;,
++         &quot;WX wx temp F wind&quot;, &quot;WX wx temp C wind&quot;)
+ txsnrdb=99.
+ TxFirst=IntVar()
+ green=zeros(500,'f')
+@@ -186,6 +190,19 @@
+     tx5.insert(0,&quot;@1000&quot;)
+     tx6.insert(0,&quot;@2000&quot;)
+ 
++#------------------------------------------------------ msg6list
++def msg6list(event=NONE):
++    tx6dialog=Pmw.ComboBoxDialog(root, title=&quot;Message Tx6&quot;,
++        buttons=('OK','cancel'),defaultbutton='OK',
++        scrolledlist_items=tx6list,listbox_width=22)
++    tx6dialog.geometry(msgpos())
++    if g.Win32: tx6dialog.iconbitmap(&quot;wsjt.ico&quot;)
++    tx6dialog.tkraise()
++    t=tx6dialog.activate()
++    if t=='OK':
++        t=tx6dialog.get()
++        tx6.delete(0,99)
++        tx6.insert(0,t)
+ 
+ #------------------------------------------------------ textsize
+ def textsize():
+@@ -699,11 +716,10 @@
+     mode.set(&quot;WSPR&quot;)
+     if lauto: toggleauto()
+     cleartext()
++    lab2.configure(text='FileID      Sync     dB       DT          DF  Drift')
+     Audio.gcom1.trperiod=120
+-    
+     iframe4b.pack_forget()
+     text.configure(height=9)
+-
+     bclravg.configure(state=DISABLED)
+     binclude.configure(state=DISABLED)
+     bexclude.configure(state=DISABLED)
+@@ -1232,8 +1248,11 @@
+     global nopen
+     if not nopen:
+         if mode.get()[:4]=='JT65' or mode.get()[:3]=='JT2' or \
+-               mode.get()[:3]=='JT4' or mode.get()=='WSPR':
++               mode.get()[:3]=='JT4':
+             Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)
++        elif mode.get()=='WSPR':
++# Fix this: ??
++            Audio.gcom2.mousedf=int(Audio.gcom2.idf+(event.x-250)*2.4)            
+         else:
+             if Audio.gcom2.ndecoding==0:              #If decoder is busy, ignore
+                 Audio.gcom2.nagain=1
+@@ -2404,6 +2423,7 @@
+ tx6.grid(column=1,row=5)
+ rb6.grid(column=2,row=5)
+ b6.grid(column=3,row=5)
++Widget.bind(tx6,'&lt;Double-Button-3&gt;',msg6list)
+ 
+ f5c.pack(side=LEFT,fill=BOTH)
+ iframe5.pack(expand=1, fill=X, padx=4)
+
+Modified: trunk/wsjt1.F
+===================================================================
+--- trunk/wsjt1.F	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/wsjt1.F	2008-07-08 15:46:49 UTC (rev 895)
+@@ -97,7 +97,9 @@
+            do j=1,jz
+               dat2(j)=dat(j)-ave
+            enddo
+-           ierr=resample(dat2,dat,samratio,jz)
++C  Resample ntype: 0=best, 1=sinc_medium, 2=sinc_fast, 3=hold, 4=linear
++           ntype=2
++           ierr=resample(dat2,dat,samratio,jz,0)
+            if(ierr.ne.0) print*,'Resample error.',samratio
+         endif
+ 
+
+Modified: trunk/wsjtwspr.f90
+===================================================================
+--- trunk/wsjtwspr.f90	2008-07-07 18:12:43 UTC (rev 894)
++++ trunk/wsjtwspr.f90	2008-07-08 15:46:49 UTC (rev 895)
+@@ -5,7 +5,7 @@
+   complex c2(45000)
+   include 'gcom2.f90'
+ 
+-  f0=1270.46 + mousedf
++  f0=1500 + mousedf
+   newdat=1
+   if(nagain.eq.1) newdat=0
+   call filbig2(dat,jz,f0,newdat,c2,n4)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000583.html">[WSJT-SVN] r894 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000585.html">[WSJT-SVN] r896 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#584">[ date ]</a>
+              <a href="thread.html#584">[ thread ]</a>
+              <a href="subject.html#584">[ subject ]</a>
+              <a href="author.html#584">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

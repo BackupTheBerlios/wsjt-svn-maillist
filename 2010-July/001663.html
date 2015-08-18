@@ -1,0 +1,618 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r1971 - wsjt7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1971%20-%20wsjt7a&In-Reply-To=%3C20100709163614.BD79548037A%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001662.html">
+   <LINK REL="Next"  HREF="001664.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r1971 - wsjt7a</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r1971%20-%20wsjt7a&In-Reply-To=%3C20100709163614.BD79548037A%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r1971 - wsjt7a">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul  9 18:36:14 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001662.html">[WSJT-SVN] r1970 - wsjt7a
+</A></li>
+        <LI>Next message: <A HREF="001664.html">[WSJT-SVN] r1972 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1663">[ date ]</a>
+              <a href="thread.html#1663">[ thread ]</a>
+              <a href="subject.html#1663">[ subject ]</a>
+              <a href="author.html#1663">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2010-07-09 18:36:14 +0200 (Fri, 09 Jul 2010)
+New Revision: 1971
+
+Removed:
+   wsjt7a/filbig2.F
+   wsjt7a/hash.f90
+   wsjt7a/inter_mept.f
+   wsjt7a/pack50.f
+   wsjt7a/packname.f90
+   wsjt7a/packprop.f90
+   wsjt7a/packtext2.f90
+   wsjt7a/twkfreq.f
+   wsjt7a/unpack50.f
+   wsjt7a/unpackname.f90
+   wsjt7a/unpackprop.f90
+   wsjt7a/unpacktext2.f90
+Modified:
+   wsjt7a/ftn_quit.f90
+   wsjt7a/wsjt.py
+Log:
+More cleanup and removal of WSPR stuff.
+
+
+Deleted: wsjt7a/filbig2.F
+===================================================================
+--- wsjt7a/filbig2.F	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/filbig2.F	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,141 +0,0 @@
+-      subroutine filbig2(dat,nmax,f0,newdat2,c4a,n4)
+-
+-C  Filter and downsample real data for one polarization, stored
+-C  in array dat(nmax).  Output is downsampled from 11025 (or 12000?) Hz
+-C  to 375 Hz; the low-pass filter has f_cutoff = 100 Hz, f_stop = 187.5 Hz, 
+-C  ripple=0.1 dB, Atten=50 dB.
+-
+-      parameter (NFFT1=1323000,NFFT2=45000)
+-      real dat(nmax)                             !Input data
+-      complex ca(NFFT1)                          !FFTs of input
+-      complex c4a(NFFT2)                         !Output data
+-      complex c4(NFFT2)
+-      real*8 df
+-C Impulse response of filter (one side)
+-      real halfpulse(4)
+-!Filter (complex; imag = 0)
+-      complex cfilt(NFFT2)                       
+-      real rfilt(NFFT2)                          !Filter (real)
+-      integer plan1,plan3,plan5
+-      logical first
+-      include 'fftw3.f'
+-      common/filcom/ca,c4
+-      equivalence (rfilt,cfilt)
+-      data first/.true./
+-      data halfpulse/0.758314821007,0.205883390004,-0.123207383552,
+-     +     0.045847258328/
+-      save
+-
+-      if(nmax.lt.0) go to 900
+-      if(first) then
+-         npatience=FFTW_ESTIMATE
+-!         npatience=FFTW_MEASURE
+-C  Plan the FFTs just once
+-#ifdef CVF
+-         call sfftw_plan_dft_1d_(plan1,NFFT1,ca,ca,
+-     +        FFTW_FORWARD,npatience)                      !BACK
+-         call sfftw_plan_dft_1d_(plan3,NFFT2,c4,c4,
+-     +        FFTW_BACKWARD,npatience)                     !FOR
+-         call sfftw_plan_dft_1d_(plan5,NFFT2,cfilt,cfilt,
+-     +        FFTW_FORWARD,npatience)                      !BACK
+-#else
+-         call sfftw_plan_dft_1d(plan1,NFFT1,ca,ca,
+-     +        FFTW_FORWARD,npatience)                      !BACK
+-         call sfftw_plan_dft_1d(plan3,NFFT2,c4,c4,
+-     +        FFTW_BACKWARD,npatience)                     !FOR
+-         call sfftw_plan_dft_1d(plan5,NFFT2,cfilt,cfilt,
+-     +        FFTW_FORWARD,npatience)                      !BACK
+-#endif
+-
+-C  Convert impulse response to filter function
+-         do i=1,NFFT2
+-            cfilt(i)=0.
+-         enddo
+-         fac=1.0/NFFT1                          !### Scale here, if needed
+-         cfilt(1)=fac*halfpulse(1)
+-         do i=2,4
+-            cfilt(i)=fac*halfpulse(i)
+-            cfilt(NFFT2+2-i)=fac*halfpulse(i)
+-         enddo
+-#ifdef CVF
+-         call sfftw_execute_(plan5)
+-#else
+-         call sfftw_execute(plan5)
+-#endif
+-         base=cfilt(NFFT2/2+1)
+-         do i=1,NFFT2
+-            rfilt(i)=real(cfilt(i))-base
+-         enddo
+-
+-         df=11025.d0/NFFT1
+-         first=.false.
+-      endif
+-
+-C  When new data comes along, we need to compute a new &quot;big FFT&quot;
+-C  If we just have a new f0, continue with the existing ca.
+-
+-      if(newdat2.ne.0) then
+-         nz=min(nmax,NFFT1)
+-         do i=1,nz
+-            ca(i)=dat(i)
+-         enddo
+-         if(nmax.lt.NFFT1) then
+-            do i=nmax+1,NFFT1
+-               ca(i)=0.
+-            enddo
+-         endif
+-#ifdef CVF
+-         call sfftw_execute_(plan1)
+-#else
+-         call sfftw_execute(plan1)
+-#endif
+-         newdat2=0
+-      endif
+-
+-C  NB: f0 is the frequency at which we want our filter centered.
+-C      i0 is the bin number in ca and cb closest to f0.
+-
+-      i0=nint(f0/df) + 1
+-      nh=NFFT2/2
+-      do i=1,nh                                !Copy data into c4 and
+-         j=i0+i-1                              !apply the filter function
+-         c4(i)=rfilt(i)*ca(j)
+-      enddo
+-      do i=nh+1,NFFT2
+-         j=i0+i-1-NFFT2
+-         if(j.lt.1) j=j+NFFT1                  !### $$$ ###
+-         c4(i)=rfilt(i)*ca(j)
+-      enddo
+-      n4=min(int(nmax*375.0/11025.0),NFFT2)
+-
+-C  Do the short reverse transform, to go back to time domain.
+-#ifdef CVF
+-      call sfftw_execute_(plan3)
+-#else
+-      call sfftw_execute(plan3)
+-#endif
+-
+-      do i=1,NFFT2                             !Copy data into c4a
+-         c4a(i)=c4(i)
+-      enddo
+-
+-      go to 999
+-
+- 900  if(plan1.ne.0) then
+-!         print*,'Destroying FFTW plans'
+-#ifdef CVF
+-         call sfftw_destroy_plan_(plan1)
+-         call sfftw_destroy_plan_(plan3)
+-         call sfftw_destroy_plan_(plan5)
+-#else
+-         call sfftw_destroy_plan(plan1)
+-         call sfftw_destroy_plan(plan3)
+-         call sfftw_destroy_plan(plan5)
+-#endif
+-         plan1=0
+-         plan3=0
+-         plan5=0
+-      endif
+-
+- 999  return
+-      end
+
+Modified: wsjt7a/ftn_quit.f90
+===================================================================
+--- wsjt7a/ftn_quit.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/ftn_quit.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,7 +1,6 @@
+ subroutine ftn_quit
+ !f2py threadsafe
+   call four2a(a,-1,1,1,1)
+-  call filbig2(dat,-1,f0,newdat2,c4a,n4)
+   call cs_destroy
+   return
+ end subroutine ftn_quit
+
+Deleted: wsjt7a/hash.f90
+===================================================================
+--- wsjt7a/hash.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/hash.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,15 +0,0 @@
+-subroutine hash(string,len,ihash)
+-
+-  parameter (MASK15=32767)
+-  character*(*) string
+-  integer*1 ic(12)
+-
+-     do i=1,len
+-        ic(i)=ichar(string(i:i))
+-     enddo
+-     i=nhash(ic,len,146)
+-     ihash=iand(i,MASK15)
+-
+-!     print*,'C',ihash,len,string
+-  return
+-end subroutine hash
+
+Deleted: wsjt7a/inter_mept.f
+===================================================================
+--- wsjt7a/inter_mept.f	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/inter_mept.f	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,47 +0,0 @@
+-      subroutine inter_mept(id,ndir)
+-
+-C  Interleave (ndir=1) or de-interleave (ndir=-1) the array id.
+-
+-      integer*1 id(0:161),itmp(0:161)
+-      integer j0(0:161)
+-      character*8 c0,c1
+-      logical first
+-      data first/.true./
+-      save
+-
+-      if(first) then
+-         k=-1
+-         do i=0,255
+-            m=i
+-            n=iand(m,1)
+-            n=2*n + iand(m/2,1)
+-            n=2*n + iand(m/4,1)
+-            n=2*n + iand(m/8,1)
+-            n=2*n + iand(m/16,1)
+-            n=2*n + iand(m/32,1)
+-            n=2*n + iand(m/64,1)
+-            n=2*n + iand(m/128,1)
+-            if(n.le.161) then
+-               k=k+1
+-               j0(k)=n
+-            endif
+-         enddo
+-         first=.false.
+-      endif
+-
+-      if(ndir.eq.1) then
+-         do i=0,161
+-            itmp(j0(i))=id(i)
+-         enddo
+-      else
+-         do i=0,161
+-            itmp(i)=id(j0(i))
+-         enddo
+-      endif
+-
+-      do i=0,161
+-         id(i)=itmp(i)
+-      enddo
+-
+-      return
+-      end
+
+Deleted: wsjt7a/pack50.f
+===================================================================
+--- wsjt7a/pack50.f	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/pack50.f	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,26 +0,0 @@
+-      subroutine pack50(n1,n2,dat)
+-
+-      integer*1 dat(11),i1
+-
+-      i1=iand(ishft(n1,-20),255)                !8 bits
+-      dat(1)=i1
+-      i1=iand(ishft(n1,-12),255)                 !8 bits
+-      dat(2)=i1
+-      i1=iand(ishft(n1, -4),255)                 !8 bits
+-      dat(3)=i1
+-      i1=16*iand(n1,15)+iand(ishft(n2,-18),15)   !4+4 bits
+-      dat(4)=i1
+-      i1=iand(ishft(n2,-10),255)                 !8 bits
+-      dat(5)=i1
+-      i1=iand(ishft(n2, -2),255)                 !8 bits
+-      dat(6)=i1
+-      i1=64*iand(n2,3)                           !2 bits
+-      dat(7)=i1
+-      dat(8)=0
+-      dat(9)=0
+-      dat(10)=0
+-      dat(11)=0
+-
+-      return
+-      end
+-
+
+Deleted: wsjt7a/packname.f90
+===================================================================
+--- wsjt7a/packname.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/packname.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,23 +0,0 @@
+-subroutine packname(name,len,n1,n2)
+-
+-  character*9 name
+-  real*8 dn
+-
+-  dn=0
+-  do i=1,len
+-     n=ichar(name(i:i))
+-     if(n.ge.97 .and. n.le.122) n=n-32
+-     dn=27*dn + n-64
+-  enddo
+-  if(len.lt.9) then
+-     do i=len+1,9
+-        dn=27*dn
+-     enddo
+-  endif
+-
+-  n2=mod(dn,32768.d0)
+-  dn=dn/32768.d0
+-  n1=dn
+-
+-  return
+-end subroutine packname
+
+Deleted: wsjt7a/packprop.f90
+===================================================================
+--- wsjt7a/packprop.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/packprop.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,36 +0,0 @@
+-subroutine packprop(k,muf,ccur,cxp,n1)
+-
+-! Pack propagation indicators into a 21-bit number.
+-
+-! k      k-index, 0-9; 10=&quot;N/A&quot;
+-! muf    muf, 2-60 MHz; 0=N/A, 1=&quot;none&quot;, 61=&quot;&gt;60 MHz&quot;
+-! ccur   up to two current events, each indicated by single
+-!        or double letter.
+-! cxp    zero or one expected event, indicated by single or
+-!        double letter
+-
+-  character ccur*4,cxp*2
+-
+-  j=ichar(ccur(1:1))-64
+-  if(j.lt.0) j=0
+-  n1=j
+-  do i=2,4
+-     if(ccur(i:i).eq.' ') go to 10
+-     if(ccur(i:i).eq.ccur(i-1:i-1)) then
+-        n1=n1+26
+-     else
+-        j=ichar(ccur(i:i))-64
+-        if(j.lt.0) j=0
+-        n1=53*n1 + j
+-     endif
+-  enddo
+-
+-10 j=ichar(cxp(1:1))-64
+-  if(j.lt.0) j=0
+-  if(cxp(2:2).eq.cxp(1:1)) j=j+26
+-  n1=53*n1 + j
+-  n1=11*n1 + k
+-  n1=62*n1 + muf
+-
+-  return
+-end subroutine packprop
+
+Deleted: wsjt7a/packtext2.f90
+===================================================================
+--- wsjt7a/packtext2.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/packtext2.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,22 +0,0 @@
+-subroutine packtext2(msg,n1,ng)
+-
+-  character*8 msg
+-  real*8 dn
+-  character*41 c
+-  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
+-
+-  dn=0.
+-  do i=1,8
+-     do j=1,41
+-        if(msg(i:i).eq.c(j:j)) go to 10
+-     enddo
+-     j=37
+-10   j=j-1                                !Codes should start at zero
+-     dn=41.d0*dn + j
+-  enddo
+-
+-  ng=mod(dn,32768.d0)
+-  n1=(dn-ng)/32768.d0
+-
+-  return
+-end subroutine packtext2
+
+Deleted: wsjt7a/twkfreq.f
+===================================================================
+--- wsjt7a/twkfreq.f	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/twkfreq.f	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,31 +0,0 @@
+-      subroutine twkfreq(ca,cb,jz,a)
+-
+-C  Apply AFC corrections to ca, returning corrected data in cb
+-
+-      complex ca(jz),cb(jz)
+-      real a(5)
+-      real*8 twopi
+-      complex*16 w,wstep
+-      data twopi/0.d0/
+-      save twopi
+-
+-      if(twopi.eq.0.d0) twopi=8.d0*atan(1.d0)
+-      w=1.d0
+-      wstep=1.d0
+-      x0=0.5*(jz+1)
+-      s=2.0/jz
+-      do i=1,jz
+-         x=s*(i-x0)
+-         if(mod(i,100).eq.1) then
+-            p2=1.5*x*x - 0.5
+-!            p3=2.5*(x**3) - 1.5*x
+-!            p4=4.375*(x**4) - 3.75*(x**2) + 0.375
+-            dphi=(a(1) + x*a(2) + p2*a(3)) * (twopi/375.0)
+-            wstep=cmplx(cos(dphi),sin(dphi))
+-         endif
+-         w=w*wstep
+-         cb(i)=w*ca(i)
+-      enddo
+-
+-      return
+-      end
+
+Deleted: wsjt7a/unpack50.f
+===================================================================
+--- wsjt7a/unpack50.f	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/unpack50.f	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,30 +0,0 @@
+-      subroutine unpack50(dat,n1,n2)
+-
+-      integer*1 dat(11)
+-
+-      i=dat(1)
+-      i4=iand(i,255)
+-      n1=ishft(i4,20)
+-      i=dat(2)
+-      i4=iand(i,255)
+-      n1=n1 + ishft(i4,12)
+-      i=dat(3)
+-      i4=iand(i,255)
+-      n1=n1 + ishft(i4,4)
+-      i=dat(4)
+-      i4=iand(i,255)
+-      n1=n1 + iand(ishft(i4,-4),15)
+-      n2=ishft(iand(i4,15),18)
+-      i=dat(5)
+-      i4=iand(i,255)
+-      n2=n2 + ishft(i4,10)
+-      i=dat(6)
+-      i4=iand(i,255)
+-      n2=n2 + ishft(i4,2)
+-      i=dat(7)
+-      i4=iand(i,255)
+-      n2=n2 + iand(ishft(i4,-6),3)
+-
+-      return
+-      end
+-
+
+Deleted: wsjt7a/unpackname.f90
+===================================================================
+--- wsjt7a/unpackname.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/unpackname.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,20 +0,0 @@
+-subroutine unpackname(n1,n2,name,len)
+-
+-  character*9 name
+-  real*8 dn
+-
+-  dn=32768.d0*n1 + n2
+-  len=0
+-  do i=9,1,-1
+-     j=mod(dn,27.d0)
+-     if(j.ge.1) then
+-        name(i:i)=char(64+j)
+-        len=len+1
+-     else
+-        name(i:i)=' '
+-     endif
+-     dn=dn/27.d0
+-  enddo
+-
+-  return
+-end subroutine unpackname
+
+Deleted: wsjt7a/unpackprop.f90
+===================================================================
+--- wsjt7a/unpackprop.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/unpackprop.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,28 +0,0 @@
+-subroutine unpackprop(n1,k,muf,ccur,cxp)
+-
+-  character ccur*4,cxp*2
+-
+-  muf=mod(n1,62)
+-  n1=n1/62
+-
+-  k=mod(n1,11)
+-  n1=n1/11
+-
+-  j=mod(n1,53)
+-  n1=n1/53
+-  if(j.eq.0) cxp='*'
+-  if(j.ge.1 .and. j.le.26) cxp=char(64+j)
+-  if(j.gt.26) cxp=char(64+j-26)//char(64+j-26)
+-
+-  j=mod(n1,53)
+-  n1=n1/53
+-  if(j.eq.0) ccur(2:2)='*'
+-  if(j.ge.1 .and. j.le.26) ccur(2:2)=char(64+j)
+-  if(j.gt.26) ccur(2:3)=char(64+j-26)//char(64+j-26)
+-  j=n1
+-  if(j.eq.0) ccur(1:1)='*'
+-  if(j.ge.1 .and. j.le.26) ccur(1:1)=char(64+j)
+-  if(j.gt.26) ccur=char(64+j-26)//char(64+j-26)//ccur(2:3)
+-
+-  return
+-end subroutine unpackprop
+
+Deleted: wsjt7a/unpacktext2.f90
+===================================================================
+--- wsjt7a/unpacktext2.f90	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/unpacktext2.f90	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,17 +0,0 @@
+-subroutine unpacktext2(n1,ng,msg)
+-
+-  character*22 msg
+-  real*8 dn
+-  character*41 c
+-  data c/'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ +./?'/
+-
+-  msg='                      '
+-  dn=32768.d0*n1 + ng
+-  do i=8,1,-1
+-     j=mod(dn,41.d0)
+-     msg(i:i)=c(j+1:j+1)
+-     dn=dn/41.d0
+-  enddo
+-
+-  return
+-end subroutine unpacktext2
+
+Modified: wsjt7a/wsjt.py
+===================================================================
+--- wsjt7a/wsjt.py	2010-07-09 15:57:45 UTC (rev 1970)
++++ wsjt7a/wsjt.py	2010-07-09 16:36:14 UTC (rev 1971)
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python
+-#------------------------------------------------------------------- WSJT
++#-------------------------------------------------------------------- WSJT
+ # $Date$ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001662.html">[WSJT-SVN] r1970 - wsjt7a
+</A></li>
+	<LI>Next message: <A HREF="001664.html">[WSJT-SVN] r1972 - wsjt7a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1663">[ date ]</a>
+              <a href="thread.html#1663">[ thread ]</a>
+              <a href="subject.html#1663">[ subject ]</a>
+              <a href="author.html#1663">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

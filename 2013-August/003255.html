@@ -1,0 +1,449 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3563 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-August/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3563%20-%20branches/wsjtx&In-Reply-To=%3C20130817192115.117DF55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003254.html">
+   <LINK REL="Next"  HREF="003256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3563 - branches/wsjtx</H1>
+    <B>bsomervi at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3563%20-%20branches/wsjtx&In-Reply-To=%3C20130817192115.117DF55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3563 - branches/wsjtx">bsomervi at scm.berlios.de
+       </A><BR>
+    <I>Sat Aug 17 21:21:14 CEST 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003254.html">[WSJT-SVN] r3562 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="003256.html">[WSJT-SVN] r3564 - in branches/wsjtx: . logbook
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3255">[ date ]</a>
+              <a href="thread.html#3255">[ thread ]</a>
+              <a href="subject.html#3255">[ subject ]</a>
+              <a href="author.html#3255">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: bsomervi
+Date: 2013-08-17 21:21:14 +0200 (Sat, 17 Aug 2013)
+New Revision: 3563
+
+Modified:
+   branches/wsjtx/CMakeLists.txt
+   branches/wsjtx/Detector.hpp
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundin.h
+Log:
+Moved audio input to the audio thread.
+
+Change source URLs in teh CMake scripts for the kvasd binaries.
+
+
+
+Modified: branches/wsjtx/CMakeLists.txt
+===================================================================
+--- branches/wsjtx/CMakeLists.txt	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/CMakeLists.txt	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -111,7 +111,7 @@
+   add_definitions (-DWIN32)
+ endif ()
+ 
+-add_definitions (-DWSJT_SOFT_KEYING)
++# add_definitions (-DWSJT_SOFT_KEYING)
+ set_property (DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS_RELEASE QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT)
+ 
+ 
+@@ -124,15 +124,13 @@
+ #
+ # fetch kvasd
+ #
+-if (WIN32)
+-  set (kvasd_NAME KVASD.EXE)
+-elseif (APPLE)
+-  set (kvasd_NAME KVASD_gfortran_Mac${CMAKE_EXECUTABLE_SUFFIX})
++if (APPLE)
++  set (kvasd_NAME <A HREF="http://svn.berlios.de/wsvn/wsjt/trunk/KVASD_gfortran_Mac${CMAKE_EXECUTABLE_SUFFIX">http://svn.berlios.de/wsvn/wsjt/trunk/KVASD_gfortran_Mac${CMAKE_EXECUTABLE_SUFFIX</A>})
+ else ()
+-  set (kvasd_NAME KVASD_g95${CMAKE_EXECUTABLE_SUFFIX})
++  set (kvasd_NAME <A HREF="http://www.physics.princeton.edu/pulsar/K1JT/kvasd${CMAKE_EXECUTABLE_SUFFIX">http://www.physics.princeton.edu/pulsar/K1JT/kvasd${CMAKE_EXECUTABLE_SUFFIX</A>})
+ endif ()
+ file (
+-  DOWNLOAD <A HREF="http://svn.berlios.de/wsvn/wsjt/trunk/${kvasd_NAME">http://svn.berlios.de/wsvn/wsjt/trunk/${kvasd_NAME</A>} contrib/kvasd${CMAKE_EXECUTABLE_SUFFIX}
++  DOWNLOAD ${kvasd_NAME} contrib/kvasd${CMAKE_EXECUTABLE_SUFFIX}
+   STATUS kvasd_STATUS
+   LOG kvasd_LOG
+   SHOW_PROGRESS
+
+Modified: branches/wsjtx/Detector.hpp
+===================================================================
+--- branches/wsjtx/Detector.hpp	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/Detector.hpp	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -22,15 +22,8 @@
+   //
+   Detector (unsigned frameRate, unsigned periodLengthInSeconds, unsigned framesPerSignal, QObject * parent = 0);
+ 
+-  bool open (Channel channel = Mono) {return AudioDevice::open (QIODevice::WriteOnly, channel);}
+-
+   bool isMonitoring () const {return m_monitoring;}
+-  void setMonitoring (bool newState) {m_monitoring = newState;}
+ 
+-  bool reset ();
+-
+-  Q_SIGNAL void framesWritten (qint64);
+-
+ protected:
+   qint64 readData (char * /* data */, qint64 /* maxSize */)
+   {
+@@ -40,13 +33,21 @@
+   qint64 writeData (char const * data, qint64 maxSize);
+ 
+ private:
++  // these are private because we want thread safety, must be called via Qt queued connections
++  Q_SLOT void open (AudioDevice::Channel channel = Mono) {AudioDevice::open (QIODevice::WriteOnly, channel);}
++  Q_SLOT void setMonitoring (bool newState) {m_monitoring = newState;}
++  Q_SLOT bool reset ();
++  Q_SLOT void close () {AudioDevice::close ();}
++
++  Q_SIGNAL void framesWritten (qint64);
++
+   void clear ();		// discard buffer contents
+   unsigned secondInPeriod () const;
+ 
+   unsigned m_frameRate;
+   unsigned m_period;
+   unsigned m_framesPerSignal;
+-  bool m_monitoring;
++  bool volatile m_monitoring;
+   bool m_starting;
+ };
+ 
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/mainwindow.cpp	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -47,7 +47,7 @@
+   ui(new Ui::MainWindow),
+   m_wideGraph (new WideGraph (settings)),
+   m_logDlg (new LogQSO (settings, this)),
+-  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2, this),
++  m_detector (RX_SAMPLE_RATE, NTMAX / 2, 6912 / 2),
+   m_audioInputDevice (QAudioDeviceInfo::defaultInputDevice ()), // start with default
+   m_modulator (TX_SAMPLE_RATE, NTMAX / 2),
+   m_audioOutputDevice (QAudioDeviceInfo::defaultOutputDevice ()), // start with default
+@@ -58,15 +58,17 @@
+ 
+   connect (this, &amp;MainWindow::finished, this, &amp;MainWindow::close);
+ 
+-  // start sound out thread and hook up slots &amp; signals for shutdown management
++  // start audio thread and hook up slots &amp; signals for shutdown management
+ 
+-  // these two objects need to be in the other thread so that invoking
++  // these objects need to be in the audio thread so that invoking
+   // their slots is done in a thread safe way
+-  m_soundOutput.moveToThread (&amp;m_soundOutputThread);
+-  m_modulator.moveToThread (&amp;m_soundOutputThread);
++  m_soundOutput.moveToThread (&amp;m_audioThread);
++  m_modulator.moveToThread (&amp;m_audioThread);
++  m_soundInput.moveToThread (&amp;m_audioThread);
++  m_detector.moveToThread (&amp;m_audioThread);
+ 
+-  connect (this, &amp;MainWindow::finished, &amp;m_soundOutputThread, &amp;QThread::quit); // quit thread event loop
+-  connect (&amp;m_soundOutputThread, &amp;QThread::finished, &amp;m_soundOutputThread, &amp;QThread::deleteLater); // disposal
++  connect (this, &amp;MainWindow::finished, &amp;m_audioThread, &amp;QThread::quit); // quit thread event loop
++  connect (&amp;m_audioThread, &amp;QThread::finished, &amp;m_audioThread, &amp;QThread::deleteLater); // disposal
+ 
+   // hook up sound output stream slots &amp; signals
+   connect (this, SIGNAL (startAudioOutputStream (QAudioDeviceInfo const&amp;, unsigned)), &amp;m_soundOutput, SLOT (startStream (QAudioDeviceInfo const&amp;, unsigned)));
+@@ -80,17 +82,28 @@
+   connect (this, SIGNAL(transmitFrequency (unsigned)), &amp;m_modulator, SLOT (setFrequency (unsigned)));
+   connect (this, SIGNAL (endTransmitMessage ()), &amp;m_modulator, SLOT (close ()));
+   connect (this, SIGNAL (tune (bool)), &amp;m_modulator, SLOT (tune (bool)));
+-  connect (
+-	   this
+-	   , SIGNAL (sendMessage (unsigned, double, unsigned, AudioDevice::Channel, bool, double))
+-	   , &amp;m_modulator
+-	   , SLOT (open (unsigned, double, unsigned, AudioDevice::Channel, bool, double))
+-	   );
++  connect (this, SIGNAL (sendMessage (unsigned, double, unsigned, AudioDevice::Channel, bool, double))
++	   , &amp;m_modulator, SLOT (open (unsigned, double, unsigned, AudioDevice::Channel, bool, double)));
+ 
+-  // start the sound output thread
+-  m_soundOutputThread.start (QThread::HighPriority);
++  // hook up the audio input stream
++  connect (this, SIGNAL (startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *))
++	   , &amp;m_soundInput, SLOT (start (QAudioDeviceInfo const&amp;, unsigned, int, QIODevice *)));
++  connect (this, SIGNAL (stopAudioInputStream ()), &amp;m_soundInput, SLOT (stop ()));
+ 
++  connect(&amp;m_soundInput, SIGNAL (error (QString)), this, SLOT (showSoundInError (QString)));
++  // connect(&amp;m_soundInput, SIGNAL(status(QString)), this, SLOT(showStatusMessage(QString)));
+ 
++  // hook up the detector
++  connect (this, SIGNAL (startDetector (AudioDevice::Channel)), &amp;m_detector, SLOT (open (AudioDevice::Channel)));
++  connect (this, SIGNAL (detectorSetMonitoring (bool)), &amp;m_detector, SLOT (setMonitoring (bool)));
++  connect (this, SIGNAL (detectorClose ()), &amp;m_detector, SLOT (close ()));
++
++  connect(&amp;m_detector, SIGNAL (framesWritten (qint64)), this, SLOT (dataSink (qint64)));
++
++  // start the audio thread
++  m_audioThread.start (QThread::HighPriority);
++
++
+   // setup the waterfall
+   connect(m_wideGraph.data (), SIGNAL(freezeDecode2(int)),this,
+ 	  SLOT(freezeDecode(int)));
+@@ -140,11 +153,6 @@
+ 
+ 
+   setWindowTitle(Program_Title_Version);
+-  connect(&amp;m_detector, &amp;Detector::framesWritten, this, &amp;MainWindow::dataSink);
+-  connect(&amp;m_soundInput, SIGNAL(error(QString)), this,
+-          SLOT(showSoundInError(QString)));
+-  // connect(&amp;m_soundInput, SIGNAL(status(QString)), this,
+-  //         SLOT(showStatusMessage(QString)));
+   createStatusBar();
+ 
+   connect(&amp;proc_jt9, SIGNAL(readyReadStandardOutput()),
+@@ -369,13 +377,13 @@
+   watcher2 = new QFutureWatcher&lt;void&gt;;
+   connect(watcher2, SIGNAL(finished()),this,SLOT(diskWriteFinished()));
+ 
+-  m_detector.open (m_audioInputChannel);
+-  m_soundInput.start(m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++  Q_EMIT startDetector (m_audioInputChannel);
++  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
+ 
+   Q_EMIT transmitFrequency (m_txFreq - (m_bSplit || m_bXIT ? m_XIT : 0));
+   Q_EMIT muteAudioOutput (false);
+   m_monitoring=!m_monitorStartOFF;           // Start with Monitoring ON/OFF
+-  m_detector.setMonitoring(m_monitoring);
++  Q_EMIT detectorSetMonitoring (m_monitoring);
+   m_diskData=false;
+ 
+ // Create &quot;m_worked&quot;, a dictionary of all calls in wsjtx.log
+@@ -820,10 +828,10 @@
+     m_After73=dlg.m_After73;
+ 
+     if(dlg.m_restartSoundIn) {
+-      m_soundInput.stop ();
+-      m_detector.close ();
+-      m_detector.open (m_audioInputChannel);
+-      m_soundInput.start(m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++      Q_EMIT stopAudioInputStream ();
++      Q_EMIT detectorClose ();
++      Q_EMIT startDetector (m_audioInputChannel);
++      Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
+     }
+ 
+     if(dlg.m_restartSoundOut) {
+@@ -859,8 +867,8 @@
+ void MainWindow::on_monitorButton_clicked()                  //Monitor
+ {
+   m_monitoring=true;
+-  m_detector.setMonitoring(true);
+-  //  m_soundInput.start(m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
++  Q_EMIT detectorSetMonitoring (true);
++  //  Q_EMIT startAudioInputStream (m_audioInputDevice, AudioDevice::Mono == m_audioInputChannel ? 1 : 2, RX_SAMPLE_RATE / 10, &amp;m_detector);
+   m_diskData=false;
+ }
+ 
+@@ -1097,13 +1105,13 @@
+   quitFile.remove();
+ 
+   Q_EMIT finished ();
+-  m_soundOutputThread.wait ();
++  m_audioThread.wait ();
+ }
+ 
+ void MainWindow::on_stopButton_clicked()                       //stopButton
+ {
+   m_monitoring=false;
+-  m_detector.setMonitoring(m_monitoring);
++  Q_EMIT detectorSetMonitoring (m_monitoring);
+   m_loopall=false;  
+ }
+ 
+@@ -1128,7 +1136,7 @@
+ void MainWindow::on_actionOpen_triggered()                     //Open File
+ {
+   m_monitoring=false;
+-  m_detector.setMonitoring(m_monitoring);
++  Q_EMIT detectorSetMonitoring (m_monitoring);
+   QString fname;
+   fname=QFileDialog::getOpenFileName(this, &quot;Open File&quot;, m_path,
+                                        &quot;WSJT Files (*.wav)&quot;);
+@@ -1695,7 +1703,7 @@
+ 
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+-    m_detector.setMonitoring(false);
++    Q_EMIT detectorSetMonitoring (false);
+     m_btxok=true;
+     Q_EMIT muteAudioOutput (false);
+     m_transmitting=true;
+@@ -1823,7 +1831,7 @@
+     transmit (snr);
+     signalMeter-&gt;setValue(0);
+     m_monitoring=false;
+-    m_detector.setMonitoring(false);
++    Q_EMIT detectorSetMonitoring (false);
+     m_btxok=true;
+     Q_EMIT muteAudioOutput (false);
+     m_transmitting=true;
+@@ -1842,7 +1850,7 @@
+   lab1-&gt;setText(&quot;&quot;);
+   ptt0Timer-&gt;start(200);                       //Sequencer delay
+   m_monitoring=true;
+-  m_detector.setMonitoring(true);
++  Q_EMIT detectorSetMonitoring (true);
+ }
+ 
+ void MainWindow::stopTx2()
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/mainwindow.h	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -181,6 +181,14 @@
+  private:
+   Q_SIGNAL void startAudioOutputStream (QAudioDeviceInfo, unsigned channels);
+   Q_SIGNAL void stopAudioOutputStream ();
++
++  Q_SIGNAL void startAudioInputStream (QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
++  Q_SIGNAL void stopAudioInputStream ();
++
++  Q_SIGNAL void startDetector (AudioDevice::Channel);
++  Q_SIGNAL void detectorSetMonitoring (bool);
++  Q_SIGNAL void detectorClose ();
++
+   Q_SIGNAL void finished ();
+   Q_SIGNAL void muteAudioOutput (bool = true);
+   Q_SIGNAL void transmitFrequency (unsigned);
+@@ -228,7 +236,7 @@
+     QAudioDeviceInfo m_audioOutputDevice;
+     AudioDevice::Channel m_audioOutputChannel;
+     SoundOutput m_soundOutput;
+-    QThread m_soundOutputThread;
++    QThread m_audioThread;
+ 
+     qint32  m_TRperiod;
+     qint32  m_nsps;
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/soundin.cpp	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -38,7 +38,7 @@
+   return result;
+ }
+ 
+-bool SoundInput::start(QAudioDeviceInfo const&amp; device, unsigned channels, int framesPerBuffer, QIODevice * sink)
++void SoundInput::start(QAudioDeviceInfo const&amp; device, unsigned channels, int framesPerBuffer, QIODevice * sink)
+ {
+   Q_ASSERT (0 &lt; channels &amp;&amp; channels &lt; 3);
+   Q_ASSERT (sink);
+@@ -55,26 +55,26 @@
+   if (!format.isValid ())
+     {
+       Q_EMIT error (tr (&quot;Requested input audio format is not valid.&quot;));
+-      return false;
++      return;
+     }
+ 
+   // this function lies!
+   // if (!device.isFormatSupported (format))
+   //   {
+   //     Q_EMIT error (tr (&quot;Requested input audio format is not supported on device.&quot;));
+-  //     return false;
++  //     return;
+   //   }
+ 
+   m_stream.reset (new QAudioInput (device, format, this));
+   if (audioError ())
+     {
+-      return false;
++      return;
+     }
+ 
+   connect (m_stream.data(), &amp;QAudioInput::stateChanged, this, &amp;SoundInput::handleStateChanged);
+   m_stream-&gt;setBufferSize (m_stream-&gt;format ().bytesForFrames (framesPerBuffer));
+   m_stream-&gt;start (sink);
+-  return audioError () ? false : true;
++  audioError ();
+ }
+ 
+ void SoundInput::handleStateChanged (QAudio::State newState) const
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2013-08-17 18:55:31 UTC (rev 3562)
++++ branches/wsjtx/soundin.h	2013-08-17 19:21:14 UTC (rev 3563)
+@@ -26,22 +26,20 @@
+ 
+   ~SoundInput ();
+ 
+-Q_SIGNALS:
+-  void error (QString message) const;
+-  void status (QString message) const;
++ private:
++  Q_SIGNAL void error (QString message) const;
++  Q_SIGNAL void status (QString message) const;
+ 
+-public Q_SLOTS:
+   // sink must exist from the start call to any following stop () call
+-  bool start(QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
+-  void stop();
++  Q_SLOT void start(QAudioDeviceInfo const&amp;, unsigned channels, int framesPerBuffer, QIODevice * sink);
++  Q_SLOT void stop();
+ 
+-private:
++  // used internally
++  Q_SLOT void handleStateChanged (QAudio::State) const;
++
+   bool audioError () const;
+ 
+   QScopedPointer&lt;QAudioInput&gt; m_stream;
+-
+-private Q_SLOTS:
+-  void handleStateChanged (QAudio::State) const;
+ };
+ 
+ #endif
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003254.html">[WSJT-SVN] r3562 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="003256.html">[WSJT-SVN] r3564 - in branches/wsjtx: . logbook
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3255">[ date ]</a>
+              <a href="thread.html#3255">[ thread ]</a>
+              <a href="subject.html#3255">[ subject ]</a>
+              <a href="author.html#3255">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r735 - branches/wspr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r735%20-%20branches/wspr&In-Reply-To=%3C200804231515.m3NFFhg9022231%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000422.html">
+   <LINK REL="Next"  HREF="000424.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r735 - branches/wspr</H1>
+    <B>k1jt at mail.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r735%20-%20branches/wspr&In-Reply-To=%3C200804231515.m3NFFhg9022231%40sheep.berlios.de%3E"
+       TITLE="[WSJT-SVN] r735 - branches/wspr">k1jt at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 23 17:15:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000422.html">[WSJT-SVN] r734 - branches/wspr
+</A></li>
+        <LI>Next message: <A HREF="000424.html">[WSJT-SVN] r736 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#423">[ date ]</a>
+              <a href="thread.html#423">[ thread ]</a>
+              <a href="subject.html#423">[ subject ]</a>
+              <a href="author.html#423">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2008-04-23 17:15:40 +0200 (Wed, 23 Apr 2008)
+New Revision: 735
+
+Modified:
+   branches/wspr/mept162.f
+   branches/wspr/mix162.f
+   branches/wspr/sync162.f
+   branches/wspr/wspr.py
+Log:
+Fixed bug in sync162 that prevented some decodes.  
+Changed reported drift to &quot;Hz per minute&quot;.
+Skip redundant calculations at drift k=-1, k=+1.
+Removed unused parameters passed from mix162.
+
+
+Modified: branches/wspr/mept162.f
+===================================================================
+--- branches/wspr/mept162.f	2008-04-23 12:09:24 UTC (rev 734)
++++ branches/wspr/mept162.f	2008-04-23 15:15:40 UTC (rev 735)
+@@ -4,22 +4,19 @@
+ C  WSPR signals.
+ 
+       integer*2 id(npts)
+-
+-      parameter (NFFT1=2*1024*1024)
+       character*22 message
+       character*70 outfile
+       character*11 datetime
+       logical first,ltest
+       real*8 f0
+-      real ps(-128:128)
+       real sstf(5,275)
+       real a(5)
+-      complex c(0:NFFT1),c2(65536),c3(65536)
++      complex c2(65536),c3(65536)
+       data first/.true./
+       save
+ 
+ C  Mix 1500 Hz +/- 100 Hz to baseband, and downsample by 1/32
+-      call mix162(id,npts,c,c,c2,jz,df2,ps)
++      call mix162(id,npts,c2,jz)
+ 
+ C  Compute pixmap.dat
+       call spec162(c2,jz)
+@@ -46,13 +43,13 @@
+          if(nsync.lt.0) nsync=0
+          freq=f0 + 1.d-6*(dfx+1500.0)
+          message='                      '
+-         if(nsync.ge.minsync .and. nsnrx.ge.-29) then
++         if(nsync.ge.minsync .and. nsnrx.ge.-33) then      !### -31 dB limit?
+             call decode162(c3,jz,dtx,dfx,message,ncycles,metric,nerr)
+             if(message(1:6).eq.'      ') go to 24
+             i2=index(outfile,'.')-1
+             datetime=outfile(i2-10:i2)
+             datetime(7:7)=' '
+-            nf1=nint(-2.0*a(2))
++            nf1=nint(-a(2))
+ 
+ #ifdef CVF
+             open(13,file='ALL_MEPT.TXT',status='unknown',
+
+Modified: branches/wspr/mix162.f
+===================================================================
+--- branches/wspr/mix162.f	2008-04-23 12:09:24 UTC (rev 734)
++++ branches/wspr/mix162.f	2008-04-23 15:15:40 UTC (rev 735)
+@@ -1,4 +1,4 @@
+-      subroutine mix162(id,npts,c,x,c2,jz,df2,ps)
++      subroutine mix162(id,npts,c2,jz)
+ 
+ C  Mix 1500 Hz +/- 100 Hz to baseband, and downsample by 1/32
+ 
+@@ -11,6 +11,7 @@
+       real*8 df
+       complex c(0:NFFT1)
+       complex c2(0:65535)
++      equivalence (x,c)
+ 
+ C  Load data into real array x; pad with zeros up to nfft.
+       fac=1.e-4
+
+Modified: branches/wspr/sync162.f
+===================================================================
+--- branches/wspr/sync162.f	2008-04-23 12:09:24 UTC (rev 734)
++++ branches/wspr/sync162.f	2008-04-23 15:15:40 UTC (rev 735)
+@@ -75,6 +75,7 @@
+       plimit=0.1                      !### Are the plimit values OK? ###
+       do i=-NF0,NF0
+          keep0(i)=0
++         keep(i)=0
+          ia=i-8
+          ib=i+8
+          pmax=-1.e30
+@@ -95,36 +96,39 @@
+ 
+ ! Now mark the bins +/- 1 from each one already marked.
+       do i=-NF0+1,NF0-1
+-      if(keep0(i).eq.1) then
+-         keep(i-1)=1
+-         keep(i)=1
+-         keep(i+1)=1
+-      endif
++         if(keep0(i).eq.1) then
++            keep(i-1)=1
++            keep(i)=1
++            keep(i+1)=1
++         endif
+       enddo
+ 
+ ! Now do the main search over DT, DF, and drift.  (Do CCFs in all marked
+ ! frequency bins and over a range of reasonable fdot values and lags.)
+       fac2=0.017
++      p1=0.
+       do i=-NF0,NF0
+          if(keep(i).eq.0) go to 10
+          smax=0.
+          do k=-NF1,NF1
+-            do lag=0,LAGMAX
+-               sum=0.
+-               n=lag-1
+-               do j=1,162
+-                  n=n+2
+-                  ii=i + nint(k*(j-81)/162.0)
+-                  x=max(s2(ii-1,n),s2(ii+3,n)) - 
+-     +                 max(s2(ii-3,n),s2(ii+1,n))
+-                  sum=sum + x*pr3(j)
++            if(abs(k).ne.1) then
++               do lag=0,LAGMAX
++                  sum=0.
++                  n=lag-1
++                  do j=1,162
++                     n=n+2
++                     ii=i + nint(k*(j-81)/162.0)
++                     x=max(s2(ii-1,n),s2(ii+3,n)) - 
++     +                    max(s2(ii-3,n),s2(ii+1,n))
++                     sum=sum + x*pr3(j)
++                  enddo
++                  if(sum.gt.smax) then
++                     kpk=k
++                     lagpk=lag
++                     smax=sum
++                  endif
+                enddo
+-               if(sum.gt.smax) then
+-                  kpk=k
+-                  lagpk=lag
+-                  smax=sum
+-               endif
+-            enddo
++            endif
+          enddo
+ 
+ ! Save the CCF value, frequency, drift rate, and DT.
+@@ -136,9 +140,9 @@
+       enddo
+ 
+ ! Eliminate potential duplicates and peaks smaller than plimit.
++      keep=0
+       plimit=1.0
+       do i=-NF0,NF0
+-         keep(i)=0
+          ia=max(-NF0,i-8)
+          ib=min(NF0,i+8)
+          pmax=-1.e30
+@@ -186,20 +190,18 @@
+          ccf=-fchisq(c2,jz,375.0,a,lag1,lag2,ccfbest,dtbest)
+ !         lagx=nint(dtbest/(16*dt))-8*lagpk
+ 
++!         call pctile(psavg(-136),tmp,273,45,base)
++!  Should psmo be used for snrx?
+          ipk=freq(k)/df
+-         call pctile(psavg(-136),tmp,273,45,base)
+-         ppmax=0.
+-         do i=-4,4                             !### Why not use psmo? ###
+-            ppmax=ppmax + psavg(ipk+i)
+-         enddo
+-         ppmax=(ppmax/(9.0*base)) - 1.0
+-         snrx=db(max(ppmax,0.0001)) - 40 !Empirical
++         snrx=db(max(psavg(ipk),0.0001)) - 25.5         !Empirical
+ 
+          sstf(1,k)=p1(k)
+          sstf(2,k)=snrx
+          sstf(3,k)=dtbest-2.0
+          sstf(4,k)=freq(k)
+          sstf(5,k)=drift(k)
++!         write(*,3301) k,(sstf(j,k),j=1,5)
++! 3301    format(i1,5f10.3)
+       enddo
+       
+       return
+
+Modified: branches/wspr/wspr.py
+===================================================================
+--- branches/wspr/wspr.py	2008-04-23 12:09:24 UTC (rev 734)
++++ branches/wspr/wspr.py	2008-04-23 15:15:40 UTC (rev 735)
+@@ -1,4 +1,4 @@
+-#----------------------------------------------------------------------- WSPR
++#---------------------------------------------------------------------- WSPR
+ # $Date: 2008-03-17 08:29:04 -0400 (Mon, 17 Mar 2008) $ $Revision$
+ #
+ from Tkinter import *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000422.html">[WSJT-SVN] r734 - branches/wspr
+</A></li>
+	<LI>Next message: <A HREF="000424.html">[WSJT-SVN] r736 - branches/wspr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#423">[ date ]</a>
+              <a href="thread.html#423">[ thread ]</a>
+              <a href="subject.html#423">[ subject ]</a>
+              <a href="author.html#423">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

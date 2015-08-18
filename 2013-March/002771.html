@@ -1,0 +1,306 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r3080 - branches/wsjtx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2013-March/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3080%20-%20branches/wsjtx&In-Reply-To=%3C20130324141338.0D0FD55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002774.html">
+   <LINK REL="Next"  HREF="002772.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r3080 - branches/wsjtx</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r3080%20-%20branches/wsjtx&In-Reply-To=%3C20130324141338.0D0FD55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r3080 - branches/wsjtx">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Sun Mar 24 15:13:37 CET 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002774.html">[WSJT-SVN] r3079 - branches/wsjtx
+</A></li>
+        <LI>Next message: <A HREF="002772.html">[WSJT-SVN] r3081 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2771">[ date ]</a>
+              <a href="thread.html#2771">[ thread ]</a>
+              <a href="subject.html#2771">[ subject ]</a>
+              <a href="author.html#2771">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2013-03-24 15:13:37 +0100 (Sun, 24 Mar 2013)
+New Revision: 3080
+
+Modified:
+   branches/wsjtx/getfile.cpp
+   branches/wsjtx/getfile.h
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+Log:
+Working on Rig Control... Not complete yet, but psogram should compile 
+and run with PTT control via DTR/RTS.
+
+Will need to replace a &quot;labAzDist&quot; label in mainwindow.ui.
+
+
+
+Modified: branches/wsjtx/getfile.cpp
+===================================================================
+--- branches/wsjtx/getfile.cpp	2013-03-24 14:05:31 UTC (rev 3079)
++++ branches/wsjtx/getfile.cpp	2013-03-24 14:13:37 UTC (rev 3080)
+@@ -121,6 +121,7 @@
+   return v2*fac;
+ }
+ 
++/*
+ int ptt(int nport, int ntx, int *iptt)
+ {
+ #ifdef WIN32
+@@ -159,14 +160,49 @@
+     *iptt=0;
+     open=0;
+   }
+-  /*
+-  if(i3==0) return -(SETRTS);
+-  if(i4==0) return -(CLRRTS);
+-  if(i5==0) return -(SETDTR);
+-  if(i6==0) return -(CLRDTR);
+-  if(i9==0) return -(CLRBREAK);
+-  if(i00==0) return -10;
+-  */
+   return 0;
+ #endif
+ }
++*/
++
++int ptt(int nport, int ntx, int* iptt, int* nopen)
++{
++#ifdef WIN32
++  static HANDLE hFile;
++  char s[10];
++  int i3=1,i4=1,i5=1,i6=1,i9=1,i00=1;
++
++  if(nport==0) {
++    *iptt=ntx;
++    return(0);
++  }
++
++  if(ntx &amp;&amp; (!(*nopen))) {
++    sprintf(s,&quot;\\\\.\\COM%d&quot;,nport);
++    hFile=CreateFile(TEXT(s),GENERIC_WRITE,0,NULL,OPEN_EXISTING,
++                     FILE_ATTRIBUTE_NORMAL,NULL);
++    if(hFile==INVALID_HANDLE_VALUE) {
++      QString t;
++      t.sprintf(&quot;Cannot open COM port %d for PTT\n&quot;,nport);
++      return 1;
++    }
++    *nopen=1;
++  }
++
++  if(ntx &amp;&amp; *nopen) {
++    i3=EscapeCommFunction(hFile,SETRTS);
++    i5=EscapeCommFunction(hFile,SETDTR);
++    *iptt=1;
++  }
++
++  else {
++    i4=EscapeCommFunction(hFile,CLRRTS);
++    i6=EscapeCommFunction(hFile,CLRDTR);
++    i9=EscapeCommFunction(hFile,CLRBREAK);
++    i00=CloseHandle(hFile);
++    *iptt=0;
++    *nopen=0;
++  }
++  return 0;
++#endif
++}
+
+Modified: branches/wsjtx/getfile.h
+===================================================================
+--- branches/wsjtx/getfile.h	2013-03-24 14:05:31 UTC (rev 3079)
++++ branches/wsjtx/getfile.h	2013-03-24 14:13:37 UTC (rev 3080)
+@@ -7,6 +7,8 @@
+ 
+ void getfile(QString fname, int ntrperiod);
+ float gran();
+-int ptt(int* nport, int* ntx, int* iptt);
++//int ptt(int* nport, int* ntx, int* iptt);
++int ptt(int nport, int ntx, int* iptt, int* nopen);
+ 
++
+ #endif // GETFILE_H
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2013-03-24 14:05:31 UTC (rev 3079)
++++ branches/wsjtx/mainwindow.cpp	2013-03-24 14:13:37 UTC (rev 3080)
+@@ -100,6 +100,7 @@
+   QTimer *guiTimer = new QTimer(this);
+   connect(guiTimer, SIGNAL(timeout()), this, SLOT(guiUpdate()));
+   guiTimer-&gt;start(100);                            //Don't change the 100 ms!
++
+   m_auto=false;
+   m_waterfallAvg = 1;
+   m_txFirst=false;
+@@ -130,6 +131,8 @@
+   m_TRperiod=60;
+   m_inGain=0;
+   m_dataAvailable=false;
++  m_iptt=0;
++  m_COMportOpen=0;
+   decodeBusy(false);
+ 
+   ui-&gt;xThermo-&gt;setFillBrush(Qt::green);
+@@ -1228,23 +1231,24 @@
+     if(f.exists() and fmod(tsec,m_TRperiod)&lt;1.0 + 85.0*m_nsps/12000.0)
+       bTxTime=true;
+ 
+-    if(bTxTime and iptt==0 and !btxMute) {
+-
+-      int itx=1;
+-      int ierr = ptt(m_pttPort,itx,&amp;iptt);       // Raise PTT
+-
+- /*
++    if(bTxTime and iptt==0 and !btxMute) { 
++/*
+       //Raise PTT
+-        if(m_pttMethodIndex==0) {
+-          m_cmnd=rig_command() + &quot; T 1&quot;;
+-          p3.start(m_cmnd);
+-          p3.waitForFinished();
+-        }
+-        if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+-//          ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
+-          ptt(m_pttPort,1,&amp;m_iptt);
+-        }
++      if(m_pttMethodIndex==0) {
++        m_cmnd=rig_command() + &quot; T 1&quot;;
++        p3.start(m_cmnd);
++        p3.waitForFinished();
++      }
++      if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
++          ptt(m_pttPort,1,&amp;m_iptt,&amp;m_COMportOpen);
++//        ptt(m_pttPort,1,&amp;m_iptt);
++      }
++      qDebug() &lt;&lt; &quot;ptt1Timer A&quot;;
++      ptt1Timer-&gt;start(200);                       //Sequencer delay
+ */
++
++      int itx=1;
++      ptt(m_pttPort,itx,&amp;iptt,&amp;m_COMportOpen);       // Raise PTT
+       if(!soundOutThread.isRunning()) {
+         QString t=ui-&gt;tx6-&gt;text();
+         double snr=t.mid(1,5).toDouble();
+@@ -1252,6 +1256,7 @@
+         soundOutThread.setTxSNR(snr);
+         soundOutThread.start(QThread::HighPriority);
+       }
++
+     }
+     if(!bTxTime || btxMute) {
+       btxok=false;
+@@ -1332,10 +1337,8 @@
+     nc0++;
+   }
+   if(nc0 == 0) {
+-    int itx=0;
+-    int ierr=ptt(m_pttPort,itx,&amp;iptt);       // Lower PTT
+ 
+-/*
++    /*
+     //Lower PTT
+       if(m_pttMethodIndex==0) {
+         m_cmnd=rig_command() + &quot; T 0&quot;;
+@@ -1343,11 +1346,14 @@
+         p3.waitForFinished();
+       }
+       if(m_pttMethodIndex==1 or m_pttMethodIndex==2) {
+-//        ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
+-        ptt(m_pttPort,0,&amp;m_iptt);
++        ptt(m_pttPort,0,&amp;m_iptt,&amp;m_COMportOpen);
++//        ptt(m_pttPort,0,&amp;m_iptt);
+       }
+-*/
++      */
+ 
++    int itx=0;
++    ptt(m_pttPort,itx,&amp;iptt,&amp;m_COMportOpen);       // Lower PTT
++
+     if(!btxMute) soundOutThread.quitExecution=true;
+     m_transmitting=false;
+     if(m_auto) {
+@@ -1405,19 +1411,6 @@
+     m_hsym0=khsym;
+     m_sec0=nsec;
+ 
+-/*
+-    if(m_myCall==&quot;K1JT&quot;) {
+-      char s[20];
+-      double t1=1.0;
+-//Better: use signals from sound threads?
+-      if(soundInThread.isRunning()) t1=soundInThread.samFacIn();
+-      double t2=1.0;
+-      if(soundOutThread.isRunning()) t2=soundOutThread.samFacOut();
+-      sprintf(s,&quot;%6.4f  %6.4f&quot;,t1,t2);
+-      lab5-&gt;setText(s);
+-    }
+-*/
+-
+   }
+   iptt0=iptt;
+   btxok0=btxok;
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2013-03-24 14:05:31 UTC (rev 3079)
++++ branches/wsjtx/mainwindow.h	2013-03-24 14:13:37 UTC (rev 3080)
+@@ -113,7 +113,6 @@
+   void dialFreqChanged2(double f);
+   void on_actionErase_ALL_TXT_triggered();
+   void on_actionErase_wsjtx_log_adi_triggered();
+-
+   void showMacros(const QPoint&amp; pos);
+   void onPopup1();
+   void onPopup2();
+@@ -127,7 +126,6 @@
+   void onPopup10();
+   void on_actionConvert_JT9_x_to_RTTY_triggered(bool checked);
+   void on_actionLog_JT9_without_submode_triggered(bool checked);
+-
+   void on_actionLog_dB_reports_to_Comments_triggered(bool checked);
+ 
+ private:
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002774.html">[WSJT-SVN] r3079 - branches/wsjtx
+</A></li>
+	<LI>Next message: <A HREF="002772.html">[WSJT-SVN] r3081 - branches/wsjtx
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2771">[ date ]</a>
+              <a href="thread.html#2771">[ thread ]</a>
+              <a href="subject.html#2771">[ subject ]</a>
+              <a href="author.html#2771">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,663 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [WSJT-SVN] r2598 - in branches/wsjtx: . libm65
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/wsjt-svn/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2598%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120926004850.9833E55B0C%40scm.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002290.html">
+   <LINK REL="Next"  HREF="002291.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[WSJT-SVN] r2598 - in branches/wsjtx: . libm65</H1>
+    <B>k1jt at scm.berlios.de</B> 
+    <A HREF="mailto:wsjt-svn%40lists.berlios.de?Subject=Re%3A%20%5BWSJT-SVN%5D%20r2598%20-%20in%20branches/wsjtx%3A%20.%20libm65&In-Reply-To=%3C20120926004850.9833E55B0C%40scm.berlios.de%3E"
+       TITLE="[WSJT-SVN] r2598 - in branches/wsjtx: . libm65">k1jt at scm.berlios.de
+       </A><BR>
+    <I>Wed Sep 26 02:48:50 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002290.html">[WSJT-SVN] r2597 - in branches/wsjtx: . libm65
+</A></li>
+        <LI>Next message: <A HREF="002291.html">[WSJT-SVN] r2599 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2289">[ date ]</a>
+              <a href="thread.html#2289">[ thread ]</a>
+              <a href="subject.html#2289">[ subject ]</a>
+              <a href="author.html#2289">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: k1jt
+Date: 2012-09-26 02:48:49 +0200 (Wed, 26 Sep 2012)
+New Revision: 2598
+
+Modified:
+   branches/wsjtx/commons.h
+   branches/wsjtx/libm65/symspecx.f90
+   branches/wsjtx/mainwindow.cpp
+   branches/wsjtx/mainwindow.h
+   branches/wsjtx/soundin.cpp
+   branches/wsjtx/soundin.h
+   branches/wsjtx/soundout.cpp
+   branches/wsjtx/soundout.h
+   branches/wsjtx/widegraph.cpp
+   branches/wsjtx/widegraph.h
+Log:
+Basic operation with waterfall display, thermo, etc.
+
+
+Modified: branches/wsjtx/commons.h
+===================================================================
+--- branches/wsjtx/commons.h	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/commons.h	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -7,8 +7,8 @@
+ 
+ extern struct {
+   short int d2[1800*12000];         //This is &quot;common/jt8com/...&quot; in fortran
+-  float ss[184*32768];
+-  float savg[32768];
++  float ss[184*4400];
++  float savg[4400];
+   double fcenter;                   //USB dial freq (kHz)
+   int nutc;                         //UTC as integer, HHMM
+   int ntrperiod;                    //TR period (seconds)
+
+Modified: branches/wsjtx/libm65/symspecx.f90
+===================================================================
+--- branches/wsjtx/libm65/symspecx.f90	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/libm65/symspecx.f90	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -1,51 +1,37 @@
+-subroutine symspecx(k,ndiskdat,nb,nbslider,ntrperiod,pxdb,sdis,nkhz,   &amp;
+-     ihsym,nzap,slimit,lstrong)
++subroutine symspecx(k,nsps,ndiskdat,nb,nbslider,pxdb,s,nkhz,ihsym,   &amp;
++     nzap,slimit,lstrong)
+ 
+ !  k        pointer to the most recent new data
++!  nsps     samples per symbol (at 12000 Hz)
+ !  ndiskdat 0/1 to indicate if data from disk
+ !  nb       0/1 status of noise blanker (off/on)
+ !  pxdb     power (0-60 dB)
+-!  sdis     spectrum for waterfall display
++!  s        spectrum for waterfall display
+ !  nkhz     integer kHz portion of center frequency, e.g., 125 for 144.125
+ !  ihsym    index number of this half-symbol (1-322)
+ !  nzap     number of samples zero'ed by noise blanker
+ 
+-  parameter (NSMAX=1800*12000)        !Total sample intervals per 30 minutes
+-  parameter (MAXFFT=32768)            !Max length of FFTs
+-  parameter (NDMAX=1800*375)
++  parameter (NMAX=1800*12000)        !Total sample intervals per 30 minutes
++  parameter (NSMAX=4400)             !Max length of saved spectra
++  parameter (MAXFFT=262144)          !Max length of FFTs
+   integer*2 id2
+   real*8 ts,hsym
+   real*8 fcenter
+-  common/jt8com/id2(NSMAX),ss(184,MAXFFT),savg(MAXFFT),fcenter,nutc,junk(20), &amp;
+-       cdat(NDMAX)
+-  real*4 sdis(MAXFFT),w(MAXFFT)
+-  complex cx(MAXFFT)
+-  complex cx00(MAXFFT)
+-  real x0(0:2047)
+-  complex cx0(0:1023),cx1(0:1023)
+-  logical*1 lstrong(0:1023)
+-  equivalence (x0,cx0)
++  common/jt8com/id2(NMAX),ss(184,NSMAX),savg(NSMAX),fcenter,nutc,junk(20)
++  real*4 s(NSMAX)
++  real x(MAXFFT)
++  complex cx(0:MAXFFT/2)
++  equivalence (x,cx)
+   data rms/999.0/,k0/99999999/,ntrperiod0/0/
+   save
+ 
+-  if(k.gt.NSMAX) go to 999
++  nfft=nsps
++  hsym=nsps/2
++  if(k.gt.NMAX) go to 999
+   if(k.lt.nfft) then
+      ihsym=0
+      go to 999             !Wait for enough samples to start
+   endif
+-  if(ntrperiod.ne.ntrperiod0) then
+-     nfft=960
+-     if(ntrperiod.eq.120) nfft=2048
+-     if(ntrperiod.eq.300) nfft=5376
+-     if(ntrperiod.eq.600) nfft=10752
+-     if(ntrperiod.eq.1800) nfft=32768
+-     nsps=8*nfft
+-     hsym=0.5d0*nsps
+-     pi=4.0*atan(1.0)
+-     do i=1,nfft
+-        w(i)=(sin(i*pi/nfft))**2                          !Window
+-     enddo
+-  endif
+ 
+   if(k.lt.k0) then
+      ts=1.d0 - hsym
+@@ -60,61 +46,42 @@
+   sigmas=1.5*(10.0**(0.01*nbslider)) + 0.7
+   peaklimit=sigmas*max(10.0,rms)
+   faclim=3.0
+-  px=0.
+ 
+-  nwindow=2
+-  nfft2=1024
+-  kstep=nfft2
+-  if(nwindow.ne.0) kstep=nfft2/2
+-  nblks=(k-k1)/kstep
+-  do nblk=1,nblks
+-     j=k1+1
+-     do i=0,nfft2-1
+-        x0(i)=id2(j+i)
+-     enddo
+-     call timf2x(k,nfft2,ntrperiod,nwindow,nb,peaklimit,faclim,cx0,cx1,   &amp;
+-          slimit,lstrong,px,nzap)
+-     do i=0,kstep-1
+-        cdat(j+i)=cx1(i)
+-     enddo
+-     k1=k1+kstep
+-  enddo
+-
+-  npts=nfft                           !Samples used in each half-symbol FFT
+   ts=ts+hsym
+   ja=ts                               !Index of first sample
+-  jb=ja+npts-1                        !Last sample
++  jb=ja+nfft-1                        !Last sample
+ 
+   i=0
+-  fac=0.0002
++  sq=0.
+   do j=ja,jb                          !Copy data into cx, cy
+      i=i+1
+-     cx(i)=fac*cdat(j)
++     x(i)=id2(j)
++     sq=sq + x(i)*x(i)
+   enddo
+-
+-  if(nzap/178.lt.50 .and. (ndiskdat.eq.0 .or. ihsym.lt.280)) then
+-     nsum=nblks*kstep - nzap
+-     if(nsum.le.0) nsum=1
+-     rms=sqrt(0.5*px/nsum)
+-  endif
++  rms=sqrt(sq/nfft)
+   pxdb=0.
+   if(rms.gt.1.0) pxdb=20.0*log10(rms)
+   if(pxdb.gt.60.0) pxdb=60.0
+ 
+-  cx00=cx
+   ihsym=ihsym+1
+-  cx=w*cx00                           !Apply window for 2nd forward FFT
+-  call four2a(cx,nfft,1,1,1)          !Second forward FFT (X)
+-  n=min(184,ihsym)
+-  do i=1,nfft
+-     sx=real(cx(i))**2 + aimag(cx(i))**2  
+-     ss(n,i)=sx
+-     sdis(i)=sx
++  call four2a(x,nfft,1,-1,0)          !Forward FFT of symbol length
++  df=12000.0/nfft
++  nzh=min(nint(500.0/df),2200)
++  nz=2*nzh
++  i0=nint(1500.0/df) - nzh
++!  rewind 71
++  do i=1,nz
++     sx=real(cx(i0+i))**2 + aimag(cx(i0+i))**2
++     sx=1.e-5*sx
++     s(i)=sx
+      savg(i)=savg(i) + sx
++     if(ihsym.le.184) ss(ihsym,i)=sx
++!     write(71,3001) (i-1)*df,savg(i)
++!3001 format(f12.6,e12.3)
+   enddo
++!  flush(71)
+ 
+-  nkhz=nint(1000.d0*(fcenter-int(fcenter)))
+-  if(fcenter.eq.0.d0) nkhz=125
++  nkhz=100
+ 
+ 999 return
+ end subroutine symspecx
+
+Modified: branches/wsjtx/mainwindow.cpp
+===================================================================
+--- branches/wsjtx/mainwindow.cpp	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/mainwindow.cpp	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -148,7 +148,6 @@
+ // Assign input device and start input thread
+   soundInThread.setInputDevice(m_paInDevice);
+   soundInThread.start(QThread::HighestPriority);
+-
+   // Assign output device and start output thread
+   soundOutThread.setOutputDevice(m_paOutDevice);
+ //  soundOutThread.start(QThread::HighPriority);
+@@ -333,13 +332,10 @@
+   static int nzap=0;
+   static int ntr0=0;
+   static int nkhz;
+-  static int nfsample=96000;
+-  static int nxpol=0;
+-  static float fgreen;
+   static int ndiskdat;
+-  static int nb;
+   static int nadj=0;
+-  static float px=0.0,py=0.0;
++  static int nb;
++  static float px=0.0;
+   static uchar lstrong[1024];
+   static float slimit;
+ 
+@@ -354,16 +350,16 @@
+ // Get power, spectrum, nkhz, and ihsym
+   nb=0;
+   if(m_NB) nb=1;
+-  symspecx_(&amp;k, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;m_TRperiod,
+-           &amp;px, s, &amp;nkhz, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong);
+-//  qDebug() &lt;&lt; &quot;A&quot; &lt;&lt; k &lt;&lt; k/12000 &lt;&lt; m_TRperiod &lt;&lt; ihsym &lt;&lt; px;
++  symspecx_(&amp;k, &amp; m_nsps, &amp;ndiskdat, &amp;nb, &amp;m_NBslider, &amp;px, s,
++            &amp;nkhz, &amp;ihsym, &amp;nzap, &amp;slimit, lstrong);
++  if(ihsym &lt;=0) return;
+   QString t;
+   m_pctZap=nzap/178.3;
+   t.sprintf(&quot; Rx noise: %5.1f  %5.1f %% &quot;,px,m_pctZap);
+   lab4-&gt;setText(t);
+   ui-&gt;xThermo-&gt;setValue((double)px);   //Update the thermometer
+   if(m_monitoring || m_diskData) {
+-//    g_pWideGraph-&gt;dataSink2(s,nkhz,ihsym,m_diskData,lstrong);
++    g_pWideGraph-&gt;dataSink2(s,nkhz,ihsym,m_diskData,lstrong);
+   }
+ 
+   if(nadj == 10) {
+@@ -1021,24 +1017,7 @@
+       lab1-&gt;setText(s);
+     } else if(m_monitoring) {
+       lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #00ff00}&quot;);
+-      khsym=soundInThread.mstep();
+-      QString t;
+-      if(m_network) {
+-        if(m_nrx==-1) t=&quot;F1&quot;;
+-        if(m_nrx==1) t=&quot;I1&quot;;
+-        if(m_nrx==-2) t=&quot;F2&quot;;
+-        if(m_nrx==+2) t=&quot;I2&quot;;
+-      } else {
+-        if(m_nrx==1) t=&quot;S1&quot;;
+-        if(m_nrx==2) t=&quot;S2&quot;;
+-      }
+-      if((abs(m_nrx)==1 and m_xpol) or (abs(m_nrx)==2 and !m_xpol))
+-        lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ff1493}&quot;);
+-      if(khsym==m_hsym0) {
+-        t=&quot;Nil&quot;;
+-        lab1-&gt;setStyleSheet(&quot;QLabel{background-color: #ffc0cb}&quot;);
+-      }
+-      lab1-&gt;setText(&quot;Receiving &quot; + t);
++      lab1-&gt;setText(&quot;Receiving &quot;);
+     } else if (!m_diskData) {
+       lab1-&gt;setStyleSheet(&quot;&quot;);
+       lab1-&gt;setText(&quot;&quot;);
+@@ -1048,7 +1027,7 @@
+     m_setftx=0;
+     QString utc = &quot; &quot; + t.time().toString() + &quot; &quot;;
+     ui-&gt;labUTC-&gt;setText(utc);
+-    if((!m_monitoring and !m_diskData) or (khsym==m_hsym0)) {
++    if(!m_monitoring and !m_diskData) {
+       ui-&gt;xThermo-&gt;setValue(0.0);                      // Set Rx level to 20
+       lab2-&gt;setText(&quot; Rx noise:    0.0 &quot;);
+     }
+@@ -1126,7 +1105,7 @@
+   m_restart=true;
+ }
+ 
+-void MainWindow::selectCall2(bool ctrl)                                //selectCall2
++void MainWindow::selectCall2(bool ctrl)                          //selectCall2
+ {
+   QString t = ui-&gt;decodedTextBrowser-&gt;toPlainText();   //Full contents
+   int i=ui-&gt;decodedTextBrowser-&gt;textCursor().position();
+@@ -1453,9 +1432,10 @@
+ {
+   m_mode=&quot;JT8-1&quot;;
+   m_TRperiod=60;
+-  soundInThread.setPeriod(m_TRperiod);
+-  soundOutThread.setPeriod(m_TRperiod);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  m_nsps=7168;
++  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  soundOutThread.setPeriod(m_TRperiod,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ff6ec7}&quot;);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT8_1-&gt;setChecked(true);
+@@ -1465,9 +1445,10 @@
+ {
+   m_mode=&quot;JT8-2&quot;;
+   m_TRperiod=120;
+-  soundInThread.setPeriod(m_TRperiod);
+-  soundOutThread.setPeriod(m_TRperiod);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  m_nsps=16000;
++  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  soundOutThread.setPeriod(m_TRperiod,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ffff00}&quot;);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT8_2-&gt;setChecked(true);
+@@ -1477,9 +1458,10 @@
+ {
+   m_mode=&quot;JT8-5&quot;;
+   m_TRperiod=300;
+-  soundInThread.setPeriod(m_TRperiod);
+-  soundOutThread.setPeriod(m_TRperiod);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  m_nsps=42336;
++  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  soundOutThread.setPeriod(m_TRperiod,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #ffa500}&quot;);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT8_5-&gt;setChecked(true);
+@@ -1489,9 +1471,10 @@
+ {
+   m_mode=&quot;JT8-10&quot;;
+   m_TRperiod=600;
+-  soundInThread.setPeriod(m_TRperiod);
+-  soundOutThread.setPeriod(m_TRperiod);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  m_nsps=86400;
++  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  soundOutThread.setPeriod(m_TRperiod,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #7fff00}&quot;);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT8_10-&gt;setChecked(true);
+@@ -1501,9 +1484,10 @@
+ {
+   m_mode=&quot;JT8-30&quot;;
+   m_TRperiod=1800;
+-  soundInThread.setPeriod(m_TRperiod);
+-  soundOutThread.setPeriod(m_TRperiod);
+-  g_pWideGraph-&gt;setPeriod(m_TRperiod);
++  m_nsps=262144;
++  soundInThread.setPeriod(m_TRperiod,m_nsps);
++  soundOutThread.setPeriod(m_TRperiod,m_nsps);
++  g_pWideGraph-&gt;setPeriod(m_TRperiod,m_nsps);
+   lab5-&gt;setStyleSheet(&quot;QLabel{background-color: #97ffff}&quot;);
+   lab5-&gt;setText(m_mode);
+   ui-&gt;actionJT8_30-&gt;setChecked(true);
+
+Modified: branches/wsjtx/mainwindow.h
+===================================================================
+--- branches/wsjtx/mainwindow.h	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/mainwindow.h	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -148,6 +148,7 @@
+     qint32  m_applyIQcal;
+     qint32  m_mult570;
+     qint32  m_TRperiod;
++    qint32  m_nsps;
+ 
+     double  m_fAdd;
+     double  m_IQamp;
+@@ -247,9 +248,9 @@
+ 
+ extern &quot;C&quot; {
+ //----------------------------------------------------- C and Fortran routines
+-void symspecx_(int* k, int* ndiskdat, int* nb, int* m_NBslider,
+-               int* ntrperiod, float* px, float s[], int* nkhz,
+-               int* nhsym, int* nzap, float* slimit, uchar lstrong[]);
++void symspecx_(int* k, int* nsps, int* ndiskdat, int* nb, int* m_NBslider,
++               float* px, float s[], int* nkhz, int* nhsym, int* nzap,
++               float* slimit, uchar lstrong[]);
+ void genjt8_(char* msg, char* msgsent, short itone[], int* nsym,
+              int len1, int len2);
+ int ptt_(int* nport, int* itx, int* iptt);
+
+Modified: branches/wsjtx/soundin.cpp
+===================================================================
+--- branches/wsjtx/soundin.cpp	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/soundin.cpp	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -7,8 +7,8 @@
+ #include &lt;portaudio.h&gt;
+ extern struct {
+   short int d2[1800*12000];         //This is &quot;common/jt8com/...&quot; in fortran
+-  float ss[184*32768];
+-  float savg[32768];
++  float ss[184*4400];
++  float savg[4400];
+   double fcenter;                   //USB dial freq (kHz)
+   int nutc;                         //UTC as integer, HHMM
+   int ntrperiod;                    //TR period (seconds)
+@@ -114,7 +114,7 @@
+   }
+ 
+   bool qe = quitExecution;
+-  int ntr0=99;
++  static int ntr0=99;
+   int k=0;
+   int nsec;
+   int ntr;
+@@ -136,7 +136,8 @@
+     }
+     k=udata.kin;
+     if(m_monitoring) {
+-      m_step=k/2048;
++      int kstep=m_nsps/2;
++      m_step=k/kstep;
+       if(m_step != nstep0) {
+         if(m_dataSinkBusy) {
+           nBusy++;
+@@ -147,7 +148,7 @@
+         nstep0=m_step;
+       }
+     }
+-    msleep(10);
++    msleep(100);
+     ntr0=ntr;
+   }
+   Pa_StopStream(inStream);
+@@ -170,9 +171,10 @@
+   m_monitoring = b;
+ }
+ 
+-void SoundInThread::setPeriod(int n)
++void SoundInThread::setPeriod(int ntrperiod, int nsps)
+ {
+-  m_TRperiod=n;
++  m_TRperiod=ntrperiod;
++  m_nsps=nsps;
+ }
+ 
+ int SoundInThread::mstep()
+
+Modified: branches/wsjtx/soundin.h
+===================================================================
+--- branches/wsjtx/soundin.h	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/soundin.h	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -26,7 +26,7 @@
+ 
+   void setInputDevice(qint32 n);
+   void setMonitoring(bool b);
+-  void setPeriod(int n);
++  void setPeriod(int ntrperiod, int nsps);
+   int  mstep();
+ 
+ signals:
+@@ -44,6 +44,7 @@
+   qint32 m_nDevIn;
+   qint32 m_TRperiod;
+   qint32 m_TRperiod0;
++  qint32 m_nsps;
+ 
+ };
+ 
+
+Modified: branches/wsjtx/soundout.cpp
+===================================================================
+--- branches/wsjtx/soundout.cpp	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/soundout.cpp	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -104,7 +104,8 @@
+   this-&gt;m_nDevOut=n;
+ }
+ 
+-void SoundOutThread::setPeriod(int n)
++void SoundOutThread::setPeriod(int ntrperiod, int nsps)
+ {
+-  m_TRperiod=n;
++  m_TRperiod=ntrperiod;
++  m_nsps=nsps;
+ }
+
+Modified: branches/wsjtx/soundout.h
+===================================================================
+--- branches/wsjtx/soundout.h	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/soundout.h	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -25,17 +25,16 @@
+ 
+ public:
+   void setOutputDevice(qint32 n);
+-  void setPeriod(int n);
++  void setPeriod(int ntrperiod, int nsps);
+   bool quitExecution;           //If true, thread exits gracefully
+ 
+-
+ // Private members
+ private:
+   qint32  m_nDevOut;            //Output device number
+   bool    m_txOK;               //Enable Tx audio
+   bool    m_txMute;             //Mute temporarily
+   qint32  m_TRperiod;           //T/R period (30 or 60 s)
+-
++  qint32  m_nsps;               //Samples per symbol (at 12000 Hz)
+ };
+ 
+ #endif
+
+Modified: branches/wsjtx/widegraph.cpp
+===================================================================
+--- branches/wsjtx/widegraph.cpp	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/widegraph.cpp	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -1,7 +1,7 @@
+ #include &quot;widegraph.h&quot;
+ #include &quot;ui_widegraph.h&quot;
+ 
+-#define NFFT 32768
++#define NSMAX 4400
+ 
+ WideGraph::WideGraph(QWidget *parent) :
+   QDialog(parent),
+@@ -71,7 +71,7 @@
+ void WideGraph::dataSink2(float s[], int nkhz, int ihsym, int ndiskdata,
+                           uchar lstrong[])
+ {
+-  static float splot[NFFT];
++  static float splot[NSMAX];
+   float swide[2048];
+   float smax;
+   double df;
+@@ -80,7 +80,7 @@
+   static int nkhz0=-999;
+   static int ntrz=0;
+ 
+-  df = m_fSample/32768.0;
++  df = 12000.0/m_nsps;
+   if(nkhz != nkhz0) {
+     ui-&gt;widePlot-&gt;setNkhz(nkhz);                   //Why do we need both?
+     ui-&gt;widePlot-&gt;SetCenterFreq(nkhz);             //Why do we need both?
+@@ -90,16 +90,16 @@
+ 
+   //Average spectra over specified number, m_waterfallAvg
+   if (n==0) {
+-    for (int i=0; i&lt;NFFT; i++)
++    for (int i=0; i&lt;NSMAX; i++)
+       splot[i]=s[i];
+   } else {
+-    for (int i=0; i&lt;NFFT; i++)
++    for (int i=0; i&lt;NSMAX; i++)
+       splot[i] += s[i];
+   }
+   n++;
+ 
+   if (n&gt;=m_waterfallAvg) {
+-    for (int i=0; i&lt;NFFT; i++)
++    for (int i=0; i&lt;NSMAX; i++)
+         splot[i] /= n;                       //Normalize the average
+     n=0;
+ 
+@@ -108,6 +108,8 @@
+     if(sf != ui-&gt;widePlot-&gt;startFreq()) ui-&gt;widePlot-&gt;SetStartFreq(sf);
+     int i0=16384.0+(ui-&gt;widePlot-&gt;startFreq()-nkhz+1.27046+0.001*m_fCal) *
+         1000.0/df + 0.5;
++    i0=0;                            //###
++    nbpp=1;                          //###
+     int i=i0;
+     for (int j=0; j&lt;2048; j++) {
+         smax=0;
+@@ -119,6 +121,7 @@
+         if(lstrong[1 + i/32]!=0) swide[j]=-smax;   //Tag strong signals
+     }
+ 
++//    qDebug() &lt;&lt; &quot;B&quot; &lt;&lt; ihsym &lt;&lt; smax &lt;&lt; s[100];
+ // Time according to this computer
+     qint64 ms = QDateTime::currentMSecsSinceEpoch() % 86400000;
+     int ntr = (ms/1000) % m_TRperiod;
+@@ -279,7 +282,8 @@
+   return ui-&gt;widePlot-&gt;fGreen();
+ }
+ 
+-void WideGraph::setPeriod(int n)
++void WideGraph::setPeriod(int ntrperiod, int nsps)
+ {
+-  m_TRperiod=n;
++  m_TRperiod=ntrperiod;
++  m_nsps=nsps;
+ }
+
+Modified: branches/wsjtx/widegraph.h
+===================================================================
+--- branches/wsjtx/widegraph.h	2012-09-25 20:26:12 UTC (rev 2597)
++++ branches/wsjtx/widegraph.h	2012-09-26 00:48:49 UTC (rev 2598)
+@@ -31,7 +31,7 @@
+   void   setPalette(QString palette);
+   void   setFsample(int n);
+   void   setMode65(int n);
+-  void   setPeriod(int n);
++  void   setPeriod(int ntrperiod, int nsps);
+   double fGreen();
+ 
+   qint32 m_qsoFreq;
+@@ -64,6 +64,7 @@
+   qint32 m_fSample;
+   qint32 m_mode65;
+   qint32 m_TRperiod;
++  qint32 m_nsps;
+ 
+   Ui::WideGraph *ui;
+ };
+
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002290.html">[WSJT-SVN] r2597 - in branches/wsjtx: . libm65
+</A></li>
+	<LI>Next message: <A HREF="002291.html">[WSJT-SVN] r2599 - in branches/wsjtx: . libm65
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2289">[ date ]</a>
+              <a href="thread.html#2289">[ thread ]</a>
+              <a href="subject.html#2289">[ subject ]</a>
+              <a href="author.html#2289">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/wsjt-svn">More information about the wsjt-svn
+mailing list</a><br>
+</body></html>
